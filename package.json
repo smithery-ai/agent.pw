@@ -1,0 +1,24 @@
+{
+  "name": "auth-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:migrate": "wrangler d1 migrations apply auth-proxy-db --remote",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@biscuit-auth/biscuit-wasm": "^0.6.0",
+    "hono": "^4.12.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.12.14",
+    "@cloudflare/workers-types": "^4.20260227.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.67.0"
+  }
+}
