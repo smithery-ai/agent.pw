@@ -1,15 +1,12 @@
 export interface Env {
   DB: D1Database
   ADMIN_KEY: string
-  ENCRYPTION_KEY: string
   BISCUIT_PRIVATE_KEY: string
-  NAMESPACE: string
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
 
 export interface ServiceRow {
-  namespace: string
   service: string
   base_url: string
   auth_method: string
@@ -23,11 +20,9 @@ export interface ServiceRow {
 }
 
 export interface CredentialRow {
-  namespace: string
   service: string
   identity: string
-  encrypted: string
-  iv: string
+  token: string
   metadata: string | null
   expires_at: string | null
   created_at: string

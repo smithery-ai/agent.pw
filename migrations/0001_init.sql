@@ -1,6 +1,5 @@
--- Services table: upstream API configurations
+-- Services: upstream API configurations
 CREATE TABLE services (
-  namespace TEXT NOT NULL DEFAULT 'default',
   service TEXT NOT NULL,
   base_url TEXT NOT NULL,
   auth_method TEXT NOT NULL DEFAULT 'bearer',
@@ -11,24 +10,22 @@ CREATE TABLE services (
   auth_config TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (namespace, service)
+  PRIMARY KEY (service)
 );
 
--- Credentials table: encrypted upstream credentials
+-- Credentials: stored API tokens for upstream services
 CREATE TABLE credentials (
-  namespace TEXT NOT NULL DEFAULT 'default',
   service TEXT NOT NULL,
-  identity TEXT NOT NULL,
-  encrypted TEXT NOT NULL,
-  iv TEXT NOT NULL,
+  identity TEXT NOT NULL DEFAULT 'default',
+  token TEXT NOT NULL,
   metadata TEXT,
   expires_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (namespace, service, identity)
+  PRIMARY KEY (service, identity)
 );
 
--- Revocation table for Biscuit tokens
+-- Revocations: revoked Biscuit token block IDs
 CREATE TABLE revocations (
   revocation_id TEXT PRIMARY KEY,
   revoked_at TEXT NOT NULL DEFAULT (datetime('now')),

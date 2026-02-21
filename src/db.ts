@@ -2,26 +2,23 @@ import type { ServiceRow, CredentialRow } from './types'
 
 export async function getService(
   db: D1Database,
-  namespace: string,
   service: string
 ): Promise<ServiceRow | null> {
   return db
-    .prepare('SELECT * FROM services WHERE namespace = ? AND service = ?')
-    .bind(namespace, service)
+    .prepare('SELECT * FROM services WHERE service = ?')
+    .bind(service)
     .first<ServiceRow>()
 }
 
-export async function listServices(db: D1Database, namespace: string): Promise<ServiceRow[]> {
+export async function listServices(db: D1Database): Promise<ServiceRow[]> {
   const result = await db
-    .prepare('SELECT * FROM services WHERE namespace = ?')
-    .bind(namespace)
+    .prepare('SELECT * FROM services')
     .all<ServiceRow>()
   return result.results
 }
 
 export async function upsertService(
   db: D1Database,
-  namespace: string,
   service: string,
   data: {
     base_url: string
@@ -35,9 +32,9 @@ export async function upsertService(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO services (namespace, service, base_url, auth_method, header_name, header_scheme, description, spec_url, auth_config, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT (namespace, service) DO UPDATE SET
+      `INSERT INTO services (service, base_url, auth_method, header_name, header_scheme, description, spec_url, auth_config, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT (service) DO UPDATE SET
          base_url = excluded.base_url,
          auth_method = COALESCE(excluded.auth_method, services.auth_method),
          header_name = COALESCE(excluded.header_name, services.header_name),
@@ -48,7 +45,6 @@ export async function upsertService(
          updated_at = datetime('now')`
     )
     .bind(
-      namespace,
       service,
       data.base_url,
       data.auth_method ?? 'bearer',
@@ -63,55 +59,48 @@ export async function upsertService(
 
 export async function deleteService(
   db: D1Database,
-  namespace: string,
   service: string
 ): Promise<boolean> {
   const result = await db
-    .prepare('DELETE FROM services WHERE namespace = ? AND service = ?')
-    .bind(namespace, service)
+    .prepare('DELETE FROM services WHERE service = ?')
+    .bind(service)
     .run()
   return result.meta.changes > 0
 }
 
 export async function getCredential(
   db: D1Database,
-  namespace: string,
   service: string,
   identity: string
 ): Promise<CredentialRow | null> {
   return db
-    .prepare('SELECT * FROM credentials WHERE namespace = ? AND service = ? AND identity = ?')
-    .bind(namespace, service, identity)
+    .prepare('SELECT * FROM credentials WHERE service = ? AND identity = ?')
+    .bind(service, identity)
     .first<CredentialRow>()
 }
 
 export async function upsertCredential(
   db: D1Database,
-  namespace: string,
   service: string,
   identity: string,
-  encrypted: string,
-  iv: string,
+  token: string,
   metadata?: Record<string, string>,
   expiresAt?: string
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO credentials (namespace, service, identity, encrypted, iv, metadata, expires_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT (namespace, service, identity) DO UPDATE SET
-         encrypted = excluded.encrypted,
-         iv = excluded.iv,
+      `INSERT INTO credentials (service, identity, token, metadata, expires_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT (service, identity) DO UPDATE SET
+         token = excluded.token,
          metadata = COALESCE(excluded.metadata, credentials.metadata),
          expires_at = excluded.expires_at,
          updated_at = datetime('now')`
     )
     .bind(
-      namespace,
       service,
       identity,
-      encrypted,
-      iv,
+      token,
       metadata ? JSON.stringify(metadata) : null,
       expiresAt ?? null
     )
@@ -120,28 +109,24 @@ export async function upsertCredential(
 
 export async function deleteCredential(
   db: D1Database,
-  namespace: string,
   service: string,
   identity: string
 ): Promise<boolean> {
   const result = await db
-    .prepare('DELETE FROM credentials WHERE namespace = ? AND service = ? AND identity = ?')
-    .bind(namespace, service, identity)
+    .prepare('DELETE FROM credentials WHERE service = ? AND identity = ?')
+    .bind(service, identity)
     .run()
   return result.meta.changes > 0
 }
 
 export async function findCredentialsByMetadata(
   db: D1Database,
-  namespace: string,
   service: string,
   metadata: Record<string, string>
 ): Promise<CredentialRow[]> {
-  // Fetch all credentials for this service and filter by metadata in-memory
-  // D1 doesn't have great JSON querying, so this is simpler for V1
   const result = await db
-    .prepare('SELECT * FROM credentials WHERE namespace = ? AND service = ?')
-    .bind(namespace, service)
+    .prepare('SELECT * FROM credentials WHERE service = ?')
+    .bind(service)
     .all<CredentialRow>()
 
   return result.results.filter(row => {

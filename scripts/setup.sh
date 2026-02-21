@@ -3,7 +3,6 @@ set -euo pipefail
 
 # Auth Proxy — Local Setup
 # Generates secrets, creates .dev.vars, and applies D1 migrations locally.
-# After running: npm run dev
 
 cd "$(dirname "$0")/.."
 
@@ -12,7 +11,6 @@ echo ""
 
 # 1. Generate secrets
 ADMIN_KEY="sk_$(openssl rand -hex 24)"
-ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 # Generate biscuit key pair using the WASM module
 echo "Generating Biscuit key pair..."
@@ -29,9 +27,7 @@ BISCUIT_PUBLIC_KEY=$(echo "$BISCUIT_OUTPUT" | grep '^ed25519/')
 # 2. Write .dev.vars (wrangler uses this for local secrets)
 cat > .dev.vars <<EOF
 ADMIN_KEY=${ADMIN_KEY}
-ENCRYPTION_KEY=${ENCRYPTION_KEY}
 BISCUIT_PRIVATE_KEY=${BISCUIT_PRIVATE_KEY}
-NAMESPACE=default
 EOF
 
 echo "Created .dev.vars with generated secrets"
@@ -46,5 +42,5 @@ echo ""
 echo "Admin key: ${ADMIN_KEY}"
 echo "Public key: ${BISCUIT_PUBLIC_KEY}"
 echo ""
-echo "Run: npm run dev"
+echo "Run: pnpm dev"
 echo "Then: curl http://localhost:8787/"

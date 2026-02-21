@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Env, ProxyConstraint } from './types'
-import { encrypt, decrypt } from './crypto'
 import {
   mintToken,
   restrictToken,
@@ -44,10 +43,6 @@ app.get('/', c => c.json({ status: 'ok', service: 'auth-proxy' }))
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getNamespace(env: Env): string {
-  return env.NAMESPACE || 'default'
-}
-
 function extractBearerToken(header: string | undefined): string | null {
   if (!header) return null
   return header.startsWith('Bearer ') ? header.slice(7) : header
@@ -72,8 +67,7 @@ admin.use('*', async (c, next) => {
 // ─── Admin: Service Management ───────────────────────────────────────────────
 
 admin.get('/services', async c => {
-  const ns = getNamespace(c.env)
-  const services = await listServices(c.env.DB, ns)
+  const services = await listServices(c.env.DB)
   return c.json(
     services.map(s => ({
       service: s.service,
@@ -86,7 +80,6 @@ admin.get('/services', async c => {
 })
 
 admin.put('/services/:service', async c => {
-  const ns = getNamespace(c.env)
   const service = c.req.param('service')
   const body = await c.req.json<{
     baseUrl: string
@@ -100,7 +93,7 @@ admin.put('/services/:service', async c => {
 
   if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
 
-  await upsertService(c.env.DB, ns, service, {
+  await upsertService(c.env.DB, service, {
     base_url: body.baseUrl,
     auth_method: body.authMethod,
     header_name: body.headerName,
@@ -114,8 +107,7 @@ admin.put('/services/:service', async c => {
 })
 
 admin.delete('/services/:service', async c => {
-  const ns = getNamespace(c.env)
-  const deleted = await deleteService(c.env.DB, ns, c.req.param('service'))
+  const deleted = await deleteService(c.env.DB, c.req.param('service'))
   if (!deleted) return c.json({ error: 'Service not found' }, 404)
   return c.json({ ok: true })
 })
@@ -123,7 +115,6 @@ admin.delete('/services/:service', async c => {
 // ─── Admin: Credential Management ────────────────────────────────────────────
 
 admin.put('/credentials/:service', async c => {
-  const ns = getNamespace(c.env)
   const service = c.req.param('service')
   const body = await c.req.json<{
     identity: string
@@ -135,18 +126,16 @@ admin.put('/credentials/:service', async c => {
   if (!body.identity) return c.json({ error: 'identity is required' }, 400)
   if (!body.token) return c.json({ error: 'token is required' }, 400)
 
-  const svc = await getService(c.env.DB, ns, service)
+  const svc = await getService(c.env.DB, service)
   if (!svc) return c.json({ error: `Service '${service}' not configured. Register it first.` }, 404)
 
-  const { encrypted, iv } = await encrypt(body.token, c.env.ENCRYPTION_KEY)
-  await upsertCredential(c.env.DB, ns, service, body.identity, encrypted, iv, body.metadata, body.expiresAt)
+  await upsertCredential(c.env.DB, service, body.identity, body.token, body.metadata, body.expiresAt)
 
   return c.json({ ok: true, service, identity: body.identity })
 })
 
 admin.delete('/credentials/:service/:identity', async c => {
-  const ns = getNamespace(c.env)
-  const deleted = await deleteCredential(c.env.DB, ns, c.req.param('service'), c.req.param('identity'))
+  const deleted = await deleteCredential(c.env.DB, c.req.param('service'), c.req.param('identity'))
   if (!deleted) return c.json({ error: 'Credential not found' }, 404)
   return c.json({ ok: true })
 })
@@ -218,8 +207,7 @@ app.get('/services', async c => {
   const token = extractBearerToken(c.req.header('Authorization'))
   if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
 
-  const ns = getNamespace(c.env)
-  const allServices = await listServices(c.env.DB, ns)
+  const allServices = await listServices(c.env.DB)
 
   // Admin key: return all services
   if (isAdminKey(token, c.env)) {
@@ -282,7 +270,6 @@ app.all('/proxy/:service/*', async c => {
   if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
 
   const service = c.req.param('service')
-  const ns = getNamespace(c.env)
 
   // Get upstream path (everything after /proxy/{service})
   const url = new URL(c.req.url)
@@ -290,7 +277,7 @@ app.all('/proxy/:service/*', async c => {
   const upstreamPath = url.pathname.slice(proxyPrefix.length) || '/'
 
   // Look up service config
-  const svc = await getService(c.env.DB, ns, service)
+  const svc = await getService(c.env.DB, service)
   if (!svc) return c.json({ error: `Unknown service: ${service}` }, 404)
 
   let identity: string
@@ -324,13 +311,10 @@ app.all('/proxy/:service/*', async c => {
   }
 
   // Look up credential
-  const cred = await getCredential(c.env.DB, ns, service, identity)
+  const cred = await getCredential(c.env.DB, service, identity)
   if (!cred) {
     return c.json({ error: `No credential found for ${service}/${identity}` }, 404)
   }
-
-  // Decrypt credential
-  const decryptedToken = await decrypt(cred.encrypted, cred.iv, c.env.ENCRYPTION_KEY)
 
   // Build upstream request
   const upstreamUrl = `${svc.base_url.replace(/\/$/, '')}${upstreamPath}${url.search}`
@@ -344,11 +328,11 @@ app.all('/proxy/:service/*', async c => {
 
   // Inject credential
   if (svc.auth_method === 'bearer' || svc.auth_method === 'oauth2') {
-    headers.set(svc.header_name, `${svc.header_scheme} ${decryptedToken}`)
+    headers.set(svc.header_name, `${svc.header_scheme} ${cred.token}`)
   } else if (svc.auth_method === 'api_key') {
-    headers.set(svc.header_name, decryptedToken)
+    headers.set(svc.header_name, cred.token)
   } else if (svc.auth_method === 'basic') {
-    headers.set(svc.header_name, `Basic ${btoa(decryptedToken)}`)
+    headers.set(svc.header_name, `Basic ${btoa(cred.token)}`)
   }
 
   // Forward request
