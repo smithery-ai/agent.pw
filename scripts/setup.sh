@@ -24,13 +24,13 @@ console.log(kp.getPublicKey().toString());
 BISCUIT_PRIVATE_KEY=$(echo "$BISCUIT_OUTPUT" | grep '^ed25519-private/')
 BISCUIT_PUBLIC_KEY=$(echo "$BISCUIT_OUTPUT" | grep '^ed25519/')
 
-# 2. Write .dev.vars (wrangler uses this for local secrets)
-cat > .dev.vars <<EOF
+# 2. Write .env (wrangler reads .env and .dev.vars for local secrets)
+cat > .env <<EOF
 ADMIN_KEY=${ADMIN_KEY}
 BISCUIT_PRIVATE_KEY=${BISCUIT_PRIVATE_KEY}
 EOF
 
-echo "Created .dev.vars with generated secrets"
+echo "Created .env with generated secrets"
 
 # 3. Apply D1 migrations locally
 echo "Applying D1 migrations (local)..."

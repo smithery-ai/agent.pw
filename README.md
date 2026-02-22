@@ -11,7 +11,7 @@ pnpm run setup   # generates keys, applies D1 migrations
 pnpm run dev     # starts local server on http://localhost:8787
 ```
 
-The setup script generates your `ADMIN_KEY` and `BISCUIT_PRIVATE_KEY`, writes them to `.dev.vars`, and initializes the local D1 database.
+The setup script generates your `ADMIN_KEY` and `BISCUIT_PRIVATE_KEY`, writes them to `.env`, and initializes the local D1 database.
 
 ## How It Works
 
@@ -146,7 +146,7 @@ pnpm run deploy            # deploy the worker
 
 ```bash
 pnpm test          # run all tests
-pnpm run dev       # local dev server (uses .dev.vars for secrets)
+pnpm run dev       # local dev server (uses .env for secrets)
 ```
 
 Tests run inside Cloudflare's workerd runtime via `@cloudflare/vitest-pool-workers`.
