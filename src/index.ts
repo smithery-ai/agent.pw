@@ -514,12 +514,19 @@ export function createApp(deps: AppDeps = {}) {
     // Kick off discovery pipeline if no docs exist yet
     const docs = await listDocPages(db, serviceName)
     if (docs.length === 0) {
-      const ctx = { db, hostname: serviceName, service: svc, bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL }
+      let waitUntil: ((promise: Promise<unknown>) => void) | undefined
+      try {
+        waitUntil = c.executionCtx?.waitUntil?.bind(c.executionCtx)
+      } catch {
+        // executionCtx not available in non-CF environments (e.g., tests)
+      }
+      const ctx = { db, hostname: serviceName, service: svc, bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL, waitUntil }
       console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
-      // Non-blocking: fire and forget so the response isn't delayed
-      triggerFullPipeline(ctx).catch(err =>
+      // Non-blocking: fire and forget; waitUntil keeps it alive in CF Workers
+      const pipeline = triggerFullPipeline(ctx).catch(err =>
         console.error(`[discovery] pipeline failed for ${serviceName}:`, err),
       )
+      if (waitUntil) waitUntil(pipeline)
     }
 
     // Build discovery status from doc metadata

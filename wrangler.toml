@@ -6,6 +6,8 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 AWS_REGION = "us-east-1"
 
+routes = [{ pattern = "warden.run", custom_domain = true }]
+
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "6a576a8480fb40b7a4b307bed14d9afc"
