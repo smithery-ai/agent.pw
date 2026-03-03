@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { HonoEnv, ProxyConstraint } from './types'
-import type { Database } from './db/index'
+import { createDb, type Database } from './db/index'
 import {
   mintToken,
   mintManagementToken,
@@ -58,27 +58,42 @@ function randomId() {
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
 
 interface AppDeps {
-  db: Database
-  biscuitPrivateKey: string
-  baseUrl: string
-  encryptionKey: string
+  db?: Database
+  biscuitPrivateKey?: string
+  encryptionKey?: string
   awsRegion?: string
 }
 
-export function createApp(deps: AppDeps) {
+export function createApp(deps: AppDeps = {}) {
   const app = new Hono<HonoEnv>()
 
   // ─── Global middleware ─────────────────────────────────────────────────────
 
   app.use('*', cors())
 
+  // Redirect if user accidentally pasted a full URL as the path
+  // e.g. /https://api.linear.app/graphql → /api.linear.app/graphql
+  app.use('*', async (c, next) => {
+    const url = new URL(c.req.url)
+    const match = url.pathname.match(/^\/https?:\/\/?(.+)/)
+    if (match) {
+      return c.redirect(`/${match[1]}${url.search}`, 301)
+    }
+    return next()
+  })
+
   app.use('*', async (c, next) => {
     if (!c.env) c.env = {} as HonoEnv['Bindings']
-    c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
-    c.env.BASE_URL = deps.baseUrl
-    c.env.ENCRYPTION_KEY = deps.encryptionKey
-    c.env.AWS_REGION = deps.awsRegion
-    c.set('db', deps.db)
+    // Override env only when deps are provided (Node.js / tests)
+    if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
+    if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
+    if (deps.awsRegion) c.env.AWS_REGION = deps.awsRegion
+
+    if (deps.db) {
+      c.set('db', deps.db)
+    } else if (c.env.HYPERDRIVE) {
+      c.set('db', createDb(c.env.HYPERDRIVE.connectionString))
+    }
     return next()
   })
 
@@ -469,7 +484,8 @@ export function createApp(deps: AppDeps) {
           vaultSlug: 'personal',
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         })
-        return c.json(buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), 401, {
+        const baseUrl = new URL(c.req.url).origin
+        return c.json(buildUnauthDiscovery(svc, baseUrl, flowId), 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
@@ -482,7 +498,8 @@ export function createApp(deps: AppDeps) {
     const identity = cred?.identity ?? 'default'
 
     if (json) {
-      return c.json(buildAuthDiscovery(svc, identity, c.env.BASE_URL))
+      const baseUrl = new URL(c.req.url).origin
+      return c.json(buildAuthDiscovery(svc, identity, baseUrl))
     }
     return c.html(ServiceLandingPage({ service: svc, identity }))
   })
