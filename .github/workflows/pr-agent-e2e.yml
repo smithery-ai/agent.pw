@@ -112,19 +112,45 @@ jobs:
 
           Your task:
           1. Use terminal commands (curl) to perform real HTTP requests against that preview.
-          2. Run this required check:
-             - Discovery auth boundary:
-               GET {base}/api.github.com with header Accept: application/json
+          2. Use the LINEAR_TEST_KEY environment variable as the API key credential.
+             Do not print the key value, do not include it in files, and do not echo it.
+          3. Run this required end-to-end auth + data check:
+             - Discovery:
+               GET {base}/api.linear.app with header Accept: application/json
                PASS only if:
                - HTTP status is exactly 401
-               - response is JSON
-               - JSON indicates an auth/discovery response (for example includes any of: "auth_url", "auth_options", "docs", "proxy", or "error")
-          3. Mark overall result as PASS only if the required check passes. Otherwise mark FAIL.
-          4. Write result JSON to .context/e2e-agent-result.json with this shape:
+               - JSON includes auth_url and poll_url
+             - Auth submit:
+               POST to auth_url with JSON body {"api_key": "$LINEAR_TEST_KEY"}
+               PASS only if HTTP status is 200 and response includes token
+             - Poll completion:
+               GET poll_url
+               PASS only if HTTP status is 200 and status is "completed" with token
+             - Authenticated query through proxy:
+               POST {base}/api.linear.app/graphql with Authorization: Bearer <warden token>
+               Content-Type: application/json
+               Body:
+               {"query":"query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }"}
+               PASS only if:
+               - HTTP status is 200
+               - JSON includes data.issues.nodes[0]
+          4. Mark overall result as PASS only if every required sub-check passes.
+             Otherwise mark FAIL.
+          5. Extract latest ticket from the GraphQL result and include:
+             identifier, title, updatedAt, url, state name, assignee name (if present).
+          6. Write result JSON to .context/e2e-agent-result.json with this shape:
              {
                "status": "pass" | "fail",
                "summary": "short single-line summary",
                "preview_url": "...",
+               "latest_ticket": {
+                 "identifier": "ABC-123",
+                 "title": "...",
+                 "updatedAt": "...",
+                 "url": "...",
+                 "state": "...",
+                 "assignee": "..."
+               },
                "checks": [
                  {
                    "name": "...",
@@ -135,12 +161,13 @@ jobs:
                  }
                ]
              }
-          5. Write a PR comment draft to .context/e2e-pr-comment.md.
+          7. Write a PR comment draft to .context/e2e-pr-comment.md.
              The comment MUST begin with this marker:
              <!-- warden-agent-e2e -->
              Then include:
              - Title: "## Agent E2E: PASS" or "## Agent E2E: FAIL"
              - Preview URL
+             - Latest ticket block with identifier, title, updatedAt, url, state, assignee (or "N/A")
              - A markdown table with each check, status code, and pass/fail
              - A short summary paragraph
 
@@ -156,6 +183,17 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Ensure LINEAR_TEST_KEY secret is present
+        if: steps.extract.outputs.skip != 'true'
+        env:
+          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LINEAR_TEST_KEY:-}" ]; then
+            echo "LINEAR_TEST_KEY secret is not configured."
+            exit 1
+          fi
+
       - name: Run Claude Haiku 4.5 e2e agent
         if: steps.extract.outputs.skip != 'true'
         id: run-agent
@@ -163,6 +201,7 @@ jobs:
         continue-on-error: true
         env:
           CLAUDE_CODE_USE_BEDROCK: "1"
+          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
         with:
           prompt: ${{ steps.prompt.outputs.value }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -171,7 +210,7 @@ jobs:
             --dangerously-skip-permissions
             --max-turns 20
             --model claude-haiku-4-5
-          show_full_output: "true"
+          show_full_output: "false"
 
       - name: Prepare PR comment body
         id: prepare-comment
@@ -212,18 +251,34 @@ jobs:
                 core.warning(`${jsonPath} was not produced by the agent.`)
               }
 
-              if (parsed?.status === 'pass') status = 'pass'
+              if (parsed?.status === 'pass' && parsed?.latest_ticket?.identifier) {
+                status = 'pass'
+              } else if (parsed?.status === 'pass') {
+                core.warning('Agent reported pass but did not include latest_ticket.identifier')
+              }
 
               if (fs.existsSync(mdPath)) {
                 body = fs.readFileSync(mdPath, 'utf8').trim()
               } else {
                 const headline = status === 'pass' ? 'PASS' : 'FAIL'
+                const ticket = parsed?.latest_ticket
+                const ticketBlock = ticket
+                  ? `
+            - Latest ticket: ${ticket.identifier || 'N/A'}
+            - Title: ${ticket.title || 'N/A'}
+            - Updated: ${ticket.updatedAt || 'N/A'}
+            - State: ${ticket.state || 'N/A'}
+            - Assignee: ${ticket.assignee || 'N/A'}
+            - URL: ${ticket.url || 'N/A'}
+            `
+                  : '\n            - Latest ticket: N/A\n'
                 body = `${marker}
 
             ## Agent E2E: ${headline}
 
             - Preview URL: ${process.env.PREVIEW_URL || 'N/A'}
             - Cloudflare check: ${process.env.CHECK_RUN_URL || 'N/A'}
+            ${ticketBlock}
 
             ${parsed?.summary || 'Agent report file was not generated.'}`
               }
