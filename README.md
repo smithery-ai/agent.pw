@@ -91,8 +91,8 @@ All tables live under a `warden` Postgres schema, so they won't conflict with ot
 ### Run
 
 ```bash
-pnpm run dev    # dev server with hot reload
-pnpm start      # production
+pnpm run dev    # wrangler dev with Infisical secrets
+pnpm run dev:env  # wrangler dev with .dev.vars / .env
 ```
 
 Verify it's running:

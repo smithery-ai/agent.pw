@@ -5,10 +5,8 @@
   "packageManager": "pnpm@10.8.0",
   "type": "module",
   "scripts": {
-    "dev": "infisical run --path=/apps/warden --env=dev --silent -- tsx watch src/server.ts",
-    "dev:env": "tsx watch --env-file=.env src/server.ts",
-    "start": "infisical run --path=/apps/warden --env=prod --silent -- tsx src/server.ts",
-    "start:env": "tsx --env-file=.env src/server.ts",
+    "dev": "infisical run --path=/apps/warden --env=dev --silent -- wrangler dev",
+    "dev:env": "wrangler dev",
     "build": "tsc -p tsconfig.json --noEmit",
     "lint": "biome lint .",
     "db:generate": "drizzle-kit generate",
