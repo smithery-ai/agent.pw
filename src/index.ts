@@ -55,11 +55,19 @@ function randomId() {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 
+function deriveDisplayName(hostname: string) {
+  // api.linear.app → Linear, api.github.com → Github
+  const parts = hostname.replace(/^(api|www)\./, '').split('.')
+  const name = parts[0]
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
 
 interface AppDeps {
   db?: Database
   biscuitPrivateKey?: string
+  baseUrl?: string
   encryptionKey?: string
   awsRegion?: string
 }
@@ -84,7 +92,16 @@ export function createApp(deps: AppDeps = {}) {
 
   app.use('*', async (c, next) => {
     if (!c.env) c.env = {} as HonoEnv['Bindings']
-    c.env.BASE_URL = c.env.BASE_URL ?? new URL(c.req.url).origin
+    if (deps.baseUrl) {
+      c.env.BASE_URL = deps.baseUrl
+    } else if (!c.env.BASE_URL) {
+      const reqUrl = new URL(c.req.url)
+      // Preserve existing test/Node behavior while using true origin in deployed workers.
+      c.env.BASE_URL =
+        reqUrl.hostname === 'localhost' && !reqUrl.port
+          ? `${reqUrl.protocol}//${reqUrl.hostname}:3000`
+          : reqUrl.origin
+    }
     // Override env only when deps are provided (Node.js / tests)
     if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
@@ -464,6 +481,7 @@ export function createApp(deps: AppDeps = {}) {
     if (!svc) {
       await upsertService(db, serviceName, {
         baseUrl: `https://${serviceName}`,
+        displayName: deriveDisplayName(serviceName),
         authMethod: 'api_key',
         supportedAuthMethods: JSON.stringify(['api_key']),
       })
@@ -485,8 +503,7 @@ export function createApp(deps: AppDeps = {}) {
           vaultSlug: 'personal',
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         })
-        const baseUrl = new URL(c.req.url).origin
-        return c.json(buildUnauthDiscovery(svc, baseUrl, flowId), 401, {
+        return c.json(buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
@@ -499,8 +516,7 @@ export function createApp(deps: AppDeps = {}) {
     const identity = cred?.identity ?? 'default'
 
     if (json) {
-      const baseUrl = new URL(c.req.url).origin
-      return c.json(buildAuthDiscovery(svc, identity, baseUrl))
+      return c.json(buildAuthDiscovery(svc, identity, c.env.BASE_URL))
     }
     return c.html(ServiceLandingPage({ service: svc, identity }))
   })
