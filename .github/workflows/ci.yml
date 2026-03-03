@@ -56,24 +56,3 @@ jobs:
       - name: Test
         run: pnpm test
 
-  required-check:
-    name: required-check
-    runs-on: ubuntu-latest
-    if: always()
-    needs:
-      - build
-      - lint
-      - test
-    steps:
-      - name: Verify build, lint, and test passed
-        run: |
-          echo "build: ${{ needs.build.result }}"
-          echo "lint: ${{ needs.lint.result }}"
-          echo "test: ${{ needs.test.result }}"
-
-          if [ "${{ needs.build.result }}" != "success" ] || \
-             [ "${{ needs.lint.result }}" != "success" ] || \
-             [ "${{ needs.test.result }}" != "success" ]; then
-            echo "One or more required jobs failed."
-            exit 1
-          fi

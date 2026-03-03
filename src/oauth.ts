@@ -52,7 +52,7 @@ oauthRoutes.get('/:service/oauth', async c => {
   // Build authorize URL
   const params = new URLSearchParams({
     client_id: svc.oauthClientId,
-    redirect_uri: `${c.env.BASE_URL}/auth/${serviceName}/oauth/callback`,
+    redirect_uri: `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`,
     state: flowId,
     response_type: 'code',
     code_challenge: codeChallenge,
@@ -105,7 +105,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   const tokenBody: Record<string, string> = {
     grant_type: 'authorization_code',
     code,
-    redirect_uri: `${c.env.BASE_URL}/auth/${serviceName}/oauth/callback`,
+    redirect_uri: `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`,
     client_id: svc.oauthClientId,
     code_verifier: flow.codeVerifier!,
   }
@@ -120,7 +120,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
 
   // Some providers (GitHub) need Accept: application/json
   if (authConfig.token_accept) {
-    tokenHeaders['Accept'] = authConfig.token_accept
+    tokenHeaders.Accept = authConfig.token_accept
   }
 
   const tokenRes = await fetch(svc.oauthTokenUrl, {

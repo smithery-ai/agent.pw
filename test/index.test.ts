@@ -4,7 +4,6 @@ import { createApp } from '../src/index'
 import {
   createTestDb,
   BISCUIT_PRIVATE_KEY,
-  BASE_URL,
   mintRootToken,
   mintProxyToken,
   type TestDb,
@@ -53,7 +52,7 @@ let app: ReturnType<typeof createApp>
 
 beforeEach(async () => {
   db = await createTestDb()
-  app = createApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, baseUrl: BASE_URL, encryptionKey: TEST_ENCRYPTION_KEY })
+  app = createApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, encryptionKey: TEST_ENCRYPTION_KEY })
 })
 
 function req(path: string, init?: RequestInit) {
@@ -846,9 +845,10 @@ describe('Proxy', () => {
       const body = (await res.json()) as any
       expect(body.login).toBe('alice')
 
-      // Verify upstream call had correct auth header
-      const fetchCall = (globalThis.fetch as any).mock.calls[0]
-      expect(fetchCall[0]).toBe('https://api.github.com/user')
+      // Verify upstream call had correct auth header (filter past any background probe calls)
+      const calls = (globalThis.fetch as any).mock.calls
+      const fetchCall = calls.find((c: any) => c[0] === 'https://api.github.com/user')
+      expect(fetchCall).toBeTruthy()
       const headers = fetchCall[1].headers as Headers
       expect(headers.get('Authorization')).toBe('Bearer ghp_test123')
     } finally {
@@ -889,7 +889,9 @@ describe('Proxy', () => {
       })
       expect(res.status).toBe(200)
 
-      const fetchCall = (globalThis.fetch as any).mock.calls[0]
+      const calls = (globalThis.fetch as any).mock.calls
+      const fetchCall = calls.find((c: any) => String(c[0]).includes('api.example.com'))
+      expect(fetchCall).toBeTruthy()
       const headers = fetchCall[1].headers as Headers
       expect(headers.get('X-API-Key')).toBe('sk_test_key')
     } finally {
@@ -928,7 +930,9 @@ describe('Proxy', () => {
       })
       expect(res.status).toBe(200)
 
-      const fetchCall = (globalThis.fetch as any).mock.calls[0]
+      const calls = (globalThis.fetch as any).mock.calls
+      const fetchCall = calls.find((c: any) => String(c[0]).includes('api.basic.com'))
+      expect(fetchCall).toBeTruthy()
       const headers = fetchCall[1].headers as Headers
       expect(headers.get('Authorization')).toBe(`Basic ${btoa('user:pass')}`)
     } finally {
@@ -958,9 +962,11 @@ describe('Proxy', () => {
       })
       expect(res.status).toBe(201)
 
-      const fetchCall = (globalThis.fetch as any).mock.calls[0]
-      expect(fetchCall[1].method).toBe('POST')
-      expect(fetchCall[1].body).toBeTruthy()
+      // Find the proxy call (POST to upstream), ignoring any background probe calls
+      const calls = (globalThis.fetch as any).mock.calls
+      const proxyCall = calls.find((c: any) => c[1]?.method === 'POST')
+      expect(proxyCall).toBeTruthy()
+      expect(proxyCall[1].body).toBeTruthy()
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -982,6 +988,32 @@ describe('Legacy Redirect', () => {
     const res = await req('/proxy/api.github.com/user', { redirect: 'manual' })
     expect(res.status).toBe(301)
     expect(res.headers.get('Location')).toBe('/api.github.com/user')
+  })
+})
+
+describe('Protocol prefix redirect', () => {
+  it('redirects /https://hostname/path to /hostname/path', async () => {
+    const res = await req('/https://api.linear.app/graphql', { redirect: 'manual' })
+    expect(res.status).toBe(301)
+    expect(res.headers.get('Location')).toBe('/api.linear.app/graphql')
+  })
+
+  it('redirects /http://hostname/path to /hostname/path', async () => {
+    const res = await req('/http://api.linear.app/graphql', { redirect: 'manual' })
+    expect(res.status).toBe(301)
+    expect(res.headers.get('Location')).toBe('/api.linear.app/graphql')
+  })
+
+  it('preserves query string on redirect', async () => {
+    const res = await req('/https://api.linear.app/graphql?foo=bar', { redirect: 'manual' })
+    expect(res.status).toBe(301)
+    expect(res.headers.get('Location')).toBe('/api.linear.app/graphql?foo=bar')
+  })
+
+  it('redirects bare hostname without trailing path', async () => {
+    const res = await req('/https://api.linear.app', { redirect: 'manual' })
+    expect(res.status).toBe(301)
+    expect(res.headers.get('Location')).toBe('/api.linear.app')
   })
 })
 
@@ -1308,6 +1340,107 @@ describe('API Key Flow', () => {
         body: 'api_key=test123',
       })
       expect(res.status).toBe(200)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  // ─── Programmatic (JSON) API Key Submission ──────────────────────────────
+
+  it('accepts JSON POST with api_key and flow_id in query', async () => {
+    // Create a flow first
+    await req('/auth/api.github.com/api-key?vault=personal&flow_id=json-flow-1')
+
+    const res = await req('/auth/api.github.com/api-key?flow_id=json-flow-1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: 'ghp_jsonkey' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.token).toMatch(/^wdn_/)
+    expect(body.identity).toBe('default')
+  })
+
+  it('accepts JSON POST with flow_id in body', async () => {
+    await req('/auth/api.github.com/api-key?vault=personal&flow_id=json-flow-2')
+
+    const res = await req('/auth/api.github.com/api-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: 'ghp_jsonkey2', flow_id: 'json-flow-2' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.token).toMatch(/^wdn_/)
+  })
+
+  it('completes flow so polling returns token (JSON path)', async () => {
+    await req('/auth/api.github.com/api-key?vault=personal&flow_id=json-poll-1')
+
+    await req('/auth/api.github.com/api-key?flow_id=json-poll-1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: 'ghp_pollkey' }),
+    })
+
+    const poll = await req('/auth/status/json-poll-1')
+    expect(poll.status).toBe(200)
+    const body = (await poll.json()) as any
+    expect(body.status).toBe('completed')
+    expect(body.token).toMatch(/^wdn_/)
+  })
+
+  it('rejects JSON POST with missing api_key', async () => {
+    const res = await req('/auth/api.github.com/api-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as any
+    expect(body.error).toContain('api_key')
+  })
+
+  it('returns JSON 404 for unknown service', async () => {
+    const res = await req('/auth/unknown.api/api-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: 'test' }),
+    })
+    expect(res.status).toBe(404)
+    const body = (await res.json()) as any
+    expect(body.error).toContain('unknown.api')
+  })
+
+  it('rejects JSON POST when identity_url returns error', async () => {
+    await mgmtReq('/services/json-rejected.api', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseUrl: 'https://json-rejected.api',
+        authMethod: 'bearer',
+        supportedAuthMethods: ['api_key'],
+        authConfig: {
+          identity_url: 'https://json-rejected.api/whoami',
+        },
+      }),
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('Unauthorized', { status: 401 }),
+    )
+
+    try {
+      const res = await req('/auth/json-rejected.api/api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: 'bad_key' }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as any
+      expect(body.error).toContain('rejected')
     } finally {
       globalThis.fetch = originalFetch
     }

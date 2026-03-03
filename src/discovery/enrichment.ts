@@ -105,7 +105,7 @@ async function executeTool(
       clearTimeout(timer)
 
       const text = await res.text()
-      return text.length > 10000 ? text.slice(0, 10000) + '\n... (truncated)' : text
+      return text.length > 10000 ? `${text.slice(0, 10000)}\n... (truncated)` : text
     } catch (e) {
       return `Error fetching ${url}: ${e instanceof Error ? e.message : String(e)}`
     }

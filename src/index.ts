@@ -29,6 +29,8 @@ import {
   createVault,
   deleteVault,
   listCredentials,
+  listDocPages,
+  getDocPage,
 } from './db/queries'
 import { extractBearerToken, handleProxy } from './proxy'
 import { requireToken, requireRight, requireVaultAdmin } from './middleware'
@@ -37,6 +39,7 @@ import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { ServiceLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
+import { triggerFullPipeline } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 
 function errorMessage(e: unknown): string {
@@ -476,9 +479,11 @@ export function createApp(deps: AppDeps = {}) {
 
     const db = c.get('db')
     let svc = await getService(db, serviceName)
+    let isNew = false
 
     // Auto-register unknown services with key-based auth as default
     if (!svc) {
+      console.log(`[discovery] auto-registering new service: ${serviceName}`)
       await upsertService(db, serviceName, {
         baseUrl: `https://${serviceName}`,
         displayName: deriveDisplayName(serviceName),
@@ -487,7 +492,25 @@ export function createApp(deps: AppDeps = {}) {
       })
       svc = await getService(db, serviceName)
       if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)
+      isNew = true
     }
+
+    // Kick off discovery pipeline if no docs exist yet
+    const docs = await listDocPages(db, serviceName)
+    if (docs.length === 0) {
+      const ctx = { db, hostname: serviceName, service: svc, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL }
+      console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
+      // Non-blocking: fire and forget so the response isn't delayed
+      triggerFullPipeline(ctx).catch(err =>
+        console.error(`[discovery] pipeline failed for ${serviceName}:`, err),
+      )
+    }
+
+    // Build discovery status from doc metadata
+    const meta = await getDocPage(db, serviceName, '_meta.json')
+    const discoveryStatus = meta
+      ? JSON.parse(meta.content!)
+      : { pipeline_state: docs.length === 0 ? 'probing' : 'idle', total_pages: docs.length }
 
     const token = extractBearerToken(c.req.header('Authorization'))
     const json = wantsJson(c.req.header('Accept'))
@@ -503,7 +526,7 @@ export function createApp(deps: AppDeps = {}) {
           vaultSlug: 'personal',
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         })
-        return c.json(buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), 401, {
+        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), discovery: discoveryStatus }, 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
@@ -516,7 +539,7 @@ export function createApp(deps: AppDeps = {}) {
     const identity = cred?.identity ?? 'default'
 
     if (json) {
-      return c.json(buildAuthDiscovery(svc, identity, c.env.BASE_URL))
+      return c.json({ ...buildAuthDiscovery(svc, identity, c.env.BASE_URL), discovery: discoveryStatus })
     }
     return c.html(ServiceLandingPage({ service: svc, identity }))
   })

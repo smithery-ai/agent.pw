@@ -1,4 +1,3 @@
-export { wardenSchema } from './warden-schema'
 export { vaults } from './vaults'
 export { services } from './services'
 export { credentials } from './credentials'

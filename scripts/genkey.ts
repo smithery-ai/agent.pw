@@ -1,5 +1,10 @@
-import { KeyPair, SignatureAlgorithm } from '@biscuit-auth/biscuit-wasm'
+import { generateKeyPairHex } from '../src/biscuit'
 
-const kp = new KeyPair(SignatureAlgorithm.Ed25519)
-console.log(`BISCUIT_PRIVATE_KEY=${kp.getPrivateKey().toString()}`)
-console.log(`BISCUIT_PUBLIC_KEY=${kp.getPublicKey().toString()}`)
+const { privateKey, publicKey } = generateKeyPairHex()
+console.log(`BISCUIT_PRIVATE_KEY=${privateKey}`)
+console.log(`BISCUIT_PUBLIC_KEY=${publicKey}`)
+
+const encKeyBytes = new Uint8Array(32)
+crypto.getRandomValues(encKeyBytes)
+const encKey = Buffer.from(encKeyBytes).toString('base64')
+console.log(`ENCRYPTION_KEY=${encKey}`)

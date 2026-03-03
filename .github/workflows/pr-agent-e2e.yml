@@ -18,8 +18,7 @@ jobs:
     if: >
       github.event.check_run.conclusion == 'success' &&
       github.event.check_run.app.slug == 'cloudflare-workers-and-pages' &&
-      startsWith(github.event.check_run.name, 'Workers Builds:') &&
-      github.event.check_run.pull_requests[0] != null
+      startsWith(github.event.check_run.name, 'Workers Builds:')
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -43,9 +42,28 @@ jobs:
             }
 
             const checkRun = context.payload.check_run
-            const pr = checkRun.pull_requests?.[0]
-            if (!pr?.number) {
-              throw new Error('No pull request attached to this Cloudflare check_run event.')
+            const headSha = checkRun.head_sha
+
+            // Look up PR by head SHA since check_run events from third-party
+            // apps (Cloudflare) often don't populate pull_requests.
+            let prNumber = checkRun.pull_requests?.[0]?.number
+            if (!prNumber) {
+              const { data: prs } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                sort: 'updated',
+                direction: 'desc',
+                per_page: 10,
+              })
+              const match = prs.find(pr => pr.head.sha === headSha)
+              prNumber = match?.number
+            }
+
+            if (!prNumber) {
+              core.info(`No open PR found for SHA ${headSha}, skipping.`)
+              core.setOutput('skip', 'true')
+              return
             }
 
             const previewUrl = parsePreviewUrl(checkRun.output?.summary ?? '')
@@ -53,12 +71,14 @@ jobs:
               throw new Error('Cloudflare check_run had no Preview URL in its summary.')
             }
 
+            core.setOutput('skip', 'false')
             core.setOutput('preview_url', previewUrl)
             core.setOutput('check_run_url', checkRun.details_url || checkRun.html_url || '')
-            core.setOutput('pr_number', String(pr.number))
-            core.info(`PR #${pr.number}, preview: ${previewUrl}`)
+            core.setOutput('pr_number', String(prNumber))
+            core.info(`PR #${prNumber}, preview: ${previewUrl}`)
 
       - name: Short preview readiness probe
+        if: steps.extract.outputs.skip != 'true'
         env:
           PREVIEW_URL: ${{ steps.extract.outputs.preview_url }}
         run: |
@@ -76,6 +96,7 @@ jobs:
           exit 1
 
       - name: Build e2e agent prompt
+        if: steps.extract.outputs.skip != 'true'
         id: prompt
         env:
           PREVIEW_URL: ${{ steps.extract.outputs.preview_url }}
@@ -136,6 +157,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Haiku 4.5 e2e agent
+        if: steps.extract.outputs.skip != 'true'
         id: run-agent
         uses: anthropics/claude-code-action@v1
         continue-on-error: true
@@ -153,7 +175,7 @@ jobs:
 
       - name: Prepare PR comment body
         id: prepare-comment
-        if: always()
+        if: always() && steps.extract.outputs.skip != 'true'
         uses: actions/github-script@v7
         env:
           AGENT_OUTCOME: ${{ steps.run-agent.outcome }}
@@ -218,7 +240,7 @@ jobs:
             core.setOutput('comment_path', outPath)
 
       - name: Create or update PR comment
-        if: always()
+        if: always() && steps.extract.outputs.skip != 'true'
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ steps.extract.outputs.pr_number }}
@@ -261,7 +283,7 @@ jobs:
             }
 
       - name: Fail workflow if agent e2e failed
-        if: always()
+        if: always() && steps.extract.outputs.skip != 'true'
         run: |
           if [ "${{ steps.prepare-comment.outputs.status }}" != "pass" ]; then
             echo "Agent e2e status is not pass."

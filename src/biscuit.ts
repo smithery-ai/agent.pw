@@ -316,7 +316,7 @@ export function extractIdentityFromToken(
       if (match) {
         const [, id, svc] = match
         if (svc === service || svc === '*') {
-          matchingGrants.add(parseInt(id))
+          matchingGrants.add(parseInt(id, 10))
         }
       }
     }
@@ -327,7 +327,7 @@ export function extractIdentityFromToken(
       const match = trimmed.match(/grant_metadata\((\d+),\s*"userId",\s*"([^"]+)"\)/)
       if (match) {
         const [, id, userId] = match
-        if (matchingGrants.has(parseInt(id))) {
+        if (matchingGrants.has(parseInt(id, 10))) {
           return userId
         }
       }
@@ -358,7 +358,7 @@ export function extractGrants(
 
       const serviceMatch = trimmed.match(/grant_service\((\d+),\s*"([^"]+)"\)/)
       if (serviceMatch) {
-        const gid = parseInt(serviceMatch[1])
+        const gid = parseInt(serviceMatch[1], 10)
         if (!grants.has(gid)) grants.set(gid, { services: [], methods: [], paths: [] })
         grants.get(gid)!.services.push(serviceMatch[2])
       }
@@ -466,7 +466,7 @@ export function extractVaultFromToken(
       if (match) {
         const [, id, svc] = match
         if (svc === service || svc === '*') {
-          matchingGrants.add(parseInt(id))
+          matchingGrants.add(parseInt(id, 10))
         }
       }
     }
@@ -476,7 +476,7 @@ export function extractVaultFromToken(
       const match = trimmed.match(/grant_vault\((\d+),\s*"([^"]+)"\)/)
       if (match) {
         const [, id, vault] = match
-        if (matchingGrants.has(parseInt(id))) {
+        if (matchingGrants.has(parseInt(id, 10))) {
           return vault
         }
       }

@@ -46,14 +46,30 @@ apiKeyRoutes.post('/:service/api-key', async c => {
   const serviceName = c.req.param('service')
   const db = c.get('db')
   const svc = await getService(db, serviceName)
+  const isJson = c.req.header('Content-Type')?.includes('application/json')
 
-  if (!svc) return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
+  if (!svc) {
+    if (isJson) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
+    return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
+  }
 
-  const formData = await c.req.parseBody()
-  const apiKey = formData['api_key'] as string
-  const flowId = formData['flow_id'] as string
+  // Parse input based on content type
+  let apiKey: string
+  let flowId: string | undefined
+  if (isJson) {
+    const body = await c.req.json<{ api_key?: string; flow_id?: string }>()
+    apiKey = body.api_key ?? ''
+    flowId = body.flow_id ?? c.req.query('flow_id')
+  } else {
+    const formData = await c.req.parseBody()
+    apiKey = formData.api_key as string
+    flowId = formData.flow_id as string
+  }
 
-  if (!apiKey) return c.html(ErrorPage({ message: 'API key is required' }), 400)
+  if (!apiKey) {
+    if (isJson) return c.json({ error: 'api_key is required' }, 400)
+    return c.html(ErrorPage({ message: 'API key is required' }), 400)
+  }
 
   // Optionally validate the key via a "whoami" call
   const authConfig: Record<string, string> = svc.authConfig ? JSON.parse(svc.authConfig) : {}
@@ -86,6 +102,7 @@ apiKeyRoutes.post('/:service/api-key', async c => {
       }
 
       if (!identityRes.ok) {
+        if (isJson) return c.json({ error: 'Invalid API key. The upstream service rejected it.' }, 400)
         return c.html(
           ErrorPage({ message: 'Invalid API key. The upstream service rejected it.' }),
           400,
@@ -129,6 +146,7 @@ apiKeyRoutes.post('/:service/api-key', async c => {
     }
   }
 
+  if (isJson) return c.json({ token: wardenToken, identity })
   return c.html(SuccessPage({ token: wardenToken, service: svc }))
 })
 

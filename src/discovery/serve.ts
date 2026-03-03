@@ -36,7 +36,7 @@ export function docRoutes() {
       hostname: serviceName,
       service: svc,
       awsRegion: c.env.AWS_REGION,
-      baseUrl: c.env.BASE_URL,
+      baseUrl: new URL(c.req.url).origin,
     }
 
     const page = await getOrGeneratePage(ctx, 'docs/index.json')
@@ -61,7 +61,7 @@ export function docRoutes() {
       hostname: serviceName,
       service: svc,
       awsRegion: c.env.AWS_REGION,
-      baseUrl: c.env.BASE_URL,
+      baseUrl: new URL(c.req.url).origin,
     }
 
     const page = await getOrGeneratePage(ctx, docPath)
