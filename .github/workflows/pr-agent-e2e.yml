@@ -213,6 +213,16 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure BEDROCK_API_KEY secret is present
+        env:
+          BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BEDROCK_API_KEY:-}" ]; then
+            echo "BEDROCK_API_KEY secret is not configured."
+            exit 1
+          fi
+
       - name: Install pinned Claude Code CLI
         run: |
           set -euo pipefail
@@ -226,6 +236,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         continue-on-error: true
         env:
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.BEDROCK_API_KEY }}
           AWS_DEFAULT_REGION: us-east-1
           AWS_REGION: us-east-1
           LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
