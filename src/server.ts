@@ -17,8 +17,7 @@ const app = createApp({
   biscuitPrivateKey: process.env.BISCUIT_PRIVATE_KEY ?? '',
   baseUrl: process.env.BASE_URL ?? `http://localhost:${port}`,
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
-  bedrockApiKey: process.env.BEDROCK_API_KEY,
-  awsRegion: process.env.AWS_REGION,
+  bedrockToken: process.env.AWS_BEARER_TOKEN_BEDROCK,
 })
 
 console.log(`Warden listening on http://localhost:${port}`)

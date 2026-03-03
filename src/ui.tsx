@@ -31,7 +31,7 @@ const STYLES = `
     min-height: 100vh; display: flex; align-items: center; justify-content: center;
     -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
   }
-  .container { max-width: 400px; width: 100%; padding: 2rem; }
+  .container { max-width: 640px; width: 100%; padding: 2rem; }
 
   .service-header { text-align: center; margin-bottom: 1.5rem; }
   .service-icon {

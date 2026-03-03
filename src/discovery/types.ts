@@ -10,8 +10,7 @@ export interface PipelineContext {
   db: Database
   hostname: string
   service: ServiceRow
-  bedrockApiKey?: string
-  awsRegion?: string
+  bedrockToken?: string
   baseUrl: string
   /** Keep background work alive in CF Workers; no-op in Node.js */
   waitUntil?: (promise: Promise<unknown>) => void

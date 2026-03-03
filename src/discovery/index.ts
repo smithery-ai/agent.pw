@@ -106,8 +106,8 @@ function queueBackgroundEnrichment(ctx: PipelineContext) {
 }
 
 async function runBackgroundEnrichment(ctx: PipelineContext) {
-  if (!ctx.bedrockApiKey) {
-    console.log(`[discovery] skipping enrichment for ${ctx.hostname}: no BEDROCK_API_KEY configured`)
+  if (!ctx.bedrockToken) {
+    console.log(`[discovery] skipping enrichment for ${ctx.hostname}: no AWS_BEARER_TOKEN_BEDROCK configured`)
     return
   }
 

@@ -1,48 +1,16 @@
-import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk'
-import type { Tool, MessageParam, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
+import type { McpServerConfig, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { z } from 'zod'
 import type { PipelineContext } from './types'
 import { getDocPage, upsertDocPage, listDocPages } from '../db/queries'
 
-const ENRICHMENT_MODEL = 'us.anthropic.claude-sonnet-4-6'
 const MAX_TURNS = 3
-
-const tools: Tool[] = [
-  {
-    name: 'fetch_upstream',
-    description:
-      'Fetch a URL. Use this to read API documentation pages, probe endpoints, or fetch example responses from the upstream service.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        url: { type: 'string', description: 'Full URL to fetch' },
-        method: { type: 'string', enum: ['GET', 'POST'], description: 'HTTP method (default GET)' },
-        body: { type: 'string', description: 'Request body for POST requests' },
-      },
-      required: ['url'],
-    },
-  },
-  {
-    name: 'write_doc_page',
-    description:
-      'Write an enriched documentation page. The content should be a structured JSON object matching the doc page schema.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        path: { type: 'string', description: 'Page path, e.g. "docs/issues.json"' },
-        content: {
-          type: 'object',
-          description: 'The page content object (will be JSON-stringified and stored)',
-        },
-      },
-      required: ['path', 'content'],
-    },
-  },
-]
 
 function buildSystemPrompt(ctx: PipelineContext) {
   return `You are a technical writer generating API documentation for ${ctx.service.displayName ?? ctx.hostname} (${ctx.service.baseUrl}).
 
 IMPORTANT: Call write_doc_page IMMEDIATELY with your best effort. Do NOT fetch more than one URL before writing. A partial page NOW is better than a perfect page later.
+
+You have access to web search via the Exa MCP — use it to find official API documentation, guides, or examples when the upstream URL alone is insufficient.
 
 Guidelines:
 - Write concise, developer-friendly descriptions
@@ -50,7 +18,7 @@ Guidelines:
 - For resources: identify the 3-5 most common operations
 - For operations: include required parameters and at least one example
 - Do NOT hallucinate endpoints or fields that don't exist
-- You may fetch ONE upstream URL if you need more context, then WRITE immediately
+- You may search the web or fetch ONE upstream URL if you need more context, then WRITE immediately
 - Mark content as best-effort if unsure — a partial page is better than nothing`
 }
 
@@ -84,104 +52,120 @@ ${pageContent}
   return prompt
 }
 
-async function executeTool(
-  ctx: PipelineContext,
-  toolName: string,
-  input: Record<string, unknown>,
-): Promise<string> {
-  if (toolName === 'fetch_upstream') {
-    const url = input.url as string
-    const method = (input.method as string) ?? 'GET'
-    const body = input.body as string | undefined
-
-    try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 5000)
-      const res = await fetch(url, {
-        method,
-        body,
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
-        signal: controller.signal,
-      })
-      clearTimeout(timer)
-
-      const text = await res.text()
-      return text.length > 10000 ? `${text.slice(0, 10000)}\n... (truncated)` : text
-    } catch (e) {
-      return `Error fetching ${url}: ${e instanceof Error ? e.message : String(e)}`
-    }
-  }
-
-  if (toolName === 'write_doc_page') {
-    const path = input.path as string
-    const content = input.content as Record<string, unknown>
-
-    await upsertDocPage(ctx.db, ctx.hostname, path, JSON.stringify(content), 'enriched')
-    return `Page written: ${path}`
-  }
-
-  return `Unknown tool: ${toolName}`
+// Dynamic import to avoid loading the Agent SDK at module parse time.
+// The SDK uses fs.realpathSync which isn't available in Cloudflare Workers.
+// Enrichment only runs in the Node.js server context (gated by bedrockToken).
+async function loadAgentSdk() {
+  return await import('@anthropic-ai/claude-agent-sdk')
 }
 
 export async function enrichPage(ctx: PipelineContext, pagePath: string) {
-  if (!ctx.bedrockApiKey) {
-    return // Skip enrichment without API key
-  }
+  if (!ctx.bedrockToken) return
 
   const page = await getDocPage(ctx.db, ctx.hostname, pagePath)
   if (!page || !page.content) return
+
+  const { query, tool, createSdkMcpServer } = await loadAgentSdk()
 
   const existingPages = await listDocPages(ctx.db, ctx.hostname)
   const otherPages = existingPages
     .filter(p => p.path !== pagePath && p.content)
     .map(p => ({ path: p.path, content: p.content! }))
 
-  const client = new AnthropicBedrock({
-    awsRegion: ctx.awsRegion ?? 'us-east-1',
-    skipAuth: true,
-    defaultHeaders: { Authorization: `Bearer ${ctx.bedrockApiKey}` },
+  const fetchUpstream = tool(
+    'fetch_upstream',
+    'Fetch a URL. Use this to read API documentation pages, probe endpoints, or fetch example responses from the upstream service.',
+    {
+      url: z.string().describe('Full URL to fetch'),
+      method: z.enum(['GET', 'POST']).optional().describe('HTTP method (default GET)'),
+      body: z.string().optional().describe('Request body for POST requests'),
+    },
+    async (args) => {
+      try {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 5000)
+        const res = await fetch(args.url, {
+          method: args.method ?? 'GET',
+          body: args.body,
+          headers: args.body ? { 'Content-Type': 'application/json' } : undefined,
+          signal: controller.signal,
+        })
+        clearTimeout(timer)
+        const text = await res.text()
+        const truncated = text.length > 10000 ? `${text.slice(0, 10000)}\n... (truncated)` : text
+        return { content: [{ type: 'text' as const, text: truncated }] }
+      } catch (e) {
+        return { content: [{ type: 'text' as const, text: `Error fetching ${args.url}: ${e instanceof Error ? e.message : String(e)}` }] }
+      }
+    },
+  )
+
+  const writeDocPage = tool(
+    'write_doc_page',
+    'Write an enriched documentation page. The content should be a structured JSON object matching the doc page schema.',
+    {
+      path: z.string().describe('Page path, e.g. "docs/issues.json"'),
+      content: z.record(z.string(), z.unknown()).describe('The page content object (will be JSON-stringified and stored)'),
+    },
+    async (args) => {
+      await upsertDocPage(ctx.db, ctx.hostname, args.path, JSON.stringify(args.content), 'enriched')
+      return { content: [{ type: 'text' as const, text: `Page written: ${args.path}` }] }
+    },
+  )
+
+  const customServer = createSdkMcpServer({
+    name: 'warden',
+    version: '1.0.0',
+    tools: [fetchUpstream, writeDocPage],
   })
 
-  const messages: MessageParam[] = [
-    {
-      role: 'user',
-      content: buildEnrichmentPrompt(
-        pagePath,
-        page.content,
-        otherPages,
-        ctx.service.docsUrl ?? undefined,
-      ),
-    },
-  ]
+  const mcpServers: Record<string, McpServerConfig> = {
+    warden: customServer,
+    exa: { type: 'http', url: 'https://mcp.exa.ai/mcp' },
+  }
 
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    console.log(`[enrichment] ${ctx.hostname}/${pagePath} turn ${turn + 1}`)
-    const response = await client.messages.create({
-      model: ENRICHMENT_MODEL,
-      max_tokens: 4096,
-      system: buildSystemPrompt(ctx),
-      tools,
-      messages,
-    })
-    console.log(`[enrichment] ${ctx.hostname}/${pagePath} stop_reason=${response.stop_reason}`)
+  const prompt = buildEnrichmentPrompt(
+    pagePath,
+    page.content,
+    otherPages,
+    ctx.service.docsUrl ?? undefined,
+  )
 
-    if (response.stop_reason === 'tool_use') {
-      const toolResults: ToolResultBlockParam[] = []
-
-      for (const block of response.content) {
-        if (block.type === 'tool_use') {
-          console.log(`[enrichment] ${ctx.hostname}/${pagePath} tool_use: ${block.name}`)
-          const result = await executeTool(ctx, block.name, block.input as Record<string, unknown>)
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result })
-        }
-      }
-
-      messages.push({ role: 'assistant', content: response.content })
-      messages.push({ role: 'user', content: toolResults })
-      continue
+  async function* generateMessages(): AsyncGenerator<SDKUserMessage> {
+    yield {
+      type: 'user',
+      message: { role: 'user', content: prompt },
+      parent_tool_use_id: null,
+      session_id: '',
     }
+  }
 
-    break
+  console.log(`[enrichment] ${ctx.hostname}/${pagePath} starting`)
+
+  for await (const message of query({
+    prompt: generateMessages(),
+    options: {
+      systemPrompt: buildSystemPrompt(ctx),
+      maxTurns: MAX_TURNS,
+      mcpServers,
+      allowedTools: ['mcp__warden__*', 'mcp__exa__*'],
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      env: {
+        CLAUDE_CODE_USE_BEDROCK: '1',
+        AWS_BEARER_TOKEN_BEDROCK: ctx.bedrockToken,
+        AWS_REGION: 'us-east-1',
+        ANTHROPIC_MODEL: 'us.anthropic.claude-sonnet-4-6',
+      },
+    },
+  })) {
+    if (message.type === 'result') {
+      if (message.subtype === 'success') {
+        console.log(`[enrichment] ${ctx.hostname}/${pagePath} completed (turns=${message.num_turns})`)
+      } else {
+        console.error(`[enrichment] ${ctx.hostname}/${pagePath} error: ${message.subtype}`)
+      }
+    }
   }
 }
 

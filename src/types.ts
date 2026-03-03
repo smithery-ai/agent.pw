@@ -8,8 +8,7 @@ export interface Env {
   BISCUIT_PRIVATE_KEY: string
   BASE_URL: string
   ENCRYPTION_KEY: string
-  BEDROCK_API_KEY?: string
-  AWS_REGION?: string
+  AWS_BEARER_TOKEN_BEDROCK?: string
   HYPERDRIVE?: Hyperdrive
 }
 
