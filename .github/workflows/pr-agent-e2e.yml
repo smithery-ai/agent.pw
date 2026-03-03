@@ -230,6 +230,7 @@ jobs:
         with:
           prompt: ${{ steps.prompt.outputs.value }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
           path_to_claude_code_executable: ${{ env.CLAUDE_PATH }}
           claude_args: |
             --dangerously-skip-permissions
