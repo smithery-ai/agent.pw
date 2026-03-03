@@ -3,6 +3,9 @@ main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+[vars]
+AWS_REGION = "us-east-1"
+
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "6a576a8480fb40b7a4b307bed14d9afc"

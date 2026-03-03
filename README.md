@@ -7,12 +7,24 @@ Agent ──▶ warden.run/api.github.com/user ──▶ api.github.com/user
        (Biscuit token)                     (real API key injected)
 ```
 
+## Use with your agent
+
+Paste this into your agent to connect to any API:
+
+```
+Connect to {any API} using https://warden.run
+```
+
+That's it. The agent will `curl https://warden.run`, read the onboarding guide, and walk you through authenticating in your browser. Your API keys never touch the agent — Warden stores them encrypted and injects them at the proxy layer.
+
+## How it works
+
 The same URL serves both **discovery** and **proxy**:
 - No token + `Accept: application/json` → 401 with auth options (for agents)
 - No token + browser → HTML landing page with setup buttons
 - With token → proxied request to the upstream API
 
-## Quick Start
+## Self-hosting
 
 ### Prerequisites
 
@@ -67,7 +79,7 @@ Verify it's running:
 
 ```bash
 curl http://localhost:3000
-# {"status":"ok","service":"warden"}
+# Returns the Warden onboarding guide
 ```
 
 ## Concepts

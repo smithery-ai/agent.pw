@@ -34,10 +34,10 @@ import {
 } from './db/queries'
 import { extractBearerToken, handleProxy } from './proxy'
 import { requireToken, requireRight, requireVaultAdmin } from './middleware'
-import { buildUnauthDiscovery, buildAuthDiscovery, wantsJson } from './discovery'
+import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, buildWardenOnboarding, wantsJson } from './discovery'
 import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
-import { ServiceLandingPage } from './ui'
+import { ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
 import { triggerFullPipeline } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
@@ -72,6 +72,7 @@ interface AppDeps {
   biscuitPrivateKey?: string
   baseUrl?: string
   encryptionKey?: string
+  bedrockApiKey?: string
   awsRegion?: string
 }
 
@@ -108,6 +109,7 @@ export function createApp(deps: AppDeps = {}) {
     // Override env only when deps are provided (Node.js / tests)
     if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
+    if (deps.bedrockApiKey) c.env.BEDROCK_API_KEY = deps.bedrockApiKey
     if (deps.awsRegion) c.env.AWS_REGION = deps.awsRegion
 
     if (deps.db) {
@@ -120,7 +122,21 @@ export function createApp(deps: AppDeps = {}) {
 
   // ─── Health ────────────────────────────────────────────────────────────────
 
-  app.get('/', c => c.json({ status: 'ok', service: 'warden' }))
+  app.get('/', async c => {
+    const accept = c.req.header('Accept')
+    if (accept?.includes('application/json')) {
+      return c.json(buildWardenGuide(c.env.BASE_URL))
+    }
+
+    const db = c.get('db')
+    const recentServices = await listServices(db)
+
+    if (wantsJson(accept)) {
+      // curl sends */* — return readable plain text onboarding
+      return c.text(buildWardenOnboarding(c.env.BASE_URL, recentServices))
+    }
+    return c.html(WardenLandingPage({ services: recentServices }))
+  })
 
   // ─── Vault Management ─────────────────────────────────────────────────────
 
@@ -498,7 +514,7 @@ export function createApp(deps: AppDeps = {}) {
     // Kick off discovery pipeline if no docs exist yet
     const docs = await listDocPages(db, serviceName)
     if (docs.length === 0) {
-      const ctx = { db, hostname: serviceName, service: svc, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL }
+      const ctx = { db, hostname: serviceName, service: svc, bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL }
       console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
       // Non-blocking: fire and forget so the response isn't delayed
       triggerFullPipeline(ctx).catch(err =>

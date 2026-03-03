@@ -10,6 +10,7 @@ export interface PipelineContext {
   db: Database
   hostname: string
   service: ServiceRow
+  bedrockApiKey?: string
   awsRegion?: string
   baseUrl: string
 }

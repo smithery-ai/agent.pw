@@ -100,14 +100,39 @@ async function seedServiceWithCred(vault = 'personal') {
   })
 }
 
-// ─── Health ──────────────────────────────────────────────────────────────────
+// ─── Root Landing Page ───────────────────────────────────────────────────────
 
-describe('Health', () => {
-  it('GET / returns ok', async () => {
+describe('Root Landing Page', () => {
+  it('returns HTML landing page for browsers', async () => {
     const res = await req('/')
     expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body).toEqual({ status: 'ok', service: 'warden' })
+    const text = await res.text()
+    expect(text).toContain('Warden')
+    expect(text).toContain('Quick Start')
+  })
+
+  it('returns plain text onboarding for curl (Accept: */*)', async () => {
+    const res = await req('/', { headers: { Accept: '*/*' } })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/plain')
+    const text = await res.text()
+    expect(text).toContain('# Warden')
+    expect(text).toContain('How to connect')
+    expect(text).toContain('secrets stay secret')
+    expect(text).toContain('curl')
+    expect(text).toContain('/{hostname}')
+  })
+
+  it('returns JSON agent guide for Accept: application/json', async () => {
+    const res = await req('/', { headers: { Accept: 'application/json' } })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.service).toBe('warden')
+    expect(body.quick_start).toBeDefined()
+    expect(body.routes).toBeDefined()
+    expect(body.routes.discovery.method).toBe('GET')
+    expect(body.routes.proxy.path).toBe('/{hostname}/{path}')
+    expect(body.example_flow.steps).toHaveLength(3)
   })
 })
 
@@ -2135,6 +2160,14 @@ describe('Discovery Functions', () => {
 
   it('wantsJson returns false for text/html', () => {
     expect(wantsJson('text/html')).toBe(false)
+  })
+
+  it('wantsJson returns true for */* (curl default)', () => {
+    expect(wantsJson('*/*')).toBe(true)
+  })
+
+  it('wantsJson returns false for browser Accept with */*', () => {
+    expect(wantsJson('text/html,application/xhtml+xml,*/*;q=0.8')).toBe(false)
   })
 
   it('buildUnauthDiscovery includes description and docs_url', () => {

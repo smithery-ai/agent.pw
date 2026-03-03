@@ -1,9 +1,9 @@
-import AnthropicBedrock from '@anthropic-ai/bedrock-sdk'
+import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk'
 import type { Tool, MessageParam, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import type { PipelineContext } from './types'
 import { getDocPage, upsertDocPage, listDocPages } from '../db/queries'
 
-const ENRICHMENT_MODEL = 'us.anthropic.claude-sonnet-4-6-20250514-v1:0'
+const ENRICHMENT_MODEL = 'us.anthropic.claude-sonnet-4-6'
 const MAX_TURNS = 10
 
 const tools: Tool[] = [
@@ -123,8 +123,8 @@ async function executeTool(
 }
 
 export async function enrichPage(ctx: PipelineContext, pagePath: string) {
-  if (!ctx.awsRegion) {
-    return // Skip enrichment without AWS config
+  if (!ctx.bedrockApiKey) {
+    return // Skip enrichment without API key
   }
 
   const page = await getDocPage(ctx.db, ctx.hostname, pagePath)
@@ -135,7 +135,11 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
     .filter(p => p.path !== pagePath && p.content)
     .map(p => ({ path: p.path, content: p.content! }))
 
-  const client = new AnthropicBedrock({ awsRegion: ctx.awsRegion })
+  const client = new AnthropicBedrock({
+    awsRegion: ctx.awsRegion ?? 'us-east-1',
+    skipAuth: true,
+    defaultHeaders: { Authorization: `Bearer ${ctx.bedrockApiKey}` },
+  })
 
   const messages: MessageParam[] = [
     {
@@ -150,6 +154,7 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
   ]
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
+    console.log(`[enrichment] ${ctx.hostname}/${pagePath} turn ${turn + 1}`)
     const response = await client.messages.create({
       model: ENRICHMENT_MODEL,
       max_tokens: 4096,
@@ -157,12 +162,14 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
       tools,
       messages,
     })
+    console.log(`[enrichment] ${ctx.hostname}/${pagePath} stop_reason=${response.stop_reason}`)
 
     if (response.stop_reason === 'tool_use') {
       const toolResults: ToolResultBlockParam[] = []
 
       for (const block of response.content) {
         if (block.type === 'tool_use') {
+          console.log(`[enrichment] ${ctx.hostname}/${pagePath} tool_use: ${block.name}`)
           const result = await executeTool(ctx, block.name, block.input as Record<string, unknown>)
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result })
         }

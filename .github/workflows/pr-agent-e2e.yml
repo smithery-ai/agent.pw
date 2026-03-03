@@ -251,6 +251,197 @@ jobs:
             --model anthropic.claude-haiku-4-5-20251001-v1:0
           show_full_output: "false"
 
+      - name: Deterministic e2e fallback (if Claude step fails)
+        if: steps.run-agent.outcome != 'success'
+        env:
+          PREVIEW_URL: ${{ steps.cloudflare.outputs.preview_url }}
+          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p .context
+          node <<'NODE'
+          const fs = require('node:fs')
+
+          const marker = '<!-- warden-agent-e2e -->'
+          const base = (process.env.PREVIEW_URL || '').replace(/\/+$/, '')
+          const linearKey = process.env.LINEAR_TEST_KEY || ''
+          const checks = []
+          let allPass = true
+          let latestTicket = null
+
+          function pushCheck(name, request, statusCode, pass, details) {
+            checks.push({
+              name,
+              request,
+              status_code: statusCode,
+              pass,
+              details: details || '',
+            })
+            if (!pass) allPass = false
+          }
+
+          async function fetchJson(url, init = {}) {
+            const res = await fetch(url, init)
+            const text = await res.text()
+            let json = null
+            try {
+              json = JSON.parse(text)
+            } catch {}
+            return { status: res.status, json, text }
+          }
+
+          async function run() {
+            try {
+              const discovery = await fetchJson(`${base}/api.linear.app`, {
+                headers: { Accept: 'application/json' },
+              })
+              const authUrl = discovery.json?.auth_url
+              const pollUrl = discovery.json?.poll_url
+              pushCheck(
+                'Discovery',
+                `GET ${base}/api.linear.app`,
+                discovery.status,
+                discovery.status === 401 && typeof authUrl === 'string' && typeof pollUrl === 'string',
+                `auth_url=${typeof authUrl === 'string'}, poll_url=${typeof pollUrl === 'string'}`,
+              )
+
+              let authToken = null
+              let pollToken = null
+
+              if (typeof authUrl === 'string') {
+                const auth = await fetchJson(authUrl, {
+                  method: 'POST',
+                  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ api_key: linearKey }),
+                })
+                authToken = auth.json?.token ?? null
+                pushCheck(
+                  'Auth submit',
+                  `POST ${authUrl}`,
+                  auth.status,
+                  auth.status === 200 && typeof authToken === 'string' && authToken.length > 0,
+                  `token_present=${typeof authToken === 'string' && authToken.length > 0}`,
+                )
+              } else {
+                pushCheck('Auth submit', 'POST <missing auth_url>', 0, false, 'auth_url missing from discovery')
+              }
+
+              let poll = { status: 0, json: null }
+              if (typeof pollUrl === 'string') {
+                poll = await fetchJson(pollUrl, { headers: { Accept: 'application/json' } })
+                pollToken = poll.json?.token ?? null
+                pushCheck(
+                  'Poll completion',
+                  `GET ${pollUrl}`,
+                  poll.status,
+                  poll.status === 200 &&
+                    (poll.json?.status === 'completed' || poll.json?.state === 'completed') &&
+                    typeof (pollToken || authToken) === 'string',
+                  `status=${poll.json?.status ?? poll.json?.state ?? 'unknown'}, token_present=${typeof (pollToken || authToken) === 'string'}`,
+                )
+              } else {
+                pushCheck('Poll completion', 'GET <missing poll_url>', 0, false, 'poll_url missing from discovery')
+              }
+
+              const wardenToken = pollToken || authToken
+              const gqlQuery =
+                'query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }'
+              if (typeof wardenToken === 'string' && wardenToken.length > 0) {
+                const gql = await fetchJson(`${base}/api.linear.app/graphql`, {
+                  method: 'POST',
+                  headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${wardenToken}`,
+                  },
+                  body: JSON.stringify({ query: gqlQuery }),
+                })
+                const node = gql.json?.data?.issues?.nodes?.[0]
+                if (node) {
+                  latestTicket = {
+                    identifier: node.identifier ?? 'N/A',
+                    title: node.title ?? 'N/A',
+                    updatedAt: node.updatedAt ?? 'N/A',
+                    url: node.url ?? 'N/A',
+                    state: node.state?.name ?? 'N/A',
+                    assignee: node.assignee?.name ?? 'N/A',
+                  }
+                }
+                pushCheck(
+                  'GraphQL latest ticket',
+                  `POST ${base}/api.linear.app/graphql`,
+                  gql.status,
+                  gql.status === 200 && !!node,
+                  `node_present=${!!node}`,
+                )
+              } else {
+                pushCheck(
+                  'GraphQL latest ticket',
+                  `POST ${base}/api.linear.app/graphql`,
+                  0,
+                  false,
+                  'missing warden token',
+                )
+              }
+            } catch (err) {
+              pushCheck('Fallback runtime', 'local fallback', 0, false, String(err))
+            }
+          }
+
+          run().then(() => {
+            const status = allPass && latestTicket?.identifier ? 'pass' : 'fail'
+            const summary =
+              status === 'pass'
+                ? 'Fallback e2e succeeded: Linear auth and latest ticket query passed.'
+                : 'Fallback e2e failed: at least one required check did not pass.'
+
+            const result = {
+              status,
+              summary,
+              preview_url: base,
+              latest_ticket: latestTicket,
+              checks,
+            }
+            fs.writeFileSync('.context/e2e-agent-result.json', `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+
+            const ticket = latestTicket || {
+              identifier: 'N/A',
+              title: 'N/A',
+              updatedAt: 'N/A',
+              url: 'N/A',
+              state: 'N/A',
+              assignee: 'N/A',
+            }
+            const rows = checks
+              .map(
+                c =>
+                  `| ${c.name} | ${c.status_code} | ${c.pass ? 'PASS' : 'FAIL'} | ${String(c.details || '').replaceAll('|', '\\|')} |`,
+              )
+              .join('\n')
+            const md = `${marker}
+
+          ## Agent E2E: ${status === 'pass' ? 'PASS' : 'FAIL'}
+
+          _Claude step failed; deterministic fallback executed for reliability._
+
+          - Preview URL: ${base}
+          - Latest ticket: ${ticket.identifier}
+          - Title: ${ticket.title}
+          - Updated: ${ticket.updatedAt}
+          - URL: ${ticket.url}
+          - State: ${ticket.state}
+          - Assignee: ${ticket.assignee}
+
+          | Check | Status | Result | Details |
+          | --- | ---: | --- | --- |
+          ${rows}
+
+          ${summary}
+          `
+            fs.writeFileSync('.context/e2e-pr-comment.md', `${md.trim()}\n`, 'utf8')
+          })
+          NODE
+
       - name: Prepare PR comment body
         id: prepare-comment
         if: always()
@@ -268,63 +459,60 @@ jobs:
 
             const jsonPath = '.context/e2e-agent-result.json'
             const mdPath = '.context/e2e-pr-comment.md'
-
-            if (process.env.AGENT_OUTCOME !== 'success') {
-              body = `${marker}
-
-            ## Agent E2E: FAIL
-
-            Claude agent execution failed before producing a valid e2e report.
-
-            - Preview URL: ${process.env.PREVIEW_URL || 'N/A'}
-            - Cloudflare check: ${process.env.CHECK_RUN_URL || 'N/A'}`
+            let parsed = null
+            if (fs.existsSync(jsonPath)) {
+              try {
+                parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
+              } catch (err) {
+                core.warning(`Could not parse ${jsonPath}: ${String(err)}`)
+              }
             } else {
-              let parsed = null
-              if (fs.existsSync(jsonPath)) {
-                try {
-                  parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
-                } catch (err) {
-                  core.warning(`Could not parse ${jsonPath}: ${String(err)}`)
-                }
-              } else {
-                core.warning(`${jsonPath} was not produced by the agent.`)
-              }
+              core.warning(`${jsonPath} was not produced by the agent or fallback.`)
+            }
 
-              if (parsed?.status === 'pass' && parsed?.latest_ticket?.identifier) {
-                status = 'pass'
-              } else if (parsed?.status === 'pass') {
-                core.warning('Agent reported pass but did not include latest_ticket.identifier')
-              }
+            if (parsed?.status === 'pass' && parsed?.latest_ticket?.identifier) {
+              status = 'pass'
+            } else if (parsed?.status === 'pass') {
+              core.warning('Report marked pass but latest_ticket.identifier is missing')
+            }
 
-              if (fs.existsSync(mdPath)) {
-                body = fs.readFileSync(mdPath, 'utf8').trim()
-              } else {
-                const headline = status === 'pass' ? 'PASS' : 'FAIL'
-                const ticket = parsed?.latest_ticket
-                const ticketBlock = ticket
-                  ? `
-            - Latest ticket: ${ticket.identifier || 'N/A'}
-            - Title: ${ticket.title || 'N/A'}
-            - Updated: ${ticket.updatedAt || 'N/A'}
-            - State: ${ticket.state || 'N/A'}
-            - Assignee: ${ticket.assignee || 'N/A'}
-            - URL: ${ticket.url || 'N/A'}
-            `
-                  : '\n            - Latest ticket: N/A\n'
-                body = `${marker}
+            if (fs.existsSync(mdPath)) {
+              body = fs.readFileSync(mdPath, 'utf8').trim()
+            } else {
+              const headline = status === 'pass' ? 'PASS' : 'FAIL'
+              const ticket = parsed?.latest_ticket
+              const ticketBlock = ticket
+                ? [
+                    `- Latest ticket: ${ticket.identifier || 'N/A'}`,
+                    `- Title: ${ticket.title || 'N/A'}`,
+                    `- Updated: ${ticket.updatedAt || 'N/A'}`,
+                    `- State: ${ticket.state || 'N/A'}`,
+                    `- Assignee: ${ticket.assignee || 'N/A'}`,
+                    `- URL: ${ticket.url || 'N/A'}`,
+                  ].join('\n')
+                : '- Latest ticket: N/A'
+              const agentNote =
+                process.env.AGENT_OUTCOME === 'success'
+                  ? ''
+                  : '- Note: Claude step failed; no fallback report was produced.'
+              body = [
+                marker,
+                '',
+                `## Agent E2E: ${headline}`,
+                '',
+                `- Preview URL: ${process.env.PREVIEW_URL || 'N/A'}`,
+                `- Cloudflare check: ${process.env.CHECK_RUN_URL || 'N/A'}`,
+                ticketBlock,
+                agentNote,
+                '',
+                parsed?.summary || 'E2E report file was not generated.',
+              ]
+                .filter(Boolean)
+                .join('\n')
+            }
 
-            ## Agent E2E: ${headline}
-
-            - Preview URL: ${process.env.PREVIEW_URL || 'N/A'}
-            - Cloudflare check: ${process.env.CHECK_RUN_URL || 'N/A'}
-            ${ticketBlock}
-
-            ${parsed?.summary || 'Agent report file was not generated.'}`
-              }
-
-              if (!body.includes(marker)) {
-                body = `${marker}\n\n${body}`
-              }
+            if (!body.includes(marker)) {
+              body = `${marker}\n\n${body}`
             }
 
             const outPath = `${process.env.RUNNER_TEMP}/e2e-pr-comment.md`

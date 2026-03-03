@@ -5,80 +5,144 @@ import type { services } from './db/schema'
 type ServiceRow = InferSelectModel<typeof services>
 
 const STYLES = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --background: #09090b;
+    --foreground: #fafafa;
+    --card: #111113;
+    --card-foreground: #fafafa;
+    --muted: #27272a;
+    --muted-foreground: #a1a1aa;
+    --border: #1e1e21;
+    --input: #27272a;
+    --ring: #d4d4d8;
+    --primary: #fafafa;
+    --primary-foreground: #09090b;
+    --secondary: #27272a;
+    --secondary-foreground: #fafafa;
+    --accent: #27272a;
+    --destructive: #ef4444;
+    --success: #4ade80;
+    --radius: 0.5rem;
+  }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: -apple-system, system-ui, 'Segoe UI', sans-serif;
-    background: #09090b; color: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    background: var(--background); color: var(--foreground);
     min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
   }
-  .container { max-width: 420px; width: 100%; padding: 2rem; }
-  .service-header { text-align: center; margin-bottom: 2rem; }
+  .container { max-width: 400px; width: 100%; padding: 2rem; }
+
+  .service-header { text-align: center; margin-bottom: 1.5rem; }
   .service-icon {
-    width: 48px; height: 48px; border-radius: 12px;
-    background: #18181b; border: 1px solid #27272a;
+    width: 56px; height: 56px; border-radius: 14px;
+    background: var(--card); border: 1px solid var(--border);
     display: inline-flex; align-items: center; justify-content: center;
-    margin-bottom: 1rem; font-size: 1.25rem; color: #a1a1aa;
+    margin-bottom: 0.875rem; font-size: 1.25rem; color: var(--muted-foreground);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   }
-  .service-name { font-size: 1.25rem; font-weight: 600; color: #fafafa; }
-  .service-host { font-size: 0.8rem; color: #52525b; margin-top: 0.25rem; font-family: monospace; }
-  .subtitle { color: #71717a; font-size: 0.875rem; margin-top: 0.5rem; }
+  .service-name {
+    font-size: 1.125rem; font-weight: 600; color: var(--foreground);
+    letter-spacing: -0.01em;
+  }
+  .service-host {
+    font-size: 0.75rem; color: #52525b; margin-top: 0.25rem;
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+  }
+  .subtitle { color: #71717a; font-size: 0.8125rem; margin-top: 0.375rem; line-height: 1.5; }
+
   .card {
-    background: #18181b; border: 1px solid #27272a; border-radius: 16px;
-    padding: 1.5rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.03);
   }
+
   .btn {
     display: inline-flex; align-items: center; justify-content: center;
-    padding: 0.625rem 1.25rem; border-radius: 10px; text-decoration: none;
-    font-weight: 500; cursor: pointer; border: none; font-size: 0.875rem;
-    transition: all 0.15s ease;
+    height: 36px; padding: 0 1rem; border-radius: var(--radius); text-decoration: none;
+    font-weight: 500; cursor: pointer; border: none; font-size: 0.8125rem;
+    transition: background 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+    letter-spacing: -0.01em; line-height: 1;
   }
-  .btn-primary { background: #fafafa; color: #09090b; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--primary); color: var(--primary-foreground);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
   .btn-primary:hover { background: #e4e4e7; }
-  .btn-secondary { background: #27272a; color: #fafafa; border: 1px solid #3f3f46; }
+  .btn-secondary {
+    background: var(--secondary); color: var(--secondary-foreground);
+    border: 1px solid #3f3f46;
+  }
   .btn-secondary:hover { background: #3f3f46; }
+
+  label {
+    display: block; margin-bottom: 0.375rem;
+    font-size: 0.8125rem; color: var(--muted-foreground); font-weight: 500;
+  }
   input[type="text"], input[type="password"] {
-    width: 100%; padding: 0.625rem 0.75rem; border-radius: 10px;
-    border: 1px solid #3f3f46; background: #09090b; color: #fafafa;
-    font-size: 0.875rem; font-family: monospace;
-    transition: border-color 0.15s ease;
+    width: 100%; height: 36px; padding: 0 0.75rem; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--background); color: var(--foreground);
+    font-size: 0.8125rem;
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  input:focus { outline: none; border-color: #71717a; }
-  input::placeholder { color: #52525b; font-family: -apple-system, system-ui, sans-serif; }
+  input:focus {
+    outline: none; border-color: #3f3f46;
+    box-shadow: 0 0 0 3px rgba(212,212,216,0.08);
+  }
+  input::placeholder {
+    color: #3f3f46;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  }
+
+  .form-group { margin-bottom: 0.75rem; }
+
   .token-box {
-    background: #09090b; border: 1px solid #27272a; border-radius: 10px;
-    padding: 1rem; word-break: break-all; font-family: monospace;
-    font-size: 0.8rem; margin: 1rem 0; color: #4ade80; line-height: 1.5;
+    background: var(--background); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.75rem; word-break: break-all;
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+    font-size: 0.75rem; margin: 0.75rem 0; color: var(--success); line-height: 1.6;
   }
-  .meta { color: #52525b; font-size: 0.8rem; margin-top: 0.75rem; }
-  .meta a { color: #71717a; text-decoration: underline; text-underline-offset: 2px; }
-  .meta a:hover { color: #a1a1aa; }
+  .meta {
+    color: #52525b; font-size: 0.75rem; margin-top: 0.75rem; line-height: 1.5;
+  }
+  .meta a {
+    color: #71717a; text-decoration: underline;
+    text-underline-offset: 2px; text-decoration-color: #3f3f46;
+    transition: color 0.15s ease;
+  }
+  .meta a:hover { color: var(--muted-foreground); text-decoration-color: #71717a; }
+
   .badge {
-    display: inline-block; padding: 0.2rem 0.5rem; border-radius: 6px;
-    font-size: 0.8rem; font-weight: 500; background: #052e16; color: #4ade80;
-    font-family: monospace;
+    display: inline-block; padding: 0.125rem 0.4rem; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 500; background: #052e16; color: var(--success);
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
   }
-  .error { color: #f87171; }
-  .auth-options { display: flex; flex-direction: column; gap: 0.75rem; }
-  label { display: block; margin-bottom: 0.5rem; font-size: 0.8rem; color: #a1a1aa; font-weight: 500; }
-  .divider { border: none; border-top: 1px solid #27272a; margin: 1rem 0; }
+  .error { color: var(--destructive); font-size: 0.8125rem; }
+  .auth-options { display: flex; flex-direction: column; gap: 0.5rem; }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+
   .status-bar {
     display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.75rem 1rem; border-radius: 10px;
-    background: #09090b; border: 1px solid #27272a;
-    font-size: 0.8rem; color: #71717a; margin-top: 1rem;
+    padding: 0.625rem 0.75rem; border-radius: var(--radius);
+    background: var(--card); border: 1px solid var(--border);
+    font-size: 0.75rem; color: #71717a; margin-top: 0.75rem;
   }
-  .status-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    flex-shrink: 0;
-  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .status-dot.active { background: #facc15; animation: pulse 1.5s ease-in-out infinite; }
-  .status-dot.done { background: #4ade80; }
+  .status-dot.done { background: var(--success); }
   .status-dot.idle { background: #52525b; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
   .warden-badge {
-    text-align: center; margin-top: 2rem; font-size: 0.75rem; color: #3f3f46;
+    text-align: center; margin-top: 1.5rem;
+    font-size: 0.6875rem; color: #27272a; letter-spacing: 0.01em;
   }
-  .warden-badge a { color: #52525b; text-decoration: none; }
+  .warden-badge a {
+    color: #3f3f46; text-decoration: none;
+    transition: color 0.15s ease;
+  }
+  .warden-badge a:hover { color: #52525b; }
 `
 
 function Layout({ children, title }: { children: any; title?: string }) {
@@ -111,6 +175,76 @@ function ServiceHeader({ service }: { service: ServiceRow }) {
       <div class="service-name">{name}</div>
       <div class="service-host">{service.service}</div>
     </div>
+  )
+}
+
+export function WardenLandingPage({ services = [] }: { services?: ServiceRow[] } = {}) {
+  return (
+    <Layout title="Warden — Authenticated API Proxy for Agents">
+      <div class="service-header">
+        <div class="service-icon" style="font-weight: 700; font-size: 1.125rem; color: var(--foreground)">W</div>
+        <div class="service-name">Warden</div>
+        <p class="subtitle">Authenticated API proxy for agents</p>
+      </div>
+
+      {services.length > 0 && (
+        <div class="card" style="margin-bottom: 0.75rem">
+          <label>Services</label>
+          <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem">
+            {services.map(s => (
+              <a href={`/${s.service}`} style="display: flex; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.375rem 0.5rem; border-radius: var(--radius); transition: background 0.15s ease; font-size: 0.8125rem"
+                onmouseover="this.style.background='var(--muted)'" onmouseout="this.style.background='transparent'">
+                <span style="width: 28px; height: 28px; border-radius: 7px; background: var(--muted); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--muted-foreground); flex-shrink: 0">
+                  {(s.displayName ?? s.service).charAt(0).toUpperCase()}
+                </span>
+                <span style="color: var(--foreground); font-weight: 500">{s.displayName ?? s.service}</span>
+                <span style="color: #3f3f46; font-family: 'SF Mono', monospace; font-size: 0.6875rem; margin-left: auto">{s.service}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div class="card" style="margin-bottom: 0.75rem">
+        <label>Quick Start</label>
+        <ol style="list-style: none; counter-reset: step; padding: 0; margin: 0.5rem 0 0 0; display: flex; flex-direction: column; gap: 0.625rem">
+          <li style="display: flex; gap: 0.5rem; font-size: 0.8125rem; color: var(--muted-foreground); line-height: 1.5">
+            <span style="color: var(--foreground); font-weight: 600; flex-shrink: 0">1.</span>
+            <span>Discover a service by requesting <code style="color: var(--foreground); font-family: 'SF Mono', monospace; font-size: 0.75rem; background: var(--muted); padding: 0.1rem 0.3rem; border-radius: 3px">GET /&#123;hostname&#125;</code> with <code style="color: var(--foreground); font-family: 'SF Mono', monospace; font-size: 0.75rem; background: var(--muted); padding: 0.1rem 0.3rem; border-radius: 3px">Accept: application/json</code></span>
+          </li>
+          <li style="display: flex; gap: 0.5rem; font-size: 0.8125rem; color: var(--muted-foreground); line-height: 1.5">
+            <span style="color: var(--foreground); font-weight: 600; flex-shrink: 0">2.</span>
+            <span>Present the <code style="color: var(--foreground); font-family: 'SF Mono', monospace; font-size: 0.75rem; background: var(--muted); padding: 0.1rem 0.3rem; border-radius: 3px">auth_url</code> to the user and poll <code style="color: var(--foreground); font-family: 'SF Mono', monospace; font-size: 0.75rem; background: var(--muted); padding: 0.1rem 0.3rem; border-radius: 3px">poll_url</code> until completed</span>
+          </li>
+          <li style="display: flex; gap: 0.5rem; font-size: 0.8125rem; color: var(--muted-foreground); line-height: 1.5">
+            <span style="color: var(--foreground); font-weight: 600; flex-shrink: 0">3.</span>
+            <span>Proxy requests through <code style="color: var(--foreground); font-family: 'SF Mono', monospace; font-size: 0.75rem; background: var(--muted); padding: 0.1rem 0.3rem; border-radius: 3px">/&#123;hostname&#125;/path</code> with <code style="color: var(--foreground); font-family: 'SF Mono', monospace; font-size: 0.75rem; background: var(--muted); padding: 0.1rem 0.3rem; border-radius: 3px">Authorization: Bearer &lt;token&gt;</code></span>
+          </li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <label>Routes</label>
+        <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem">
+          <div style="font-size: 0.8125rem">
+            <code style="color: var(--success); font-family: 'SF Mono', monospace; font-size: 0.75rem">GET /&#123;hostname&#125;</code>
+            <span style="color: var(--muted-foreground); margin-left: 0.375rem">Discovery + auth flow</span>
+          </div>
+          <div style="font-size: 0.8125rem">
+            <code style="color: var(--success); font-family: 'SF Mono', monospace; font-size: 0.75rem">GET /auth/status/&#123;flow_id&#125;</code>
+            <span style="color: var(--muted-foreground); margin-left: 0.375rem">Poll auth completion</span>
+          </div>
+          <div style="font-size: 0.8125rem">
+            <code style="color: var(--success); font-family: 'SF Mono', monospace; font-size: 0.75rem">ANY /&#123;hostname&#125;/&#123;path&#125;</code>
+            <span style="color: var(--muted-foreground); margin-left: 0.375rem">Authenticated proxy</span>
+          </div>
+          <div style="font-size: 0.8125rem">
+            <code style="color: var(--success); font-family: 'SF Mono', monospace; font-size: 0.75rem">GET /&#123;hostname&#125;/docs/</code>
+            <span style="color: var(--muted-foreground); margin-left: 0.375rem">Generated API docs</span>
+          </div>
+        </div>
+      </div>
+    </Layout>
   )
 }
 
@@ -157,7 +291,7 @@ export function ServiceLandingPage({
       ) : (
         <div class="card">
           {service.description && (
-            <p class="subtitle" style="margin-bottom: 1rem">{service.description}</p>
+            <p class="subtitle" style="margin-bottom: 0.75rem">{service.description}</p>
           )}
           <div class="auth-options">
             {supported.includes('oauth') && (
@@ -209,22 +343,26 @@ export function ApiKeyFormPage({
       <div class="card">
         <form method="post" action={`/auth/${service.service}/api-key`}>
           <input type="hidden" name="flow_id" value={flowId} />
-          <label for="api_key">API Key</label>
-          <input
-            type="password"
-            id="api_key"
-            name="api_key"
-            placeholder={`Paste your ${name} API key`}
-            required
-          />
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem">
+          <div class="form-group">
+            <label for="api_key">API Key</label>
+            <input
+              type="password"
+              id="api_key"
+              name="api_key"
+              placeholder={`Paste your ${name} API key`}
+              required
+              autocomplete="off"
+              spellcheck={false}
+            />
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%">
             Connect
           </button>
         </form>
         {service.docsUrl && (
           <p class="meta">
             Need a key?{' '}
-            <a href={service.docsUrl}>
+            <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">
               Get one from {name}
             </a>
           </p>
@@ -247,7 +385,7 @@ export function SuccessPage({
       <ServiceHeader service={service} />
 
       <div class="card">
-        <p style="font-size: 0.875rem; color: #a1a1aa; margin-bottom: 0.5rem">Your Warden token</p>
+        <label>Your Warden token</label>
         <div class="token-box" id="token">
           {token}
         </div>

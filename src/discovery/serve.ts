@@ -35,7 +35,7 @@ export function docRoutes() {
       db,
       hostname: serviceName,
       service: svc,
-      awsRegion: c.env.AWS_REGION,
+      bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION,
       baseUrl: new URL(c.req.url).origin,
     }
 
@@ -60,7 +60,7 @@ export function docRoutes() {
       db,
       hostname: serviceName,
       service: svc,
-      awsRegion: c.env.AWS_REGION,
+      bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION,
       baseUrl: new URL(c.req.url).origin,
     }
 

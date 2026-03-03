@@ -120,6 +120,8 @@ export async function probeService(
     authDetected: [],
   }
 
+  console.log(`[probe] probing ${baseUrl} (hint: ${apiType ?? 'unknown'})`)
+
   // Run probes in parallel
   const [openApi, graphql, docsUrl] = await Promise.all([
     apiType !== 'graphql' ? probeOpenApi(baseUrl) : Promise.resolve(null),

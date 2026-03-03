@@ -4,8 +4,9 @@ import { probeService } from './probe'
 import { runDeterministicDiscovery } from './deterministic'
 import { enrichPages } from './enrichment'
 
-// In-memory tracking to prevent duplicate background runs
-const activeJobs = new Map<string, Promise<void>>()
+// In-memory tracking to prevent duplicate runs per hostname
+const activePipelines = new Map<string, Promise<void>>()
+const activeEnrichments = new Map<string, Promise<void>>()
 
 /**
  * Get a doc page, generating it if necessary.
@@ -55,14 +56,34 @@ export async function getOrGeneratePage(
 }
 
 /**
- * Run the full pipeline: probe → deterministic discovery → queue enrichment
+ * Run the full pipeline: probe → deterministic discovery → queue enrichment.
+ * Idempotent: concurrent calls for the same hostname share one pipeline run.
  */
-export async function triggerFullPipeline(ctx: PipelineContext) {
+export function triggerFullPipeline(ctx: PipelineContext): Promise<void> {
+  const key = ctx.hostname
+  const existing = activePipelines.get(key)
+  if (existing) {
+    console.log(`[discovery] pipeline already running for ${key}, joining existing run`)
+    return existing
+  }
+
+  const pipeline = runFullPipeline(ctx)
+    .finally(() => activePipelines.delete(key))
+
+  activePipelines.set(key, pipeline)
+  return pipeline
+}
+
+async function runFullPipeline(ctx: PipelineContext) {
+  console.log(`[discovery] pipeline started for ${ctx.hostname} (baseUrl: ${ctx.service.baseUrl})`)
+
   // Phase 1: Probe
   const probe = await probeService(ctx.service.baseUrl, ctx.service.apiType ?? undefined)
+  console.log(`[discovery] probe complete for ${ctx.hostname}: type=${probe.apiType}, spec=${!!probe.specContent}, graphql=${!!probe.graphqlSchema}, docsUrl=${probe.docsUrl ?? 'none'}`)
 
   // Phase 2: Deterministic discovery
-  await runDeterministicDiscovery(ctx, probe)
+  const result = await runDeterministicDiscovery(ctx, probe)
+  console.log(`[discovery] deterministic complete for ${ctx.hostname}: ${result.pagesWritten} pages, ${result.resourcesFound.length} resources, hasSpec=${result.hasSpec}`)
 
   // Phase 3: Queue enrichment in background
   queueBackgroundEnrichment(ctx)
@@ -70,24 +91,31 @@ export async function triggerFullPipeline(ctx: PipelineContext) {
 
 /**
  * Queue background enrichment for skeleton pages.
- * Deduplicates: only one enrichment job per hostname runs at a time.
+ * Idempotent: only one enrichment job per hostname runs at a time.
  */
 function queueBackgroundEnrichment(ctx: PipelineContext) {
   const key = ctx.hostname
-  if (activeJobs.has(key)) return
+  if (activeEnrichments.has(key)) return
 
   const job = runBackgroundEnrichment(ctx)
     .catch(err => console.error(`[discovery] background enrichment failed for ${key}:`, err))
-    .finally(() => activeJobs.delete(key))
+    .finally(() => activeEnrichments.delete(key))
 
-  activeJobs.set(key, job)
+  activeEnrichments.set(key, job)
 }
 
 async function runBackgroundEnrichment(ctx: PipelineContext) {
-  if (!ctx.awsRegion) return
+  if (!ctx.bedrockApiKey) {
+    console.log(`[discovery] skipping enrichment for ${ctx.hostname}: no BEDROCK_API_KEY configured`)
+    return
+  }
 
   const skeletons = await listSkeletonPages(ctx.db, ctx.hostname)
-  if (skeletons.length === 0) return
+  if (skeletons.length === 0) {
+    console.log(`[discovery] no skeleton pages to enrich for ${ctx.hostname}`)
+    return
+  }
+  console.log(`[discovery] enriching ${skeletons.length} skeleton pages for ${ctx.hostname}`)
 
   // BFS order: sort by level (derived from path depth)
   const sorted = skeletons.sort((a, b) => {
