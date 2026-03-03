@@ -75,7 +75,7 @@ const STYLES = `
   }
   .btn-secondary:hover { background: #3f3f46; }
 
-  label {
+  label, .card-label {
     display: block; margin-bottom: 0.375rem;
     font-size: 0.8125rem; color: var(--muted-foreground); font-weight: 500;
   }
@@ -189,7 +189,7 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceRow[] }
 
       {services.length > 0 && (
         <div class="card" style="margin-bottom: 0.75rem">
-          <label>Services</label>
+          <span class="card-label">Services</span>
           <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem">
             {services.map(s => (
               <a href={`/${s.service}`} style="display: flex; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.375rem 0.5rem; border-radius: var(--radius); transition: background 0.15s ease; font-size: 0.8125rem"
@@ -206,7 +206,7 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceRow[] }
       )}
 
       <div class="card" style="margin-bottom: 0.75rem">
-        <label>Quick Start</label>
+        <span class="card-label">Quick Start</span>
         <ol style="list-style: none; counter-reset: step; padding: 0; margin: 0.5rem 0 0 0; display: flex; flex-direction: column; gap: 0.625rem">
           <li style="display: flex; gap: 0.5rem; font-size: 0.8125rem; color: var(--muted-foreground); line-height: 1.5">
             <span style="color: var(--foreground); font-weight: 600; flex-shrink: 0">1.</span>
@@ -224,7 +224,7 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceRow[] }
       </div>
 
       <div class="card">
-        <label>Routes</label>
+        <span class="card-label">Routes</span>
         <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem">
           <div style="font-size: 0.8125rem">
             <code style="color: var(--success); font-family: 'SF Mono', monospace; font-size: 0.75rem">GET /&#123;hostname&#125;</code>
@@ -385,7 +385,7 @@ export function SuccessPage({
       <ServiceHeader service={service} />
 
       <div class="card">
-        <label>Your Warden token</label>
+        <span class="card-label">Your Warden token</span>
         <div class="token-box" id="token">
           {token}
         </div>

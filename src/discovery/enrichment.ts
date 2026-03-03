@@ -4,7 +4,7 @@ import type { PipelineContext } from './types'
 import { getDocPage, upsertDocPage, listDocPages } from '../db/queries'
 
 const ENRICHMENT_MODEL = 'us.anthropic.claude-sonnet-4-6'
-const MAX_TURNS = 10
+const MAX_TURNS = 3
 
 const tools: Tool[] = [
   {
@@ -42,14 +42,15 @@ const tools: Tool[] = [
 function buildSystemPrompt(ctx: PipelineContext) {
   return `You are a technical writer generating API documentation for ${ctx.service.displayName ?? ctx.hostname} (${ctx.service.baseUrl}).
 
+IMPORTANT: Call write_doc_page IMMEDIATELY with your best effort. Do NOT fetch more than one URL before writing. A partial page NOW is better than a perfect page later.
+
 Guidelines:
 - Write concise, developer-friendly descriptions
 - Generate realistic example requests and responses with placeholder IDs
 - For resources: identify the 3-5 most common operations
 - For operations: include required parameters and at least one example
 - Do NOT hallucinate endpoints or fields that don't exist
-- Use the fetch_upstream tool to read docs if you need more information
-- Use the write_doc_page tool to save your enriched page
+- You may fetch ONE upstream URL if you need more context, then WRITE immediately
 - Mark content as best-effort if unsure — a partial page is better than nothing`
 }
 
@@ -59,9 +60,9 @@ function buildEnrichmentPrompt(
   existingPages: { path: string; content: string }[],
   docsUrl?: string,
 ) {
-  let prompt = `Enrich the following skeleton documentation page. The current content is minimal — add descriptions, examples, and details.
+  let prompt = `Enrich this skeleton doc page by adding descriptions and examples, then IMMEDIATELY call write_doc_page to save it.
 
-Page to enrich: ${pagePath}
+Page: ${pagePath}
 Current content:
 ${pageContent}
 

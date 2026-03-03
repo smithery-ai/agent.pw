@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from '../types'
-import { getDocPage, getService, listDocPages } from '../db/queries'
+import { getDocPage, getService } from '../db/queries'
 import { getOrGeneratePage } from './index'
 
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
