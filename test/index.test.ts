@@ -1,305 +1,401 @@
-import { env, SELF } from 'cloudflare:test'
 import { describe, it, expect, beforeEach } from 'vitest'
+import { createApp } from '../src/index'
+import {
+  createTestDb,
+  BISCUIT_PRIVATE_KEY,
+  BASE_URL,
+  mintRootToken,
+  mintProxyToken,
+  type TestDb,
+} from './setup'
+import { mintToken } from '../src/biscuit'
 
-const ADMIN_KEY = 'sk_test_admin_key_12345'
+let db: TestDb
+let app: ReturnType<typeof createApp>
 
-function adminHeaders() {
-  return { Authorization: `Bearer ${ADMIN_KEY}`, 'Content-Type': 'application/json' }
+beforeEach(async () => {
+  db = await createTestDb()
+  app = createApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, baseUrl: BASE_URL })
+})
+
+function req(path: string, init?: RequestInit) {
+  return app.request(path, init)
 }
 
-async function adminFetch(path: string, init?: RequestInit) {
-  return SELF.fetch(`https://auth-proxy.test${path}`, {
+function mgmtReq(path: string, init: RequestInit = {}) {
+  const token = mintRootToken()
+  return req(path, {
     ...init,
-    headers: { ...adminHeaders(), ...init?.headers },
+    headers: { Authorization: `Bearer ${token}`, ...init.headers },
   })
 }
 
-async function fetchWithToken(path: string, token: string, init?: RequestInit) {
-  return SELF.fetch(`https://auth-proxy.test${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
+async function seedVault(slug = 'personal') {
+  await mgmtReq('/vaults', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug, displayName: slug }),
   })
 }
 
-/** Helper to register a service */
-async function setupService(name: string, baseUrl: string, description?: string) {
-  await adminFetch(`/admin/services/${name}`, {
+async function seedService(service = 'api.github.com') {
+  await mgmtReq(`/services/${service}`, {
     method: 'PUT',
-    body: JSON.stringify({ baseUrl, authMethod: 'bearer', description }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      baseUrl: 'https://api.github.com',
+      displayName: 'GitHub',
+      description: 'REST API for GitHub.',
+      supportedAuthMethods: ['oauth', 'api_key'],
+      apiType: 'rest',
+      docsUrl: 'https://docs.github.com/en/rest',
+    }),
   })
 }
 
-/** Helper to store a credential */
-async function setupCredential(service: string, identity: string, token: string, metadata?: Record<string, string>) {
-  await adminFetch(`/admin/credentials/${service}`, {
-    method: 'PUT',
-    body: JSON.stringify({ identity, token, metadata }),
-  })
-}
+// ─── Health ──────────────────────────────────────────────────────────────────
 
-describe('Auth Proxy', () => {
-  // ─── Health ──────────────────────────────────────────────────────────────
-
-  it('GET / returns health check', async () => {
-    const res = await SELF.fetch('https://auth-proxy.test/')
+describe('Health', () => {
+  it('GET / returns ok', async () => {
+    const res = await req('/')
     expect(res.status).toBe(200)
-    const body = await res.json() as any
-    expect(body.status).toBe('ok')
-    expect(body.service).toBe('auth-proxy')
+    const body = await res.json()
+    expect(body).toEqual({ status: 'ok', service: 'warden' })
   })
+})
 
-  // ─── Admin Auth ────────────────────────────────────────────────────────
+// ─── Management Auth ─────────────────────────────────────────────────────────
 
-  it('rejects requests without auth', async () => {
-    const res = await SELF.fetch('https://auth-proxy.test/admin/services')
+describe('Management Auth', () => {
+  it('rejects requests without auth header', async () => {
+    const res = await req('/services', {
+      headers: { Accept: 'application/json' },
+    })
     expect(res.status).toBe(401)
   })
 
-  it('rejects requests with wrong admin key', async () => {
-    const res = await SELF.fetch('https://auth-proxy.test/admin/services', {
-      headers: { Authorization: 'Bearer wrong_key' },
+  it('rejects requests with invalid token', async () => {
+    const res = await req('/vaults', {
+      headers: { Authorization: 'Bearer invalid_token' },
     })
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(401)
   })
 
-  // ─── Service Management ────────────────────────────────────────────────
+  it('accepts requests with valid management token', async () => {
+    const res = await mgmtReq('/services', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(res.status).toBe(200)
+  })
+})
 
-  it('creates and lists services', async () => {
-    const res = await adminFetch('/admin/services/cloudflare', {
+// ─── Vault Management ────────────────────────────────────────────────────────
+
+describe('Vault Management', () => {
+  it('creates a vault', async () => {
+    const res = await mgmtReq('/vaults', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: 'team-alpha', displayName: 'Team Alpha' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.ok).toBe(true)
+  })
+
+  it('lists vaults', async () => {
+    await seedVault('personal')
+    await seedVault('team-alpha')
+    const res = await mgmtReq('/vaults')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any[]
+    expect(body).toHaveLength(2)
+  })
+
+  it('deletes a vault', async () => {
+    await seedVault('to-delete')
+    const res = await mgmtReq('/vaults/to-delete', { method: 'DELETE' })
+    expect(res.status).toBe(200)
+
+    const list = await mgmtReq('/vaults')
+    const body = (await list.json()) as any[]
+    expect(body.find((v: any) => v.slug === 'to-delete')).toBeUndefined()
+  })
+})
+
+// ─── Service Management ─────────────────────────────────────────────────────
+
+describe('Service Management', () => {
+  it('creates a service', async () => {
+    await seedService()
+    const res = await mgmtReq('/services')
+    const body = (await res.json()) as any[]
+    expect(body).toHaveLength(1)
+    expect(body[0].service).toBe('api.github.com')
+  })
+
+  it('rejects reserved names', async () => {
+    const res = await mgmtReq('/services/vaults', {
       method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'https://vaults.example.com' }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('deletes a service', async () => {
+    await seedService()
+    const res = await mgmtReq('/services/api.github.com', { method: 'DELETE' })
+    expect(res.status).toBe(200)
+
+    const list = await mgmtReq('/services')
+    const body = (await list.json()) as any[]
+    expect(body).toHaveLength(0)
+  })
+})
+
+// ─── Credential Management (vault-scoped) ────────────────────────────────────
+
+describe('Credential Management', () => {
+  beforeEach(async () => {
+    await seedVault('personal')
+    await seedService()
+  })
+
+  it('stores a credential in a vault', async () => {
+    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'ghp_test123', identity: 'alice' }),
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('lists credentials in a vault', async () => {
+    await mgmtReq('/vaults/personal/credentials/api.github.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'ghp_test123' }),
+    })
+
+    const res = await mgmtReq('/vaults/personal/credentials')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any[]
+    expect(body).toHaveLength(1)
+    expect(body[0].service).toBe('api.github.com')
+    expect(body[0].hasToken).toBe(true)
+  })
+
+  it('rejects credential for non-existent service', async () => {
+    const res = await mgmtReq('/vaults/personal/credentials/nonexistent', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'test' }),
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('rejects credential for non-existent vault', async () => {
+    const res = await mgmtReq('/vaults/nonexistent/credentials/api.github.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'test' }),
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('deletes a credential', async () => {
+    await mgmtReq('/vaults/personal/credentials/api.github.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'ghp_test123' }),
+    })
+
+    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+      method: 'DELETE',
+    })
+    expect(res.status).toBe(200)
+
+    const list = await mgmtReq('/vaults/personal/credentials')
+    const body = (await list.json()) as any[]
+    expect(body).toHaveLength(0)
+  })
+})
+
+// ─── Token Minting ──────────────────────────────────────────────────────────
+
+describe('Token Minting', () => {
+  it('mints a proxy token with grants format', async () => {
+    const res = await mgmtReq('/tokens/mint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        baseUrl: 'https://api.cloudflare.com',
-        authMethod: 'bearer',
-        description: 'Cloudflare API',
+        grants: [{ services: 'api.github.com', vault: 'personal' }],
       }),
     })
     expect(res.status).toBe(200)
-    expect((await res.json() as any).ok).toBe(true)
-
-    const listRes = await adminFetch('/admin/services')
-    expect(listRes.status).toBe(200)
-    const services = await listRes.json() as any[]
-    expect(services.some((s: any) => s.service === 'cloudflare')).toBe(true)
+    const body = (await res.json()) as any
+    expect(body.token).toMatch(/^wdn_/)
+    expect(body.publicKey).toBeTruthy()
   })
 
-  it('requires baseUrl for service creation', async () => {
-    const res = await adminFetch('/admin/services/bad', {
-      method: 'PUT',
+  it('mints a proxy token with bindings format', async () => {
+    const res = await mgmtReq('/tokens/mint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bindings: { 'api.github.com': { vault: 'personal' } },
+      }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.token).toMatch(/^wdn_/)
+  })
+
+  it('mints a management token', async () => {
+    const res = await mgmtReq('/tokens/mint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rights: ['manage_services'],
+        vaultAdmin: ['personal'],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.token).toMatch(/^wdn_/)
+  })
+
+  it('rejects empty body', async () => {
+    const res = await mgmtReq('/tokens/mint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     })
     expect(res.status).toBe(400)
   })
+})
 
-  it('creates then deletes services', async () => {
-    await setupService('todelete', 'https://example.com')
-    const res = await adminFetch('/admin/services/todelete', { method: 'DELETE' })
-    expect(res.status).toBe(200)
-  })
+// ─── Token Restriction ──────────────────────────────────────────────────────
 
-  // ─── Credential Management ─────────────────────────────────────────────
+describe('Token Restriction', () => {
+  it('restricts a token publicly', async () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+      { services: 'api.github.com', methods: ['GET', 'POST'], paths: '/' },
+    ])
 
-  it('stores and deletes credentials', async () => {
-    await setupService('github', 'https://api.github.com', 'GitHub API')
-
-    // Store
-    const storeRes = await adminFetch('/admin/credentials/github', {
-      method: 'PUT',
-      body: JSON.stringify({
-        identity: 'alice',
-        token: 'ghp_secret_token_12345',
-        metadata: { team: 'backend', env: 'prod' },
-      }),
+    const res = await req('/tokens/restrict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, constraints: [{ methods: 'GET' }] }),
     })
-    expect(storeRes.status).toBe(200)
-    const body = await storeRes.json() as any
-    expect(body.ok).toBe(true)
-    expect(body.identity).toBe('alice')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.token).toMatch(/^wdn_/)
+    expect(body.token).not.toBe(token)
+  })
+})
 
-    // Delete
-    const delRes = await adminFetch('/admin/credentials/github/alice', { method: 'DELETE' })
-    expect(delRes.status).toBe(200)
+// ─── Discovery (content-negotiated) ──────────────────────────────────────────
+
+describe('Discovery', () => {
+  beforeEach(async () => {
+    await seedService()
   })
 
-  it('rejects credential storage for unknown service', async () => {
-    const res = await adminFetch('/admin/credentials/nonexistent', {
-      method: 'PUT',
-      body: JSON.stringify({ identity: 'bob', token: 'xxx' }),
+  it('returns 401 JSON for unauthenticated agent', async () => {
+    const res = await req('/api.github.com', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(res.status).toBe(401)
+    expect(res.headers.get('WWW-Authenticate')).toBe('Bearer realm="warden"')
+
+    const body = (await res.json()) as any
+    expect(body.service).toBe('GitHub')
+    expect(body.canonical).toBe('api.github.com')
+    expect(body.auth_options).toHaveLength(2)
+    expect(body.auth_options[0].type).toBe('oauth')
+    expect(body.auth_options[1].type).toBe('api_key')
+  })
+
+  it('returns HTML for unauthenticated browser', async () => {
+    const res = await req('/api.github.com', {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('GitHub')
+    expect(text).toContain('Connect with OAuth')
+    expect(text).toContain('Enter API Key')
+  })
+
+  it('returns 200 JSON for authenticated agent', async () => {
+    const token = mintProxyToken('api.github.com', 'personal')
+
+    const res = await req('/api.github.com', {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.canonical).toBe('api.github.com')
+  })
+
+  it('returns 404 for unknown service', async () => {
+    const res = await req('/unknown.api.com', {
+      headers: { Accept: 'application/json' },
     })
     expect(res.status).toBe(404)
   })
+})
 
-  // ─── Token Minting ─────────────────────────────────────────────────────
+// ─── Proxy ───────────────────────────────────────────────────────────────────
 
-  it('mints a scoped token', async () => {
-    const res = await adminFetch('/admin/tokens/mint', {
-      method: 'POST',
-      body: JSON.stringify({
-        grants: [{
-          services: 'cloudflare',
-          methods: 'GET',
-          paths: '/client/v4/',
-          metadata: { userId: 'alice' },
-          ttl: '1h',
-        }],
-      }),
-    })
-    expect(res.status).toBe(200)
-    const body = await res.json() as any
-    expect(body.token).toMatch(/^vt_/)
-    expect(body.publicKey).toBeTruthy()
-  })
-
-  it('rejects mint without grants', async () => {
-    const res = await adminFetch('/admin/tokens/mint', {
-      method: 'POST',
-      body: JSON.stringify({ grants: [] }),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  // ─── Token Restriction ─────────────────────────────────────────────────
-
-  it('restricts a token (public endpoint)', async () => {
-    // Mint a broad token
-    const mintRes = await adminFetch('/admin/tokens/mint', {
-      method: 'POST',
-      body: JSON.stringify({
-        grants: [{ services: ['cloudflare', 'github'], methods: ['GET', 'POST'] }],
-      }),
-    })
-    const { token } = await mintRes.json() as any
-
-    // Restrict it (no admin key needed)
-    const res = await SELF.fetch('https://auth-proxy.test/tokens/restrict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token,
-        constraints: [{ services: 'cloudflare', methods: 'GET', ttl: '10m' }],
-      }),
-    })
-    const body = await res.json() as any
-    if (res.status !== 200) {
-      console.error('Restrict failed:', body)
-    }
-    expect(res.status).toBe(200)
-    expect(body.token).toMatch(/^vt_/)
-    expect(body.token.length).toBeGreaterThan(token.length)
-  })
-
-  // ─── Discoverability ──────────────────────────────────────────────────
-
-  it('lists services scoped by admin key', async () => {
-    await setupService('cloudflare', 'https://api.cloudflare.com', 'Cloudflare API')
-    const res = await fetchWithToken('/services', ADMIN_KEY)
-    expect(res.status).toBe(200)
-    const body = await res.json() as any[]
-    expect(body.length).toBeGreaterThan(0)
-  })
-
-  it('lists services scoped by token', async () => {
-    await setupService('cloudflare', 'https://api.cloudflare.com')
-    await setupService('github', 'https://api.github.com')
-
-    // Mint a token that only allows cloudflare
-    const mintRes = await adminFetch('/admin/tokens/mint', {
-      method: 'POST',
-      body: JSON.stringify({
-        grants: [{ services: 'cloudflare', methods: 'GET' }],
-      }),
-    })
-    const { token } = await mintRes.json() as any
-
-    const res = await fetchWithToken('/services', token)
-    expect(res.status).toBe(200)
-    const body = await res.json() as any[]
-    expect(body.every((s: any) => s.service === 'cloudflare')).toBe(true)
-    expect(body.length).toBe(1)
-  })
-
-  // ─── Proxy ──────────────────────────────────────────────────────────────
-
-  it('rejects proxy requests without auth', async () => {
-    const res = await SELF.fetch('https://auth-proxy.test/proxy/cloudflare/client/v4/zones')
+describe('Proxy', () => {
+  it('rejects requests without auth', async () => {
+    await seedService()
+    const res = await req('/api.github.com/user')
     expect(res.status).toBe(401)
   })
 
-  it('rejects proxy to unknown service', async () => {
-    const res = await fetchWithToken('/proxy/nonexistent/test', ADMIN_KEY)
+  it('rejects requests with invalid token', async () => {
+    await seedService()
+    const res = await req('/api.github.com/user', {
+      headers: { Authorization: 'Bearer invalid_token' },
+    })
+    expect(res.status).toBe(401)
+  })
+})
+
+// ─── Legacy Redirect ────────────────────────────────────────────────────────
+
+describe('Legacy Redirect', () => {
+  it('redirects /proxy/:service/* to /:service/*', async () => {
+    const res = await req('/proxy/api.github.com/user', { redirect: 'manual' })
+    expect(res.status).toBe(301)
+    expect(res.headers.get('Location')).toBe('/api.github.com/user')
+  })
+})
+
+// ─── Auth Flow Polling ──────────────────────────────────────────────────────
+
+describe('Auth Flow Polling', () => {
+  it('returns 404 for unknown flow', async () => {
+    const res = await req('/auth/status/nonexistent')
     expect(res.status).toBe(404)
   })
+})
 
-  it('rejects proxy with revoked token', async () => {
-    await setupService('cloudflare', 'https://api.cloudflare.com')
-    await setupCredential('cloudflare', 'alice', 'cf_fake_token', { userId: 'alice' })
+// ─── Key Generation ─────────────────────────────────────────────────────────
 
-    // Mint a token
-    const mintRes = await adminFetch('/admin/tokens/mint', {
-      method: 'POST',
-      body: JSON.stringify({
-        grants: [{ services: 'cloudflare', methods: 'GET', metadata: { userId: 'alice' } }],
-      }),
-    })
-    const { token } = await mintRes.json() as any
-
-    // Revoke it
-    const revokeRes = await adminFetch('/admin/tokens/revoke', {
-      method: 'POST',
-      body: JSON.stringify({ token, reason: 'test revocation' }),
-    })
-    const revokeBody = await revokeRes.json() as any
-    if (revokeRes.status !== 200) {
-      console.error('Revoke failed:', revokeBody)
-    }
-    expect(revokeRes.status).toBe(200)
-
-    // Try to use it — should be forbidden
-    const proxyRes = await fetchWithToken('/proxy/cloudflare/client/v4/zones', token)
-    expect(proxyRes.status).toBe(403)
-    const body = await proxyRes.json() as any
-    expect(body.error).toContain('revoked')
-  })
-
-  it('rejects proxy when token scope does not match', async () => {
-    await setupService('cloudflare', 'https://api.cloudflare.com')
-    await setupCredential('cloudflare', 'alice', 'cf_fake_token', { userId: 'alice' })
-
-    // Mint a token only for GET
-    const mintRes = await adminFetch('/admin/tokens/mint', {
-      method: 'POST',
-      body: JSON.stringify({
-        grants: [{
-          services: 'cloudflare',
-          methods: 'GET',
-          paths: '/client/v4/zones',
-          metadata: { userId: 'alice' },
-        }],
-      }),
-    })
-    const { token } = await mintRes.json() as any
-
-    // Try DELETE — should be forbidden
-    const res = await fetchWithToken('/proxy/cloudflare/client/v4/zones/abc', token, {
-      method: 'DELETE',
-    })
-    const body = await res.json() as any
-    if (res.status !== 403) {
-      console.error('Expected 403, got:', res.status, body)
-    }
-    expect(res.status).toBe(403)
-  })
-
-  // ─── Key Generation ────────────────────────────────────────────────────
-
-  it('generates a key pair', async () => {
-    const res = await adminFetch('/admin/keys/generate', { method: 'POST' })
+describe('Key Generation', () => {
+  it('generates an Ed25519 keypair', async () => {
+    const res = await mgmtReq('/keys/generate', { method: 'POST' })
     expect(res.status).toBe(200)
-    const body = await res.json() as any
-    expect(body.privateKey).toMatch(/^ed25519-private\//)
-    expect(body.publicKey).toMatch(/^ed25519\//)
+    const body = (await res.json()) as any
+    expect(body.privateKey).toBeTruthy()
+    expect(body.publicKey).toBeTruthy()
   })
 })

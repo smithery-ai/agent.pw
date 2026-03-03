@@ -19,7 +19,8 @@ import {
 } from './biscuit-shim'
 import type { ProxyConstraint, HttpMethod } from './types'
 
-export const TOKEN_PREFIX = 'vt_'
+export const TOKEN_PREFIX = 'wdn_'
+const LEGACY_PREFIX = 'vt_'
 
 const RUN_LIMITS = {
   max_facts: 1000,
@@ -35,6 +36,7 @@ function addPrefix(base64: string): string {
 
 export function stripPrefix(token: string): string {
   if (token.startsWith(TOKEN_PREFIX)) return token.slice(TOKEN_PREFIX.length)
+  if (token.startsWith(LEGACY_PREFIX)) return token.slice(LEGACY_PREFIX.length)
   return token
 }
 
@@ -92,6 +94,10 @@ function buildAuthorityCode(grants: ProxyConstraint[]): string {
       lines.push(`grant_path(${i}, "${escapeDatalog(path)}");`)
     }
     if (!grant.paths) lines.push(`grant_path(${i}, "*");`)
+
+    if (grant.vault) {
+      lines.push(`grant_vault(${i}, "${escapeDatalog(grant.vault)}");`)
+    }
 
     if (grant.metadata) {
       for (const [key, value] of Object.entries(grant.metadata)) {
@@ -208,11 +214,11 @@ function stripKeyPrefix(key: string): string {
   return key.replace(/^ed25519\//, '')
 }
 
-function parsePublicKey(publicKeyHex: string): PublicKey {
+function parsePublicKey(publicKeyHex: string) {
   return PublicKey.fromString(stripKeyPrefix(publicKeyHex), SignatureAlgorithm.Ed25519)
 }
 
-export function getPublicKey(privateKeyHex: string): PublicKey {
+export function getPublicKey(privateKeyHex: string) {
   const pk = PrivateKey.fromString(privateKeyHex)
   return KeyPair.fromPrivateKey(pk).getPublicKey()
 }
@@ -392,5 +398,94 @@ export function generateKeyPairHex(): { privateKey: string; publicKey: string } 
   return {
     privateKey: kp.getPrivateKey().toString(),
     publicKey: kp.getPublicKey().toString(),
+  }
+}
+
+// ─── Management Tokens ──────────────────────────────────────────────────────
+
+export function mintManagementToken(
+  privateKeyHex: string,
+  rights: string[],
+  vaultAdminSlugs: string[],
+): string {
+  const lines: string[] = []
+  for (const r of rights) {
+    lines.push(`right("${escapeDatalog(r)}");`)
+  }
+  for (const slug of vaultAdminSlugs) {
+    lines.push(`vault_admin("${escapeDatalog(slug)}");`)
+  }
+  const code = lines.join('\n')
+  const privateKey = PrivateKey.fromString(privateKeyHex)
+  const builder = Biscuit.builder()
+  builder.addCode(code)
+  const token = builder.build(privateKey)
+  return addPrefix(token.toBase64())
+}
+
+export function extractManagementRights(
+  tokenBase64: string,
+  publicKeyHex: string,
+) {
+  try {
+    const raw = stripPrefix(tokenBase64)
+    const publicKey = parsePublicKey(publicKeyHex)
+    const token = Biscuit.fromBase64(raw, publicKey)
+    const source = token.getBlockSource(0)
+
+    const rights: string[] = []
+    const vaultAdminSlugs: string[] = []
+
+    for (const line of source.split('\n')) {
+      const trimmed = line.trim().replace(/;$/, '')
+      const rightMatch = trimmed.match(/right\("([^"]+)"\)/)
+      if (rightMatch) rights.push(rightMatch[1])
+      const vaultAdminMatch = trimmed.match(/vault_admin\("([^"]+)"\)/)
+      if (vaultAdminMatch) vaultAdminSlugs.push(vaultAdminMatch[1])
+    }
+
+    return { rights, vaultAdminSlugs }
+  } catch {
+    return { rights: [], vaultAdminSlugs: [] }
+  }
+}
+
+export function extractVaultFromToken(
+  tokenBase64: string,
+  publicKeyHex: string,
+  service: string,
+): string | null {
+  try {
+    const raw = stripPrefix(tokenBase64)
+    const publicKey = parsePublicKey(publicKeyHex)
+    const token = Biscuit.fromBase64(raw, publicKey)
+    const source = token.getBlockSource(0)
+
+    const matchingGrants = new Set<number>()
+    for (const line of source.split('\n')) {
+      const trimmed = line.trim().replace(/;$/, '')
+      const match = trimmed.match(/grant_service\((\d+),\s*"([^"]+)"\)/)
+      if (match) {
+        const [, id, svc] = match
+        if (svc === service || svc === '*') {
+          matchingGrants.add(parseInt(id))
+        }
+      }
+    }
+
+    for (const line of source.split('\n')) {
+      const trimmed = line.trim().replace(/;$/, '')
+      const match = trimmed.match(/grant_vault\((\d+),\s*"([^"]+)"\)/)
+      if (match) {
+        const [, id, vault] = match
+        if (matchingGrants.has(parseInt(id))) {
+          return vault
+        }
+      }
+    }
+
+    return null
+  } catch {
+    return null
   }
 }

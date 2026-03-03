@@ -1,152 +1,312 @@
-# Auth Proxy
+# Warden
 
-An authenticated HTTP reverse proxy built on Cloudflare Workers. It stores upstream API credentials in D1 and uses [Biscuit tokens](https://www.biscuitsec.org/) for fine-grained, attenuable access control. Clients never see raw API keys -- they present a scoped token, and the proxy injects the right credential into upstream requests.
+An auth proxy where the URL is the interface. Warden sits between your agents and upstream APIs — it holds the real credentials, enforces fine-grained access control via [Biscuit tokens](https://www.biscuitsec.org/), and handles OAuth/API-key flows so agents never touch raw secrets.
+
+```
+Agent ──▶ warden.run/api.github.com/user ──▶ api.github.com/user
+       (Biscuit token)                     (real API key injected)
+```
+
+The same URL serves both **discovery** and **proxy**:
+- No token + `Accept: application/json` → 401 with auth options (for agents)
+- No token + browser → HTML landing page with setup buttons
+- With token → proxied request to the upstream API
 
 ## Quick Start
 
+### Prerequisites
+
+- Node.js 20+
+- PostgreSQL (any provider — Neon, Supabase, local, etc.)
+
+### Setup
+
 ```bash
-git clone <repo-url> && cd auth-proxy
+git clone <repo-url> && cd warden
 pnpm install
-pnpm run setup   # generates keys, applies D1 migrations
-pnpm run dev     # starts local server on http://localhost:8787
 ```
 
-The setup script generates your `ADMIN_KEY` and `BISCUIT_PRIVATE_KEY`, writes them to `.env`, and initializes the local D1 database.
+Create a `.env` file:
+
+```bash
+DATABASE_URL=postgresql://user:password@localhost:5432/mydb
+BISCUIT_PRIVATE_KEY=<generated below>
+BASE_URL=http://localhost:3000
+```
+
+### Bootstrap
+
+Generate a Biscuit keypair and mint your first management token:
+
+```bash
+pnpm run setup
+```
+
+This prints a root management token with full access. Save it — this is your admin credential for all management operations.
+
+If you already have a `BISCUIT_PRIVATE_KEY` in `.env`, the setup script mints a root token using that key. If not, it generates a new keypair and prints both.
+
+### Database
+
+Push the schema to your Postgres database:
+
+```bash
+pnpm run db:push
+```
+
+All tables live under a `warden` Postgres schema, so they won't conflict with other tables in the same database.
+
+### Run
+
+```bash
+pnpm run dev    # dev server with hot reload
+pnpm start      # production
+```
+
+Verify it's running:
+
+```bash
+curl http://localhost:3000
+# {"status":"ok","service":"warden"}
+```
+
+## Concepts
+
+### Vaults
+
+A **vault** is a collection of credentials. Credentials are stored in vaults, keyed by `(vault, service)`. Vaults let you isolate credentials per team, project, or user.
+
+```bash
+# Create a vault
+curl -X POST http://localhost:3000/vaults \
+  -H "Authorization: Bearer $MGMT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"slug": "team-alpha", "displayName": "Team Alpha"}'
+```
+
+### Biscuit Tokens
+
+All access control is via Biscuit tokens. There are two kinds:
+
+**Management tokens** carry rights like `manage_services`, `manage_vaults`, and `vault_admin("slug")`. These replace the old admin key concept — there's no shared secret, just attenuable tokens.
+
+**Proxy tokens** carry grant facts that scope which services, methods, and paths an agent can access, and which vault to pull credentials from.
+
+Biscuit tokens can only be **narrowed**, never broadened. Anyone with a token can restrict it further without needing the server's private key.
 
 ## How It Works
 
-```
-Client ──▶ Auth Proxy ──▶ Upstream API
-        (Biscuit token)   (real API key injected)
+### 1. Register a service
+
+Tell Warden about an upstream API. The service name is its hostname.
+
+```bash
+curl -X PUT http://localhost:3000/services/api.github.com \
+  -H "Authorization: Bearer $MGMT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "baseUrl": "https://api.github.com",
+    "displayName": "GitHub",
+    "supportedAuthMethods": ["oauth", "api_key"],
+    "apiType": "rest",
+    "docsUrl": "https://docs.github.com/en/rest"
+  }'
 ```
 
-1. **Register a service** -- tell the proxy about an upstream API (URL, auth method)
-2. **Store a credential** -- give the proxy the real API key (stored in D1)
-3. **Mint a token** -- create a Biscuit token scoped to specific services, methods, and paths
-4. **Proxy requests** -- clients call `/proxy/:service/*` with their token; the proxy authorizes via Biscuit, looks up the credential, and forwards the request
+### 2. Create a vault and store a credential
 
-Biscuit tokens can only be **narrowed**, never broadened. An admin mints a broad token, and recipients can further restrict it (e.g., limit to GET-only, or a specific path prefix) without needing the server's private key.
+```bash
+# Create a vault
+curl -X POST http://localhost:3000/vaults \
+  -H "Authorization: Bearer $MGMT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"slug": "personal"}'
+
+# Store a credential in the vault
+curl -X PUT http://localhost:3000/vaults/personal/credentials/api.github.com \
+  -H "Authorization: Bearer $MGMT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "ghp_your_github_token", "identity": "alice"}'
+```
+
+### 3. Mint a proxy token
+
+Create a scoped token for an agent, bound to a vault:
+
+```bash
+curl -X POST http://localhost:3000/tokens/mint \
+  -H "Authorization: Bearer $MGMT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bindings": {
+      "api.github.com": {"vault": "personal"}
+    }
+  }'
+# {"token":"wdn_...","publicKey":"..."}
+```
+
+Or use the grants format for more control:
+
+```bash
+curl -X POST http://localhost:3000/tokens/mint \
+  -H "Authorization: Bearer $MGMT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grants": [{
+      "services": "api.github.com",
+      "methods": ["GET"],
+      "paths": "/user",
+      "vault": "personal",
+      "ttl": "1h"
+    }]
+  }'
+```
+
+### 4. Proxy requests
+
+Agents use their token to call upstream APIs through Warden:
+
+```bash
+curl http://localhost:3000/api.github.com/user \
+  -H "Authorization: Bearer wdn_..."
+# → proxied to https://api.github.com/user with the real token injected
+```
+
+## Discovery
+
+When an agent hits a service URL without a token, Warden returns discovery info instead of proxying:
+
+```bash
+curl http://localhost:3000/api.github.com \
+  -H "Accept: application/json"
+```
+
+```json
+{
+  "service": "GitHub",
+  "canonical": "api.github.com",
+  "description": "REST API for GitHub.",
+  "auth_options": [
+    {"type": "oauth", "setup_url": "/auth/api.github.com/oauth"},
+    {"type": "api_key", "setup_url": "/auth/api.github.com/api-key"}
+  ],
+  "docs_url": "https://docs.github.com/en/rest"
+}
+```
+
+The same URL in a browser shows an HTML landing page with buttons to connect.
+
+## Auth Flows
+
+Warden supports a polling-based auth flow so agents can get tokens without copy-paste:
+
+1. Agent discovers a service needs auth → gets `setup_url` from discovery
+2. Agent presents the URL to the user (e.g., opens a browser)
+3. User completes OAuth or enters an API key in the browser
+4. Agent polls `GET /auth/status/{flow_id}` until the token is ready
+
+```bash
+# Agent polls for completion
+curl http://localhost:3000/auth/status/{flow_id}
+# Pending: 202 {"status":"pending"}
+# Done:    200 {"status":"completed","token":"wdn_...","identity":"alice"}
+```
+
+Auth flows accept a `?vault=` query parameter to control which vault the credential is stored in (defaults to `personal`).
+
+## Token Attenuation
+
+Anyone with a token can restrict it further without needing the server's private key:
+
+```bash
+curl -X POST http://localhost:3000/tokens/restrict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "wdn_...",
+    "constraints": [{"methods": "GET", "paths": "/user"}]
+  }'
+```
 
 ## API Reference
 
-All admin endpoints require `Authorization: Bearer <ADMIN_KEY>`.
-
-### Services
+### Vault Management (requires management token)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/admin/services` | List all registered services |
-| `PUT` | `/admin/services/:service` | Register or update a service |
-| `DELETE` | `/admin/services/:service` | Remove a service |
+| `POST` | `/vaults` | Create a vault |
+| `GET` | `/vaults` | List vaults (scoped by token) |
+| `DELETE` | `/vaults/:slug` | Delete a vault |
 
-**PUT body:**
-```json
-{
-  "baseUrl": "https://api.example.com",
-  "authMethod": "bearer",
-  "headerName": "Authorization",
-  "headerScheme": "Bearer",
-  "description": "Example API",
-  "specUrl": "https://api.example.com/openapi.json"
-}
-```
-
-`authMethod` options: `bearer` (default), `api_key`, `basic`, `oauth2`
-
-### Credentials
+### Credential Management (requires vault_admin)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `PUT` | `/admin/credentials/:service` | Store a credential |
-| `DELETE` | `/admin/credentials/:service/:identity` | Remove a credential |
+| `GET` | `/vaults/:slug/credentials` | List credentials in vault |
+| `PUT` | `/vaults/:slug/credentials/:service` | Store a credential |
+| `DELETE` | `/vaults/:slug/credentials/:service` | Remove a credential |
 
-**PUT body:**
-```json
-{
-  "identity": "default",
-  "token": "sk-your-upstream-api-key",
-  "metadata": { "team": "backend" },
-  "expiresAt": "2025-12-31T00:00:00Z"
-}
-```
+### Service Catalog (requires manage_services)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/services` | List services visible to caller |
+| `PUT` | `/services/:service` | Register/update a service |
+| `DELETE` | `/services/:service` | Remove a service |
 
 ### Tokens
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/admin/tokens/mint` | Admin | Mint a new Biscuit token |
-| `POST` | `/admin/tokens/revoke` | Admin | Revoke a token |
-| `POST` | `/admin/keys/generate` | Admin | Generate a new Ed25519 key pair |
-| `POST` | `/tokens/restrict` | Public | Attenuate an existing token |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/tokens/mint` | Mint a token (management required) |
+| `POST` | `/tokens/restrict` | Attenuate a token (public) |
+| `POST` | `/tokens/revoke` | Revoke a token |
+| `POST` | `/keys/generate` | Generate an Ed25519 keypair |
 
-**Mint body:**
-```json
-{
-  "grants": [
-    {
-      "services": "openai",
-      "methods": ["GET", "POST"],
-      "paths": "/v1/chat/completions",
-      "ttl": "1h"
-    }
-  ]
-}
-```
+### Discovery & Proxy
 
-**Restrict body** (no admin key needed -- anyone with a token can narrow it):
-```json
-{
-  "token": "vt_...",
-  "constraints": [{ "methods": "GET", "paths": "/v1/models" }]
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Health check |
+| `GET` | `/:service` | Discovery (content-negotiated) |
+| `ALL` | `/:service/*` | Proxy (requires Biscuit token) |
 
-### Proxy
+### Auth Flows
 
-```
-ANY /proxy/:service/*
-Authorization: Bearer vt_...
-```
-
-The proxy extracts the upstream path, authorizes the Biscuit token against the requested service/method/path, looks up the credential for the token's identity, and forwards the request with the credential injected.
-
-### Discovery
-
-```
-GET /services
-Authorization: Bearer <admin-key or vt_token>
-```
-
-Returns services visible to the caller. Admin sees all; scoped tokens see only what their grants allow.
-
-## Deployment
-
-```bash
-# Create D1 database
-npx wrangler d1 create auth-proxy-db
-# Update database_id in wrangler.toml
-
-# Set secrets
-npx wrangler secret put ADMIN_KEY
-npx wrangler secret put BISCUIT_PRIVATE_KEY
-
-# Deploy
-pnpm run deploy:migrate   # apply D1 migrations remotely
-pnpm run deploy            # deploy the worker
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/auth/:service/oauth` | Start OAuth flow |
+| `GET` | `/auth/:service/oauth/callback` | OAuth callback |
+| `GET` | `/auth/:service/api-key` | API key entry form |
+| `POST` | `/auth/:service/api-key` | Submit API key |
+| `GET` | `/auth/status/:flowId` | Poll auth flow status |
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `ADMIN_KEY` | Secret key for admin API endpoints (`sk_` prefix recommended) |
-| `BISCUIT_PRIVATE_KEY` | Ed25519 private key for minting Biscuit tokens |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `BISCUIT_PRIVATE_KEY` | Yes | Ed25519 private key for minting tokens |
+| `BASE_URL` | No | Public URL (defaults to `http://localhost:$PORT`) |
+| `PORT` | No | Server port (defaults to `3000`) |
 
 ## Development
 
 ```bash
-pnpm test          # run all tests
-pnpm run dev       # local dev server (uses .env for secrets)
+pnpm test          # run tests
+pnpm test:watch    # watch mode
+pnpm run dev       # dev server with hot reload
 ```
 
-Tests run inside Cloudflare's workerd runtime via `@cloudflare/vitest-pool-workers`.
+Tests use [PGlite](https://github.com/electric-sql/pglite) for in-memory Postgres — no database setup needed.
+
+### Database Commands
+
+```bash
+pnpm run db:push       # push schema to database (dev)
+pnpm run db:generate   # generate migration files
+pnpm run db:migrate    # run migrations (production)
+```
+
+## License
+
+MIT

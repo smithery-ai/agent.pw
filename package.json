@@ -1,24 +1,31 @@
 {
-  "name": "auth-proxy",
-  "version": "1.0.0",
+  "name": "warden",
+  "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "setup": "bash scripts/setup.sh",
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "deploy:migrate": "wrangler d1 migrations apply auth-proxy-db --remote",
+    "dev": "tsx watch --env-file=.env src/server.ts",
+    "start": "tsx --env-file=.env src/server.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "setup": "tsx --env-file=.env scripts/setup.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@biscuit-auth/biscuit-wasm": "^0.6.0",
-    "hono": "^4.12.0"
+    "@hono/node-server": "^1.13.8",
+    "drizzle-orm": "^0.44.1",
+    "hono": "^4.12.0",
+    "postgres": "^3.4.5"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.12.14",
-    "@cloudflare/workers-types": "^4.20260227.0",
+    "@electric-sql/pglite": "^0.2.17",
+    "@types/node": "^25.3.3",
+    "drizzle-kit": "^0.30.5",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.67.0"
+    "vitest": "^3.2.4"
   }
 }
