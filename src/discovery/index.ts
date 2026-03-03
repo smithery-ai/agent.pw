@@ -101,6 +101,7 @@ function queueBackgroundEnrichment(ctx: PipelineContext) {
     .catch(err => console.error(`[discovery] background enrichment failed for ${key}:`, err))
     .finally(() => activeEnrichments.delete(key))
 
+  if (ctx.waitUntil) ctx.waitUntil(job)
   activeEnrichments.set(key, job)
 }
 

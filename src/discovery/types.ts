@@ -13,6 +13,8 @@ export interface PipelineContext {
   bedrockApiKey?: string
   awsRegion?: string
   baseUrl: string
+  /** Keep background work alive in CF Workers; no-op in Node.js */
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 // ─── Probe Result (Phase 1) ──────────────────────────────────────────────────

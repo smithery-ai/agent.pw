@@ -31,12 +31,20 @@ export function docRoutes() {
     const svc = await getService(db, serviceName)
     if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
 
+    let waitUntil: ((promise: Promise<unknown>) => void) | undefined
+    try {
+      waitUntil = c.executionCtx?.waitUntil?.bind(c.executionCtx)
+    } catch {
+      // executionCtx not available in non-CF environments (e.g., tests)
+    }
+
     const ctx = {
       db,
       hostname: serviceName,
       service: svc,
       bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION,
       baseUrl: new URL(c.req.url).origin,
+      waitUntil,
     }
 
     const page = await getOrGeneratePage(ctx, 'docs/index.json')
@@ -56,12 +64,20 @@ export function docRoutes() {
     const svc = await getService(db, serviceName)
     if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
 
+    let waitUntil: ((promise: Promise<unknown>) => void) | undefined
+    try {
+      waitUntil = c.executionCtx?.waitUntil?.bind(c.executionCtx)
+    } catch {
+      // executionCtx not available in non-CF environments (e.g., tests)
+    }
+
     const ctx = {
       db,
       hostname: serviceName,
       service: svc,
       bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION,
       baseUrl: new URL(c.req.url).origin,
+      waitUntil,
     }
 
     const page = await getOrGeneratePage(ctx, docPath)
