@@ -1,0 +1,10 @@
+name = "warden"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "auth-proxy-db"
+database_id = "89967abe-51ed-4420-b9d5-bb4d2f44ad3a"
+migrations_dir = "migrations"
