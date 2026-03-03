@@ -1,0 +1,6 @@
+export { vaults } from './vaults'
+export { services } from './services'
+export { credentials } from './credentials'
+export { revocations } from './revocations'
+export { authFlows } from './auth-flows'
+export { docPages } from './doc-pages'

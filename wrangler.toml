@@ -1,10 +1,11 @@
 name = "warden"
-main = "src/index.ts"
+main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-[[d1_databases]]
-binding = "DB"
-database_name = "auth-proxy-db"
-database_id = "89967abe-51ed-4420-b9d5-bb4d2f44ad3a"
-migrations_dir = "migrations"
+[vars]
+AWS_REGION = "us-east-1"
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "6a576a8480fb40b7a4b307bed14d9afc"

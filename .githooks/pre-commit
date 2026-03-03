@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+echo "Running pre-commit checks..."
+
+pnpm build
+pnpm lint
+pnpm test

@@ -1,6 +1,9 @@
 node_modules/
 dist/
+coverage/
 .wrangler/
 .dev.vars
 .env
+.env.*
+.env*.local
 .context/

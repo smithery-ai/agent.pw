@@ -1,16 +1,17 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { Env, ProxyConstraint } from './types'
+import type { HonoEnv, ProxyConstraint } from './types'
+import { createDb, type Database } from './db/index'
 import {
   mintToken,
+  mintManagementToken,
   restrictToken,
-  authorizeRequest,
   extractGrants,
-  extractIdentityFromToken,
+  extractManagementRights,
+  extractVaultFromToken,
   getPublicKeyHex,
   getRevocationIds,
   generateKeyPairHex,
-  stripPrefix,
 } from './biscuit'
 import {
   getService,
@@ -20,339 +21,565 @@ import {
   getCredential,
   upsertCredential,
   deleteCredential,
-  isRevoked,
   revokeToken,
-} from './db'
+  getAuthFlow,
+  createAuthFlow,
+  getVault,
+  listVaults,
+  createVault,
+  deleteVault,
+  listCredentials,
+  listDocPages,
+  getDocPage,
+} from './db/queries'
+import { extractBearerToken, handleProxy } from './proxy'
+import { requireToken, requireRight, requireVaultAdmin } from './middleware'
+import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, buildWardenOnboarding, wantsJson } from './discovery'
+import { oauthRoutes } from './oauth'
+import { apiKeyRoutes } from './api-key'
+import { ServiceLandingPage, WardenLandingPage } from './ui'
+import { docRoutes } from './discovery/serve'
+import { triggerFullPipeline } from './discovery/index'
+import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 
-type HonoEnv = { Bindings: Env }
-
-/** Serialize WASM errors (which are not Error instances) */
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   if (typeof e === 'string') return e
-  try { return JSON.stringify(e) } catch { return String(e) }
+  try {
+    return JSON.stringify(e)
+  } catch /* v8 ignore start */ {
+    return String(e)
+  } /* v8 ignore stop */
 }
 
-const app = new Hono<HonoEnv>()
-
-app.use('*', cors())
-
-// ─── Health ──────────────────────────────────────────────────────────────────
-
-app.get('/', c => c.json({ status: 'ok', service: 'auth-proxy' }))
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function extractBearerToken(header: string | undefined): string | null {
-  if (!header) return null
-  return header.startsWith('Bearer ') ? header.slice(7) : header
+function randomId() {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 
-function isAdminKey(token: string, env: Env): boolean {
-  return token === env.ADMIN_KEY
+function deriveDisplayName(hostname: string) {
+  // api.linear.app → Linear, api.github.com → Github
+  const parts = hostname.replace(/^(api|www)\./, '').split('.')
+  const name = parts[0]
+  return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
-// ─── Admin Middleware ────────────────────────────────────────────────────────
+const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy', 'favicon.ico'])
 
-const admin = new Hono<HonoEnv>()
+interface AppDeps {
+  db?: Database
+  biscuitPrivateKey?: string
+  baseUrl?: string
+  encryptionKey?: string
+  bedrockApiKey?: string
+  awsRegion?: string
+}
 
-admin.use('*', async (c, next) => {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
-  if (!c.env.ADMIN_KEY) return c.json({ error: 'ADMIN_KEY not configured' }, 500)
-  if (!isAdminKey(token, c.env)) return c.json({ error: 'Invalid admin key' }, 403)
-  return next()
-})
+export function createApp(deps: AppDeps = {}) {
+  const app = new Hono<HonoEnv>()
 
-// ─── Admin: Service Management ───────────────────────────────────────────────
+  // ─── Global middleware ─────────────────────────────────────────────────────
 
-admin.get('/services', async c => {
-  const services = await listServices(c.env.DB)
-  return c.json(
-    services.map(s => ({
-      service: s.service,
-      baseUrl: s.base_url,
-      authMethod: s.auth_method,
-      description: s.description,
-      specUrl: s.spec_url,
-    }))
-  )
-})
+  app.use('*', cors())
 
-admin.put('/services/:service', async c => {
-  const service = c.req.param('service')
-  const body = await c.req.json<{
-    baseUrl: string
-    authMethod?: string
-    headerName?: string
-    headerScheme?: string
-    description?: string
-    specUrl?: string
-    authConfig?: Record<string, unknown>
-  }>()
-
-  if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
-
-  await upsertService(c.env.DB, service, {
-    base_url: body.baseUrl,
-    auth_method: body.authMethod,
-    header_name: body.headerName,
-    header_scheme: body.headerScheme,
-    description: body.description,
-    spec_url: body.specUrl,
-    auth_config: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
+  // Redirect if user accidentally pasted a full URL as the path
+  // e.g. /https://api.linear.app/graphql → /api.linear.app/graphql
+  app.use('*', async (c, next) => {
+    const url = new URL(c.req.url)
+    const match = url.pathname.match(/^\/https?:\/\/?(.+)/)
+    if (match) {
+      return c.redirect(`/${match[1]}${url.search}`, 301)
+    }
+    return next()
   })
 
-  return c.json({ ok: true, service })
-})
+  app.use('*', async (c, next) => {
+    if (!c.env) c.env = {} as HonoEnv['Bindings']
+    if (deps.baseUrl) {
+      c.env.BASE_URL = deps.baseUrl
+    } else if (!c.env.BASE_URL) {
+      const reqUrl = new URL(c.req.url)
+      // Preserve existing test/Node behavior while using true origin in deployed workers.
+      c.env.BASE_URL =
+        reqUrl.hostname === 'localhost' && !reqUrl.port
+          ? `${reqUrl.protocol}//${reqUrl.hostname}:3000`
+          : reqUrl.origin
+    }
+    // Override env only when deps are provided (Node.js / tests)
+    if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
+    if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
+    if (deps.bedrockApiKey) c.env.BEDROCK_API_KEY = deps.bedrockApiKey
+    if (deps.awsRegion) c.env.AWS_REGION = deps.awsRegion
 
-admin.delete('/services/:service', async c => {
-  const deleted = await deleteService(c.env.DB, c.req.param('service'))
-  if (!deleted) return c.json({ error: 'Service not found' }, 404)
-  return c.json({ ok: true })
-})
+    if (deps.db) {
+      c.set('db', deps.db)
+    } else if (c.env.HYPERDRIVE) {
+      c.set('db', createDb(c.env.HYPERDRIVE.connectionString))
+    }
+    return next()
+  })
 
-// ─── Admin: Credential Management ────────────────────────────────────────────
+  // ─── Health ────────────────────────────────────────────────────────────────
 
-admin.put('/credentials/:service', async c => {
-  const service = c.req.param('service')
-  const body = await c.req.json<{
-    identity: string
-    token: string
-    metadata?: Record<string, string>
-    expiresAt?: string
-  }>()
-
-  if (!body.identity) return c.json({ error: 'identity is required' }, 400)
-  if (!body.token) return c.json({ error: 'token is required' }, 400)
-
-  const svc = await getService(c.env.DB, service)
-  if (!svc) return c.json({ error: `Service '${service}' not configured. Register it first.` }, 404)
-
-  await upsertCredential(c.env.DB, service, body.identity, body.token, body.metadata, body.expiresAt)
-
-  return c.json({ ok: true, service, identity: body.identity })
-})
-
-admin.delete('/credentials/:service/:identity', async c => {
-  const deleted = await deleteCredential(c.env.DB, c.req.param('service'), c.req.param('identity'))
-  if (!deleted) return c.json({ error: 'Credential not found' }, 404)
-  return c.json({ ok: true })
-})
-
-// ─── Admin: Token Management ─────────────────────────────────────────────────
-
-admin.post('/tokens/mint', async c => {
-  const body = await c.req.json<{ grants: ProxyConstraint[] }>()
-
-  if (!body.grants || !Array.isArray(body.grants) || body.grants.length === 0) {
-    return c.json({ error: 'grants array is required' }, 400)
-  }
-
-  try {
-    const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, body.grants)
-    const publicKey = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-    return c.json({ token, publicKey })
-  } catch (e) {
-    return c.json({ error: `Failed to mint token: ${errorMessage(e)}` }, 500)
-  }
-})
-
-admin.post('/tokens/revoke', async c => {
-  const body = await c.req.json<{ token: string; reason?: string }>()
-  if (!body.token) return c.json({ error: 'token is required' }, 400)
-
-  try {
-    const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-    const revIds = getRevocationIds(body.token, publicKeyHex)
-
-    for (const id of revIds) {
-      await revokeToken(c.env.DB, id, body.reason)
+  app.get('/', async c => {
+    const accept = c.req.header('Accept')
+    if (accept?.includes('application/json')) {
+      return c.json(buildWardenGuide(c.env.BASE_URL))
     }
 
-    return c.json({ ok: true, revokedIds: revIds })
-  } catch (e) {
-    return c.json({ error: `Failed to revoke token: ${errorMessage(e)}` }, 400)
-  }
-})
+    const db = c.get('db')
+    const recentServices = await listServices(db)
 
-admin.post('/keys/generate', async c => {
-  return c.json(generateKeyPairHex())
-})
+    if (wantsJson(accept)) {
+      // curl sends */* — return readable plain text onboarding
+      return c.text(buildWardenOnboarding(c.env.BASE_URL, recentServices))
+    }
+    return c.html(WardenLandingPage({ services: recentServices }))
+  })
 
-app.route('/admin', admin)
+  // ─── Vault Management ─────────────────────────────────────────────────────
 
-// ─── Token Restriction (public - anyone with a token can restrict it) ────────
+  app.post('/vaults', requireToken, requireRight('manage_vaults'), async c => {
+    const body = await c.req.json<{ slug: string; displayName?: string }>()
+    if (!body.slug) return c.json({ error: 'slug is required' }, 400)
+    const db = c.get('db')
+    await createVault(db, body.slug, body.displayName)
+    return c.json({ ok: true, slug: body.slug })
+  })
 
-app.post('/tokens/restrict', async c => {
-  const body = await c.req.json<{ token: string; constraints: ProxyConstraint[] }>()
-  if (!body.token) return c.json({ error: 'token is required' }, 400)
-  if (!body.constraints || body.constraints.length === 0) {
-    return c.json({ error: 'constraints array is required' }, 400)
-  }
+  app.get('/vaults', requireToken, async c => {
+    const mgmt = c.get('managementRights')!
+    const db = c.get('db')
+    const allVaults = await listVaults(db)
+    if (mgmt.rights.includes('manage_vaults') || mgmt.vaultAdminSlugs.includes('*')) {
+      return c.json(allVaults)
+    }
+    return c.json(allVaults.filter(v => mgmt.vaultAdminSlugs.includes(v.slug)))
+  })
 
-  const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+  app.delete('/vaults/:slug', requireToken, requireVaultAdmin('slug'), async c => {
+    const db = c.get('db')
+    const deleted = await deleteVault(db, c.req.param('slug'))
+    if (!deleted) return c.json({ error: 'Vault not found' }, 404)
+    return c.json({ ok: true })
+  })
 
-  try {
-    const restricted = restrictToken(body.token, publicKeyHex, body.constraints)
-    return c.json({ token: restricted })
-  } catch (e) {
-    return c.json({ error: `Failed to restrict token: ${errorMessage(e)}` }, 400)
-  }
-})
+  // ─── Credential Management (vault-scoped) ─────────────────────────────────
 
-// ─── Discoverability (scoped by token) ───────────────────────────────────────
-
-app.get('/services', async c => {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
-
-  const allServices = await listServices(c.env.DB)
-
-  // Admin key: return all services
-  if (isAdminKey(token, c.env)) {
+  app.get('/vaults/:slug/credentials', requireToken, requireVaultAdmin('slug'), async c => {
+    const db = c.get('db')
+    const creds = await listCredentials(db, c.req.param('slug'))
     return c.json(
-      allServices.map(s => ({
-        service: s.service,
-        baseUrl: s.base_url,
-        description: s.description,
-        specUrl: s.spec_url,
-      }))
+      creds.map(cr => ({
+        service: cr.service,
+        identity: cr.identity,
+        hasCredentials: !!cr.encryptedCredentials,
+        expiresAt: cr.expiresAt,
+      })),
     )
-  }
+  })
 
-  // Scoped token: filter by what the token allows
-  const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-  const grants = extractGrants(token, publicKeyHex)
+  app.put(
+    '/vaults/:slug/credentials/:service',
+    requireToken,
+    requireVaultAdmin('slug'),
+    async c => {
+      const vaultSlug = c.req.param('slug')
+      const service = c.req.param('service')
+      const body = await c.req.json<{
+        token?: string
+        headers?: Record<string, string>
+        identity?: string
+        metadata?: Record<string, string>
+        expiresAt?: string
+      }>()
+      if (!body.token && !body.headers) {
+        return c.json({ error: 'Either token or headers is required' }, 400)
+      }
 
-  const allowedServices = new Set<string>()
-  const serviceGrants = new Map<string, { methods: string[]; paths: string[] }>()
+      const db = c.get('db')
+      const svc = await getService(db, service)
+      if (!svc) return c.json({ error: `Service '${service}' not configured` }, 404)
+      const vault = await getVault(db, vaultSlug)
+      if (!vault) return c.json({ error: `Vault '${vaultSlug}' not found` }, 404)
 
-  for (const grant of grants) {
-    for (const svc of grant.services) {
-      if (svc === '*') {
-        for (const s of allServices) {
-          allowedServices.add(s.service)
-          if (!serviceGrants.has(s.service)) {
-            serviceGrants.set(s.service, { methods: grant.methods, paths: grant.paths })
+      // Build headers: use explicit map or derive from token + service config
+      const credHeaders = body.headers ?? buildCredentialHeaders(svc, body.token!)
+      const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
+
+      await upsertCredential(
+        db,
+        vaultSlug,
+        service,
+        encrypted,
+        body.identity,
+        body.metadata,
+        body.expiresAt ? new Date(body.expiresAt) : undefined,
+      )
+      return c.json({ ok: true, vault: vaultSlug, service })
+    },
+  )
+
+  app.delete(
+    '/vaults/:slug/credentials/:service',
+    requireToken,
+    requireVaultAdmin('slug'),
+    async c => {
+      const db = c.get('db')
+      const deleted = await deleteCredential(db, c.req.param('slug'), c.req.param('service'))
+      if (!deleted) return c.json({ error: 'Credential not found' }, 404)
+      return c.json({ ok: true })
+    },
+  )
+
+  // ─── Service Catalog ──────────────────────────────────────────────────────
+
+  app.get('/services', async c => {
+    const token = extractBearerToken(c.req.header('Authorization'))
+    if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
+
+    const db = c.get('db')
+    const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+    const allServices = await listServices(db)
+
+    const mgmt = extractManagementRights(token, publicKeyHex)
+    if (mgmt.rights.includes('manage_services')) {
+      return c.json(
+        allServices.map(s => ({
+          service: s.service,
+          baseUrl: s.baseUrl,
+          description: s.description,
+          docsUrl: s.docsUrl,
+        })),
+      )
+    }
+
+    const grants = extractGrants(token, publicKeyHex)
+    const allowedServices = new Set<string>()
+    for (const grant of grants) {
+      for (const svc of grant.services) {
+        if (svc === '*') {
+          for (const s of allServices) allowedServices.add(s.service)
+        } else {
+          allowedServices.add(svc)
+        }
+      }
+    }
+
+    return c.json(
+      allServices
+        .filter(s => allowedServices.has(s.service))
+        .map(s => ({
+          service: s.service,
+          baseUrl: s.baseUrl,
+          description: s.description,
+          docsUrl: s.docsUrl,
+        })),
+    )
+  })
+
+  app.put('/services/:service', requireToken, requireRight('manage_services'), async c => {
+    const service = c.req.param('service')
+    if (RESERVED_PATHS.has(service)) {
+      return c.json({ error: `'${service}' is a reserved name` }, 400)
+    }
+
+    const body = await c.req.json<{
+      baseUrl: string
+      authMethod?: string
+      headerName?: string
+      headerScheme?: string
+      displayName?: string
+      description?: string
+      oauthClientId?: string
+      oauthClientSecret?: string
+      oauthAuthorizeUrl?: string
+      oauthTokenUrl?: string
+      oauthScopes?: string
+      supportedAuthMethods?: string[]
+      apiType?: string
+      docsUrl?: string
+      preview?: unknown
+      authConfig?: Record<string, unknown>
+    }>()
+
+    if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
+
+    const db = c.get('db')
+    await upsertService(db, service, {
+      baseUrl: body.baseUrl,
+      authMethod: body.authMethod,
+      headerName: body.headerName,
+      headerScheme: body.headerScheme,
+      displayName: body.displayName,
+      description: body.description,
+      oauthClientId: body.oauthClientId,
+      oauthClientSecret: body.oauthClientSecret,
+      oauthAuthorizeUrl: body.oauthAuthorizeUrl,
+      oauthTokenUrl: body.oauthTokenUrl,
+      oauthScopes: body.oauthScopes,
+      supportedAuthMethods: body.supportedAuthMethods
+        ? JSON.stringify(body.supportedAuthMethods)
+        : undefined,
+      apiType: body.apiType,
+      docsUrl: body.docsUrl,
+      preview: body.preview ? JSON.stringify(body.preview) : undefined,
+      authConfig: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
+    })
+
+    return c.json({ ok: true, service })
+  })
+
+  app.delete('/services/:service', requireToken, requireRight('manage_services'), async c => {
+    const db = c.get('db')
+    const deleted = await deleteService(db, c.req.param('service'))
+    if (!deleted) return c.json({ error: 'Service not found' }, 404)
+    return c.json({ ok: true })
+  })
+
+  // ─── Token Management ─────────────────────────────────────────────────────
+
+  app.post('/tokens/mint', requireToken, async c => {
+    const body = await c.req.json<{
+      grants?: ProxyConstraint[]
+      bindings?: Record<string, { vault: string }>
+      rights?: string[]
+      vaultAdmin?: string[]
+    }>()
+
+    const mgmt = c.get('managementRights')!
+
+    // Mint management tokens
+    if (body.rights || body.vaultAdmin) {
+      if (!mgmt.rights.includes('manage_vaults') && !mgmt.vaultAdminSlugs.includes('*')) {
+        return c.json({ error: 'Forbidden: requires "manage_vaults" right' }, 403)
+      }
+      try {
+        const token = mintManagementToken(
+          c.env.BISCUIT_PRIVATE_KEY,
+          body.rights ?? [],
+          body.vaultAdmin ?? [],
+        )
+        const publicKey = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+        return c.json({ token, publicKey })
+      } catch (e) /* v8 ignore start */ {
+        return c.json({ error: `Failed to mint token: ${errorMessage(e)}` }, 500)
+      } /* v8 ignore stop */
+    }
+
+    // Mint proxy tokens with bindings format
+    if (body.bindings && Object.keys(body.bindings).length > 0) {
+      for (const [, binding] of Object.entries(body.bindings)) {
+        const allowed =
+          mgmt.vaultAdminSlugs.includes('*') || mgmt.vaultAdminSlugs.includes(binding.vault)
+        if (!allowed) {
+          return c.json(
+            { error: `Forbidden: no vault_admin for "${binding.vault}"` },
+            403,
+          )
+        }
+      }
+
+      const grants: ProxyConstraint[] = Object.entries(body.bindings).map(
+        ([service, binding]) => ({
+          services: service,
+          vault: binding.vault,
+        }),
+      )
+
+      try {
+        const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, grants)
+        const publicKey = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+        return c.json({ token, publicKey })
+      } catch (e) /* v8 ignore start */ {
+        return c.json({ error: `Failed to mint token: ${errorMessage(e)}` }, 500)
+      } /* v8 ignore stop */
+    }
+
+    // Mint proxy tokens with grants format
+    if (body.grants && body.grants.length > 0) {
+      for (const grant of body.grants) {
+        if (grant.vault) {
+          const allowed =
+            mgmt.vaultAdminSlugs.includes('*') || mgmt.vaultAdminSlugs.includes(grant.vault)
+          if (!allowed) {
+            return c.json(
+              { error: `Forbidden: no vault_admin for "${grant.vault}"` },
+              403,
+            )
           }
         }
-      } else {
-        allowedServices.add(svc)
-        if (!serviceGrants.has(svc)) {
-          serviceGrants.set(svc, { methods: grant.methods, paths: grant.paths })
-        }
       }
+
+      try {
+        const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, body.grants)
+        const publicKey = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+        return c.json({ token, publicKey })
+      } catch (e) /* v8 ignore start */ {
+        return c.json({ error: `Failed to mint token: ${errorMessage(e)}` }, 500)
+      } /* v8 ignore stop */
     }
-  }
 
-  return c.json(
-    allServices
-      .filter(s => allowedServices.has(s.service))
-      .map(s => {
-        const grantInfo = serviceGrants.get(s.service)
-        return {
-          service: s.service,
-          baseUrl: s.base_url,
-          description: s.description,
-          specUrl: s.spec_url,
-          allowedMethods: grantInfo?.methods?.filter(m => m !== '*'),
-          allowedPaths: grantInfo?.paths?.filter(p => p !== '*'),
-        }
-      })
-  )
-})
+    return c.json(
+      { error: 'One of grants, bindings, rights, or vaultAdmin is required' },
+      400,
+    )
+  })
 
-// ─── Authenticated Proxy ────────────────────────────────────────────────────
+  app.post('/tokens/restrict', async c => {
+    const body = await c.req.json<{ token: string; constraints: ProxyConstraint[] }>()
+    if (!body.token) return c.json({ error: 'token is required' }, 400)
+    if (!body.constraints || body.constraints.length === 0) {
+      return c.json({ error: 'constraints array is required' }, 400)
+    }
 
-app.all('/proxy/:service/*', async c => {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
-
-  const service = c.req.param('service')
-
-  // Get upstream path (everything after /proxy/{service})
-  const url = new URL(c.req.url)
-  const proxyPrefix = `/proxy/${service}`
-  const upstreamPath = url.pathname.slice(proxyPrefix.length) || '/'
-
-  // Look up service config
-  const svc = await getService(c.env.DB, service)
-  if (!svc) return c.json({ error: `Unknown service: ${service}` }, 404)
-
-  let identity: string
-
-  if (isAdminKey(token, c.env)) {
-    // Admin key: full access, use default identity
-    identity = 'default'
-  } else {
     const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-
-    // Check revocation
     try {
-      const revIds = getRevocationIds(token, publicKeyHex)
-      for (const id of revIds) {
-        if (await isRevoked(c.env.DB, id)) {
-          return c.json({ error: 'Token has been revoked' }, 403)
-        }
-      }
+      const restricted = restrictToken(body.token, publicKeyHex, body.constraints)
+      return c.json({ token: restricted })
     } catch (e) {
-      return c.json({ error: `Invalid token: ${errorMessage(e)}` }, 401)
+      return c.json({ error: `Failed to restrict token: ${errorMessage(e)}` }, 400)
     }
-
-    // Authorize
-    const result = authorizeRequest(token, publicKeyHex, service, c.req.method, upstreamPath)
-    if (!result.authorized) {
-      return c.json({ error: 'Forbidden', details: result.error }, 403)
-    }
-
-    // Extract identity from token metadata
-    identity = extractIdentityFromToken(token, publicKeyHex, service) ?? 'default'
-  }
-
-  // Look up credential
-  const cred = await getCredential(c.env.DB, service, identity)
-  if (!cred) {
-    return c.json({ error: `No credential found for ${service}/${identity}` }, 404)
-  }
-
-  // Build upstream request
-  const upstreamUrl = `${svc.base_url.replace(/\/$/, '')}${upstreamPath}${url.search}`
-
-  const headers = new Headers()
-  for (const [key, value] of c.req.raw.headers.entries()) {
-    if (key.toLowerCase() === 'authorization') continue
-    if (key.toLowerCase() === 'host') continue
-    headers.set(key, value)
-  }
-
-  // Inject credential
-  if (svc.auth_method === 'bearer' || svc.auth_method === 'oauth2') {
-    headers.set(svc.header_name, `${svc.header_scheme} ${cred.token}`)
-  } else if (svc.auth_method === 'api_key') {
-    headers.set(svc.header_name, cred.token)
-  } else if (svc.auth_method === 'basic') {
-    headers.set(svc.header_name, `Basic ${btoa(cred.token)}`)
-  }
-
-  // Forward request
-  const body = ['GET', 'HEAD'].includes(c.req.method) ? undefined : await c.req.raw.arrayBuffer()
-
-  const upstream = await fetch(upstreamUrl, {
-    method: c.req.method,
-    headers,
-    body,
   })
 
-  // Return response transparently
-  const responseHeaders = new Headers(upstream.headers)
-  responseHeaders.delete('transfer-encoding')
+  app.post('/tokens/revoke', requireToken, async c => {
+    const body = await c.req.json<{ token: string; reason?: string }>()
+    if (!body.token) return c.json({ error: 'token is required' }, 400)
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: responseHeaders,
+    try {
+      const db = c.get('db')
+      const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+      const revIds = getRevocationIds(body.token, publicKeyHex)
+      for (const id of revIds) {
+        await revokeToken(db, id, body.reason)
+      }
+      return c.json({ ok: true, revokedIds: revIds })
+    } catch (e) {
+      return c.json({ error: `Failed to revoke token: ${errorMessage(e)}` }, 400)
+    }
   })
-})
 
-export default app
+  app.post('/keys/generate', requireToken, requireRight('manage_services'), async c => {
+    return c.json(generateKeyPairHex())
+  })
+
+  // ─── Auth Flows ────────────────────────────────────────────────────────────
+
+  app.route('/auth', oauthRoutes)
+  app.route('/auth', apiKeyRoutes)
+
+  app.get('/auth/status/:flowId', async c => {
+    const db = c.get('db')
+    const flow = await getAuthFlow(db, c.req.param('flowId'))
+
+    if (!flow) return c.json({ error: 'Flow not found' }, 404)
+    if (flow.expiresAt < new Date()) return c.json({ error: 'Flow expired' }, 404)
+
+    if (flow.status === 'completed') {
+      return c.json({ status: 'completed', token: flow.wardenToken, identity: flow.identity })
+    }
+
+    return c.json({ status: 'pending' }, 202)
+  })
+
+  // ─── Documentation (must be before proxy catch-all) ──────────────────────
+
+  app.route('/', docRoutes())
+
+  // ─── Discovery (content-negotiated) ────────────────────────────────────────
+
+  app.get('/:service', async c => {
+    const serviceName = c.req.param('service')
+    if (RESERVED_PATHS.has(serviceName)) return c.notFound()
+
+    const db = c.get('db')
+    let svc = await getService(db, serviceName)
+    let isNew = false
+
+    // Auto-register unknown services with key-based auth as default
+    if (!svc) {
+      console.log(`[discovery] auto-registering new service: ${serviceName}`)
+      await upsertService(db, serviceName, {
+        baseUrl: `https://${serviceName}`,
+        displayName: deriveDisplayName(serviceName),
+        authMethod: 'api_key',
+        supportedAuthMethods: JSON.stringify(['api_key']),
+      })
+      svc = await getService(db, serviceName)
+      if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)
+      isNew = true
+    }
+
+    // Kick off discovery pipeline if no docs exist yet
+    const docs = await listDocPages(db, serviceName)
+    if (docs.length === 0) {
+      const ctx = { db, hostname: serviceName, service: svc, bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL }
+      console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
+      // Non-blocking: fire and forget so the response isn't delayed
+      triggerFullPipeline(ctx).catch(err =>
+        console.error(`[discovery] pipeline failed for ${serviceName}:`, err),
+      )
+    }
+
+    // Build discovery status from doc metadata
+    const meta = await getDocPage(db, serviceName, '_meta.json')
+    const discoveryStatus = meta
+      ? JSON.parse(meta.content!)
+      : { pipeline_state: docs.length === 0 ? 'probing' : 'idle', total_pages: docs.length }
+
+    const token = extractBearerToken(c.req.header('Authorization'))
+    const json = wantsJson(c.req.header('Accept'))
+
+    if (!token) {
+      if (json) {
+        // Create an auth flow so the agent can poll for completion
+        const flowId = randomId()
+        await createAuthFlow(db, {
+          id: flowId,
+          service: serviceName,
+          method: 'api_key',
+          vaultSlug: 'personal',
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        })
+        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), discovery: discoveryStatus }, 401, {
+          'WWW-Authenticate': 'Bearer realm="warden"',
+        })
+      }
+      return c.html(ServiceLandingPage({ service: svc }))
+    }
+
+    const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+    const vaultSlug = extractVaultFromToken(token, publicKeyHex, serviceName) ?? 'personal'
+    const cred = await getCredential(db, vaultSlug, serviceName)
+    const identity = cred?.identity ?? 'default'
+
+    if (json) {
+      return c.json({ ...buildAuthDiscovery(svc, identity, c.env.BASE_URL), discovery: discoveryStatus })
+    }
+    return c.html(ServiceLandingPage({ service: svc, identity }))
+  })
+
+  // ─── Legacy redirect ──────────────────────────────────────────────────────
+
+  app.all('/proxy/:service/*', async c => {
+    const service = c.req.param('service')
+    const url = new URL(c.req.url)
+    const rest = url.pathname.slice(`/proxy/${service}`.length)
+    return c.redirect(`/${service}${rest}${url.search}`, 301)
+  })
+
+  // ─── Proxy ─────────────────────────────────────────────────────────────────
+
+  app.all('/:service/*', async c => {
+    const serviceName = c.req.param('service')
+    if (RESERVED_PATHS.has(serviceName)) return c.notFound()
+
+    const url = new URL(c.req.url)
+    const upstreamPath = url.pathname.slice(`/${serviceName}`.length) || '/'
+
+    return handleProxy(c, serviceName, upstreamPath)
+  })
+
+  return app
+}
