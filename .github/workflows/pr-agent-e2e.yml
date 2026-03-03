@@ -140,7 +140,7 @@ jobs:
                - HTTP status is exactly 401
                - JSON includes auth_url and poll_url
              - Auth submit:
-               POST to auth_url with JSON body {"api_key": "$LINEAR_TEST_KEY"}
+               POST to auth_url with JSON body {"api_key": "\$LINEAR_TEST_KEY"}
                PASS only if HTTP status is 200 and response includes token
              - Poll completion:
                GET poll_url
@@ -217,7 +217,6 @@ jobs:
         uses: anthropics/claude-code-action@v1
         continue-on-error: true
         env:
-          CLAUDE_CODE_USE_BEDROCK: "1"
           LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
         with:
           prompt: ${{ steps.prompt.outputs.value }}
