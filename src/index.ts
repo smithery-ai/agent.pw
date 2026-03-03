@@ -67,6 +67,20 @@ function deriveDisplayName(hostname: string) {
 
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy', 'favicon.ico'])
 
+const FILE_EXTENSIONS = new Set([
+  'json', 'html', 'htm', 'xml', 'php', 'asp', 'aspx', 'axd', 'jsp', 'cgi',
+  'action', 'env', 'txt', 'yaml', 'yml', 'config', 'conf', 'log', 'bak',
+  'sql', 'db', 'csv', 'js', 'css', 'map', 'ts', 'py', 'rb', 'pl',
+  'png', 'jpg', 'gif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot',
+])
+
+/** Filter out auto-registered junk (file paths, bare words) — only keep real hostnames. */
+function looksLikeHostname(service: string) {
+  if (!service.includes('.')) return false
+  if (service.startsWith('.')) return false
+  return !FILE_EXTENSIONS.has(service.split('.').pop()!.toLowerCase())
+}
+
 interface AppDeps {
   db?: Database
   biscuitPrivateKey?: string
@@ -127,7 +141,7 @@ export function createApp(deps: AppDeps = {}) {
     }
 
     const db = c.get('db')
-    const recentServices = await listServices(db)
+    const recentServices = (await listServices(db)).filter(s => looksLikeHostname(s.service))
 
     if (wantsJson(accept)) {
       // curl sends */* — return readable plain text onboarding
