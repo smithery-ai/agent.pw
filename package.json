@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.8.0",
   "type": "module",
   "scripts": {
-    "dev": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false CLOUDFLARE_INCLUDE_PROCESS_ENV=true infisical run --path=/apps/warden --env=dev --silent -- wrangler dev",
+    "dev": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true infisical run --path=/apps/warden --env=dev --silent -- wrangler dev",
     "dev:env": "wrangler dev",
     "build": "tsc -p tsconfig.json --noEmit",
     "lint": "biome lint .",
@@ -19,7 +19,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.26.4",
     "@anthropic-ai/claude-agent-sdk": "^0.2.63",
+    "@anthropic-ai/sdk": "^0.78.0",
     "@hono/node-server": "^1.13.8",
     "@smithery/biscuit": "^1.0.0",
     "drizzle-orm": "^0.44.1",
@@ -35,6 +37,7 @@
     "drizzle-kit": "^0.30.5",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.69.0"
   }
 }
