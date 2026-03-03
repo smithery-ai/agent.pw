@@ -72,8 +72,7 @@ interface AppDeps {
   biscuitPrivateKey?: string
   baseUrl?: string
   encryptionKey?: string
-  bedrockApiKey?: string
-  awsRegion?: string
+  bedrockToken?: string
 }
 
 export function createApp(deps: AppDeps = {}) {
@@ -109,8 +108,7 @@ export function createApp(deps: AppDeps = {}) {
     // Override env only when deps are provided (Node.js / tests)
     if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
-    if (deps.bedrockApiKey) c.env.BEDROCK_API_KEY = deps.bedrockApiKey
-    if (deps.awsRegion) c.env.AWS_REGION = deps.awsRegion
+    if (deps.bedrockToken) c.env.AWS_BEARER_TOKEN_BEDROCK = deps.bedrockToken
 
     if (deps.db) {
       c.set('db', deps.db)
@@ -520,7 +518,7 @@ export function createApp(deps: AppDeps = {}) {
       } catch {
         // executionCtx not available in non-CF environments (e.g., tests)
       }
-      const ctx = { db, hostname: serviceName, service: svc, bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL, waitUntil }
+      const ctx = { db, hostname: serviceName, service: svc, bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK, baseUrl: c.env.BASE_URL, waitUntil }
       console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
       // Non-blocking: fire and forget; waitUntil keeps it alive in CF Workers
       const pipeline = triggerFullPipeline(ctx).catch(err =>
