@@ -1,4 +1,4 @@
-import { pgSchema, text, timestamp, primaryKey } from 'drizzle-orm/pg-core'
+import { pgSchema, text, timestamp, primaryKey, integer } from 'drizzle-orm/pg-core'
 
 export const wardenSchema = pgSchema('warden')
 
@@ -66,3 +66,16 @@ export const authFlows = wardenSchema.table('auth_flows', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   expiresAt: timestamp('expires_at').notNull(),
 })
+
+export const docPages = wardenSchema.table(
+  'doc_pages',
+  {
+    hostname: text('hostname').notNull(),
+    path: text('path').notNull(),
+    content: text('content'),
+    status: text('status').notNull().default('skeleton'),
+    generatedAt: timestamp('generated_at').defaultNow().notNull(),
+    ttlDays: integer('ttl_days').notNull().default(7),
+  },
+  t => [primaryKey({ columns: [t.hostname, t.path] })],
+)

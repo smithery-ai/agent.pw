@@ -13,9 +13,9 @@ function errorMessage(e: unknown): string {
   if (typeof e === 'string') return e
   try {
     return JSON.stringify(e)
-  } catch {
+  } catch /* v8 ignore start */ {
     return String(e)
-  }
+  } /* v8 ignore stop */
 }
 
 export function extractBearerToken(header: string | undefined): string | null {

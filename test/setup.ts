@@ -97,6 +97,18 @@ export async function createTestDb() {
     )
   `)
 
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS warden.doc_pages (
+      hostname TEXT NOT NULL,
+      path TEXT NOT NULL,
+      content TEXT,
+      status TEXT NOT NULL DEFAULT 'skeleton',
+      generated_at TIMESTAMP NOT NULL DEFAULT now(),
+      ttl_days INT NOT NULL DEFAULT 7,
+      PRIMARY KEY (hostname, path)
+    )
+  `)
+
   return db
 }
 

@@ -16,6 +16,7 @@ const app = createApp({
   db,
   biscuitPrivateKey: process.env.BISCUIT_PRIVATE_KEY ?? '',
   baseUrl: process.env.BASE_URL ?? `http://localhost:${port}`,
+  awsRegion: process.env.AWS_REGION,
 })
 
 console.log(`Warden listening on http://localhost:${port}`)

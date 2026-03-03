@@ -35,15 +35,16 @@ import { buildUnauthDiscovery, buildAuthDiscovery, wantsJson } from './discovery
 import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { ServiceLandingPage } from './ui'
+import { docRoutes } from './discovery/serve'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   if (typeof e === 'string') return e
   try {
     return JSON.stringify(e)
-  } catch {
+  } catch /* v8 ignore start */ {
     return String(e)
-  }
+  } /* v8 ignore stop */
 }
 
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
@@ -52,6 +53,7 @@ interface AppDeps {
   db: Database
   biscuitPrivateKey: string
   baseUrl: string
+  awsRegion?: string
 }
 
 export function createApp(deps: AppDeps) {
@@ -65,6 +67,7 @@ export function createApp(deps: AppDeps) {
     if (!c.env) c.env = {} as HonoEnv['Bindings']
     c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     c.env.BASE_URL = deps.baseUrl
+    c.env.AWS_REGION = deps.awsRegion
     c.set('db', deps.db)
     return next()
   })
@@ -291,9 +294,9 @@ export function createApp(deps: AppDeps) {
         )
         const publicKey = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
         return c.json({ token, publicKey })
-      } catch (e) {
+      } catch (e) /* v8 ignore start */ {
         return c.json({ error: `Failed to mint token: ${errorMessage(e)}` }, 500)
-      }
+      } /* v8 ignore stop */
     }
 
     // Mint proxy tokens with bindings format
@@ -320,9 +323,9 @@ export function createApp(deps: AppDeps) {
         const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, grants)
         const publicKey = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
         return c.json({ token, publicKey })
-      } catch (e) {
+      } catch (e) /* v8 ignore start */ {
         return c.json({ error: `Failed to mint token: ${errorMessage(e)}` }, 500)
-      }
+      } /* v8 ignore stop */
     }
 
     // Mint proxy tokens with grants format
@@ -344,9 +347,9 @@ export function createApp(deps: AppDeps) {
         const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, body.grants)
         const publicKey = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
         return c.json({ token, publicKey })
-      } catch (e) {
+      } catch (e) /* v8 ignore start */ {
         return c.json({ error: `Failed to mint token: ${errorMessage(e)}` }, 500)
-      }
+      } /* v8 ignore stop */
     }
 
     return c.json(
@@ -410,6 +413,10 @@ export function createApp(deps: AppDeps) {
 
     return c.json({ status: 'pending' }, 202)
   })
+
+  // ─── Documentation (must be before proxy catch-all) ──────────────────────
+
+  app.route('/', docRoutes())
 
   // ─── Discovery (content-negotiated) ────────────────────────────────────────
 

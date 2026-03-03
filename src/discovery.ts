@@ -32,6 +32,7 @@ export function buildUnauthDiscovery(svc: ServiceRow) {
   if (authOptions.length > 0) result.auth_options = authOptions
   if (svc.preview) result.preview = JSON.parse(svc.preview)
   if (svc.docsUrl) result.docs_url = svc.docsUrl
+  result.docs = `/${svc.service}/docs/`
 
   return result
 }
@@ -46,6 +47,7 @@ export function buildAuthDiscovery(svc: ServiceRow, identity: string) {
   if (svc.apiType) result.api_type = svc.apiType
   if (svc.baseUrl) result.base_url = `/${svc.service}`
   if (svc.docsUrl) result.docs_url = svc.docsUrl
+  result.docs = `/${svc.service}/docs/`
 
   return result
 }

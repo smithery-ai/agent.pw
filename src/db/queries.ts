@@ -1,5 +1,5 @@
 import { eq, and, sql } from 'drizzle-orm'
-import { vaults, services, credentials, revocations, authFlows } from './schema'
+import { vaults, services, credentials, revocations, authFlows, docPages } from './schema'
 import type { Database } from './index'
 
 // ─── Vaults ──────────────────────────────────────────────────────────────────
@@ -216,4 +216,63 @@ export async function completeAuthFlow(
       identity: data.identity,
     })
     .where(eq(authFlows.id, id))
+}
+
+// ─── Doc Pages ──────────────────────────────────────────────────────────────
+
+export async function getDocPage(db: Database, hostname: string, path: string) {
+  const rows = await db
+    .select()
+    .from(docPages)
+    .where(and(eq(docPages.hostname, hostname), eq(docPages.path, path)))
+  return rows[0] ?? null
+}
+
+export async function upsertDocPage(
+  db: Database,
+  hostname: string,
+  path: string,
+  content: string,
+  status: string,
+  ttlDays?: number,
+) {
+  await db
+    .insert(docPages)
+    .values({ hostname, path, content, status, ttlDays: ttlDays ?? 7 })
+    .onConflictDoUpdate({
+      target: [docPages.hostname, docPages.path],
+      set: {
+        content: sql`excluded.content`,
+        status: sql`excluded.status`,
+        generatedAt: sql`now()`,
+        ttlDays: sql`coalesce(excluded.ttl_days, ${docPages.ttlDays})`,
+      },
+    })
+}
+
+export async function listDocPages(db: Database, hostname: string) {
+  return db.select().from(docPages).where(eq(docPages.hostname, hostname))
+}
+
+export async function listSkeletonPages(db: Database, hostname: string) {
+  return db
+    .select()
+    .from(docPages)
+    .where(and(eq(docPages.hostname, hostname), eq(docPages.status, 'skeleton')))
+}
+
+export async function listStaleDocPages(db: Database, hostname: string) {
+  return db
+    .select()
+    .from(docPages)
+    .where(
+      and(
+        eq(docPages.hostname, hostname),
+        sql`${docPages.generatedAt} + (${docPages.ttlDays} || ' days')::interval < now()`,
+      ),
+    )
+}
+
+export async function deleteDocPages(db: Database, hostname: string) {
+  return db.delete(docPages).where(eq(docPages.hostname, hostname))
 }

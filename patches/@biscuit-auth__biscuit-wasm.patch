@@ -1,0 +1,17 @@
+diff --git a/package.json b/package.json
+index 8fad8d5964cf0476b1b34fc4caa0eff771b70273..ce2f93d0c9642305c7081c97b598404768e0a97b 100644
+--- a/package.json
++++ b/package.json
+@@ -26,7 +26,11 @@
+   "main": "module/biscuit.js",
+   "type": "module",
+   "exports": {
+-    "import": "./module/biscuit.js"
++    ".": {
++      "import": "./module/biscuit.js"
++    },
++    "./module/biscuit_bg.js": "./module/biscuit_bg.js",
++    "./module/biscuit_bg.wasm": "./module/biscuit_bg.wasm"
+   },
+   "module": "module/biscuit.js",
+   "sideEffects": "false",

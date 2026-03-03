@@ -9,14 +9,12 @@
 
 import {
   Biscuit,
-  BlockBuilder,
   PrivateKey,
   PublicKey,
   AuthorizerBuilder,
-  Rule,
   KeyPair,
   SignatureAlgorithm,
-} from './biscuit-shim'
+} from '@smithery/biscuit'
 import type { ProxyConstraint, HttpMethod } from './types'
 
 export const TOKEN_PREFIX = 'wdn_'

@@ -3,6 +3,7 @@ import type { Database } from './db/index'
 export interface Env {
   BISCUIT_PRIVATE_KEY: string
   BASE_URL: string
+  AWS_REGION?: string
 }
 
 export interface ManagementRights {
