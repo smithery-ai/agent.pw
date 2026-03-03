@@ -4,4 +4,6 @@ coverage/
 .wrangler/
 .dev.vars
 .env
+.env.*
+.env*.local
 .context/

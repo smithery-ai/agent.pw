@@ -65,7 +65,7 @@ function deriveDisplayName(hostname: string) {
   return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
-const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
+const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy', 'favicon.ico'])
 
 interface AppDeps {
   db?: Database

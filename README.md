@@ -38,12 +38,32 @@ git clone <repo-url> && cd warden
 pnpm install
 ```
 
-Create a `.env` file:
+#### Secrets (Infisical)
+
+Secrets are managed via [Infisical](https://infisical.com/) under the path `/apps/warden`. Log in once:
+
+```bash
+pnpm run secrets:login
+```
+
+Then `pnpm run dev` will automatically inject secrets. To export a `.env` file for tools that need one:
+
+```bash
+pnpm run secrets:export
+```
+
+#### Manual `.env`
+
+If you're not using Infisical, create a `.env` file and use the `:env` script variants:
 
 ```bash
 DATABASE_URL=postgresql://user:password@localhost:5432/mydb
 BISCUIT_PRIVATE_KEY=<generated below>
 BASE_URL=http://localhost:3000
+```
+
+```bash
+pnpm run dev:env    # uses .env instead of Infisical
 ```
 
 ### Bootstrap
