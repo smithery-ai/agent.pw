@@ -1,4 +1,4 @@
-import { query, tool, createSdkMcpServer, type McpServerConfig, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { McpServerConfig, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import type { PipelineContext } from './types'
 import { getDocPage, upsertDocPage, listDocPages } from '../db/queries'
@@ -52,7 +52,26 @@ ${pageContent}
   return prompt
 }
 
-function createEnrichmentServer(ctx: PipelineContext) {
+// Dynamic import to avoid loading the Agent SDK at module parse time.
+// The SDK uses fs.realpathSync which isn't available in Cloudflare Workers.
+// Enrichment only runs in the Node.js server context (gated by bedrockToken).
+async function loadAgentSdk() {
+  return await import('@anthropic-ai/claude-agent-sdk')
+}
+
+export async function enrichPage(ctx: PipelineContext, pagePath: string) {
+  if (!ctx.bedrockToken) return
+
+  const page = await getDocPage(ctx.db, ctx.hostname, pagePath)
+  if (!page || !page.content) return
+
+  const { query, tool, createSdkMcpServer } = await loadAgentSdk()
+
+  const existingPages = await listDocPages(ctx.db, ctx.hostname)
+  const otherPages = existingPages
+    .filter(p => p.path !== pagePath && p.content)
+    .map(p => ({ path: p.path, content: p.content! }))
+
   const fetchUpstream = tool(
     'fetch_upstream',
     'Fetch a URL. Use this to read API documentation pages, probe endpoints, or fetch example responses from the upstream service.',
@@ -94,25 +113,11 @@ function createEnrichmentServer(ctx: PipelineContext) {
     },
   )
 
-  return createSdkMcpServer({
+  const customServer = createSdkMcpServer({
     name: 'warden',
     version: '1.0.0',
     tools: [fetchUpstream, writeDocPage],
   })
-}
-
-export async function enrichPage(ctx: PipelineContext, pagePath: string) {
-  if (!ctx.bedrockToken) return
-
-  const page = await getDocPage(ctx.db, ctx.hostname, pagePath)
-  if (!page || !page.content) return
-
-  const existingPages = await listDocPages(ctx.db, ctx.hostname)
-  const otherPages = existingPages
-    .filter(p => p.path !== pagePath && p.content)
-    .map(p => ({ path: p.path, content: p.content! }))
-
-  const customServer = createEnrichmentServer(ctx)
 
   const mcpServers: Record<string, McpServerConfig> = {
     warden: customServer,
