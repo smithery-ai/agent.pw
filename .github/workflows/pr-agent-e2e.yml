@@ -212,6 +212,14 @@ jobs:
             exit 1
           fi
 
+      - name: Install pinned Claude Code CLI
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/claude-code@2.1.18
+          CLAUDE_BIN="$(command -v claude)"
+          echo "CLAUDE_PATH=${CLAUDE_BIN}" >> "${GITHUB_ENV}"
+          claude --version
+
       - name: Run Claude Haiku 4.5 e2e agent
         id: run-agent
         uses: anthropics/claude-code-action@v1
@@ -221,7 +229,7 @@ jobs:
         with:
           prompt: ${{ steps.prompt.outputs.value }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ github.token }}
+          path_to_claude_code_executable: ${{ env.CLAUDE_PATH }}
           claude_args: |
             --dangerously-skip-permissions
             --max-turns 20
