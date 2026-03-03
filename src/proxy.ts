@@ -7,6 +7,7 @@ import {
   getRevocationIds,
 } from './biscuit'
 import { getCredential, getService, isRevoked } from './db/queries'
+import { decryptCredentials } from './lib/credentials-crypto'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -75,13 +76,10 @@ export async function handleProxy(
     headers.set(key, value)
   })
 
-  // Inject credential
-  if (svc.authMethod === 'bearer' || svc.authMethod === 'oauth2') {
-    headers.set(svc.headerName, `${svc.headerScheme} ${cred.token}`)
-  } else if (svc.authMethod === 'api_key') {
-    headers.set(svc.headerName, cred.token)
-  } else if (svc.authMethod === 'basic') {
-    headers.set(svc.headerName, `Basic ${btoa(cred.token)}`)
+  // Inject credential headers
+  const stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.encryptedCredentials)
+  for (const [name, value] of Object.entries(stored.headers)) {
+    headers.set(name, value)
   }
 
   // Forward request

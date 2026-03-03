@@ -43,13 +43,17 @@ import {
   listStaleDocPages,
   deleteDocPages,
 } from '../src/db/queries'
+import { encryptCredentials, decryptCredentials, buildCredentialHeaders } from '../src/lib/credentials-crypto'
+
+// 32-byte base64 key for test encryption
+const TEST_ENCRYPTION_KEY = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')
 
 let db: TestDb
 let app: ReturnType<typeof createApp>
 
 beforeEach(async () => {
   db = await createTestDb()
-  app = createApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, baseUrl: BASE_URL })
+  app = createApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, baseUrl: BASE_URL, encryptionKey: TEST_ENCRYPTION_KEY })
 })
 
 function req(path: string, init?: RequestInit) {
@@ -352,13 +356,33 @@ describe('Credential Management', () => {
     expect(res.status).toBe(200)
   })
 
-  it('rejects credential without token field', async () => {
+  it('rejects credential without token or headers', async () => {
     const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identity: 'alice' }),
     })
     expect(res.status).toBe(400)
+  })
+
+  it('stores credential with explicit headers map', async () => {
+    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        headers: { 'Authorization': 'Bearer ghp_multi', 'X-Org-Id': 'org_123' },
+        identity: 'alice',
+      }),
+    })
+    expect(res.status).toBe(200)
+
+    const cred = await getCredential(db, 'personal', 'api.github.com')
+    expect(cred).not.toBeNull()
+    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
+    expect(stored.headers).toEqual({
+      'Authorization': 'Bearer ghp_multi',
+      'X-Org-Id': 'org_123',
+    })
   })
 
   it('lists credentials in a vault', async () => {
@@ -373,7 +397,7 @@ describe('Credential Management', () => {
     const body = (await res.json()) as any[]
     expect(body).toHaveLength(1)
     expect(body[0].service).toBe('api.github.com')
-    expect(body[0].hasToken).toBe(true)
+    expect(body[0].hasCredentials).toBe(true)
   })
 
   it('rejects credential for non-existent service', async () => {
@@ -633,9 +657,8 @@ describe('Discovery', () => {
     const body = (await res.json()) as any
     expect(body.service).toBe('GitHub')
     expect(body.canonical).toBe('api.github.com')
-    expect(body.auth_options).toHaveLength(2)
-    expect(body.auth_options[0].type).toBe('oauth')
-    expect(body.auth_options[1].type).toBe('api_key')
+    expect(body.auth_url).toBe('http://localhost:3000/auth/api.github.com/oauth')
+    expect(body.proxy).toBe('http://localhost:3000/api.github.com')
   })
 
   it('returns HTML for unauthenticated browser', async () => {
@@ -1979,11 +2002,12 @@ describe('Discovery Functions', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }
-    const result = buildUnauthDiscovery(svc) as any
+    const result = buildUnauthDiscovery(svc, 'http://localhost:3000') as any
     expect(result.service).toBe('GitHub')
     expect(result.description).toBe('GitHub REST API')
     expect(result.docs_url).toBe('https://docs.github.com')
-    expect(result.auth_options).toBeUndefined() // no supportedAuthMethods
+    expect(result.proxy).toBe('http://localhost:3000/api.github.com')
+    expect(result.auth_url).toBeUndefined() // no supportedAuthMethods
   })
 
   it('buildUnauthDiscovery includes preview when set', () => {
@@ -2008,12 +2032,12 @@ describe('Discovery Functions', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }
-    const result = buildUnauthDiscovery(svc) as any
+    const result = buildUnauthDiscovery(svc, 'http://localhost:3000') as any
     expect(result.service).toBe('test.api')
     expect(result.preview).toEqual({ example: true })
   })
 
-  it('buildAuthDiscovery includes api_type and base_url', () => {
+  it('buildAuthDiscovery includes api_type and proxy', () => {
     const svc = {
       service: 'api.github.com',
       baseUrl: 'https://api.github.com',
@@ -2035,10 +2059,10 @@ describe('Discovery Functions', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }
-    const result = buildAuthDiscovery(svc, 'alice') as any
+    const result = buildAuthDiscovery(svc, 'alice', 'http://localhost:3000') as any
     expect(result.authenticated_as).toBe('alice')
     expect(result.api_type).toBe('rest')
-    expect(result.base_url).toBe('/api.github.com')
+    expect(result.proxy).toBe('http://localhost:3000/api.github.com')
     expect(result.docs_url).toBe('https://docs.github.com')
   })
 })
@@ -2073,10 +2097,13 @@ describe('Query Functions', () => {
 
   it('upsertCredential updates existing credential', async () => {
     await upsertService(db, 'test.api', { baseUrl: 'https://test.api' })
-    await upsertCredential(db, 'vault1', 'test.api', 'token1', 'alice')
-    await upsertCredential(db, 'vault1', 'test.api', 'token2', 'bob')
+    const enc1 = await encryptCredentials(TEST_ENCRYPTION_KEY, { headers: { Authorization: 'Bearer token1' } })
+    const enc2 = await encryptCredentials(TEST_ENCRYPTION_KEY, { headers: { Authorization: 'Bearer token2' } })
+    await upsertCredential(db, 'vault1', 'test.api', enc1, 'alice')
+    await upsertCredential(db, 'vault1', 'test.api', enc2, 'bob')
     const cred = await getCredential(db, 'vault1', 'test.api')
-    expect(cred!.token).toBe('token2')
+    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
+    expect(stored.headers.Authorization).toBe('Bearer token2')
   })
 })
 
@@ -2149,5 +2176,44 @@ describe('Doc Page Queries', () => {
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'enriched', 7)
     const stale = await listStaleDocPages(db, 'api.github.com')
     expect(stale).toHaveLength(0)
+  })
+})
+
+// ─── Credentials Crypto ─────────────────────────────────────────────────────
+
+describe('Credentials Crypto', () => {
+  it('encrypts and decrypts credentials round-trip', async () => {
+    const creds = { headers: { Authorization: 'Bearer test', 'X-Custom': 'val' } }
+    const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, creds)
+    const decrypted = await decryptCredentials(TEST_ENCRYPTION_KEY, encrypted)
+    expect(decrypted).toEqual(creds)
+  })
+
+  it('rejects invalid encryption key length', async () => {
+    const shortKey = Buffer.from('too-short').toString('base64')
+    await expect(
+      encryptCredentials(shortKey, { headers: { a: 'b' } }),
+    ).rejects.toThrow('Encryption key must be 32 bytes')
+  })
+
+  it('rejects truncated ciphertext', async () => {
+    await expect(
+      decryptCredentials(TEST_ENCRYPTION_KEY, Buffer.alloc(10)),
+    ).rejects.toThrow('Invalid ciphertext')
+  })
+
+  it('buildCredentialHeaders derives bearer header', () => {
+    const svc = { authMethod: 'bearer', headerName: 'Authorization', headerScheme: 'Bearer' }
+    expect(buildCredentialHeaders(svc, 'tok123')).toEqual({ Authorization: 'Bearer tok123' })
+  })
+
+  it('buildCredentialHeaders derives api_key header', () => {
+    const svc = { authMethod: 'api_key', headerName: 'X-API-Key', headerScheme: 'Bearer' }
+    expect(buildCredentialHeaders(svc, 'sk_123')).toEqual({ 'X-API-Key': 'sk_123' })
+  })
+
+  it('buildCredentialHeaders derives basic header', () => {
+    const svc = { authMethod: 'basic', headerName: 'Authorization', headerScheme: 'Bearer' }
+    expect(buildCredentialHeaders(svc, 'user:pass')).toEqual({ Authorization: `Basic ${btoa('user:pass')}` })
   })
 })

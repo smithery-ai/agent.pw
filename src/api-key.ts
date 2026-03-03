@@ -3,6 +3,7 @@ import type { HonoEnv } from './types'
 import { getService, createAuthFlow, getAuthFlow, completeAuthFlow, upsertCredential } from './db/queries'
 import { mintToken } from './biscuit'
 import { ApiKeyFormPage, SuccessPage, ErrorPage } from './ui'
+import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 
 export const apiKeyRoutes = new Hono<HonoEnv>()
 
@@ -111,7 +112,9 @@ apiKeyRoutes.post('/:service/api-key', async c => {
   }
 
   // Store credential in vault
-  await upsertCredential(db, vaultSlug, serviceName, apiKey, identity)
+  const credHeaders = buildCredentialHeaders(svc, apiKey)
+  const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
+  await upsertCredential(db, vaultSlug, serviceName, encrypted, identity)
 
   // Mint Warden token with vault binding
   const wardenToken = mintToken(c.env.BISCUIT_PRIVATE_KEY, [

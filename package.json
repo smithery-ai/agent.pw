@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "tsx watch --env-file=.env src/server.ts",
     "start": "tsx --env-file=.env src/server.ts",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome lint .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "setup": "tsx --env-file=.env scripts/setup.ts",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -23,6 +25,7 @@
     "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.5",
     "@electric-sql/pglite": "^0.2.17",
     "@types/node": "^25.3.3",
     "@vitest/coverage-v8": "^3.2.4",

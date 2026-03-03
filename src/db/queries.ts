@@ -123,7 +123,7 @@ export async function upsertCredential(
   db: Database,
   vaultSlug: string,
   service: string,
-  token: string,
+  encryptedCredentials: Buffer,
   identity?: string,
   metadata?: Record<string, string>,
   expiresAt?: Date,
@@ -134,14 +134,14 @@ export async function upsertCredential(
       vaultSlug,
       service,
       identity,
-      token,
+      encryptedCredentials,
       metadata: metadata ? JSON.stringify(metadata) : null,
       expiresAt: expiresAt ?? null,
     })
     .onConflictDoUpdate({
       target: [credentials.vaultSlug, credentials.service],
       set: {
-        token: sql`excluded.token`,
+        encryptedCredentials: sql`excluded.encrypted_credentials`,
         identity: sql`coalesce(excluded.identity, ${credentials.identity})`,
         metadata: sql`coalesce(excluded.metadata, ${credentials.metadata})`,
         expiresAt: sql`excluded.expires_at`,

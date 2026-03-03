@@ -154,11 +154,12 @@ export function SuccessPage({
       </p>
 
       <div class="card">
-        <label>Your Warden Token</label>
+        <p>Your Warden Token</p>
         <div class="token-box" id="token">
           {token}
         </div>
         <button
+          type="button"
           class="btn btn-primary"
           style="width: 100%"
           onclick="navigator.clipboard.writeText(document.getElementById('token').textContent.trim())"

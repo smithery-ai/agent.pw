@@ -36,6 +36,7 @@ import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { ServiceLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
+import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -53,6 +54,7 @@ interface AppDeps {
   db: Database
   biscuitPrivateKey: string
   baseUrl: string
+  encryptionKey: string
   awsRegion?: string
 }
 
@@ -67,6 +69,7 @@ export function createApp(deps: AppDeps) {
     if (!c.env) c.env = {} as HonoEnv['Bindings']
     c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     c.env.BASE_URL = deps.baseUrl
+    c.env.ENCRYPTION_KEY = deps.encryptionKey
     c.env.AWS_REGION = deps.awsRegion
     c.set('db', deps.db)
     return next()
@@ -112,7 +115,7 @@ export function createApp(deps: AppDeps) {
       creds.map(cr => ({
         service: cr.service,
         identity: cr.identity,
-        hasToken: !!cr.token,
+        hasCredentials: !!cr.encryptedCredentials,
         expiresAt: cr.expiresAt,
       })),
     )
@@ -126,12 +129,15 @@ export function createApp(deps: AppDeps) {
       const vaultSlug = c.req.param('slug')
       const service = c.req.param('service')
       const body = await c.req.json<{
-        token: string
+        token?: string
+        headers?: Record<string, string>
         identity?: string
         metadata?: Record<string, string>
         expiresAt?: string
       }>()
-      if (!body.token) return c.json({ error: 'token is required' }, 400)
+      if (!body.token && !body.headers) {
+        return c.json({ error: 'Either token or headers is required' }, 400)
+      }
 
       const db = c.get('db')
       const svc = await getService(db, service)
@@ -139,11 +145,15 @@ export function createApp(deps: AppDeps) {
       const vault = await getVault(db, vaultSlug)
       if (!vault) return c.json({ error: `Vault '${vaultSlug}' not found` }, 404)
 
+      // Build headers: use explicit map or derive from token + service config
+      const credHeaders = body.headers ?? buildCredentialHeaders(svc, body.token!)
+      const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
+
       await upsertCredential(
         db,
         vaultSlug,
         service,
-        body.token,
+        encrypted,
         body.identity,
         body.metadata,
         body.expiresAt ? new Date(body.expiresAt) : undefined,
@@ -433,7 +443,7 @@ export function createApp(deps: AppDeps) {
 
     if (!token) {
       if (json) {
-        return c.json(buildUnauthDiscovery(svc), 401, {
+        return c.json(buildUnauthDiscovery(svc, c.env.BASE_URL), 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
@@ -446,7 +456,7 @@ export function createApp(deps: AppDeps) {
     const identity = cred?.identity ?? 'default'
 
     if (json) {
-      return c.json(buildAuthDiscovery(svc, identity))
+      return c.json(buildAuthDiscovery(svc, identity, c.env.BASE_URL))
     }
     return c.html(ServiceLandingPage({ service: svc, identity }))
   })

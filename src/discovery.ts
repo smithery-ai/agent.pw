@@ -8,20 +8,10 @@ export function wantsJson(accept: string | undefined) {
   return accept.includes('application/json')
 }
 
-export function buildUnauthDiscovery(svc: ServiceRow) {
-  const authOptions: { type: string; setup_url: string }[] = []
-
+export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string) {
   const supported: string[] = svc.supportedAuthMethods
     ? JSON.parse(svc.supportedAuthMethods)
     : []
-
-  for (const method of supported) {
-    if (method === 'oauth') {
-      authOptions.push({ type: 'oauth', setup_url: `/auth/${svc.service}/oauth` })
-    } else if (method === 'api_key') {
-      authOptions.push({ type: 'api_key', setup_url: `/auth/${svc.service}/api-key` })
-    }
-  }
 
   const result: Record<string, unknown> = {
     service: svc.displayName ?? svc.service,
@@ -29,7 +19,20 @@ export function buildUnauthDiscovery(svc: ServiceRow) {
   }
 
   if (svc.description) result.description = svc.description
-  if (authOptions.length > 0) result.auth_options = authOptions
+
+  // Pick the first supported auth method and build an absolute URL
+  for (const method of supported) {
+    if (method === 'oauth') {
+      result.auth_url = `${baseUrl}/auth/${svc.service}/oauth`
+      break
+    }
+    if (method === 'api_key') {
+      result.auth_url = `${baseUrl}/auth/${svc.service}/api-key`
+      break
+    }
+  }
+
+  result.proxy = `${baseUrl}/${svc.service}`
   if (svc.preview) result.preview = JSON.parse(svc.preview)
   if (svc.docsUrl) result.docs_url = svc.docsUrl
   result.docs = `/${svc.service}/docs/`
@@ -37,15 +40,15 @@ export function buildUnauthDiscovery(svc: ServiceRow) {
   return result
 }
 
-export function buildAuthDiscovery(svc: ServiceRow, identity: string) {
+export function buildAuthDiscovery(svc: ServiceRow, identity: string, baseUrl: string) {
   const result: Record<string, unknown> = {
     service: svc.displayName ?? svc.service,
     canonical: svc.service,
     authenticated_as: identity,
+    proxy: `${baseUrl}/${svc.service}`,
   }
 
   if (svc.apiType) result.api_type = svc.apiType
-  if (svc.baseUrl) result.base_url = `/${svc.service}`
   if (svc.docsUrl) result.docs_url = svc.docsUrl
   result.docs = `/${svc.service}/docs/`
 

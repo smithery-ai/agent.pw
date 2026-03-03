@@ -16,6 +16,7 @@ const app = createApp({
   db,
   biscuitPrivateKey: process.env.BISCUIT_PRIVATE_KEY ?? '',
   baseUrl: process.env.BASE_URL ?? `http://localhost:${port}`,
+  encryptionKey: process.env.ENCRYPTION_KEY ?? '',
   awsRegion: process.env.AWS_REGION,
 })
 

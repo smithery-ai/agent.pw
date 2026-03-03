@@ -65,7 +65,7 @@ export async function createTestDb() {
       vault_slug TEXT NOT NULL,
       service TEXT NOT NULL,
       identity TEXT,
-      token TEXT NOT NULL,
+      encrypted_credentials BYTEA NOT NULL,
       metadata TEXT,
       expires_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT now(),

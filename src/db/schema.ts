@@ -1,4 +1,10 @@
-import { pgSchema, text, timestamp, primaryKey, integer } from 'drizzle-orm/pg-core'
+import { pgSchema, text, timestamp, primaryKey, integer, customType } from 'drizzle-orm/pg-core'
+
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return 'bytea'
+  },
+})
 
 export const wardenSchema = pgSchema('warden')
 
@@ -39,7 +45,7 @@ export const credentials = wardenSchema.table(
     vaultSlug: text('vault_slug').notNull(),
     service: text('service').notNull(),
     identity: text('identity'), // informational — resolved via whoami
-    token: text('token').notNull(),
+    encryptedCredentials: bytea('encrypted_credentials').notNull(),
     metadata: text('metadata'), // JSON
     expiresAt: timestamp('expires_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
