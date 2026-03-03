@@ -23,6 +23,7 @@ import {
   deleteCredential,
   revokeToken,
   getAuthFlow,
+  createAuthFlow,
   getVault,
   listVaults,
   createVault,
@@ -46,6 +47,12 @@ function errorMessage(e: unknown): string {
   } catch /* v8 ignore start */ {
     return String(e)
   } /* v8 ignore stop */
+}
+
+function randomId() {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
@@ -435,15 +442,34 @@ export function createApp(deps: AppDeps) {
     if (RESERVED_PATHS.has(serviceName)) return c.notFound()
 
     const db = c.get('db')
-    const svc = await getService(db, serviceName)
-    if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
+    let svc = await getService(db, serviceName)
+
+    // Auto-register unknown services with key-based auth as default
+    if (!svc) {
+      await upsertService(db, serviceName, {
+        baseUrl: `https://${serviceName}`,
+        authMethod: 'api_key',
+        supportedAuthMethods: JSON.stringify(['api_key']),
+      })
+      svc = await getService(db, serviceName)
+      if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)
+    }
 
     const token = extractBearerToken(c.req.header('Authorization'))
     const json = wantsJson(c.req.header('Accept'))
 
     if (!token) {
       if (json) {
-        return c.json(buildUnauthDiscovery(svc, c.env.BASE_URL), 401, {
+        // Create an auth flow so the agent can poll for completion
+        const flowId = randomId()
+        await createAuthFlow(db, {
+          id: flowId,
+          service: serviceName,
+          method: 'api_key',
+          vaultSlug: 'personal',
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        })
+        return c.json(buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }

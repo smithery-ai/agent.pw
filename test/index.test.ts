@@ -647,7 +647,7 @@ describe('Discovery', () => {
     await seedService()
   })
 
-  it('returns 401 JSON for unauthenticated agent', async () => {
+  it('returns 401 JSON for unauthenticated agent with flow', async () => {
     const res = await req('/api.github.com', {
       headers: { Accept: 'application/json' },
     })
@@ -657,8 +657,16 @@ describe('Discovery', () => {
     const body = (await res.json()) as any
     expect(body.service).toBe('GitHub')
     expect(body.canonical).toBe('api.github.com')
-    expect(body.auth_url).toBe('http://localhost:3000/auth/api.github.com/oauth')
+    expect(body.auth_url).toContain('http://localhost:3000/auth/api.github.com/oauth?flow_id=')
+    expect(body.poll_url).toContain('http://localhost:3000/auth/status/')
     expect(body.proxy).toBe('http://localhost:3000/api.github.com')
+
+    // Verify the flow was actually created and is pollable
+    const flowId = body.poll_url.split('/auth/status/')[1]
+    const pollRes = await req(`/auth/status/${flowId}`)
+    expect(pollRes.status).toBe(202)
+    const pollBody = (await pollRes.json()) as any
+    expect(pollBody.status).toBe('pending')
   })
 
   it('returns HTML for unauthenticated browser', async () => {
@@ -670,6 +678,19 @@ describe('Discovery', () => {
     expect(text).toContain('GitHub')
     expect(text).toContain('Connect with OAuth')
     expect(text).toContain('Enter API Key')
+  })
+
+  it('auto-registers unknown service on first discovery', async () => {
+    // No seedService() — hit a completely unknown service
+    const res = await req('/api.unknown.com', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(res.status).toBe(401)
+
+    const body = (await res.json()) as any
+    expect(body.canonical).toBe('api.unknown.com')
+    expect(body.auth_url).toContain('/auth/api.unknown.com/api-key?flow_id=')
+    expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
   })
 
   it('returns 200 JSON for authenticated agent', async () => {
@@ -720,11 +741,14 @@ describe('Discovery', () => {
     expect(body.authenticated_as).toBe('alice')
   })
 
-  it('returns 404 for unknown service', async () => {
+  it('auto-registers unknown service and returns 401', async () => {
     const res = await req('/unknown.api.com', {
       headers: { Accept: 'application/json' },
     })
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(401)
+    const body = (await res.json()) as any
+    expect(body.canonical).toBe('unknown.api.com')
+    expect(body.auth_url).toContain('/auth/unknown.api.com/api-key')
   })
 
   it('returns 404 for reserved paths in discovery', async () => {

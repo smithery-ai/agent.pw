@@ -8,7 +8,7 @@ export function wantsJson(accept: string | undefined) {
   return accept.includes('application/json')
 }
 
-export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string) {
+export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string, flowId?: string) {
   const supported: string[] = svc.supportedAuthMethods
     ? JSON.parse(svc.supportedAuthMethods)
     : []
@@ -20,16 +20,21 @@ export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string) {
 
   if (svc.description) result.description = svc.description
 
-  // Pick the first supported auth method and build an absolute URL
+  // Pick the first supported auth method and build an absolute URL with flow ID
+  const flowParam = flowId ? `?flow_id=${flowId}` : ''
   for (const method of supported) {
     if (method === 'oauth') {
-      result.auth_url = `${baseUrl}/auth/${svc.service}/oauth`
+      result.auth_url = `${baseUrl}/auth/${svc.service}/oauth${flowParam}`
       break
     }
     if (method === 'api_key') {
-      result.auth_url = `${baseUrl}/auth/${svc.service}/api-key`
+      result.auth_url = `${baseUrl}/auth/${svc.service}/api-key${flowParam}`
       break
     }
+  }
+
+  if (flowId) {
+    result.poll_url = `${baseUrl}/auth/status/${flowId}`
   }
 
   result.proxy = `${baseUrl}/${svc.service}`
