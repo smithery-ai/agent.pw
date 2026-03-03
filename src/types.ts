@@ -6,6 +6,7 @@ export interface Hyperdrive {
 
 export interface Env {
   BISCUIT_PRIVATE_KEY: string
+  BASE_URL: string
   ENCRYPTION_KEY: string
   AWS_REGION?: string
   HYPERDRIVE?: Hyperdrive

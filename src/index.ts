@@ -84,6 +84,7 @@ export function createApp(deps: AppDeps = {}) {
 
   app.use('*', async (c, next) => {
     if (!c.env) c.env = {} as HonoEnv['Bindings']
+    c.env.BASE_URL = c.env.BASE_URL ?? new URL(c.req.url).origin
     // Override env only when deps are provided (Node.js / tests)
     if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
