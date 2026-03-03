@@ -226,16 +226,18 @@ jobs:
         uses: anthropics/claude-code-action@v1
         continue-on-error: true
         env:
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_REGION: us-east-1
           LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
         with:
           prompt: ${{ steps.prompt.outputs.value }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
           path_to_claude_code_executable: ${{ env.CLAUDE_PATH }}
+          use_bedrock: "true"
           claude_args: |
             --dangerously-skip-permissions
             --max-turns 20
-            --model claude-3-5-haiku-latest
+            --model anthropic.claude-haiku-4-5-20251001-v1:0
           show_full_output: "false"
 
       - name: Prepare PR comment body
