@@ -11,6 +11,7 @@ export interface Env {
   BEDROCK_API_KEY?: string
   AWS_REGION?: string
   HYPERDRIVE?: Hyperdrive
+  DISCOVERY_WORKFLOW?: Workflow
 }
 
 export interface ManagementRights {

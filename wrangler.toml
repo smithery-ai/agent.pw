@@ -8,6 +8,11 @@ AWS_REGION = "us-east-1"
 
 routes = [{ pattern = "warden.run", custom_domain = true }]
 
+[[workflows]]
+name = "discovery-workflow"
+binding = "DISCOVERY_WORKFLOW"
+class_name = "DiscoveryWorkflow"
+
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "6a576a8480fb40b7a4b307bed14d9afc"
