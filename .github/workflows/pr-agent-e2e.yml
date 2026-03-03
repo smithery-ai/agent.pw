@@ -235,7 +235,7 @@ jobs:
           claude_args: |
             --dangerously-skip-permissions
             --max-turns 20
-            --model claude-haiku-4-5
+            --model claude-3-5-haiku-latest
           show_full_output: "false"
 
       - name: Prepare PR comment body
