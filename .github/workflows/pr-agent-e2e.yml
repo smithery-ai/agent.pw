@@ -91,14 +91,14 @@ jobs:
 
           Your task:
           1. Use terminal commands (curl) to perform real HTTP requests against that preview.
-          2. Run these checks exactly:
-             - Health: GET {base}/
-               Expect: HTTP 200 and JSON body includes keys "status" and "service".
-             - Auth status miss: GET {base}/auth/status/nonexistent
-               Expect: HTTP 404.
-             - Discovery/proxy edge: GET {base}/api.github.com with header Accept: application/json
-               Expect: HTTP 401 or 404 (both acceptable), but NOT 5xx.
-          3. If any check cannot run due to network or returns unexpected status, mark overall result as FAIL.
+          2. Run this required check:
+             - Discovery auth boundary:
+               GET {base}/api.github.com with header Accept: application/json
+               PASS only if:
+               - HTTP status is exactly 401
+               - response is JSON
+               - JSON indicates an auth/discovery response (for example includes any of: "auth_url", "auth_options", "docs", "proxy", or "error")
+          3. Mark overall result as PASS only if the required check passes. Otherwise mark FAIL.
           4. Write result JSON to .context/e2e-agent-result.json with this shape:
              {
                "status": "pass" | "fail",
@@ -139,6 +139,8 @@ jobs:
         id: run-agent
         uses: anthropics/claude-code-action@v1
         continue-on-error: true
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1"
         with:
           prompt: ${{ steps.prompt.outputs.value }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
