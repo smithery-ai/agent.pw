@@ -1,7 +1,6 @@
 import { WorkflowEntrypoint, type WorkflowStep } from 'cloudflare:workers'
 import type { WorkflowEvent } from 'cloudflare:workers'
 import type { Env } from '../types'
-import type { ProbeResult } from './types'
 import { createDb } from '../db/index'
 import { getService, listEnrichablePages, getAnyCredentialForService } from '../db/queries'
 import { probeService } from './probe'
@@ -27,61 +26,61 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       return svc
     })
 
-    // Step 2: Resolve auth headers for authenticated probing (e.g., GraphQL introspection)
-    const authHeaders = await step.do('resolve-probe-auth', async () => {
-      if (!this.env.ENCRYPTION_KEY) return null
-      const db = createDb(connectionString)
-      const cred = await getAnyCredentialForService(db, hostname)
-      if (!cred) return null
-      try {
-        const stored = await decryptCredentials(this.env.ENCRYPTION_KEY, cred.encryptedCredentials)
-        console.log(`[discovery] using stored credentials for ${hostname} probe`)
-        return stored.headers
-      } catch {
-        return null
-      }
-    })
-
-    // Step 3: Probe the service (including external docs URLs)
-    const probe = await step.do(
-      'probe',
+    // Step 2: Probe + deterministic discovery (combined to avoid storing large specs in workflow state)
+    const discoveryResult = await step.do(
+      'probe-and-discover',
       { retries: { limit: 2, delay: '5 seconds', backoff: 'linear' } },
       async () => {
+        // Resolve auth headers for authenticated probing (e.g., GraphQL introspection)
+        let authHeaders: Record<string, string> | undefined
+        if (this.env.ENCRYPTION_KEY) {
+          const db = createDb(connectionString)
+          const cred = await getAnyCredentialForService(db, hostname)
+          if (cred) {
+            try {
+              const stored = await decryptCredentials(this.env.ENCRYPTION_KEY, cred.encryptedCredentials)
+              authHeaders = stored.headers
+              console.log(`[discovery] using stored credentials for ${hostname} probe`)
+            } catch {
+              // Credential decryption failed — proceed without auth
+            }
+          }
+        }
+
+        // Probe the service
         console.log(`[discovery] probing ${hostname} (baseUrl: ${service.baseUrl})`)
-        const result = await probeService(
+        const probe = await probeService(
           service.baseUrl,
           service.apiType ?? undefined,
           hostname,
-          { authHeaders: authHeaders ?? undefined },
+          { authHeaders },
         )
-        console.log(`[discovery] probe complete for ${hostname}: type=${result.apiType}, spec=${!!result.specContent}, graphql=${!!result.graphqlSchema}, docsUrl=${result.docsUrl ?? 'none'}, externalDocs=${result.externalDocsUrls.length}`)
-        return result
+        console.log(`[discovery] probe complete for ${hostname}: type=${probe.apiType}, spec=${!!probe.specContent}, graphql=${!!probe.graphqlSchema}, docsUrl=${probe.docsUrl ?? 'none'}, externalDocs=${probe.externalDocsUrls.length}`)
+
+        // Run deterministic discovery (consumes spec content in-memory, writes pages to DB)
+        const db = createDb(connectionString)
+        const ctx = {
+          db,
+          hostname,
+          service,
+          anthropicApiKey: this.env.ANTHROPIC_API_KEY,
+          awsAccessKeyId: this.env.AWS_ACCESS_KEY_ID,
+          awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
+          awsRegion: this.env.AWS_REGION,
+          baseUrl: this.env.BASE_URL,
+        }
+        const result = await runDeterministicDiscovery(ctx, probe)
+        console.log(`[discovery] deterministic complete for ${hostname}: ${result.pagesWritten} pages, ${result.resourcesFound.length} resources, hasSpec=${result.hasSpec}`)
+
+        // Return only small metadata (not the full spec content)
+        return { hasSpec: result.hasSpec, externalDocsUrls: probe.externalDocsUrls }
       },
     )
 
-    // Step 4: Deterministic discovery
-    const deterministicResult = await step.do('deterministic', async () => {
-      const db = createDb(connectionString)
-      const ctx = {
-        db,
-        hostname,
-        service,
-        anthropicApiKey: this.env.ANTHROPIC_API_KEY,
-        awsAccessKeyId: this.env.AWS_ACCESS_KEY_ID,
-        awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
-        awsRegion: this.env.AWS_REGION,
-        baseUrl: this.env.BASE_URL,
-      }
-      const result = await runDeterministicDiscovery(ctx, probe as ProbeResult)
-      console.log(`[discovery] deterministic complete for ${hostname}: ${result.pagesWritten} pages, ${result.resourcesFound.length} resources, hasSpec=${result.hasSpec}`)
-      return { hasSpec: result.hasSpec }
-    })
-
     const hasLlmProvider = this.env.AWS_ACCESS_KEY_ID || this.env.ANTHROPIC_API_KEY
-    const probeResult = probe as ProbeResult
 
-    // Step 5: If no spec found, try LLM-powered sitemap generation from web docs
-    if (!deterministicResult.hasSpec && hasLlmProvider) {
+    // Step 3: If no spec found, try LLM-powered sitemap generation from web docs
+    if (!discoveryResult.hasSpec && hasLlmProvider) {
       await step.do(
         'generate-sitemap',
         { retries: { limit: 1, delay: '10 seconds' } },
@@ -97,14 +96,14 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
             awsRegion: this.env.AWS_REGION,
             baseUrl: this.env.BASE_URL,
-            externalDocsUrls: probeResult.externalDocsUrls,
+            externalDocsUrls: discoveryResult.externalDocsUrls,
           }
           await generateSitemapFromWeb(ctx)
         },
       )
     }
 
-    // Step 6: List enrichable pages
+    // Step 4: List enrichable pages
     const pagePaths = await step.do('list-enrichable', async () => {
       const db = createDb(connectionString)
       const enrichable = await listEnrichablePages(db, hostname)
@@ -116,7 +115,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       return sorted.map(p => p.path)
     })
 
-    // Step 7: Enrich each page individually (skeletons and re-enrichment of existing pages)
+    // Step 6: Enrich each page individually (skeletons and re-enrichment of existing pages)
     if (!hasLlmProvider) {
       console.log(`[discovery] skipping enrichment for ${hostname}: no LLM provider configured`)
       return
@@ -144,7 +143,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
             awsRegion: this.env.AWS_REGION,
             baseUrl: this.env.BASE_URL,
-            externalDocsUrls: probeResult.externalDocsUrls,
+            externalDocsUrls: discoveryResult.externalDocsUrls,
           }
           await enrichPages(ctx, [path])
         },
