@@ -10,7 +10,8 @@ export interface PipelineContext {
   db: Database
   hostname: string
   service: ServiceRow
-  bedrockToken?: string
+  anthropicApiKey?: string
+  anthropicBaseUrl?: string
   baseUrl: string
   /** Cloudflare Workflow binding for durable discovery execution */
   workflow?: Workflow

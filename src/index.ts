@@ -86,7 +86,8 @@ interface AppDeps {
   biscuitPrivateKey?: string
   baseUrl?: string
   encryptionKey?: string
-  bedrockToken?: string
+  anthropicApiKey?: string
+  anthropicBaseUrl?: string
 }
 
 export function createApp(deps: AppDeps = {}) {
@@ -122,7 +123,8 @@ export function createApp(deps: AppDeps = {}) {
     // Override env only when deps are provided (Node.js / tests)
     if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
-    if (deps.bedrockToken) c.env.AWS_BEARER_TOKEN_BEDROCK = deps.bedrockToken
+    if (deps.anthropicApiKey) c.env.ANTHROPIC_API_KEY = deps.anthropicApiKey
+    if (deps.anthropicBaseUrl) c.env.ANTHROPIC_BASE_URL = deps.anthropicBaseUrl
 
     if (deps.db) {
       c.set('db', deps.db)
@@ -526,7 +528,7 @@ export function createApp(deps: AppDeps = {}) {
     // Kick off discovery pipeline if no docs exist yet
     const docs = await listDocPages(db, serviceName)
     if (docs.length === 0) {
-      const ctx = { db, hostname: serviceName, service: svc, bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
+      const ctx = { db, hostname: serviceName, service: svc, anthropicApiKey: c.env.ANTHROPIC_API_KEY, anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
       console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
       // Non-blocking: workflow handles its own lifecycle
       triggerDiscoveryWorkflow(ctx).catch(err =>

@@ -66,7 +66,7 @@ export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
   const probe = await probeService(ctx.service.baseUrl, ctx.service.apiType ?? undefined)
   await runDeterministicDiscovery(ctx, probe)
 
-  if (ctx.bedrockToken) {
+  if (ctx.anthropicApiKey) {
     const skeletons = await listSkeletonPages(ctx.db, ctx.hostname)
     const sorted = skeletons.sort((a, b) => a.path.split('/').length - b.path.split('/').length)
     await enrichPages(ctx, sorted.map(p => p.path))
