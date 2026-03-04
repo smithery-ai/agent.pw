@@ -98,7 +98,7 @@ export function createApp(deps: AppDeps = {}) {
 
   app.onError((err, c) => {
     console.error(`[error] ${c.req.method} ${c.req.path}:`, err.message, err.stack)
-    return c.text(`Internal Server Error: ${err.message}`, 500)
+    return c.json({ error: 'Internal Server Error' }, 500)
   })
 
   // ─── Global middleware ─────────────────────────────────────────────────────
