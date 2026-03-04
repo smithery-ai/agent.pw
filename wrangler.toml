@@ -2,6 +2,7 @@ name = "warden"
 main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
 
 routes = [{ pattern = "warden.run", custom_domain = true }]
 
