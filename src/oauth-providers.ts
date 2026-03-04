@@ -1,15 +1,16 @@
+import type { AuthScheme } from './auth-schemes'
+
 export interface KnownOAuthProvider {
-  authorizeUrl: string
-  tokenUrl: string
-  scopes: string
+  authSchemes: AuthScheme[]
   authConfig: Record<string, string>
 }
 
 export const KNOWN_OAUTH_PROVIDERS: Record<string, KnownOAuthProvider> = {
   'api.github.com': {
-    authorizeUrl: 'https://github.com/login/oauth/authorize',
-    tokenUrl: 'https://github.com/login/oauth/access_token',
-    scopes: 'repo read:user',
+    authSchemes: [
+      { type: 'http', scheme: 'bearer' },
+      { type: 'oauth2', authorizeUrl: 'https://github.com/login/oauth/authorize', tokenUrl: 'https://github.com/login/oauth/access_token', scopes: 'repo read:user' },
+    ],
     authConfig: {
       token_accept: 'application/json',
       identity_url: 'https://api.github.com/user',
@@ -17,9 +18,10 @@ export const KNOWN_OAUTH_PROVIDERS: Record<string, KnownOAuthProvider> = {
     },
   },
   'api.linear.app': {
-    authorizeUrl: 'https://linear.app/oauth/authorize',
-    tokenUrl: 'https://api.linear.app/oauth/token',
-    scopes: 'read',
+    authSchemes: [
+      { type: 'apiKey', in: 'header', name: 'Authorization' },
+      { type: 'oauth2', authorizeUrl: 'https://linear.app/oauth/authorize', tokenUrl: 'https://api.linear.app/oauth/token', scopes: 'read' },
+    ],
     authConfig: {
       token_accept: 'application/json',
       identity_url: 'https://api.linear.app/graphql',
@@ -29,33 +31,37 @@ export const KNOWN_OAUTH_PROVIDERS: Record<string, KnownOAuthProvider> = {
     },
   },
   'api.notion.com': {
-    authorizeUrl: 'https://api.notion.com/v1/oauth/authorize',
-    tokenUrl: 'https://api.notion.com/v1/oauth/token',
-    scopes: '',
+    authSchemes: [
+      { type: 'http', scheme: 'bearer' },
+      { type: 'oauth2', authorizeUrl: 'https://api.notion.com/v1/oauth/authorize', tokenUrl: 'https://api.notion.com/v1/oauth/token', scopes: '' },
+    ],
     authConfig: {
       token_accept: 'application/json',
     },
   },
   'slack.com': {
-    authorizeUrl: 'https://slack.com/oauth/v2/authorize',
-    tokenUrl: 'https://slack.com/api/oauth.v2.access',
-    scopes: 'users:read',
+    authSchemes: [
+      { type: 'http', scheme: 'bearer' },
+      { type: 'oauth2', authorizeUrl: 'https://slack.com/oauth/v2/authorize', tokenUrl: 'https://slack.com/api/oauth.v2.access', scopes: 'users:read' },
+    ],
     authConfig: {
       token_accept: 'application/json',
     },
   },
   'www.googleapis.com': {
-    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenUrl: 'https://oauth2.googleapis.com/token',
-    scopes: 'openid email profile',
+    authSchemes: [
+      { type: 'http', scheme: 'bearer' },
+      { type: 'oauth2', authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth', tokenUrl: 'https://oauth2.googleapis.com/token', scopes: 'openid email profile' },
+    ],
     authConfig: {
       token_accept: 'application/json',
     },
   },
   'accounts.google.com': {
-    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenUrl: 'https://oauth2.googleapis.com/token',
-    scopes: 'openid email profile',
+    authSchemes: [
+      { type: 'http', scheme: 'bearer' },
+      { type: 'oauth2', authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth', tokenUrl: 'https://oauth2.googleapis.com/token', scopes: 'openid email profile' },
+    ],
     authConfig: {
       token_accept: 'application/json',
     },

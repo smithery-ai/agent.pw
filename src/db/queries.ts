@@ -42,17 +42,11 @@ export async function upsertService(
   service: string,
   data: {
     baseUrl: string
-    authMethod?: string
-    headerName?: string
-    headerScheme?: string
+    authSchemes?: string
     displayName?: string
     description?: string
     oauthClientId?: string
     encryptedOauthClientSecret?: Buffer | null
-    oauthAuthorizeUrl?: string
-    oauthTokenUrl?: string
-    oauthScopes?: string
-    supportedAuthMethods?: string
     apiType?: string
     docsUrl?: string
     preview?: string
@@ -64,17 +58,11 @@ export async function upsertService(
     .values({
       service,
       baseUrl: data.baseUrl,
-      authMethod: data.authMethod ?? 'bearer',
-      headerName: data.headerName ?? 'Authorization',
-      headerScheme: data.headerScheme ?? 'Bearer',
+      authSchemes: data.authSchemes,
       displayName: data.displayName,
       description: data.description,
       oauthClientId: data.oauthClientId,
       encryptedOauthClientSecret: data.encryptedOauthClientSecret ?? null,
-      oauthAuthorizeUrl: data.oauthAuthorizeUrl,
-      oauthTokenUrl: data.oauthTokenUrl,
-      oauthScopes: data.oauthScopes,
-      supportedAuthMethods: data.supportedAuthMethods,
       apiType: data.apiType,
       docsUrl: data.docsUrl,
       preview: data.preview,
@@ -84,17 +72,11 @@ export async function upsertService(
       target: services.service,
       set: {
         baseUrl: sql`excluded.base_url`,
-        authMethod: sql`coalesce(excluded.auth_method, ${services.authMethod})`,
-        headerName: sql`coalesce(excluded.header_name, ${services.headerName})`,
-        headerScheme: sql`coalesce(excluded.header_scheme, ${services.headerScheme})`,
+        authSchemes: sql`coalesce(excluded.auth_schemes, ${services.authSchemes})`,
         displayName: sql`coalesce(excluded.display_name, ${services.displayName})`,
         description: sql`coalesce(excluded.description, ${services.description})`,
         oauthClientId: sql`coalesce(excluded.oauth_client_id, ${services.oauthClientId})`,
         encryptedOauthClientSecret: sql`coalesce(excluded.encrypted_oauth_client_secret, ${services.encryptedOauthClientSecret})`,
-        oauthAuthorizeUrl: sql`coalesce(excluded.oauth_authorize_url, ${services.oauthAuthorizeUrl})`,
-        oauthTokenUrl: sql`coalesce(excluded.oauth_token_url, ${services.oauthTokenUrl})`,
-        oauthScopes: sql`coalesce(excluded.oauth_scopes, ${services.oauthScopes})`,
-        supportedAuthMethods: sql`coalesce(excluded.supported_auth_methods, ${services.supportedAuthMethods})`,
         apiType: sql`coalesce(excluded.api_type, ${services.apiType})`,
         docsUrl: sql`coalesce(excluded.docs_url, ${services.docsUrl})`,
         preview: sql`coalesce(excluded.preview, ${services.preview})`,

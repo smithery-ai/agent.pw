@@ -1,5 +1,6 @@
 import type { PipelineContext, ProbeResult, DocIndexPage, DocResourcesPage, DocResourceDetailPage, DocMeta } from './types'
 import { upsertDocPage, upsertService } from '../db/queries'
+import { parseAuthSchemes, getOAuthScheme, DEFAULT_API_KEY_SCHEME, type AuthScheme } from '../auth-schemes'
 
 interface DeterministicResult {
   pagesWritten: number
@@ -10,6 +11,17 @@ interface DeterministicResult {
     tokenUrl: string
     scopes?: string
   }
+}
+
+function deriveAuthLabels(schemes: AuthScheme[], hasExtraOAuth = false): string[] {
+  const labels = new Set<string>()
+  for (const s of schemes) {
+    if (s.type === 'oauth2') labels.add('oauth')
+    else labels.add('api_key')
+  }
+  if (hasExtraOAuth) labels.add('oauth')
+  if (labels.size === 0) labels.add('api_key')
+  return Array.from(labels)
 }
 
 // ─── OpenAPI Parsing ─────────────────────────────────────────────────────────
@@ -84,12 +96,8 @@ function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult 
     }
   }
 
-  const supported: string[] = ctx.service.supportedAuthMethods
-    ? JSON.parse(ctx.service.supportedAuthMethods)
-    : []
-  const supportedSet = new Set(supported)
-  if (oauthMeta) supportedSet.add('oauth')
-  const supportedMethods = Array.from(supportedSet)
+  const schemes = parseAuthSchemes(ctx.service.authSchemes)
+  const authLabels = deriveAuthLabels(schemes, !!oauthMeta)
 
   // Build L0 index
   const indexPage: DocIndexPage = {
@@ -99,7 +107,7 @@ function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult 
     api_type: 'rest',
     base_url: `/${ctx.hostname}`,
     description: (info?.description as string) ?? ctx.service.description ?? '',
-    auth: supportedMethods.map(m => ({
+    auth: authLabels.map(m => ({
       type: m,
       setup_url: `/auth/${ctx.hostname}`,
     })),
@@ -213,9 +221,8 @@ function parseGraphQL(ctx: PipelineContext, schemaJson: string): DeterministicRe
   addOps(queryType?.fields, 'QUERY')
   addOps(mutationType?.fields, 'MUTATION')
 
-  const supported: string[] = ctx.service.supportedAuthMethods
-    ? JSON.parse(ctx.service.supportedAuthMethods)
-    : []
+  const schemes = parseAuthSchemes(ctx.service.authSchemes)
+  const authLabels = deriveAuthLabels(schemes)
 
   const indexPage: DocIndexPage = {
     level: 0,
@@ -224,7 +231,7 @@ function parseGraphQL(ctx: PipelineContext, schemaJson: string): DeterministicRe
     api_type: 'graphql',
     base_url: `/${ctx.hostname}`,
     description: ctx.service.description ?? 'GraphQL API',
-    auth: supported.map(m => ({
+    auth: authLabels.map(m => ({
       type: m,
       setup_url: `/auth/${ctx.hostname}`,
     })),
@@ -290,9 +297,8 @@ function parseGraphQL(ctx: PipelineContext, schemaJson: string): DeterministicRe
 // ─── Fallback (no spec) ─────────────────────────────────────────────────────
 
 function buildFallback(ctx: PipelineContext): { path: string; content: string; status: string }[] {
-  const supported: string[] = ctx.service.supportedAuthMethods
-    ? JSON.parse(ctx.service.supportedAuthMethods)
-    : []
+  const schemes = parseAuthSchemes(ctx.service.authSchemes)
+  const authLabels = deriveAuthLabels(schemes)
 
   const indexPage: DocIndexPage = {
     level: 0,
@@ -301,7 +307,7 @@ function buildFallback(ctx: PipelineContext): { path: string; content: string; s
     api_type: (ctx.service.apiType as 'rest' | 'graphql') ?? 'unknown',
     base_url: `/${ctx.hostname}`,
     description: ctx.service.description ?? '',
-    auth: supported.map(m => ({
+    auth: authLabels.map(m => ({
       type: m,
       setup_url: `/auth/${ctx.hostname}`,
     })),
@@ -325,29 +331,25 @@ export async function runDeterministicDiscovery(
   ctx: PipelineContext,
   probe: ProbeResult,
 ): Promise<DeterministicResult> {
-  if (probe.oauthMeta) {
-    const currentSupported: string[] = ctx.service.supportedAuthMethods
-      ? JSON.parse(ctx.service.supportedAuthMethods)
-      : []
-    const supportedSet = new Set(currentSupported)
-    supportedSet.add('oauth')
-    supportedSet.add('api_key')
-
-    await upsertService(ctx.db, ctx.hostname, {
-      baseUrl: ctx.service.baseUrl,
-      authMethod: 'bearer',
-      headerName: ctx.service.headerName ?? 'Authorization',
-      headerScheme: ctx.service.headerScheme ?? 'Bearer',
-      oauthAuthorizeUrl: probe.oauthMeta.authorizeUrl,
-      oauthTokenUrl: probe.oauthMeta.tokenUrl,
-      oauthScopes: probe.oauthMeta.scopes ?? ctx.service.oauthScopes ?? undefined,
-      supportedAuthMethods: JSON.stringify(Array.from(supportedSet)),
+  if (probe.oauthMeta && !getOAuthScheme(parseAuthSchemes(ctx.service.authSchemes))) {
+    const existingSchemes = parseAuthSchemes(ctx.service.authSchemes)
+    if (existingSchemes.length === 0) {
+      existingSchemes.push(DEFAULT_API_KEY_SCHEME)
+    }
+    existingSchemes.push({
+      type: 'oauth2',
+      authorizeUrl: probe.oauthMeta.authorizeUrl,
+      tokenUrl: probe.oauthMeta.tokenUrl,
+      scopes: probe.oauthMeta.scopes,
     })
 
-    ctx.service.oauthAuthorizeUrl = probe.oauthMeta.authorizeUrl
-    ctx.service.oauthTokenUrl = probe.oauthMeta.tokenUrl
-    ctx.service.oauthScopes = probe.oauthMeta.scopes ?? ctx.service.oauthScopes
-    ctx.service.supportedAuthMethods = JSON.stringify(Array.from(supportedSet))
+    const updatedSchemes = JSON.stringify(existingSchemes)
+    await upsertService(ctx.db, ctx.hostname, {
+      baseUrl: ctx.service.baseUrl,
+      authSchemes: updatedSchemes,
+    })
+
+    ctx.service.authSchemes = updatedSchemes
   }
 
   let pages: { path: string; content: string; status: string }[]

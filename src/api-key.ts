@@ -6,6 +6,7 @@ import { mintToken } from './biscuit'
 import { requireBrowserSession } from './middleware'
 import { ApiKeyFormPage, SuccessPage, ErrorPage } from './ui'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
+import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from './auth-schemes'
 
 export const apiKeyRoutes = new Hono<HonoEnv>()
 
@@ -78,20 +79,12 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
 
   // Optionally validate the key via a "whoami" call
   const authConfig: Record<string, string> = svc.authConfig ? JSON.parse(svc.authConfig) : {}
+  const apiKeyScheme = getApiKeyScheme(parseAuthSchemes(svc.authSchemes)) ?? DEFAULT_API_KEY_SCHEME
   let identity = 'default'
 
   if (authConfig.identity_url) {
     try {
-      const headers: Record<string, string> = {}
-
-      // Use the service's auth method to build the validation request
-      if (svc.authMethod === 'bearer' || svc.authMethod === 'oauth2') {
-        headers[svc.headerName] = `${svc.headerScheme} ${apiKey}`
-      } else if (svc.authMethod === 'api_key') {
-        headers[svc.headerName] = apiKey
-      } else if (svc.authMethod === 'basic') {
-        headers[svc.headerName] = `Basic ${btoa(apiKey)}`
-      }
+      const headers: Record<string, string> = buildCredentialHeaders(apiKeyScheme, apiKey)
 
       let identityRes: Response
 
@@ -130,7 +123,7 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
   const orgId = session.orgId
 
   // Store credential in org
-  const credHeaders = buildCredentialHeaders(svc, apiKey)
+  const credHeaders = buildCredentialHeaders(apiKeyScheme, apiKey)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
   await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 

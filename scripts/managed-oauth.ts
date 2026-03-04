@@ -50,14 +50,12 @@ await sql`
   UPDATE warden.services
   SET oauth_client_id = ${clientId},
       encrypted_oauth_client_secret = ${encrypted},
-      oauth_scopes = COALESCE(${scopes ?? null}, oauth_scopes),
-      supported_auth_methods = '["oauth", "api_key"]',
       updated_at = now()
   WHERE service = ${service}
 `
 
 const [row] = await sql`
-  SELECT service, oauth_client_id, oauth_authorize_url, oauth_token_url, oauth_scopes
+  SELECT service, oauth_client_id, auth_schemes
   FROM warden.services
   WHERE service = ${service}
 `
@@ -70,9 +68,7 @@ if (!row) {
 
 console.log('Updated managed OAuth for:', service)
 console.log('  client_id:', row.oauth_client_id)
-console.log('  authorize_url:', row.oauth_authorize_url)
-console.log('  token_url:', row.oauth_token_url)
-console.log('  scopes:', row.oauth_scopes)
+console.log('  auth_schemes:', row.auth_schemes)
 console.log('  secret: (encrypted)')
 
 await sql.end()

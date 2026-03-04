@@ -1,5 +1,6 @@
 import type { InferSelectModel } from 'drizzle-orm'
 import type { services } from './db/schema'
+import { parseAuthSchemes, getOAuthScheme } from './auth-schemes'
 
 type ServiceRow = InferSelectModel<typeof services>
 
@@ -12,10 +13,8 @@ export function wantsJson(accept: string | undefined) {
 }
 
 export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string, flowId?: string) {
-  const supported: string[] = svc.supportedAuthMethods
-    ? JSON.parse(svc.supportedAuthMethods)
-    : []
-  const supportsOAuth = supported.includes('oauth') || !!svc.oauthAuthorizeUrl
+  const schemes = parseAuthSchemes(svc.authSchemes)
+  const oauthScheme = getOAuthScheme(schemes)
 
   const result: Record<string, unknown> = {
     service: svc.displayName ?? svc.service,
@@ -28,10 +27,10 @@ export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string, flowId?: 
   result.auth_url = `${baseUrl}/auth/${svc.service}${flowParam}`
 
   const authMethods: { type: string; mode?: string }[] = []
-  if (supportsOAuth && svc.oauthClientId) {
+  if (oauthScheme && svc.oauthClientId) {
     authMethods.push({ type: 'oauth', mode: 'managed' })
   }
-  if (supportsOAuth && svc.oauthAuthorizeUrl) {
+  if (oauthScheme) {
     authMethods.push({ type: 'oauth', mode: 'byo' })
   }
   authMethods.push({ type: 'api_key' })

@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import type { InferSelectModel } from 'drizzle-orm'
 import type { services } from './db/schema'
+import { parseAuthSchemes, getOAuthScheme } from './auth-schemes'
 
 type ServiceRow = InferSelectModel<typeof services>
 
@@ -426,8 +427,9 @@ export function AuthPage({
   flowId: string
   callbackUrl: string
 }) {
+  const oauthScheme = getOAuthScheme(parseAuthSchemes(service.authSchemes))
   const hasManagedOAuth = !!service.oauthClientId
-  const hasOAuth = !!service.oauthAuthorizeUrl
+  const hasOAuth = !!oauthScheme
   const defaultTab = hasOAuth ? 'oauth' : 'api'
   const name = service.displayName ?? service.service
 
@@ -511,7 +513,7 @@ export function AuthPage({
                     type="text"
                     id="scopes"
                     name="scopes"
-                    placeholder={service.oauthScopes ?? 'repo read:user'}
+                    placeholder={oauthScheme?.scopes ?? 'repo read:user'}
                     autocomplete="off"
                     spellcheck={false}
                   />

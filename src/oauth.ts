@@ -8,17 +8,16 @@ import { requireBrowserSession } from './middleware'
 import { getSessionFromCookie } from './lib/session'
 import { SuccessPage, ErrorPage } from './ui'
 import { encryptCredentials, buildCredentialHeaders, importAesKey } from './lib/credentials-crypto'
+import { parseAuthSchemes, getOAuthScheme } from './auth-schemes'
 
 export const oauthRoutes = new Hono<HonoEnv>()
 
 type OAuthSource = 'managed' | 'byo'
 
 type ServiceOAuthConfig = {
+  authSchemes: string | null
   oauthClientId: string | null
   encryptedOauthClientSecret: Buffer | null
-  oauthAuthorizeUrl: string | null
-  oauthTokenUrl: string | null
-  oauthScopes: string | null
 }
 
 export type ResolvedOAuthConfig = {
@@ -133,16 +132,19 @@ export async function resolveOAuthConfig(
   svc: ServiceOAuthConfig,
   preferredSource?: OAuthSource,
 ): Promise<ResolvedOAuthConfig | null> {
+  const oauthScheme = getOAuthScheme(parseAuthSchemes(svc.authSchemes))
+  if (!oauthScheme) return null
+
   if (preferredSource !== 'managed') {
     const app = await getOAuthApp(db, orgId, service)
-    if (app && svc.oauthAuthorizeUrl && svc.oauthTokenUrl) {
+    if (app) {
       return {
         source: 'byo',
         clientId: app.clientId,
         clientSecret: await decryptSecret(encryptionKey, app.encryptedClientSecret),
-        authorizeUrl: svc.oauthAuthorizeUrl,
-        tokenUrl: svc.oauthTokenUrl,
-        scopes: app.scopes ?? svc.oauthScopes ?? undefined,
+        authorizeUrl: oauthScheme.authorizeUrl,
+        tokenUrl: oauthScheme.tokenUrl,
+        scopes: app.scopes ?? oauthScheme.scopes,
       }
     }
   }
@@ -151,14 +153,14 @@ export async function resolveOAuthConfig(
     return null
   }
 
-  if (svc.oauthClientId && svc.oauthAuthorizeUrl && svc.oauthTokenUrl) {
+  if (svc.oauthClientId) {
     return {
       source: 'managed',
       clientId: svc.oauthClientId,
       clientSecret: await decryptSecret(encryptionKey, svc.encryptedOauthClientSecret),
-      authorizeUrl: svc.oauthAuthorizeUrl,
-      tokenUrl: svc.oauthTokenUrl,
-      scopes: svc.oauthScopes ?? undefined,
+      authorizeUrl: oauthScheme.authorizeUrl,
+      tokenUrl: oauthScheme.tokenUrl,
+      scopes: oauthScheme.scopes,
     }
   }
 
@@ -296,7 +298,8 @@ oauthRoutes.post('/:service/oauth/byo', requireBrowserSession, async c => {
     return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
   }
 
-  if (!svc.oauthAuthorizeUrl || !svc.oauthTokenUrl) {
+  const oauthScheme = getOAuthScheme(parseAuthSchemes(svc.authSchemes))
+  if (!oauthScheme) {
     return c.html(
       ErrorPage({ message: `OAuth endpoints are not known for ${serviceName} yet` }),
       400,
@@ -522,7 +525,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   }
 
   // Store credential with refresh token data
-  const credHeaders = buildCredentialHeaders(svc, accessToken)
+  const credHeaders = buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, accessToken)
   const storedCredentials: Parameters<typeof encryptCredentials>[1] = {
     headers: credHeaders,
   }

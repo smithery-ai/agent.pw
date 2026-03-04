@@ -22,6 +22,13 @@
       "when": 1772650000000,
       "tag": "0002_encrypt_oauth_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772740000000,
+      "tag": "0003_auth_schemes",
+      "breakpoints": true
     }
   ]
 }

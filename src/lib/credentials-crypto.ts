@@ -1,3 +1,5 @@
+import type { AuthScheme } from '../auth-schemes'
+
 /**
  * Credentials stored alongside a connection, encrypted at rest in the database.
  * Used by the proxy to inject auth headers when forwarding to upstream APIs.
@@ -58,19 +60,20 @@ export async function decryptCredentials(
 }
 
 /**
- * Derive proxy headers from a service's auth config and a raw token value.
- * Used at write time (OAuth callback, API key submit, PUT with token).
+ * Derive proxy headers from a token and an auth scheme.
+ * Each scheme type is self-describing — no ambiguity about formatting.
  */
 export function buildCredentialHeaders(
-  svc: { authMethod: string; headerName: string; headerScheme: string },
+  scheme: AuthScheme,
   token: string,
 ): Record<string, string> {
-  if (svc.authMethod === 'bearer' || svc.authMethod === 'oauth2') {
-    return { [svc.headerName]: `${svc.headerScheme} ${token}` }
+  switch (scheme.type) {
+    case 'apiKey':
+      return { [scheme.name]: token }
+    case 'http':
+      if (scheme.scheme === 'basic') return { Authorization: `Basic ${btoa(token)}` }
+      return { Authorization: `Bearer ${token}` }
+    case 'oauth2':
+      return { Authorization: `Bearer ${token}` }
   }
-  if (svc.authMethod === 'basic') {
-    return { [svc.headerName]: `Basic ${btoa(token)}` }
-  }
-  // api_key and any other method
-  return { [svc.headerName]: token }
 }
