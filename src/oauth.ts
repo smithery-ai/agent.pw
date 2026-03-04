@@ -178,18 +178,23 @@ export async function refreshOAuthToken(params: {
   const tokenBody: Record<string, string> = {
     grant_type: 'refresh_token',
     refresh_token: params.refreshToken,
-    client_id: params.clientId,
   }
 
-  if (params.clientSecret) {
-    tokenBody.client_secret = params.clientSecret
-  }
   if (params.scopes) {
     tokenBody.scope = params.scopes
   }
 
   const tokenHeaders: Record<string, string> = {
     'Content-Type': 'application/x-www-form-urlencoded',
+  }
+
+  if (params.authConfig?.token_auth === 'basic' && params.clientSecret) {
+    tokenHeaders.Authorization = `Basic ${btoa(`${params.clientId}:${params.clientSecret}`)}`
+  } else {
+    tokenBody.client_id = params.clientId
+    if (params.clientSecret) {
+      tokenBody.client_secret = params.clientSecret
+    }
   }
 
   if (params.authConfig?.token_accept) {
@@ -447,16 +452,20 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
     grant_type: 'authorization_code',
     code,
     redirect_uri: `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`,
-    client_id: oauth.clientId,
     code_verifier: flow.codeVerifier,
-  }
-
-  if (oauth.clientSecret) {
-    tokenBody.client_secret = oauth.clientSecret
   }
 
   const tokenHeaders: Record<string, string> = {
     'Content-Type': 'application/x-www-form-urlencoded',
+  }
+
+  if (authConfig.token_auth === 'basic' && oauth.clientSecret) {
+    tokenHeaders.Authorization = `Basic ${btoa(`${oauth.clientId}:${oauth.clientSecret}`)}`
+  } else {
+    tokenBody.client_id = oauth.clientId
+    if (oauth.clientSecret) {
+      tokenBody.client_secret = oauth.clientSecret
+    }
   }
 
   if (authConfig.token_accept) {

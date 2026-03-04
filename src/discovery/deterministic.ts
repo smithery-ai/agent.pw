@@ -371,11 +371,21 @@ export async function runDeterministicDiscovery(
     })
 
     const updatedSchemes = JSON.stringify(existingSchemes)
-    await upsertService(ctx.db, ctx.hostname, {
+    const serviceUpdate: { baseUrl: string; authSchemes: string; authConfig?: string } = {
       baseUrl: ctx.service.baseUrl,
       authSchemes: updatedSchemes,
-    })
+    }
 
+    // If discovery detected that the token endpoint requires Basic Auth, persist it
+    if (probe.oauthMeta.tokenEndpointAuthMethod) {
+      const existingConfig: Record<string, string> = ctx.service.authConfig
+        ? JSON.parse(ctx.service.authConfig)
+        : {}
+      existingConfig.token_auth = probe.oauthMeta.tokenEndpointAuthMethod
+      serviceUpdate.authConfig = JSON.stringify(existingConfig)
+    }
+
+    await upsertService(ctx.db, ctx.hostname, serviceUpdate)
     ctx.service.authSchemes = updatedSchemes
   }
 
