@@ -1049,8 +1049,8 @@ function RouteSpec({
 }
 
 export function WardenLandingPage({ services = [] }: { services?: ServiceWithPopularity[] } = {}) {
-  const withCreds = services.filter(s => (s.credentialCount ?? 0) > 0)
-  const ranked = [...withCreds].sort((a, b) => {
+  const visible = services.filter(s => (s.credentialCount ?? 0) > 0 || !!s.description)
+  const ranked = [...visible].sort((a, b) => {
     const byPopularity = (b.credentialCount ?? 0) - (a.credentialCount ?? 0)
     if (byPopularity !== 0) return byPopularity
     return serviceName(a).localeCompare(serviceName(b))
@@ -1076,8 +1076,7 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
       </section>
 
       <section class="section">
-        <h2>Live service usage</h2>
-        <p>Connected services by real credential usage.</p>
+        <h2>APIs</h2>
         {ranked.length === 0 ? (
           <div class="card">
             <h3>No services yet</h3>
@@ -1095,29 +1094,21 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
                       <div class="service-host mono">{service.service}</div>
                     </div>
                   </div>
-                  <span class="pill" style="gap: 0.3rem; display: inline-flex; align-items: center;">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                      <circle cx="8" cy="5" r="3"/>
-                      <path d="M2 14.5C2 11.5 4.7 9.5 8 9.5s6 2 6 5"/>
-                    </svg>
-                    {service.credentialCount ?? 0}
-                  </span>
+                  {(service.credentialCount ?? 0) > 0 ? (
+                    <span class="pill" style="gap: 0.3rem; display: inline-flex; align-items: center;">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                        <circle cx="8" cy="5" r="3"/>
+                        <path d="M2 14.5C2 11.5 4.7 9.5 8 9.5s6 2 6 5"/>
+                      </svg>
+                      {service.credentialCount}
+                    </span>
+                  ) : null}
                 </div>
                 {service.description ? <div class="service-blurb">{service.description}</div> : null}
               </a>
             ))}
           </div>
         )}
-      </section>
-
-      <section class="section">
-        <h2>The friction</h2>
-        <p>Most agent integrations fail in the same three places.</p>
-        <ul class="clean">
-          <li><strong>Credentials leak:</strong> users paste provider API keys into prompts, files, or tool configs.</li>
-          <li><strong>Integration tax:</strong> every API has a different auth flow, endpoint shape, and docs quality.</li>
-          <li><strong>Brittle recovery:</strong> upstream 401s don’t clearly tell agents when to re-authenticate.</li>
-        </ul>
       </section>
 
       <section class="section">
@@ -1153,17 +1144,14 @@ POST /api.notion.com/v1/pages Authorization: Bearer wdn_...`}</code></pre>
         <h2>Features</h2>
         <div class="value-grid">
           <div class="card value-card">
-            <span class="value-no">01</span>
             <h3>Credential boundary</h3>
             <p>Agents get revocable Warden tokens. Provider secrets stay out of agent context.</p>
           </div>
           <div class="card value-card">
-            <span class="value-no">02</span>
             <h3>No auth glue code</h3>
             <p>One URL pattern for discovery and proxying, instead of custom auth handlers per API.</p>
           </div>
           <div class="card value-card">
-            <span class="value-no">03</span>
             <h3>Cleaner recovery</h3>
             <p>Credential failures are normalized with explicit re-auth URLs so agents recover deterministically.</p>
           </div>
