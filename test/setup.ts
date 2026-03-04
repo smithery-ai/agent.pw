@@ -63,6 +63,7 @@ export async function createTestDb() {
       encrypted_oauth_client_secret BYTEA,
       api_type TEXT,
       docs_url TEXT,
+      crawl_state TEXT DEFAULT 'pending',
       preview TEXT,
       auth_config TEXT,
       webhook_config TEXT,

@@ -7,6 +7,13 @@ vi.mock('@ai-sdk/anthropic', () => ({
   createAnthropic: vi.fn(() => (modelId: string) => ({ modelId })),
 }))
 
+// Mock @ai-sdk/mcp to avoid network connections in tests
+vi.mock('@ai-sdk/mcp', () => ({
+  createMCPClient: vi.fn(async () => {
+    throw new Error('MCP not available in tests')
+  }),
+}))
+
 // Mock ai — generateText calls write_doc_page tool to simulate enrichment
 vi.mock('ai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ai')>()
@@ -72,6 +79,7 @@ describe('Enrichment', () => {
         encryptedOauthClientSecret: null,
         apiType: 'rest',
         docsUrl: 'https://docs.example.com',
+        crawlState: 'pending',
         preview: null,
         authConfig: null,
         createdAt: new Date(),
@@ -109,8 +117,8 @@ describe('Enrichment', () => {
     expect(callArgs.system).toContain('Example')
     expect(callArgs.system).toContain('https://api.example.com')
     expect(callArgs.prompt).toContain('sitemap/test.json')
-    expect(callArgs.tools.fetch_upstream).toBeUndefined()
     expect(callArgs.tools.write_doc_page).toBeDefined()
+    expect(callArgs.tools.fetch_url).toBeDefined()
 
     // Verify createAnthropic was called with the API key
     expect(createAnthropic).toHaveBeenCalledWith(
@@ -177,15 +185,17 @@ describe('Enrichment', () => {
     expect(pageB?.status).toBe('enriched')
   })
 
-  it('generateSitemapFromWeb calls LLM with web search prompt', async () => {
+  it('generateSitemapFromWeb calls LLM with discovery agent prompt', async () => {
     await generateSitemapFromWeb(makeCtx({ externalDocsUrls: ['https://docs.example.com'] }))
 
     expect(generateText).toHaveBeenCalledOnce()
     const callArgs = (generateText as any).mock.calls[0][0]
-    expect(callArgs.system).toContain('No OpenAPI or GraphQL spec was found')
+    expect(callArgs.system).toContain('API documentation agent')
     expect(callArgs.system).toContain('api.example.com')
     expect(callArgs.prompt).toContain('https://docs.example.com')
     expect(callArgs.tools.write_doc_page).toBeDefined()
+    expect(callArgs.tools.fetch_url).toBeDefined()
+    expect(callArgs.tools.parse_openapi_spec).toBeDefined()
   })
 
   it('generateSitemapFromWeb skips when no API key configured', async () => {

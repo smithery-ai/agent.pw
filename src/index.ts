@@ -27,7 +27,6 @@ import {
   listServicesWithCredentialCounts,
   countCredentialsForService,
   listDocPages,
-  getDocPage,
 } from './db/queries'
 import { createAuthFlow, getAuthFlow } from './lib/auth-flow-store'
 import { extractBearerToken, handleProxy } from './proxy'
@@ -649,12 +648,13 @@ export function createApp(deps: AppDeps = {}) {
       )
     }
 
-    // Build discovery status from doc metadata
+    // Build discovery status from service crawl state + doc pages
     const docs = await listDocPages(db, serviceName)
-    const meta = await getDocPage(db, serviceName, '_meta.json')
-    const discoveryStatus = meta
-      ? JSON.parse(meta.content!)
-      : { pipeline_state: docs.length === 0 ? 'probing' : 'idle', total_pages: docs.length }
+    const crawlState = svc.crawlState ?? 'pending'
+    const discoveryStatus = {
+      crawl_state: crawlState,
+      total_pages: docs.length,
+    }
 
     // Check for saved credentials (if user is signed in)
     const session = c.get('session')

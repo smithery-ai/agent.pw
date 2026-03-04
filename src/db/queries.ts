@@ -92,6 +92,7 @@ export async function upsertService(
     preview?: string
     authConfig?: string
     webhookConfig?: string
+    crawlState?: string
   },
 ) {
   await db
@@ -109,6 +110,7 @@ export async function upsertService(
       preview: data.preview,
       authConfig: data.authConfig,
       webhookConfig: data.webhookConfig,
+      crawlState: data.crawlState,
     })
     .onConflictDoUpdate({
       target: services.service,
@@ -124,9 +126,17 @@ export async function upsertService(
         preview: sql`coalesce(excluded.preview, ${services.preview})`,
         authConfig: sql`coalesce(excluded.auth_config, ${services.authConfig})`,
         webhookConfig: sql`coalesce(excluded.webhook_config, ${services.webhookConfig})`,
+        crawlState: sql`coalesce(excluded.crawl_state, ${services.crawlState})`,
         updatedAt: sql`now()`,
       },
     })
+}
+
+export async function updateCrawlState(db: Database, service: string, crawlState: string) {
+  await db
+    .update(services)
+    .set({ crawlState, updatedAt: new Date() })
+    .where(eq(services.service, service))
 }
 
 export async function deleteService(db: Database, service: string) {

@@ -14,6 +14,7 @@ export const services = wardenSchema.table('services', {
   // Discovery
   apiType: text('api_type'), // rest | graphql
   docsUrl: text('docs_url'),
+  crawlState: text('crawl_state').default('pending'), // pending | crawling | ready | failed
   preview: text('preview'), // JSON
   authConfig: text('auth_config'), // JSON: provider-specific overrides
   // Webhooks

@@ -1,8 +1,8 @@
-import type { PipelineContext, DocMeta } from './types'
-import { getDocPage, listDocPages, listEnrichablePages, getAnyCredentialForService } from '../db/queries'
+import type { PipelineContext } from './types'
+import { getDocPage, listDocPages, getAnyCredentialForService, updateCrawlState } from '../db/queries'
 import { probeService } from './probe'
 import { runDeterministicDiscovery } from './deterministic'
-import { enrichPages, generateSitemapFromWeb } from './enrichment'
+import { runDiscoveryAgent } from './enrichment'
 import { decryptCredentials } from '../lib/credentials-crypto'
 
 const STALE_THRESHOLD_MS = 60 * 60 * 1000 // 1 hour
@@ -51,19 +51,12 @@ export async function getOrGeneratePage(
   const anyPages = await listDocPages(ctx.db, ctx.hostname)
 
   if (anyPages.length === 0) {
-    // No pages at all: trigger full pipeline via workflow
-    await triggerDiscoveryWorkflow(ctx)
-    return await getDocPage(ctx.db, ctx.hostname, path)
+    // No pages at all: trigger discovery in background, return null (caller returns 404)
+    triggerDiscoveryWorkflow(ctx)
+    return null
   }
 
-  // Pages exist but this one doesn't.
-  if (path === 'sitemap/index.json' || path === 'sitemap/resources.json') {
-    // These should exist after pipeline, something went wrong
-    await triggerDiscoveryWorkflow(ctx)
-    return await getDocPage(ctx.db, ctx.hostname, path)
-  }
-
-  // For L2/L3 pages, trigger enrichment workflow
+  // Pages exist but this one doesn't — trigger discovery in background
   triggerDiscoveryWorkflow(ctx)
   return null
 }
@@ -99,38 +92,39 @@ export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
   // Fallback: run in-process (for local dev / tests without workflow binding)
   console.log(`[discovery] no workflow binding, running in-process for ${ctx.hostname}`)
 
-  // Try to resolve auth headers for authenticated probing (e.g., GraphQL introspection)
-  let authHeaders: Record<string, string> | undefined
-  if (ctx.encryptionKey) {
-    try {
-      const cred = await getAnyCredentialForService(ctx.db, ctx.hostname)
-      if (cred) {
-        const stored = await decryptCredentials(ctx.encryptionKey, cred.encryptedCredentials)
-        authHeaders = stored.headers
-        console.log(`[discovery] using stored credentials for ${ctx.hostname} probe`)
+  try {
+    await updateCrawlState(ctx.db, ctx.hostname, 'crawling')
+
+    // Try to resolve auth headers for authenticated probing (e.g., GraphQL introspection)
+    let authHeaders: Record<string, string> | undefined
+    if (ctx.encryptionKey) {
+      try {
+        const cred = await getAnyCredentialForService(ctx.db, ctx.hostname)
+        if (cred) {
+          const stored = await decryptCredentials(ctx.encryptionKey, cred.encryptedCredentials)
+          authHeaders = stored.headers
+          console.log(`[discovery] using stored credentials for ${ctx.hostname} probe`)
+        }
+      } catch {
+        // Credential decryption failed — proceed without auth
       }
-    } catch {
-      // Credential decryption failed — proceed without auth
     }
-  }
 
-  const probe = await probeService(ctx.service.baseUrl, ctx.service.apiType ?? undefined, ctx.hostname, { authHeaders })
-  const deterministicResult = await runDeterministicDiscovery(ctx, probe)
+    const probe = await probeService(ctx.service.baseUrl, ctx.service.apiType ?? undefined, ctx.hostname, { authHeaders })
+    await runDeterministicDiscovery(ctx, probe)
 
-  const hasLlmProvider = ctx.awsAccessKeyId || ctx.anthropicApiKey
+    const hasLlmProvider = ctx.awsAccessKeyId || ctx.anthropicApiKey
+    if (hasLlmProvider) {
+      await runDiscoveryAgent({ ...ctx, externalDocsUrls: probe.externalDocsUrls })
+    }
 
-  // If no spec was found, try LLM-powered sitemap generation from web docs
-  if (!deterministicResult.hasSpec && hasLlmProvider) {
-    console.log(`[discovery] no spec found for ${ctx.hostname}, generating sitemap from web docs`)
-    await generateSitemapFromWeb({ ...ctx, externalDocsUrls: probe.externalDocsUrls })
-  }
-
-  if (hasLlmProvider) {
-    const enrichable = await listEnrichablePages(ctx.db, ctx.hostname)
-    const sorted = enrichable.sort((a, b) => a.path.split('/').length - b.path.split('/').length)
-    await enrichPages(
-      { ...ctx, externalDocsUrls: probe.externalDocsUrls },
-      sorted.map(p => p.path),
-    )
+    await updateCrawlState(ctx.db, ctx.hostname, 'ready')
+  } catch (e) {
+    console.error(`[discovery] in-process discovery failed for ${ctx.hostname}:`, e)
+    try {
+      await updateCrawlState(ctx.db, ctx.hostname, 'failed')
+    } catch {
+      // Best effort
+    }
   }
 }
