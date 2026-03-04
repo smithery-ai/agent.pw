@@ -45,8 +45,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         db,
         hostname,
         service,
-        bedrockApiKey: this.env.BEDROCK_API_KEY,
-        awsRegion: this.env.AWS_REGION,
+        bedrockToken: this.env.AWS_BEARER_TOKEN_BEDROCK,
         baseUrl: this.env.BASE_URL,
       }
       const result = await runDeterministicDiscovery(ctx, probe as ProbeResult)
@@ -64,8 +63,8 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     })
 
     // Step 4: Enrich each skeleton page individually
-    if (!this.env.BEDROCK_API_KEY) {
-      console.log(`[discovery] skipping enrichment for ${hostname}: no BEDROCK_API_KEY configured`)
+    if (!this.env.AWS_BEARER_TOKEN_BEDROCK) {
+      console.log(`[discovery] skipping enrichment for ${hostname}: no AWS_BEARER_TOKEN_BEDROCK configured`)
       return
     }
 
@@ -86,8 +85,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             db,
             hostname,
             service,
-            bedrockApiKey: this.env.BEDROCK_API_KEY,
-            awsRegion: this.env.AWS_REGION,
+            bedrockToken: this.env.AWS_BEARER_TOKEN_BEDROCK,
             baseUrl: this.env.BASE_URL,
           }
           await enrichPages(ctx, [path])

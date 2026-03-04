@@ -3,9 +3,6 @@ main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-[vars]
-AWS_REGION = "us-east-1"
-
 routes = [{ pattern = "warden.run", custom_domain = true }]
 
 [[workflows]]

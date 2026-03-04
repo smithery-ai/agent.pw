@@ -67,13 +67,26 @@ function deriveDisplayName(hostname: string) {
 
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy', 'favicon.ico'])
 
+const FILE_EXTENSIONS = new Set([
+  'json', 'html', 'htm', 'xml', 'php', 'asp', 'aspx', 'axd', 'jsp', 'cgi',
+  'action', 'env', 'txt', 'yaml', 'yml', 'config', 'conf', 'log', 'bak',
+  'sql', 'db', 'csv', 'js', 'css', 'map', 'ts', 'py', 'rb', 'pl',
+  'png', 'jpg', 'gif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot',
+])
+
+/** Filter out auto-registered junk (file paths, bare words) — only keep real hostnames. */
+function looksLikeHostname(service: string) {
+  if (!service.includes('.')) return false
+  if (service.startsWith('.')) return false
+  return !FILE_EXTENSIONS.has(service.split('.').pop()!.toLowerCase())
+}
+
 interface AppDeps {
   db?: Database
   biscuitPrivateKey?: string
   baseUrl?: string
   encryptionKey?: string
-  bedrockApiKey?: string
-  awsRegion?: string
+  bedrockToken?: string
 }
 
 export function createApp(deps: AppDeps = {}) {
@@ -109,8 +122,7 @@ export function createApp(deps: AppDeps = {}) {
     // Override env only when deps are provided (Node.js / tests)
     if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
-    if (deps.bedrockApiKey) c.env.BEDROCK_API_KEY = deps.bedrockApiKey
-    if (deps.awsRegion) c.env.AWS_REGION = deps.awsRegion
+    if (deps.bedrockToken) c.env.AWS_BEARER_TOKEN_BEDROCK = deps.bedrockToken
 
     if (deps.db) {
       c.set('db', deps.db)
@@ -129,7 +141,7 @@ export function createApp(deps: AppDeps = {}) {
     }
 
     const db = c.get('db')
-    const recentServices = await listServices(db)
+    const recentServices = (await listServices(db)).filter(s => looksLikeHostname(s.service))
 
     if (wantsJson(accept)) {
       // curl sends */* — return readable plain text onboarding
@@ -514,7 +526,7 @@ export function createApp(deps: AppDeps = {}) {
     // Kick off discovery pipeline if no docs exist yet
     const docs = await listDocPages(db, serviceName)
     if (docs.length === 0) {
-      const ctx = { db, hostname: serviceName, service: svc, bedrockApiKey: c.env.BEDROCK_API_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
+      const ctx = { db, hostname: serviceName, service: svc, bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
       console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
       // Non-blocking: workflow handles its own lifecycle
       triggerDiscoveryWorkflow(ctx).catch(err =>
