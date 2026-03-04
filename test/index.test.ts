@@ -121,7 +121,7 @@ describe('Root Landing Page', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('Warden')
-    expect(text).toContain('One URL between your agents and every API')
+    expect(text).toContain('The vault between your agents and every API')
   })
 
   it('returns JSON agent guide for curl-style Accept: */*', async () => {
