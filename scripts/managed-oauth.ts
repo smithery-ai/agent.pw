@@ -66,9 +66,25 @@ if (!row) {
   process.exit(1)
 }
 
+if (scopes && row.auth_schemes) {
+  const schemes = JSON.parse(row.auth_schemes)
+  const oauth = schemes.find((s: any) => s.type === 'oauth2')
+  if (oauth) {
+    oauth.scopes = scopes
+    await sql`
+      UPDATE warden.services
+      SET auth_schemes = ${JSON.stringify(schemes)},
+          updated_at = now()
+      WHERE service = ${service}
+    `
+    row.auth_schemes = JSON.stringify(schemes)
+  }
+}
+
 console.log('Updated managed OAuth for:', service)
 console.log('  client_id:', row.oauth_client_id)
 console.log('  auth_schemes:', row.auth_schemes)
+console.log('  scopes:', scopes ?? '(default)')
 console.log('  secret: (encrypted)')
 
 await sql.end()
