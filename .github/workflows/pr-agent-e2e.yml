@@ -231,13 +231,13 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure ANTHROPIC_API_KEY secret is present
+      - name: Ensure BEDROCK_API_KEY secret is present
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-            echo "ANTHROPIC_API_KEY secret is not configured."
+          if [ -z "${BEDROCK_API_KEY:-}" ]; then
+            echo "BEDROCK_API_KEY secret is not configured."
             exit 1
           fi
 
@@ -254,16 +254,19 @@ jobs:
         uses: anthropics/claude-code-action@v1
         continue-on-error: true
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.BEDROCK_API_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_REGION: us-east-1
           LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
         with:
           prompt: ${{ steps.prompt.outputs.value }}
           github_token: ${{ github.token }}
           path_to_claude_code_executable: ${{ env.CLAUDE_PATH }}
+          use_bedrock: "true"
           claude_args: |
             --dangerously-skip-permissions
             --max-turns 20
-            --model claude-haiku-4-5
+            --model anthropic.claude-haiku-4-5-20251001-v1:0
           show_full_output: "false"
 
       - name: Deterministic e2e fallback (if Claude step fails)
