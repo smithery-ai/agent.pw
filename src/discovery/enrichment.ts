@@ -1,43 +1,11 @@
-import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk'
-import type { Tool, MessageParam, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
+import { generateText, stepCountIs, tool } from 'ai'
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { z } from 'zod'
 import type { PipelineContext } from './types'
 import { getDocPage, upsertDocPage, listDocPages } from '../db/queries'
 
-const ENRICHMENT_MODEL = 'us.anthropic.claude-sonnet-4-6'
-const MAX_TURNS = 3
-
-const tools: Tool[] = [
-  {
-    name: 'fetch_upstream',
-    description:
-      'Fetch a URL. Use this to read API documentation pages, probe endpoints, or fetch example responses from the upstream service.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        url: { type: 'string', description: 'Full URL to fetch' },
-        method: { type: 'string', enum: ['GET', 'POST'], description: 'HTTP method (default GET)' },
-        body: { type: 'string', description: 'Request body for POST requests' },
-      },
-      required: ['url'],
-    },
-  },
-  {
-    name: 'write_doc_page',
-    description:
-      'Write an enriched documentation page. The content should be a structured JSON object matching the doc page schema.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        path: { type: 'string', description: 'Page path, e.g. "docs/issues.json"' },
-        content: {
-          type: 'object',
-          description: 'The page content object (will be JSON-stringified and stored)',
-        },
-      },
-      required: ['path', 'content'],
-    },
-  },
-]
+const ENRICHMENT_MODEL = 'claude-sonnet-4-6'
+const MAX_STEPS = 3
 
 function buildSystemPrompt(ctx: PipelineContext) {
   return `You are a technical writer generating API documentation for ${ctx.service.displayName ?? ctx.hostname} (${ctx.service.baseUrl}).
@@ -84,47 +52,8 @@ ${pageContent}
   return prompt
 }
 
-async function executeTool(
-  ctx: PipelineContext,
-  toolName: string,
-  input: Record<string, unknown>,
-) {
-  if (toolName === 'fetch_upstream') {
-    const url = input.url as string
-    const method = (input.method as string) ?? 'GET'
-    const body = input.body as string | undefined
-
-    try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 5000)
-      const res = await fetch(url, {
-        method,
-        body,
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
-        signal: controller.signal,
-      })
-      clearTimeout(timer)
-
-      const text = await res.text()
-      return text.length > 10000 ? `${text.slice(0, 10000)}\n... (truncated)` : text
-    } catch (e) {
-      return `Error fetching ${url}: ${e instanceof Error ? e.message : String(e)}`
-    }
-  }
-
-  if (toolName === 'write_doc_page') {
-    const path = input.path as string
-    const content = input.content as Record<string, unknown>
-
-    await upsertDocPage(ctx.db, ctx.hostname, path, JSON.stringify(content), 'enriched')
-    return `Page written: ${path}`
-  }
-
-  return `Unknown tool: ${toolName}`
-}
-
 export async function enrichPage(ctx: PipelineContext, pagePath: string) {
-  if (!ctx.bedrockToken) return
+  if (!ctx.anthropicApiKey) return
 
   const page = await getDocPage(ctx.db, ctx.hostname, pagePath)
   if (!page || !page.content) return
@@ -134,53 +63,74 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
     .filter(p => p.path !== pagePath && p.content)
     .map(p => ({ path: p.path, content: p.content! }))
 
-  const client = new AnthropicBedrock({
-    awsRegion: 'us-east-1',
-    skipAuth: true,
-    defaultHeaders: { Authorization: `Bearer ${ctx.bedrockToken}` },
+  const provider = createAnthropic({
+    apiKey: ctx.anthropicApiKey,
+    ...(ctx.anthropicBaseUrl && { baseURL: ctx.anthropicBaseUrl }),
   })
 
-  const messages: MessageParam[] = [
-    {
-      role: 'user',
-      content: buildEnrichmentPrompt(
-        pagePath,
-        page.content,
-        otherPages,
-        ctx.service.docsUrl ?? undefined,
-      ),
+  console.log(`[enrichment] ${ctx.hostname}/${pagePath} starting`)
+
+  const result = await generateText({
+    model: provider(ENRICHMENT_MODEL),
+    stopWhen: stepCountIs(MAX_STEPS),
+    system: buildSystemPrompt(ctx),
+    prompt: buildEnrichmentPrompt(
+      pagePath,
+      page.content,
+      otherPages,
+      ctx.service.docsUrl ?? undefined,
+    ),
+    tools: {
+      fetch_upstream: tool({
+        description:
+          'Fetch a URL. Use this to read API documentation pages, probe endpoints, or fetch example responses from the upstream service.',
+        inputSchema: z.object({
+          url: z.string().describe('Full URL to fetch'),
+          method: z.enum(['GET', 'POST']).optional().describe('HTTP method (default GET)'),
+          body: z.string().optional().describe('Request body for POST requests'),
+        }),
+        execute: async (input) => {
+          const { url, method, body } = input
+          try {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 5000)
+            const res = await fetch(url, {
+              method: method ?? 'GET',
+              body,
+              headers: body ? { 'Content-Type': 'application/json' } : undefined,
+              signal: controller.signal,
+            })
+            clearTimeout(timer)
+            const text = await res.text()
+            return text.length > 10000 ? `${text.slice(0, 10000)}\n... (truncated)` : text
+          } catch (e) {
+            return `Error fetching ${url}: ${e instanceof Error ? e.message : String(e)}`
+          }
+        },
+      }),
+      write_doc_page: tool({
+        description:
+          'Write an enriched documentation page. The content should be a structured JSON object matching the doc page schema.',
+        inputSchema: z.object({
+          path: z.string().describe('Page path, e.g. "docs/issues.json"'),
+          content: z.record(z.string(), z.unknown()).describe('The page content object (will be JSON-stringified and stored)'),
+        }),
+        execute: async (input) => {
+          await upsertDocPage(ctx.db, ctx.hostname, input.path, JSON.stringify(input.content), 'enriched')
+          return `Page written: ${input.path}`
+        },
+      }),
     },
-  ]
-
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    console.log(`[enrichment] ${ctx.hostname}/${pagePath} turn ${turn + 1}`)
-    const response = await client.messages.create({
-      model: ENRICHMENT_MODEL,
-      max_tokens: 4096,
-      system: buildSystemPrompt(ctx),
-      tools,
-      messages,
-    })
-    console.log(`[enrichment] ${ctx.hostname}/${pagePath} stop_reason=${response.stop_reason}`)
-
-    if (response.stop_reason === 'tool_use') {
-      const toolResults: ToolResultBlockParam[] = []
-
-      for (const block of response.content) {
-        if (block.type === 'tool_use') {
-          console.log(`[enrichment] ${ctx.hostname}/${pagePath} tool_use: ${block.name}`)
-          const result = await executeTool(ctx, block.name, block.input as Record<string, unknown>)
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result })
+    onStepFinish: ({ toolCalls }) => {
+      if (toolCalls?.length) {
+        for (const tc of toolCalls) {
+          console.log(`[enrichment] ${ctx.hostname}/${pagePath} tool_use: ${tc.toolName}`)
         }
       }
+    },
+  })
 
-      messages.push({ role: 'assistant', content: response.content })
-      messages.push({ role: 'user', content: toolResults })
-      continue
-    }
-
-    break
-  }
+  console.log(`[enrichment] ${ctx.hostname}/${pagePath} done (${result.steps.length} steps)`)
 }
 
 export async function enrichPages(ctx: PipelineContext, paths: string[]) {

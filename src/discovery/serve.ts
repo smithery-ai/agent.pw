@@ -35,7 +35,8 @@ export function docRoutes() {
       db,
       hostname: serviceName,
       service: svc,
-      bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK,
+      anthropicApiKey: c.env.ANTHROPIC_API_KEY,
+      anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL,
       baseUrl: new URL(c.req.url).origin,
       workflow: c.env.DISCOVERY_WORKFLOW,
     }
@@ -61,7 +62,8 @@ export function docRoutes() {
       db,
       hostname: serviceName,
       service: svc,
-      bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK,
+      anthropicApiKey: c.env.ANTHROPIC_API_KEY,
+      anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL,
       baseUrl: new URL(c.req.url).origin,
       workflow: c.env.DISCOVERY_WORKFLOW,
     }

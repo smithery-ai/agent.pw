@@ -135,19 +135,23 @@ jobs:
           1. Use terminal commands (curl) to perform real HTTP requests against that preview.
           2. Use the LINEAR_TEST_KEY environment variable as the API key credential.
              Do not print the key value, do not include it in files, and do not echo it.
-          3. Run this required end-to-end auth + data check:
-             - Discovery:
+          3. Run these required checks in order:
+
+             A. Discovery (triggers doc generation pipeline):
                GET {base}/api.linear.app with header Accept: application/json
                PASS only if:
                - HTTP status is exactly 401
                - JSON includes auth_url and poll_url
-             - Auth submit:
+
+             B. Auth submit:
                POST to auth_url with JSON body {"api_key": "\$LINEAR_TEST_KEY"}
                PASS only if HTTP status is 200 and response includes token
-             - Poll completion:
+
+             C. Poll completion:
                GET poll_url
                PASS only if HTTP status is 200 and status is "completed" with token
-             - Authenticated query through proxy:
+
+             D. Authenticated query through proxy:
                POST {base}/api.linear.app/graphql with Authorization: Bearer <warden token>
                Content-Type: application/json
                Body:
@@ -155,8 +159,21 @@ jobs:
                PASS only if:
                - HTTP status is 200
                - JSON includes data.issues.nodes[0]
-          4. Mark overall result as PASS only if every required sub-check passes.
-             Otherwise mark FAIL.
+
+             E. Discovery doc generation (poll for generated docs):
+               The initial GET in step A triggers the discovery pipeline.
+               Wait up to 90 seconds, polling every 10 seconds:
+               GET {base}/api.linear.app/docs/
+               PASS if HTTP status is 200 and JSON includes "level" field.
+               If it doesn't appear within 90s, mark as FAIL but continue.
+
+             F. Discovery meta:
+               GET {base}/api.linear.app/_meta.json
+               PASS if HTTP status is 200 and JSON is valid.
+               If 404, mark as FAIL but continue.
+
+          4. Mark overall result as PASS only if checks A-D all pass.
+             Checks E-F are informational (report pass/fail but don't block overall status).
           5. Extract latest ticket from the GraphQL result and include:
              identifier, title, updatedAt, url, state name, assignee name (if present).
           6. Write result JSON to .context/e2e-agent-result.json with this shape:
@@ -214,13 +231,13 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure BEDROCK_API_KEY secret is present
+      - name: Ensure ANTHROPIC_API_KEY secret is present
         env:
-          BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${BEDROCK_API_KEY:-}" ]; then
-            echo "BEDROCK_API_KEY secret is not configured."
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "ANTHROPIC_API_KEY secret is not configured."
             exit 1
           fi
 
@@ -237,19 +254,16 @@ jobs:
         uses: anthropics/claude-code-action@v1
         continue-on-error: true
         env:
-          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.BEDROCK_API_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-          AWS_REGION: us-east-1
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
         with:
           prompt: ${{ steps.prompt.outputs.value }}
           github_token: ${{ github.token }}
           path_to_claude_code_executable: ${{ env.CLAUDE_PATH }}
-          use_bedrock: "true"
           claude_args: |
             --dangerously-skip-permissions
             --max-turns 20
-            --model anthropic.claude-haiku-4-5-20251001-v1:0
+            --model claude-haiku-4-5
           show_full_output: "false"
 
       - name: Deterministic e2e fallback (if Claude step fails)
@@ -384,6 +398,50 @@ jobs:
                   'missing warden token',
                 )
               }
+
+              // Discovery doc generation check (poll for generated docs)
+              let docsPass = false
+              for (let i = 0; i < 9; i++) {
+                const docs = await fetchJson(`${base}/api.linear.app/docs/`, {
+                  headers: { Accept: 'application/json' },
+                })
+                if (docs.status === 200 && docs.json?.level !== undefined) {
+                  pushCheck(
+                    'Discovery docs',
+                    `GET ${base}/api.linear.app/docs/`,
+                    docs.status,
+                    true,
+                    `Found docs after ${(i + 1) * 10}s`,
+                  )
+                  docsPass = true
+                  break
+                }
+                await new Promise(r => setTimeout(r, 10000))
+              }
+              if (!docsPass) {
+                const docs = await fetchJson(`${base}/api.linear.app/docs/`, {
+                  headers: { Accept: 'application/json' },
+                })
+                pushCheck(
+                  'Discovery docs',
+                  `GET ${base}/api.linear.app/docs/`,
+                  docs.status,
+                  false,
+                  'Docs not generated within 90s (informational)',
+                )
+              }
+
+              // Discovery meta check
+              const meta = await fetchJson(`${base}/api.linear.app/_meta.json`, {
+                headers: { Accept: 'application/json' },
+              })
+              pushCheck(
+                'Discovery meta',
+                `GET ${base}/api.linear.app/_meta.json`,
+                meta.status,
+                meta.status === 200 && meta.json !== null,
+                meta.status === 200 ? 'Meta available' : 'Meta not yet generated (informational)',
+              )
             } catch (err) {
               pushCheck('Fallback runtime', 'local fallback', 0, false, String(err))
             }
