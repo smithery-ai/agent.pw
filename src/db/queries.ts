@@ -1,5 +1,5 @@
 import { eq, and, sql } from 'drizzle-orm'
-import { users, services, credentials, revocations, docPages } from './schema'
+import { users, services, credentials, oauthApps, revocations, docPages } from './schema'
 import type { Database } from './index'
 
 // ─── Users ──────────────────────────────────────────────────────────────────
@@ -163,6 +163,45 @@ export async function deleteCredential(db: Database, orgId: string, service: str
     .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
     .returning()
   return result.length > 0
+}
+
+// ─── OAuth Apps ──────────────────────────────────────────────────────────────
+
+export async function getOAuthApp(db: Database, orgId: string, service: string) {
+  const rows = await db
+    .select()
+    .from(oauthApps)
+    .where(and(eq(oauthApps.orgId, orgId), eq(oauthApps.service, service)))
+  return rows[0] ?? null
+}
+
+export async function upsertOAuthApp(
+  db: Database,
+  orgId: string,
+  service: string,
+  data: {
+    clientId: string
+    encryptedClientSecret?: Buffer | null
+    scopes?: string
+  },
+) {
+  await db
+    .insert(oauthApps)
+    .values({
+      orgId,
+      service,
+      clientId: data.clientId,
+      encryptedClientSecret: data.encryptedClientSecret ?? null,
+      scopes: data.scopes ?? null,
+    })
+    .onConflictDoUpdate({
+      target: [oauthApps.orgId, oauthApps.service],
+      set: {
+        clientId: sql`excluded.client_id`,
+        encryptedClientSecret: sql`coalesce(excluded.encrypted_client_secret, ${oauthApps.encryptedClientSecret})`,
+        scopes: sql`coalesce(excluded.scopes, ${oauthApps.scopes})`,
+      },
+    })
 }
 
 // ─── Revocations ─────────────────────────────────────────────────────────────

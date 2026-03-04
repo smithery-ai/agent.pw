@@ -31,12 +31,14 @@ import {
 } from './db/queries'
 import { createAuthFlow, getAuthFlow } from './lib/auth-flow-store'
 import { extractBearerToken, handleProxy } from './proxy'
-import { requireToken, requireRight, requireVaultAdmin, optionalSession } from './middleware'
+import { requireToken, requireRight, requireVaultAdmin, optionalSession, requireBrowserSession } from './middleware'
 import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, buildWardenOnboarding, wantsJson } from './discovery'
 import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { workosRoutes } from './workos'
-import { ServiceLandingPage, WardenLandingPage } from './ui'
+import { probeOAuthWellKnown } from './discovery/probe'
+import { getKnownOAuthProvider } from './oauth-providers'
+import { AuthPage, ErrorPage, ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
 import { triggerDiscoveryWorkflow } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
@@ -462,6 +464,34 @@ export function createApp(deps: AppDeps = {}) {
   // ─── Auth Flows ────────────────────────────────────────────────────────────
 
   app.route('/auth', workosRoutes)
+
+  // Tabbed auth page — requires browser session
+  app.get('/auth/:service', requireBrowserSession, async c => {
+    const serviceName = c.req.param('service')
+    const db = c.get('db')
+    const svc = await getService(db, serviceName)
+
+    if (!svc) {
+      return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
+    }
+
+    const flowId = c.req.query('flow_id') ?? randomId()
+
+    // Ensure a flow exists for polling
+    const existingFlow = await getAuthFlow(c.get('redis'), flowId)
+    if (!existingFlow) {
+      await createAuthFlow(c.get('redis'), {
+        id: flowId,
+        service: serviceName,
+        method: 'api_key',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      })
+    }
+
+    const callbackUrl = `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`
+    return c.html(AuthPage({ service: svc, flowId, callbackUrl }))
+  })
+
   app.route('/auth', oauthRoutes)
   app.route('/auth', apiKeyRoutes)
 
@@ -519,14 +549,36 @@ export function createApp(deps: AppDeps = {}) {
     let svc = await getService(db, serviceName)
     let isNew = false
 
-    // Auto-register unknown services with key-based auth as default
+    // Auto-register unknown services, attempting OAuth detection up front.
     if (!svc) {
       console.log(`[discovery] auto-registering new service: ${serviceName}`)
+      const baseUrl = `https://${serviceName}`
+      const knownProvider = getKnownOAuthProvider(serviceName)
+      const oauthWellKnown = await probeOAuthWellKnown(baseUrl)
+      const oauthMeta = oauthWellKnown ?? (
+        knownProvider
+          ? {
+              authorizeUrl: knownProvider.authorizeUrl,
+              tokenUrl: knownProvider.tokenUrl,
+              scopes: knownProvider.scopes || undefined,
+            }
+          : null
+      )
+
+      const hasOAuth = !!oauthMeta
+      const supportedAuthMethods = hasOAuth ? ['oauth', 'api_key'] : ['api_key']
+
       await upsertService(db, serviceName, {
-        baseUrl: `https://${serviceName}`,
+        baseUrl,
         displayName: deriveDisplayName(serviceName),
-        authMethod: 'api_key',
-        supportedAuthMethods: JSON.stringify(['api_key']),
+        authMethod: hasOAuth ? 'bearer' : 'api_key',
+        headerName: 'Authorization',
+        headerScheme: 'Bearer',
+        oauthAuthorizeUrl: oauthMeta?.authorizeUrl,
+        oauthTokenUrl: oauthMeta?.tokenUrl,
+        oauthScopes: oauthMeta?.scopes,
+        authConfig: knownProvider ? JSON.stringify(knownProvider.authConfig) : undefined,
+        supportedAuthMethods: JSON.stringify(supportedAuthMethods),
       })
       svc = await getService(db, serviceName)
       if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)

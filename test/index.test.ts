@@ -36,6 +36,8 @@ import {
   deleteCredential,
   isRevoked,
   upsertService,
+  getOAuthApp,
+  upsertOAuthApp,
   getDocPage,
   upsertDocPage,
   listDocPages,
@@ -612,9 +614,10 @@ describe('Discovery', () => {
     const body = (await res.json()) as any
     expect(body.service).toBe('GitHub')
     expect(body.canonical).toBe('api.github.com')
-    expect(body.auth_url).toContain('http://localhost:3000/auth/api.github.com/oauth?flow_id=')
+    expect(body.auth_url).toContain('http://localhost:3000/auth/api.github.com?flow_id=')
     expect(body.poll_url).toContain('http://localhost:3000/auth/status/')
     expect(body.proxy).toBe('http://localhost:3000/api.github.com')
+    expect(body.auth_methods).toEqual([{ type: 'api_key' }])
 
     // Verify the flow was actually created and is pollable
     const flowId = body.poll_url.split('/auth/status/')[1]
@@ -631,8 +634,7 @@ describe('Discovery', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('GitHub')
-    expect(text).toContain('Connect with OAuth')
-    expect(text).toContain('Enter API Key')
+    expect(text).toContain('Authenticate')
   })
 
   it('auto-registers unknown service on first discovery', async () => {
@@ -644,7 +646,7 @@ describe('Discovery', () => {
 
     const body = (await res.json()) as any
     expect(body.canonical).toBe('api.unknown.com')
-    expect(body.auth_url).toContain('/auth/api.unknown.com/api-key?flow_id=')
+    expect(body.auth_url).toContain('/auth/api.unknown.com?flow_id=')
     expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
   })
 
@@ -696,7 +698,7 @@ describe('Discovery', () => {
     expect(res.status).toBe(401)
     const body = (await res.json()) as any
     expect(body.canonical).toBe('unknown.api.com')
-    expect(body.auth_url).toContain('/auth/unknown.api.com/api-key')
+    expect(body.auth_url).toContain('/auth/unknown.api.com?flow_id=')
   })
 
   it('returns 404 for reserved paths in discovery', async () => {
@@ -1857,6 +1859,7 @@ describe('OAuth Flow', () => {
       service: 'no-token-url.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -2112,7 +2115,8 @@ describe('Discovery Functions', () => {
     expect(result.description).toBe('GitHub REST API')
     expect(result.docs_url).toBe('https://docs.github.com')
     expect(result.proxy).toBe('http://localhost:3000/api.github.com')
-    expect(result.auth_url).toBeUndefined() // no supportedAuthMethods
+    expect(result.auth_url).toBe('http://localhost:3000/auth/api.github.com')
+    expect(result.auth_methods).toEqual([{ type: 'api_key' }])
   })
 
   it('buildUnauthDiscovery includes preview when set', () => {
@@ -2209,6 +2213,68 @@ describe('Query Functions', () => {
     const cred = await getCredential(db, TEST_ORG_ID, 'test.api')
     const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
     expect(stored.headers.Authorization).toBe('Bearer token2')
+  })
+
+  it('upsertOAuthApp stores and updates a BYO oauth app', async () => {
+    const secret1 = Buffer.from('secret-1')
+    const secret2 = Buffer.from('secret-2')
+
+    await upsertOAuthApp(db, 'personal', 'api.github.com', {
+      clientId: 'client-1',
+      encryptedClientSecret: secret1,
+      scopes: 'repo',
+    })
+
+    await upsertOAuthApp(db, 'personal', 'api.github.com', {
+      clientId: 'client-2',
+      encryptedClientSecret: secret2,
+      scopes: 'repo user',
+    })
+
+    const app = await getOAuthApp(db, 'personal', 'api.github.com')
+    expect(app).not.toBeNull()
+    expect(app!.clientId).toBe('client-2')
+    expect(Buffer.from(app!.encryptedClientSecret ?? []).toString()).toBe('secret-2')
+    expect(app!.scopes).toBe('repo user')
+  })
+
+  it('upsertOAuthApp keeps existing secret and scopes when omitted', async () => {
+    const secret = Buffer.from('persisted-secret')
+
+    await upsertOAuthApp(db, 'personal', 'api.linear.app', {
+      clientId: 'client-a',
+      encryptedClientSecret: secret,
+      scopes: 'read write',
+    })
+
+    await upsertOAuthApp(db, 'personal', 'api.linear.app', {
+      clientId: 'client-b',
+    })
+
+    const app = await getOAuthApp(db, 'personal', 'api.linear.app')
+    expect(app).not.toBeNull()
+    expect(app!.clientId).toBe('client-b')
+    expect(Buffer.from(app!.encryptedClientSecret ?? []).toString()).toBe('persisted-secret')
+    expect(app!.scopes).toBe('read write')
+  })
+
+  it('createAuthFlow with oauthSource stores source on Redis flow', async () => {
+    await createAuthFlow(redis, {
+      id: 'oauth-flow',
+      service: 'api.github.com',
+      method: 'oauth',
+      codeVerifier: 'pkce-verifier',
+      orgId: TEST_ORG_ID,
+      oauthSource: 'byo',
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+
+    const flow = await getAuthFlow(redis, 'oauth-flow')
+    expect(flow).not.toBeNull()
+    expect(flow!.method).toBe('oauth')
+    expect(flow!.oauthSource).toBe('byo')
+    expect(flow!.codeVerifier).toBe('pkce-verifier')
+    expect(flow!.orgId).toBe(TEST_ORG_ID)
   })
 })
 

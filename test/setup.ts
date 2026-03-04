@@ -99,6 +99,18 @@ export async function createTestDb() {
   `)
 
   await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS warden.oauth_apps (
+      org_id TEXT NOT NULL,
+      service TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      encrypted_client_secret BYTEA,
+      scopes TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      PRIMARY KEY (org_id, service)
+    )
+  `)
+
+  await db.execute(sql`
     CREATE TABLE IF NOT EXISTS warden.doc_pages (
       hostname TEXT NOT NULL,
       path TEXT NOT NULL,

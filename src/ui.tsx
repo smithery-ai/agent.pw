@@ -120,6 +120,52 @@ const STYLES = `
   }
   .error { color: var(--destructive); font-size: 0.8125rem; }
   .auth-options { display: flex; flex-direction: column; gap: 0.5rem; }
+  .tab-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .tab-radio {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .tab-label {
+    display: inline-flex; align-items: center; justify-content: center;
+    text-align: center; min-height: 36px; border-radius: var(--radius);
+    border: 1px solid #3f3f46; background: #18181b; color: #a1a1aa;
+    font-size: 0.75rem; font-weight: 500; cursor: pointer; padding: 0 0.5rem;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+  .tab-radio:checked + .tab-label {
+    border-color: #71717a; background: #27272a; color: var(--foreground);
+  }
+  .tab-panel {
+    display: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #0c0c0f;
+    padding: 1rem;
+  }
+  #tab-managed:checked ~ .tab-panels .panel-managed { display: block; }
+  #tab-byo:checked ~ .tab-panels .panel-byo { display: block; }
+  #tab-api:checked ~ .tab-panels .panel-api { display: block; }
+  .helper {
+    color: #71717a;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    margin-top: 0.625rem;
+  }
+  .helper code {
+    color: var(--foreground);
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.25rem;
+    font-size: 0.6875rem;
+    word-break: break-all;
+  }
   .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
 
   .status-bar {
@@ -143,6 +189,12 @@ const STYLES = `
     transition: color 0.15s ease;
   }
   .warden-badge a:hover { color: #52525b; }
+
+  @media (max-width: 640px) {
+    body { align-items: flex-start; padding: 1rem 0; }
+    .container { padding: 1rem; }
+    .tab-list { grid-template-columns: 1fr; }
+  }
 `
 
 function Layout({ children, title }: { children: any; title?: string }) {
@@ -257,10 +309,6 @@ export function ServiceLandingPage({
   discoveryStatus?: Record<string, unknown>
   userCredentials?: { slug: string; updatedAt: Date }[]
 }) {
-  const supported: string[] = service.supportedAuthMethods
-    ? JSON.parse(service.supportedAuthMethods)
-    : []
-
   const pipelineState = (discoveryStatus?.pipeline_state as string) ?? 'idle'
   const isActive = pipelineState === 'probing' || pipelineState === 'parsing' || pipelineState === 'enriching'
   const coverage = discoveryStatus?.coverage as { total_resources?: number; enriched_resources?: number } | undefined
@@ -312,16 +360,9 @@ export function ServiceLandingPage({
             <p class="subtitle" style="margin-bottom: 0.75rem">{service.description}</p>
           )}
           <div class="auth-options">
-            {supported.includes('oauth') && (
-              <a href={`/auth/${service.service}/oauth`} class="btn btn-primary" style="width: 100%">
-                Connect with OAuth
-              </a>
-            )}
-            {supported.includes('api_key') && (
-              <a href={`/auth/${service.service}/api-key`} class="btn btn-secondary" style="width: 100%">
-                Enter API Key
-              </a>
-            )}
+            <a href={`/auth/${service.service}`} class="btn btn-primary" style="width: 100%">
+              Authenticate
+            </a>
           </div>
           {service.docsUrl && (
             <p class="meta">
@@ -342,6 +383,160 @@ export function ServiceLandingPage({
           ) : null}
         </div>
       )}
+    </Layout>
+  )
+}
+
+export function AuthPage({
+  service,
+  flowId,
+  callbackUrl,
+}: {
+  service: ServiceRow
+  flowId: string
+  callbackUrl: string
+}) {
+  const hasManagedOAuth = !!service.oauthClientId
+  const hasByoOAuth = !!service.oauthAuthorizeUrl
+  const defaultTab = hasManagedOAuth ? 'managed' : hasByoOAuth ? 'byo' : 'api'
+  const name = service.displayName ?? service.service
+
+  return (
+    <Layout title={`Connect ${name} — Warden`}>
+      <ServiceHeader service={service} />
+
+      <div class="card">
+        <div class="tab-list">
+          {hasManagedOAuth && (
+            <>
+              <input
+                class="tab-radio"
+                id="tab-managed"
+                type="radio"
+                name="auth-tab"
+                checked={defaultTab === 'managed'}
+              />
+              <label class="tab-label" for="tab-managed">OAuth</label>
+            </>
+          )}
+
+          {hasByoOAuth && (
+            <>
+              <input
+                class="tab-radio"
+                id="tab-byo"
+                type="radio"
+                name="auth-tab"
+                checked={defaultTab === 'byo'}
+              />
+              <label class="tab-label" for="tab-byo">Your OAuth App</label>
+            </>
+          )}
+
+          <input
+            class="tab-radio"
+            id="tab-api"
+            type="radio"
+            name="auth-tab"
+            checked={defaultTab === 'api'}
+          />
+          <label class="tab-label" for="tab-api">API Key</label>
+        </div>
+
+        <div class="tab-panels">
+          {hasManagedOAuth && (
+            <div class="tab-panel panel-managed">
+              <a
+                href={`/auth/${service.service}/oauth?flow_id=${flowId}&source=managed`}
+                class="btn btn-primary"
+                style="width: 100%"
+              >
+                Connect with OAuth
+              </a>
+              <p class="helper">
+                Use Warden&apos;s pre-configured OAuth app for {name}.
+              </p>
+            </div>
+          )}
+
+          {hasByoOAuth && (
+            <div class="tab-panel panel-byo">
+              <form method="post" action={`/auth/${service.service}/oauth/byo`}>
+                <input type="hidden" name="flow_id" value={flowId} />
+                <div class="form-group">
+                  <label for="client_id">Client ID</label>
+                  <input
+                    type="text"
+                    id="client_id"
+                    name="client_id"
+                    placeholder="Your OAuth app client_id"
+                    required
+                    autocomplete="off"
+                    spellcheck={false}
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="client_secret">Client Secret</label>
+                  <input
+                    type="password"
+                    id="client_secret"
+                    name="client_secret"
+                    placeholder="Your OAuth app client_secret"
+                    autocomplete="off"
+                    spellcheck={false}
+                  />
+                </div>
+                <div class="form-group" style="margin-bottom: 0.875rem">
+                  <label for="scopes">Scopes (optional override)</label>
+                  <input
+                    type="text"
+                    id="scopes"
+                    name="scopes"
+                    placeholder={service.oauthScopes ?? 'repo read:user'}
+                    autocomplete="off"
+                    spellcheck={false}
+                  />
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%">
+                  Save and Connect
+                </button>
+              </form>
+              <p class="helper">
+                Register this redirect URI in your OAuth app: <code>{callbackUrl}</code>
+              </p>
+            </div>
+          )}
+
+          <div class="tab-panel panel-api">
+            <form method="post" action={`/auth/${service.service}/api-key`}>
+              <input type="hidden" name="flow_id" value={flowId} />
+              <div class="form-group">
+                <label for="api_key_inline">API Key</label>
+                <input
+                  type="password"
+                  id="api_key_inline"
+                  name="api_key"
+                  placeholder={`Paste your ${name} API key`}
+                  required
+                  autocomplete="off"
+                  spellcheck={false}
+                />
+              </div>
+              <button type="submit" class="btn btn-secondary" style="width: 100%">
+                Connect with API Key
+              </button>
+            </form>
+            {service.docsUrl && (
+              <p class="helper">
+                Need a key?{' '}
+                <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">
+                  Get one from {name}
+                </a>
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
     </Layout>
   )
 }

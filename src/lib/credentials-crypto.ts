@@ -4,12 +4,21 @@
  */
 export type StoredCredentials = {
   headers: Record<string, string>
+  oauth?: {
+    refreshToken: string
+    accessToken: string
+    expiresAt?: string
+    tokenUrl: string
+    clientId: string
+    clientSecret?: string
+    scopes?: string
+  }
 }
 
 /**
  * Import a base64-encoded AES-256 key for use with crypto.subtle.
  */
-async function importKey(encryptionKey: string): Promise<CryptoKey> {
+export async function importAesKey(encryptionKey: string): Promise<CryptoKey> {
   const raw = new Uint8Array(Buffer.from(encryptionKey, 'base64'))
   if (raw.length !== 32) throw new Error('Encryption key must be 32 bytes')
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt'])
@@ -23,7 +32,7 @@ export async function encryptCredentials(
   encryptionKey: string,
   credentials: StoredCredentials,
 ): Promise<Buffer> {
-  const key = await importKey(encryptionKey)
+  const key = await importAesKey(encryptionKey)
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const plaintext = new TextEncoder().encode(JSON.stringify(credentials))
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext)
@@ -41,7 +50,7 @@ export async function decryptCredentials(
   encrypted: Buffer,
 ): Promise<StoredCredentials> {
   if (encrypted.length < 12 + 16) throw new Error('Invalid ciphertext')
-  const key = await importKey(encryptionKey)
+  const key = await importAesKey(encryptionKey)
   const iv = new Uint8Array(encrypted.subarray(0, 12))
   const ciphertext = new Uint8Array(encrypted.subarray(12))
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
