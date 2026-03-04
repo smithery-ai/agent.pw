@@ -101,6 +101,7 @@ const STYLES = `
     gap: 1rem;
     padding: 0.85rem 0;
     margin-bottom: 1.2rem;
+    background: var(--background);
     animation: fadeIn 0.5s ease both;
   }
 
@@ -390,6 +391,8 @@ const STYLES = `
   .meta-line a { text-decoration: underline; text-underline-offset: 2px; }
   .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .registry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .transform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .value-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
   .registry-grid > *,
   .stack > * {
@@ -430,6 +433,55 @@ const STYLES = `
     color: var(--muted-foreground);
     font-size: 0.93rem;
     line-height: 1.38;
+  }
+
+  .transform-label {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--border);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .transform-label.bad {
+    color: var(--destructive);
+    background: rgba(123, 23, 7, 0.08);
+    border-color: rgba(123, 23, 7, 0.2);
+  }
+
+  .transform-label.good {
+    color: var(--success);
+    background: rgba(78, 138, 55, 0.1);
+    border-color: rgba(78, 138, 55, 0.3);
+  }
+
+  .flow-pre {
+    margin-top: 0.75rem;
+    margin-bottom: 0;
+  }
+
+  .value-card {
+    padding-top: 0.9rem;
+  }
+
+  .value-no {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 1.4rem;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    border: 1px solid rgba(255, 86, 1, 0.3);
+    background: rgba(255, 86, 1, 0.08);
+    color: var(--primary);
   }
 
   .service-link {
@@ -817,6 +869,7 @@ const STYLES = `
   @media (max-width: 980px) {
     .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .registry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .value-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
   @media (max-width: 860px) {
@@ -825,7 +878,9 @@ const STYLES = `
     }
 
     .registry-grid,
-    .grid-3 {
+    .grid-3,
+    .transform-grid,
+    .value-grid {
       grid-template-columns: 1fr;
     }
 
@@ -1052,39 +1107,60 @@ export function WardenLandingPage({ services = [], userCount = 0 }: { services?:
       </section>
 
       <section class="section">
-        <h2>What Warden does</h2>
-        <div class="grid-3">
+        <h2>The friction</h2>
+        <p>Most agent integrations fail in the same three places.</p>
+        <ul class="clean">
+          <li><strong>Credentials leak:</strong> users paste provider API keys into prompts, files, or tool configs.</li>
+          <li><strong>Integration tax:</strong> every API has a different auth flow, endpoint shape, and docs quality.</li>
+          <li><strong>Brittle recovery:</strong> upstream 401s don’t clearly tell agents when to re-authenticate.</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Without vs with Warden</h2>
+        <p>Same task, different integration surface.</p>
+        <div class="transform-grid">
           <div class="card">
-            <h3>Credential boundary</h3>
-            <p>
-              Users authenticate in the browser. Agents receive revocable Warden tokens, not raw provider API keys.
-            </p>
+            <span class="transform-label bad">Without Warden</span>
+            <pre class="doc-pre flow-pre"><code>{`api.linear.app/graphql
+Authorization: Bearer sk_live_...
+
+401 Unauthorized
+{ "message": "Invalid API key" }
+
+agent retries blindly`}</code></pre>
           </div>
           <div class="card">
-            <h3>Progressive discovery</h3>
-            <p>
-              Every service path doubles as docs and proxy: <span class="mono">/{'{hostname}'}</span> for discovery, <span class="mono">/{'{hostname}'}/...</span> for calls.
-            </p>
-          </div>
-          <div class="card">
-            <h3>Agent-safe error handling</h3>
-            <p>
-              Upstream credential failures are normalized to re-auth signals so agents stop retry loops and recover correctly.
-            </p>
+            <span class="transform-label good">With Warden</span>
+            <pre class="doc-pre flow-pre"><code>{`GET /api.linear.app -> { auth_url, docs }
+user authenticates in browser
+GET /auth/status/{flow_id} -> token
+
+POST /api.linear.app/graphql
+Authorization: Bearer wdn_...`}</code></pre>
           </div>
         </div>
       </section>
 
       <section class="section">
-        <h2>How auth handoff works</h2>
-        <p>Five steps from first request to live API call.</p>
-        <ol class="clean">
-          <li><span class="mono">GET /{'{hostname}'}</span> returns discovery and an <span class="mono">auth_url</span>.</li>
-          <li>Agent gives the user that URL.</li>
-          <li>User authenticates in browser with OAuth or API key.</li>
-          <li>Agent watches <span class="mono">/auth/status/{'{flow_id}'}</span> for completion.</li>
-          <li>Agent proxies through Warden with <span class="mono">Authorization: Bearer wdn_...</span>.</li>
-        </ol>
+        <h2>Why teams use it</h2>
+        <div class="value-grid">
+          <div class="card value-card">
+            <span class="value-no">01</span>
+            <h3>Credential boundary</h3>
+            <p>Agents get revocable Warden tokens. Provider secrets stay out of agent context.</p>
+          </div>
+          <div class="card value-card">
+            <span class="value-no">02</span>
+            <h3>No auth glue code</h3>
+            <p>One URL pattern for discovery and proxying, instead of custom auth handlers per API.</p>
+          </div>
+          <div class="card value-card">
+            <span class="value-no">03</span>
+            <h3>Cleaner recovery</h3>
+            <p>Credential failures are normalized with explicit re-auth URLs so agents recover deterministically.</p>
+          </div>
+        </div>
       </section>
     </Layout>
   )
