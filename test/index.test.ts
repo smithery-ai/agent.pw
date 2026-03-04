@@ -41,6 +41,8 @@ import {
   listSkeletonPages,
   listStaleDocPages,
   deleteDocPages,
+  listServicesWithCredentialCounts,
+  countCredentialsForService,
 } from '../src/db/queries'
 import { encryptCredentials, decryptCredentials, buildCredentialHeaders } from '../src/lib/credentials-crypto'
 
@@ -108,19 +110,17 @@ describe('Root Landing Page', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('Warden')
-    expect(text).toContain('Quick Start')
+    expect(text).toContain('Service Registry')
   })
 
-  it('returns plain text onboarding for curl (Accept: */*)', async () => {
+  it('returns JSON agent guide for curl-style Accept: */*', async () => {
     const res = await req('/', { headers: { Accept: '*/*' } })
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/plain')
-    const text = await res.text()
-    expect(text).toContain('# Warden')
-    expect(text).toContain('How to connect')
-    expect(text).toContain('secrets stay secret')
-    expect(text).toContain('curl')
-    expect(text).toContain('/{hostname}')
+    expect(res.headers.get('content-type')).toContain('application/json')
+    const body = (await res.json()) as any
+    expect(body.service).toBe('warden')
+    expect(body.routes).toBeDefined()
+    expect(body.quick_start).toBeDefined()
   })
 
   it('returns JSON agent guide for Accept: application/json', async () => {
@@ -780,6 +780,79 @@ describe('Discovery', () => {
       headers: { Accept: 'application/json' },
     })
     expect(res.status).toBe(404)
+  })
+})
+
+// ─── Documentation Routes (content-negotiated) ──────────────────────────────
+
+describe('Documentation Routes', () => {
+  beforeEach(async () => {
+    await seedService()
+    await upsertDocPage(
+      db,
+      'api.github.com',
+      'docs/index.json',
+      JSON.stringify({
+        level: 0,
+        service: 'GitHub',
+        hostname: 'api.github.com',
+        api_type: 'rest',
+        base_url: '/api.github.com',
+        description: 'REST API for GitHub',
+        auth: [{ type: 'oauth', setup_url: '/auth/api.github.com/oauth' }],
+      }),
+      'enriched',
+    )
+    await upsertDocPage(
+      db,
+      'api.github.com',
+      'docs/resources.json',
+      JSON.stringify({
+        level: 1,
+        resources: [
+          {
+            name: 'Repositories',
+            slug: 'repositories',
+            description: 'Repository operations',
+            common_operations: [{ method: 'GET', path: '/repos', summary: 'List repos' }],
+          },
+        ],
+      }),
+      'enriched',
+    )
+  })
+
+  it('returns JSON docs for agents', async () => {
+    const res = await req('/api.github.com/docs/', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    const body = (await res.json()) as any
+    expect(body.level).toBe(0)
+    expect(body.hostname).toBe('api.github.com')
+  })
+
+  it('returns HTML docs for humans', async () => {
+    const res = await req('/api.github.com/docs/', {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    const text = await res.text()
+    expect(text).toContain('Documentation')
+    expect(text).toContain('docs/index.json')
+    expect(text).toContain('Raw JSON')
+  })
+
+  it('renders nested docs page as HTML when requested by browser', async () => {
+    const res = await req('/api.github.com/docs/resources.json', {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('docs/resources.json')
+    expect(text).toContain('Repositories')
   })
 })
 
@@ -2294,6 +2367,36 @@ describe('Query Functions', () => {
     const cred = await getCredential(db, 'vault1', 'test.api')
     const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
     expect(stored.headers.Authorization).toBe('Bearer token2')
+  })
+
+  it('listServicesWithCredentialCounts returns per-service popularity', async () => {
+    await upsertService(db, 'api.one.test', { baseUrl: 'https://api.one.test' })
+    await upsertService(db, 'api.two.test', { baseUrl: 'https://api.two.test' })
+
+    const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, {
+      headers: { Authorization: 'Bearer shared-token' },
+    })
+    await upsertCredential(db, 'personal', 'api.one.test', encrypted, 'alice')
+    await upsertCredential(db, 'team-alpha', 'api.one.test', encrypted, 'bob')
+
+    const rows = await listServicesWithCredentialCounts(db)
+    const serviceOne = rows.find(row => row.service === 'api.one.test')
+    const serviceTwo = rows.find(row => row.service === 'api.two.test')
+
+    expect(serviceOne?.credentialCount).toBe(2)
+    expect(serviceTwo?.credentialCount).toBe(0)
+  })
+
+  it('countCredentialsForService returns zero and non-zero counts', async () => {
+    expect(await countCredentialsForService(db, 'api.none.test')).toBe(0)
+
+    await upsertService(db, 'api.counted.test', { baseUrl: 'https://api.counted.test' })
+    const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, {
+      headers: { Authorization: 'Bearer counted' },
+    })
+    await upsertCredential(db, 'personal', 'api.counted.test', encrypted, 'alice')
+
+    expect(await countCredentialsForService(db, 'api.counted.test')).toBe(1)
   })
 })
 

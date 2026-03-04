@@ -29,12 +29,14 @@ import {
   createVault,
   deleteVault,
   listCredentials,
+  listServicesWithCredentialCounts,
+  countCredentialsForService,
   listDocPages,
   getDocPage,
 } from './db/queries'
 import { extractBearerToken, handleProxy } from './proxy'
 import { requireToken, requireRight, requireVaultAdmin } from './middleware'
-import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, buildWardenOnboarding, wantsJson } from './discovery'
+import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, wantsJson } from './discovery'
 import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { ServiceLandingPage, WardenLandingPage } from './ui'
@@ -138,17 +140,12 @@ export function createApp(deps: AppDeps = {}) {
 
   app.get('/', async c => {
     const accept = c.req.header('Accept')
-    if (accept?.includes('application/json')) {
+    if (wantsJson(accept)) {
       return c.json(buildWardenGuide(c.env.BASE_URL))
     }
 
     const db = c.get('db')
-    const recentServices = (await listServices(db)).filter(s => looksLikeHostname(s.service))
-
-    if (wantsJson(accept)) {
-      // curl sends */* — return readable plain text onboarding
-      return c.text(buildWardenOnboarding(c.env.BASE_URL, recentServices))
-    }
+    const recentServices = (await listServicesWithCredentialCounts(db)).filter(s => looksLikeHostname(s.service))
     return c.html(WardenLandingPage({ services: recentServices }))
   })
 
@@ -546,6 +543,8 @@ export function createApp(deps: AppDeps = {}) {
     const token = extractBearerToken(c.req.header('Authorization'))
     const json = wantsJson(c.req.header('Accept'))
 
+    const credentialCount = await countCredentialsForService(db, serviceName)
+
     if (!token) {
       if (json) {
         // Create an auth flow so the agent can poll for completion
@@ -557,11 +556,11 @@ export function createApp(deps: AppDeps = {}) {
           vaultSlug: 'personal',
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         })
-        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), discovery: discoveryStatus }, 401, {
+        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), credential_count: credentialCount, discovery: discoveryStatus }, 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
-      return c.html(ServiceLandingPage({ service: svc }))
+      return c.html(ServiceLandingPage({ service: svc, credentialCount, discoveryStatus }))
     }
 
     const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
@@ -570,9 +569,9 @@ export function createApp(deps: AppDeps = {}) {
     const identity = cred?.identity ?? 'default'
 
     if (json) {
-      return c.json({ ...buildAuthDiscovery(svc, identity, c.env.BASE_URL), discovery: discoveryStatus })
+      return c.json({ ...buildAuthDiscovery(svc, identity, c.env.BASE_URL), credential_count: credentialCount, discovery: discoveryStatus })
     }
-    return c.html(ServiceLandingPage({ service: svc, identity }))
+    return c.html(ServiceLandingPage({ service: svc, identity, credentialCount, discoveryStatus }))
   })
 
   // ─── Legacy redirect ──────────────────────────────────────────────────────
