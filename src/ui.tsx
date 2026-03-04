@@ -283,15 +283,15 @@ const STYLES = `
   }
 
   .cards,
-  .grid-2,
   .grid-3,
-  .registry-grid {
+  .registry-grid,
+  .stack {
     display: grid;
     gap: 0.8rem;
     margin-top: 0.9rem;
   }
 
-  .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stack { grid-template-columns: 1fr; max-width: 680px; }
   .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .registry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
@@ -528,7 +528,6 @@ const STYLES = `
 
   @media (max-width: 860px) {
     .mode-grid,
-    .grid-2,
     .registry-grid,
     .grid-3 {
       grid-template-columns: 1fr;
@@ -746,7 +745,7 @@ export function ServiceLandingPage({
         agent={`GET /${service.service} with Accept: application/json for machine-readable discovery.`}
       />
 
-      <div class="grid-2">
+      <div class="stack">
         <article class="card">
           <h3>About</h3>
           <p>{service.description ?? 'No service description yet. Warden can still handle auth and proxying.'}</p>
@@ -778,7 +777,7 @@ export function ServiceLandingPage({
             </>
           ) : (
             <>
-              <p>Your credential is connected. Agents can now call this service through Warden’s proxy.</p>
+              <p>Your credential is connected. Agents can now call this service through Warden's proxy.</p>
               <div class="button-row">
                 <a href={docsHref} class="btn btn-soft">Browse docs</a>
               </div>
@@ -787,8 +786,8 @@ export function ServiceLandingPage({
         </article>
 
         <article class="card">
-          <h3>Agent Contract</h3>
-          <p>Use these routes when running in agent mode:</p>
+          <h3>Agent Reference</h3>
+          <p>Routes and examples for agent integration:</p>
           <ol class="clean">
             <RouteSpec
               method="GET"
@@ -806,10 +805,6 @@ export function ServiceLandingPage({
               notes="Proxy request with injected credentials using Bearer token."
             />
           </ol>
-        </article>
-
-        <article class="card">
-          <h3>Sample Agent Request</h3>
           <pre class="doc-pre"><code>{`curl -H "Accept: application/json" \\
   warden.run/${service.service}`}</code></pre>
           <pre class="doc-pre"><code>{`# then proxy using Warden token
@@ -848,10 +843,10 @@ export function ApiKeyFormPage({
 
       <ModeSplit
         human="Paste your credential in this browser flow. The raw key is never passed back to the agent."
-        agent="POST JSON to this endpoint with api_key + flow_id if you’re automating key-based auth."
+        agent="POST JSON to this endpoint with api_key + flow_id if you're automating key-based auth."
       />
 
-      <div class="grid-2">
+      <div class="stack">
         <div class="card">
           <h3>Enter API Key</h3>
           <p>Warden encrypts this value and injects it at proxy time.</p>
@@ -871,13 +866,6 @@ export function ApiKeyFormPage({
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%">Connect</button>
           </form>
-        </div>
-
-        <div class="card">
-          <h3>Agent Polling</h3>
-          <p>After the user submits this form, agents poll for completion:</p>
-          <pre class="doc-pre"><code>{`GET /auth/status/${flowId}`}</code></pre>
-          <p>On completion, the response includes a revocable Warden token.</p>
           {service.docsUrl ? (
             <div class="button-row">
               <a href={service.docsUrl} target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
@@ -885,6 +873,13 @@ export function ApiKeyFormPage({
               </a>
             </div>
           ) : null}
+        </div>
+
+        <div class="card">
+          <h3>Agent Polling</h3>
+          <p>After the user submits this form, agents poll for completion:</p>
+          <pre class="doc-pre"><code>{`GET /auth/status/${flowId}`}</code></pre>
+          <p>On completion, the response includes a revocable Warden token.</p>
         </div>
       </div>
     </Layout>
@@ -1061,7 +1056,7 @@ export function DocPageViewer({
         agent={`GET /${service.service}/${docPath} with Accept: application/json for raw machine content.`}
       />
 
-      <div class="grid-2">
+      <div class="stack">
         <div class="card">
           <h3>Page Summary</h3>
           {renderDocSummary(content)}
