@@ -1201,12 +1201,10 @@ POST /api.notion.com/v1/pages Authorization: Bearer wdn_...`}</code></pre>
 
 export function ServiceLandingPage({
   service,
-  credentialCount = 0,
   discoveryStatus,
   userCredentials,
 }: {
   service: ServiceRow
-  credentialCount?: number
   discoveryStatus?: Record<string, unknown>
   userCredentials?: { slug: string; updatedAt: Date }[]
 }) {
@@ -1332,10 +1330,11 @@ curl -H "Authorization: Bearer <token>" \\
             </section>
           ) : null}
 
+          {service.docsUrl ? (
           <section class="col-section">
-            <div class="meta-line"><strong>{credentialCount}</strong> credentials stored</div>
-            {service.docsUrl ? <div class="meta-line">Homepage: <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">{service.docsUrl}</a></div> : null}
+            <div class="meta-line">Homepage: <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">{service.docsUrl}</a></div>
           </section>
+          ) : null}
         </div>
       </div>
     </Layout>
