@@ -46,7 +46,7 @@ vi.mock('ai', async (importOriginal) => {
   }
 })
 
-import { enrichPage, enrichPages } from '../src/discovery/enrichment'
+import { enrichPage, enrichPages, generateSitemapFromWeb } from '../src/discovery/enrichment'
 import { generateText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 
@@ -175,6 +175,22 @@ describe('Enrichment', () => {
     const pageB = await getDocPage(db, 'api.example.com', 'sitemap/b.json')
     expect(pageA?.status).toBe('enriched')
     expect(pageB?.status).toBe('enriched')
+  })
+
+  it('generateSitemapFromWeb calls LLM with web search prompt', async () => {
+    await generateSitemapFromWeb(makeCtx({ externalDocsUrls: ['https://docs.example.com'] }))
+
+    expect(generateText).toHaveBeenCalledOnce()
+    const callArgs = (generateText as any).mock.calls[0][0]
+    expect(callArgs.system).toContain('No OpenAPI or GraphQL spec was found')
+    expect(callArgs.system).toContain('api.example.com')
+    expect(callArgs.prompt).toContain('https://docs.example.com')
+    expect(callArgs.tools.write_doc_page).toBeDefined()
+  })
+
+  it('generateSitemapFromWeb skips when no API key configured', async () => {
+    await generateSitemapFromWeb(makeCtx({ anthropicApiKey: undefined }))
+    expect(generateText).not.toHaveBeenCalled()
   })
 
   it('enrichPages continues after individual page failure', async () => {

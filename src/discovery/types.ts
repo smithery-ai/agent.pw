@@ -16,6 +16,8 @@ export interface PipelineContext {
   awsSecretAccessKey?: string
   awsRegion?: string
   baseUrl: string
+  /** Encryption key for decrypting stored credentials (for authenticated probing) */
+  encryptionKey?: string
   /** External documentation URLs discovered by probing (e.g., docs.linear.app) */
   externalDocsUrls?: string[]
   /** Cloudflare Workflow binding for durable discovery execution */

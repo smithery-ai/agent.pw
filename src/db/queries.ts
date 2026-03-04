@@ -144,6 +144,16 @@ export async function getCredential(db: Database, orgId: string, service: string
   return rows[0] ?? null
 }
 
+/** Get any credential for a service regardless of org (for authenticated discovery probing) */
+export async function getAnyCredentialForService(db: Database, service: string) {
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(eq(credentials.service, service))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 export async function listCredentials(db: Database, orgId: string) {
   return db.select().from(credentials).where(eq(credentials.orgId, orgId))
 }

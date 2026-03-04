@@ -1,8 +1,9 @@
 import type { PipelineContext, DocMeta } from './types'
-import { getDocPage, listDocPages, listEnrichablePages } from '../db/queries'
+import { getDocPage, listDocPages, listEnrichablePages, getAnyCredentialForService } from '../db/queries'
 import { probeService } from './probe'
 import { runDeterministicDiscovery } from './deterministic'
-import { enrichPages } from './enrichment'
+import { enrichPages, generateSitemapFromWeb } from './enrichment'
+import { decryptCredentials } from '../lib/credentials-crypto'
 
 const STALE_THRESHOLD_MS = 60 * 60 * 1000 // 1 hour
 
@@ -98,10 +99,32 @@ export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
   // Fallback: run in-process (for local dev / tests without workflow binding)
   console.log(`[discovery] no workflow binding, running in-process for ${ctx.hostname}`)
 
-  const probe = await probeService(ctx.service.baseUrl, ctx.service.apiType ?? undefined, ctx.hostname)
-  await runDeterministicDiscovery(ctx, probe)
+  // Try to resolve auth headers for authenticated probing (e.g., GraphQL introspection)
+  let authHeaders: Record<string, string> | undefined
+  if (ctx.encryptionKey) {
+    try {
+      const cred = await getAnyCredentialForService(ctx.db, ctx.hostname)
+      if (cred) {
+        const stored = await decryptCredentials(ctx.encryptionKey, cred.encryptedCredentials)
+        authHeaders = stored.headers
+        console.log(`[discovery] using stored credentials for ${ctx.hostname} probe`)
+      }
+    } catch {
+      // Credential decryption failed — proceed without auth
+    }
+  }
+
+  const probe = await probeService(ctx.service.baseUrl, ctx.service.apiType ?? undefined, ctx.hostname, { authHeaders })
+  const deterministicResult = await runDeterministicDiscovery(ctx, probe)
 
   const hasLlmProvider = ctx.awsAccessKeyId || ctx.anthropicApiKey
+
+  // If no spec was found, try LLM-powered sitemap generation from web docs
+  if (!deterministicResult.hasSpec && hasLlmProvider) {
+    console.log(`[discovery] no spec found for ${ctx.hostname}, generating sitemap from web docs`)
+    await generateSitemapFromWeb({ ...ctx, externalDocsUrls: probe.externalDocsUrls })
+  }
+
   if (hasLlmProvider) {
     const enrichable = await listEnrichablePages(ctx.db, ctx.hostname)
     const sorted = enrichable.sort((a, b) => a.path.split('/').length - b.path.split('/').length)
