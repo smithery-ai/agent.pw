@@ -539,6 +539,11 @@ const STYLES = `
     font-size: 0.9rem;
     color: var(--muted-foreground);
     line-height: 1.38;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
   }
 
   .service-icon {
@@ -1102,7 +1107,7 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
   return (
     <Layout title="Warden — Secure auth for AI agents">
       <section class="hero">
-        <h1>One URL between your agents and every API</h1>
+        <h1>The vault between your agents and every API</h1>
         <p class="subtitle">
           Warden handles user auth, secure token handoff, and request proxying so agents can act without ever seeing provider secrets.
         </p>
