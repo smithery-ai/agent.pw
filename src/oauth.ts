@@ -1,7 +1,10 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from './types'
-import { getService, createAuthFlow, getAuthFlow, completeAuthFlow, upsertCredential } from './db/queries'
+import { getService, upsertCredential } from './db/queries'
+import { createAuthFlow, getAuthFlow, completeAuthFlow } from './lib/auth-flow-store'
 import { mintToken } from './biscuit'
+import { requireBrowserSession } from './middleware'
+import { getSessionFromCookie } from './lib/session'
 import { SuccessPage, ErrorPage } from './ui'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 
@@ -24,7 +27,7 @@ async function generateCodeChallenge(verifier: string) {
 
 // ─── Start OAuth ─────────────────────────────────────────────────────────────
 
-oauthRoutes.get('/:service/oauth', async c => {
+oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
   const serviceName = c.req.param('service')
   const db = c.get('db')
   const svc = await getService(db, serviceName)
@@ -34,18 +37,20 @@ oauthRoutes.get('/:service/oauth', async c => {
     return c.json({ error: `OAuth not configured for ${serviceName}` }, 400)
   }
 
+  const session = c.get('session')!
+  const orgId = session.orgId
+
   const flowId = randomId()
-  const vaultSlug = c.req.query('vault') ?? 'personal'
   const codeVerifier = randomId() + randomId() // 96 chars
   const codeChallenge = await generateCodeChallenge(codeVerifier)
 
-  // Store flow
-  await createAuthFlow(db, {
+  // Store flow with org_id
+  await createAuthFlow(c.get('redis'), {
     id: flowId,
     service: serviceName,
     method: 'oauth',
     codeVerifier,
-    vaultSlug,
+    orgId,
     expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
   })
 
@@ -81,14 +86,12 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
     return c.html(ErrorPage({ message: 'Missing code or state parameter' }), 400)
   }
 
+  const redis = c.get('redis')
   const db = c.get('db')
-  const flow = await getAuthFlow(db, state)
+  const flow = await getAuthFlow(redis, state)
 
   if (!flow) {
     return c.html(ErrorPage({ message: 'Unknown or expired auth flow' }), 400)
-  }
-  if (flow.expiresAt < new Date()) {
-    return c.html(ErrorPage({ message: 'Auth flow expired' }), 400)
   }
   if (flow.status === 'completed') {
     return c.html(ErrorPage({ message: 'Auth flow already completed' }), 400)
@@ -180,19 +183,26 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
     }
   }
 
-  // Store credential in vault
-  const vaultSlug = flow.vaultSlug ?? 'personal'
+  // Read session from cookie (survives OAuth redirect via SameSite=Lax)
+  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD)
+  const orgId = session?.orgId ?? flow.orgId
+  if (!orgId) {
+    return c.html(ErrorPage({ message: 'Session expired. Please try again.' }), 400)
+  }
+
+  // Store credential in org
   const credHeaders = buildCredentialHeaders(svc, accessToken)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
-  await upsertCredential(db, vaultSlug, serviceName, encrypted, identity)
+  await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 
-  // Mint Warden token with vault binding
+  // Mint master biscuit — covers all services in user's org
+  const workosUserId = session?.workosUserId ?? identity
   const wardenToken = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
-    { services: serviceName, vault: vaultSlug, metadata: { userId: identity } },
+    { vault: orgId, metadata: { userId: workosUserId } },
   ])
 
   // Complete the flow
-  await completeAuthFlow(db, state, { wardenToken, identity })
+  await completeAuthFlow(redis, state, { wardenToken, identity, orgId })
 
   return c.html(SuccessPage({ token: wardenToken, service: svc }))
 })

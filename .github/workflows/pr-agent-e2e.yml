@@ -117,6 +117,64 @@ jobs:
           echo "Preview URL did not become reachable in time: ${PREVIEW_URL}"
           exit 1
 
+      - name: Ensure required secrets are present
+        env:
+          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
+          BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
+          E2E_MANAGEMENT_TOKEN: ${{ secrets.E2E_MANAGEMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${LINEAR_TEST_KEY:-}" ] && missing+=("LINEAR_TEST_KEY")
+          [ -z "${BEDROCK_API_KEY:-}" ] && missing+=("BEDROCK_API_KEY")
+          [ -z "${E2E_MANAGEMENT_TOKEN:-}" ] && missing+=("E2E_MANAGEMENT_TOKEN")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Missing secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Provision test credentials and mint proxy token
+        id: provision
+        env:
+          PREVIEW_URL: ${{ steps.cloudflare.outputs.preview_url }}
+          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
+          E2E_MANAGEMENT_TOKEN: ${{ secrets.E2E_MANAGEMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="${PREVIEW_URL%/}"
+
+          # Store Linear credential in e2e-test org
+          echo "Storing credential for api.linear.app in e2e-test org..."
+          cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
+            -X PUT "${BASE}/vaults/e2e-test/credentials/api.linear.app" \
+            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"token\": \"${LINEAR_TEST_KEY}\"}")
+          echo "Credential store status: ${cred_status}"
+          cat /tmp/e2e-cred.json
+          if [ "${cred_status}" != "200" ]; then
+            echo "Failed to store credential"
+            exit 1
+          fi
+
+          # Mint a proxy token scoped to the e2e-test org
+          echo "Minting proxy token..."
+          mint_status=$(curl -sS -o /tmp/e2e-mint.json -w '%{http_code}' \
+            -X POST "${BASE}/tokens/mint" \
+            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"bindings": {"api.linear.app": {"vault": "e2e-test"}}}')
+          echo "Mint status: ${mint_status}"
+          if [ "${mint_status}" != "200" ]; then
+            cat /tmp/e2e-mint.json
+            echo "Failed to mint proxy token"
+            exit 1
+          fi
+
+          WARDEN_TOKEN=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/e2e-mint.json','utf8')).token)")
+          echo "::add-mask::${WARDEN_TOKEN}"
+          echo "warden_token=${WARDEN_TOKEN}" >> "$GITHUB_OUTPUT"
+
       - name: Build e2e agent prompt
         id: prompt
         env:
@@ -131,49 +189,52 @@ jobs:
           Target preview URL:
           ${PREVIEW_URL}
 
+          A proxy token has already been provisioned (WARDEN_TOKEN env var).
+          This token is scoped to the "e2e-test" org which has Linear API credentials stored.
+
           Your task:
           1. Use terminal commands (curl) to perform real HTTP requests against that preview.
-          2. Use the LINEAR_TEST_KEY environment variable as the API key credential.
-             Do not print the key value, do not include it in files, and do not echo it.
+          2. Use the WARDEN_TOKEN environment variable for authenticated requests.
+             Do not print the token value, do not include it in files, and do not echo it.
           3. Run these required checks in order:
 
-             A. Discovery (triggers doc generation pipeline):
-               GET {base}/api.linear.app with header Accept: application/json
+             A. Authenticated discovery:
+               GET {base}/api.linear.app with headers:
+                 Accept: application/json
+                 Authorization: Bearer \$WARDEN_TOKEN
                PASS only if:
-               - HTTP status is exactly 401
-               - JSON includes auth_url and poll_url
+               - HTTP status is 200
+               - JSON includes service name and proxy info
 
-             B. Auth submit:
-               POST to auth_url with JSON body {"api_key": "\$LINEAR_TEST_KEY"}
-               PASS only if HTTP status is 200 and response includes token
-
-             C. Poll completion:
-               GET poll_url
-               PASS only if HTTP status is 200 and status is "completed" with token
-
-             D. Authenticated query through proxy:
-               POST {base}/api.linear.app/graphql with Authorization: Bearer <warden token>
-               Content-Type: application/json
+             B. Authenticated query through proxy:
+               POST {base}/api.linear.app/graphql with:
+                 Authorization: Bearer \$WARDEN_TOKEN
+                 Content-Type: application/json
                Body:
                {"query":"query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }"}
                PASS only if:
                - HTTP status is 200
                - JSON includes data.issues.nodes[0]
 
-             E. Discovery doc generation (poll for generated docs):
-               The initial GET in step A triggers the discovery pipeline.
+             C. Unauthenticated discovery (triggers doc generation):
+               GET {base}/api.linear.app with header Accept: application/json (no auth)
+               PASS only if:
+               - HTTP status is 401
+               - JSON includes auth_url and poll_url
+
+             D. Discovery doc generation (poll for generated docs):
                Wait up to 90 seconds, polling every 10 seconds:
                GET {base}/api.linear.app/docs/
                PASS if HTTP status is 200 and JSON includes "level" field.
                If it doesn't appear within 90s, mark as FAIL but continue.
 
-             F. Discovery meta:
+             E. Discovery meta:
                GET {base}/api.linear.app/_meta.json
                PASS if HTTP status is 200 and JSON is valid.
                If 404, mark as FAIL but continue.
 
-          4. Mark overall result as PASS only if checks A-D all pass.
-             Checks E-F are informational (report pass/fail but don't block overall status).
+          4. Mark overall result as PASS only if checks A-C all pass.
+             Checks D-E are informational (report pass/fail but don't block overall status).
           5. Extract latest ticket from the GraphQL result and include:
              identifier, title, updatedAt, url, state name, assignee name (if present).
           6. Write result JSON to .context/e2e-agent-result.json with this shape:
@@ -221,26 +282,6 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Ensure LINEAR_TEST_KEY secret is present
-        env:
-          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${LINEAR_TEST_KEY:-}" ]; then
-            echo "LINEAR_TEST_KEY secret is not configured."
-            exit 1
-          fi
-
-      - name: Ensure BEDROCK_API_KEY secret is present
-        env:
-          BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${BEDROCK_API_KEY:-}" ]; then
-            echo "BEDROCK_API_KEY secret is not configured."
-            exit 1
-          fi
-
       - name: Install pinned Claude Code CLI
         run: |
           set -euo pipefail
@@ -257,7 +298,7 @@ jobs:
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.BEDROCK_API_KEY }}
           AWS_DEFAULT_REGION: us-east-1
           AWS_REGION: us-east-1
-          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
+          WARDEN_TOKEN: ${{ steps.provision.outputs.warden_token }}
         with:
           prompt: ${{ steps.prompt.outputs.value }}
           github_token: ${{ github.token }}
@@ -273,7 +314,7 @@ jobs:
         if: steps.run-agent.outcome != 'success'
         env:
           PREVIEW_URL: ${{ steps.cloudflare.outputs.preview_url }}
-          LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
+          WARDEN_TOKEN: ${{ steps.provision.outputs.warden_token }}
         run: |
           set -euo pipefail
           mkdir -p .context
@@ -282,7 +323,7 @@ jobs:
 
           const marker = '<!-- warden-agent-e2e -->'
           const base = (process.env.PREVIEW_URL || '').replace(/\/+$/, '')
-          const linearKey = process.env.LINEAR_TEST_KEY || ''
+          const wardenToken = process.env.WARDEN_TOKEN || ''
           const checks = []
           let corePass = true
           let latestTicket = null
@@ -310,99 +351,67 @@ jobs:
 
           async function run() {
             try {
-              const discovery = await fetchJson(`${base}/api.linear.app`, {
-                headers: { Accept: 'application/json' },
+              // A. Authenticated discovery
+              const authDiscovery = await fetchJson(`${base}/api.linear.app`, {
+                headers: {
+                  Accept: 'application/json',
+                  Authorization: `Bearer ${wardenToken}`,
+                },
               })
-              const authUrl = discovery.json?.auth_url
-              const pollUrl = discovery.json?.poll_url
               pushCheck(
-                'Discovery',
+                'Authenticated discovery',
                 `GET ${base}/api.linear.app`,
-                discovery.status,
-                discovery.status === 401 && typeof authUrl === 'string' && typeof pollUrl === 'string',
-                `auth_url=${typeof authUrl === 'string'}, poll_url=${typeof pollUrl === 'string'}`,
+                authDiscovery.status,
+                authDiscovery.status === 200 && authDiscovery.json?.service != null,
+                `service=${authDiscovery.json?.service ?? 'missing'}`,
               )
 
-              let authToken = null
-              let pollToken = null
-
-              if (typeof authUrl === 'string') {
-                const auth = await fetchJson(authUrl, {
-                  method: 'POST',
-                  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ api_key: linearKey }),
-                })
-                authToken = auth.json?.token ?? null
-                pushCheck(
-                  'Auth submit',
-                  `POST ${authUrl}`,
-                  auth.status,
-                  auth.status === 200 && typeof authToken === 'string' && authToken.length > 0,
-                  `token_present=${typeof authToken === 'string' && authToken.length > 0}`,
-                )
-              } else {
-                pushCheck('Auth submit', 'POST <missing auth_url>', 0, false, 'auth_url missing from discovery')
-              }
-
-              let poll = { status: 0, json: null }
-              if (typeof pollUrl === 'string') {
-                poll = await fetchJson(pollUrl, { headers: { Accept: 'application/json' } })
-                pollToken = poll.json?.token ?? null
-                pushCheck(
-                  'Poll completion',
-                  `GET ${pollUrl}`,
-                  poll.status,
-                  poll.status === 200 &&
-                    (poll.json?.status === 'completed' || poll.json?.state === 'completed') &&
-                    typeof (pollToken || authToken) === 'string',
-                  `status=${poll.json?.status ?? poll.json?.state ?? 'unknown'}, token_present=${typeof (pollToken || authToken) === 'string'}`,
-                )
-              } else {
-                pushCheck('Poll completion', 'GET <missing poll_url>', 0, false, 'poll_url missing from discovery')
-              }
-
-              const wardenToken = pollToken || authToken
+              // B. GraphQL proxy
               const gqlQuery =
                 'query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }'
-              if (typeof wardenToken === 'string' && wardenToken.length > 0) {
-                const gql = await fetchJson(`${base}/api.linear.app/graphql`, {
-                  method: 'POST',
-                  headers: {
-                    Accept: 'application/json',
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${wardenToken}`,
-                  },
-                  body: JSON.stringify({ query: gqlQuery }),
-                })
-                const node = gql.json?.data?.issues?.nodes?.[0]
-                if (node) {
-                  latestTicket = {
-                    identifier: node.identifier ?? 'N/A',
-                    title: node.title ?? 'N/A',
-                    updatedAt: node.updatedAt ?? 'N/A',
-                    url: node.url ?? 'N/A',
-                    state: node.state?.name ?? 'N/A',
-                    assignee: node.assignee?.name ?? 'N/A',
-                  }
+              const gql = await fetchJson(`${base}/api.linear.app/graphql`, {
+                method: 'POST',
+                headers: {
+                  Accept: 'application/json',
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${wardenToken}`,
+                },
+                body: JSON.stringify({ query: gqlQuery }),
+              })
+              const node = gql.json?.data?.issues?.nodes?.[0]
+              if (node) {
+                latestTicket = {
+                  identifier: node.identifier ?? 'N/A',
+                  title: node.title ?? 'N/A',
+                  updatedAt: node.updatedAt ?? 'N/A',
+                  url: node.url ?? 'N/A',
+                  state: node.state?.name ?? 'N/A',
+                  assignee: node.assignee?.name ?? 'N/A',
                 }
-                pushCheck(
-                  'GraphQL latest ticket',
-                  `POST ${base}/api.linear.app/graphql`,
-                  gql.status,
-                  gql.status === 200 && !!node,
-                  `node_present=${!!node}`,
-                )
-              } else {
-                pushCheck(
-                  'GraphQL latest ticket',
-                  `POST ${base}/api.linear.app/graphql`,
-                  0,
-                  false,
-                  'missing warden token',
-                )
               }
+              pushCheck(
+                'GraphQL proxy',
+                `POST ${base}/api.linear.app/graphql`,
+                gql.status,
+                gql.status === 200 && !!node,
+                `node_present=${!!node}`,
+              )
 
-              // Discovery doc generation check (poll for generated docs) — informational
+              // C. Unauthenticated discovery
+              const unauthDiscovery = await fetchJson(`${base}/api.linear.app`, {
+                headers: { Accept: 'application/json' },
+              })
+              pushCheck(
+                'Unauthenticated discovery',
+                `GET ${base}/api.linear.app (no auth)`,
+                unauthDiscovery.status,
+                unauthDiscovery.status === 401 &&
+                  typeof unauthDiscovery.json?.auth_url === 'string' &&
+                  typeof unauthDiscovery.json?.poll_url === 'string',
+                `auth_url=${typeof unauthDiscovery.json?.auth_url === 'string'}, poll_url=${typeof unauthDiscovery.json?.poll_url === 'string'}`,
+              )
+
+              // D. Discovery doc generation (poll) — informational
               let docsPass = false
               for (let i = 0; i < 9; i++) {
                 const docs = await fetchJson(`${base}/api.linear.app/docs/`, {
@@ -436,7 +445,7 @@ jobs:
                 )
               }
 
-              // Discovery meta check — informational
+              // E. Discovery meta — informational
               const meta = await fetchJson(`${base}/api.linear.app/_meta.json`, {
                 headers: { Accept: 'application/json' },
               })
@@ -457,7 +466,7 @@ jobs:
             const status = corePass && latestTicket?.identifier ? 'pass' : 'fail'
             const summary =
               status === 'pass'
-                ? 'Fallback e2e succeeded: Linear auth and latest ticket query passed.'
+                ? 'Fallback e2e succeeded: authenticated discovery and proxy query passed.'
                 : 'Fallback e2e failed: at least one required check did not pass.'
 
             const result = {

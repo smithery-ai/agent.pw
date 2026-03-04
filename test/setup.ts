@@ -2,9 +2,25 @@ import { drizzle } from 'drizzle-orm/pglite'
 import { sql } from 'drizzle-orm'
 import * as schema from '../src/db/schema'
 import { mintManagementToken, mintToken } from '../src/biscuit'
+import { buildSetCookieHeader, SESSION_TTL_SECONDS } from '../src/lib/session'
 
 export const BISCUIT_PRIVATE_KEY =
   'ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad'
+
+export const TEST_SESSION_SECRET = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')
+export const TEST_ORG_ID = 'org_test_456'
+
+export async function buildTestSessionCookie(userId = 'user_test_123', orgId = TEST_ORG_ID, email = 'test@example.com') {
+  const header = await buildSetCookieHeader(TEST_SESSION_SECRET, {
+    workosUserId: userId,
+    orgId,
+    email,
+    name: 'Test User',
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+  })
+  // Extract just the cookie value (name=value part) from the Set-Cookie header
+  return header.split(';')[0]
+}
 
 export function mintRootToken() {
   return mintManagementToken(
@@ -14,9 +30,9 @@ export function mintRootToken() {
   )
 }
 
-export function mintProxyToken(services: string, vault: string) {
+export function mintProxyToken(services: string, orgId: string) {
   return mintToken(BISCUIT_PRIVATE_KEY, [
-    { services, vault, metadata: { userId: 'alice' } },
+    { services, vault: orgId, metadata: { userId: 'alice' } },
   ])
 }
 
@@ -27,11 +43,12 @@ export async function createTestDb() {
   await db.execute(sql`CREATE SCHEMA IF NOT EXISTS warden`)
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS warden.vaults (
-      slug TEXT PRIMARY KEY,
-      display_name TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    CREATE TABLE IF NOT EXISTS warden.users (
+      workos_user_id TEXT PRIMARY KEY,
+      workos_org_id TEXT NOT NULL,
+      email TEXT,
+      name TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
     )
   `)
 
@@ -61,15 +78,15 @@ export async function createTestDb() {
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS warden.credentials (
-      vault_slug TEXT NOT NULL,
+      org_id TEXT NOT NULL,
       service TEXT NOT NULL,
-      identity TEXT,
+      slug TEXT NOT NULL DEFAULT 'default',
       encrypted_credentials BYTEA NOT NULL,
-      metadata TEXT,
+      tags JSONB,
       expires_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
-      PRIMARY KEY (vault_slug, service)
+      PRIMARY KEY (org_id, service, slug)
     )
   `)
 
@@ -78,21 +95,6 @@ export async function createTestDb() {
       revocation_id TEXT PRIMARY KEY,
       revoked_at TIMESTAMP NOT NULL DEFAULT now(),
       reason TEXT
-    )
-  `)
-
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS warden.auth_flows (
-      id TEXT PRIMARY KEY,
-      service TEXT NOT NULL,
-      method TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      code_verifier TEXT,
-      vault_slug TEXT,
-      warden_token TEXT,
-      identity TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      expires_at TIMESTAMP NOT NULL
     )
   `)
 
@@ -112,3 +114,16 @@ export async function createTestDb() {
 }
 
 export type TestDb = Awaited<ReturnType<typeof createTestDb>>
+
+/** Map-backed fake that implements the Redis subset used by auth-flow-store. */
+export function createTestRedis() {
+  const store = new Map<string, string>()
+  return {
+    async get(key: string) {
+      return store.get(key) ?? null
+    },
+    async set(key: string, value: string, _opts?: { ex?: number }) {
+      store.set(key, value)
+    },
+  } as import('@upstash/redis').Redis
+}

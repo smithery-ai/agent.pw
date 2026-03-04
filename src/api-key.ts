@@ -1,7 +1,9 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from './types'
-import { getService, createAuthFlow, getAuthFlow, completeAuthFlow, upsertCredential } from './db/queries'
+import { getService, upsertCredential } from './db/queries'
+import { createAuthFlow, getAuthFlow, completeAuthFlow } from './lib/auth-flow-store'
 import { mintToken } from './biscuit'
+import { requireBrowserSession } from './middleware'
 import { ApiKeyFormPage, SuccessPage, ErrorPage } from './ui'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 
@@ -15,24 +17,27 @@ function randomId() {
 
 // ─── API Key Form ────────────────────────────────────────────────────────────
 
-apiKeyRoutes.get('/:service/api-key', async c => {
+apiKeyRoutes.get('/:service/api-key', requireBrowserSession, async c => {
   const serviceName = c.req.param('service')
   const db = c.get('db')
   const svc = await getService(db, serviceName)
 
   if (!svc) return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
 
-  // Create a flow for polling
-  const flowId = c.req.query('flow_id') ?? randomId()
-  const vaultSlug = c.req.query('vault') ?? 'personal'
+  const session = c.get('session')!
+  const orgId = session.orgId
 
-  const existingFlow = await getAuthFlow(db, flowId)
+  // Create a flow for SSE/polling
+  const flowId = c.req.query('flow_id') ?? randomId()
+
+  const redis = c.get('redis')
+  const existingFlow = await getAuthFlow(redis, flowId)
   if (!existingFlow) {
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: flowId,
       service: serviceName,
       method: 'api_key',
-      vaultSlug,
+      orgId,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
     })
   }
@@ -42,7 +47,7 @@ apiKeyRoutes.get('/:service/api-key', async c => {
 
 // ─── API Key Submit ──────────────────────────────────────────────────────────
 
-apiKeyRoutes.post('/:service/api-key', async c => {
+apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
   const serviceName = c.req.param('service')
   const db = c.get('db')
   const svc = await getService(db, serviceName)
@@ -121,28 +126,25 @@ apiKeyRoutes.post('/:service/api-key', async c => {
     }
   }
 
-  // Determine vault from flow or default
-  let vaultSlug = 'personal'
-  if (flowId) {
-    const flow = await getAuthFlow(db, flowId)
-    if (flow?.vaultSlug) vaultSlug = flow.vaultSlug
-  }
+  const session = c.get('session')!
+  const orgId = session.orgId
 
-  // Store credential in vault
+  // Store credential in org
   const credHeaders = buildCredentialHeaders(svc, apiKey)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
-  await upsertCredential(db, vaultSlug, serviceName, encrypted, identity)
+  await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 
-  // Mint Warden token with vault binding
+  // Mint master biscuit — covers all services in user's org
   const wardenToken = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
-    { services: serviceName, vault: vaultSlug, metadata: { userId: identity } },
+    { vault: orgId, metadata: { userId: session.workosUserId } },
   ])
 
   // Complete the flow if one exists
   if (flowId) {
-    const flow = await getAuthFlow(db, flowId)
+    const redis = c.get('redis')
+    const flow = await getAuthFlow(redis, flowId)
     if (flow && flow.status !== 'completed') {
-      await completeAuthFlow(db, flowId, { wardenToken, identity })
+      await completeAuthFlow(redis, flowId, { wardenToken, identity, orgId })
     }
   }
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.5/schema.json",
   "files": {
-    "includes": ["**", "!coverage", "!.context", "!node_modules", "!worker-configuration.d.ts"]
+    "includes": ["**", "!coverage", "!.context", "!.claude", "!node_modules", "!worker-configuration.d.ts", "!.wrangler"]
   }
 }

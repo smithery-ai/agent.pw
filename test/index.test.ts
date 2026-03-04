@@ -3,7 +3,11 @@ import { sql } from 'drizzle-orm'
 import { createApp } from '../src/index'
 import {
   createTestDb,
+  createTestRedis,
   BISCUIT_PRIVATE_KEY,
+  TEST_SESSION_SECRET,
+  TEST_ORG_ID,
+  buildTestSessionCookie,
   mintRootToken,
   mintProxyToken,
   type TestDb,
@@ -26,9 +30,6 @@ import {
 import { extractBearerToken } from '../src/proxy'
 import { buildUnauthDiscovery, buildAuthDiscovery, wantsJson } from '../src/discovery'
 import {
-  createAuthFlow,
-  completeAuthFlow,
-  getAuthFlow,
   revokeToken,
   upsertCredential,
   getCredential,
@@ -44,21 +45,32 @@ import {
   listServicesWithCredentialCounts,
   countCredentialsForService,
 } from '../src/db/queries'
+import { createAuthFlow, completeAuthFlow, getAuthFlow } from '../src/lib/auth-flow-store'
 import { encryptCredentials, decryptCredentials, buildCredentialHeaders } from '../src/lib/credentials-crypto'
 
 // 32-byte base64 key for test encryption
 const TEST_ENCRYPTION_KEY = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')
 
 let db: TestDb
+let redis: ReturnType<typeof createTestRedis>
 let app: ReturnType<typeof createApp>
 
 beforeEach(async () => {
   db = await createTestDb()
-  app = createApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, encryptionKey: TEST_ENCRYPTION_KEY })
+  redis = createTestRedis()
+  app = createApp({ db, redis, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, encryptionKey: TEST_ENCRYPTION_KEY, workosCookiePassword: TEST_SESSION_SECRET })
 })
 
 function req(path: string, init?: RequestInit) {
   return app.request(path, init)
+}
+
+async function sessionReq(path: string, init: RequestInit = {}) {
+  const cookie = await buildTestSessionCookie()
+  return req(path, {
+    ...init,
+    headers: { Cookie: cookie, ...init.headers },
+  })
 }
 
 function mgmtReq(path: string, init: RequestInit = {}) {
@@ -66,14 +78,6 @@ function mgmtReq(path: string, init: RequestInit = {}) {
   return req(path, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, ...init.headers },
-  })
-}
-
-async function seedVault(slug = 'personal') {
-  await mgmtReq('/vaults', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, displayName: slug }),
   })
 }
 
@@ -92,13 +96,12 @@ async function seedService(service = 'api.github.com') {
   })
 }
 
-async function seedServiceWithCred(vault = 'personal') {
-  await seedVault(vault)
+async function seedServiceWithCred(orgId = TEST_ORG_ID) {
   await seedService()
-  await mgmtReq(`/vaults/${vault}/credentials/api.github.com`, {
+  await mgmtReq(`/vaults/${orgId}/credentials/api.github.com`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: 'ghp_test123', identity: 'alice' }),
+    body: JSON.stringify({ token: 'ghp_test123' }),
   })
 }
 
@@ -147,8 +150,10 @@ describe('Management Auth', () => {
   })
 
   it('rejects requests with invalid token', async () => {
-    const res = await req('/vaults', {
-      headers: { Authorization: 'Bearer invalid_token' },
+    const res = await req('/services/test.api.com', {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer invalid_token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'https://test.api.com' }),
     })
     expect(res.status).toBe(401)
   })
@@ -166,8 +171,10 @@ describe('Management Auth', () => {
     const revIds = getRevocationIds(token, publicKey)
     await revokeToken(db, revIds[0], 'test revocation')
 
-    const res = await req('/vaults', {
-      headers: { Authorization: `Bearer ${token}` },
+    const res = await req('/services/test.api.com', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'https://test.api.com' }),
     })
     expect(res.status).toBe(403)
     const body = (await res.json()) as any
@@ -191,78 +198,14 @@ describe('Management Auth', () => {
   })
 
   it('rejects vault admin access without vault_admin right', async () => {
-    await seedVault('restricted')
-    // Token with vault_admin for "other" but not "restricted"
+    // Token with vault_admin for "other" but not TEST_ORG_ID
     const token = mintManagementToken(BISCUIT_PRIVATE_KEY, ['manage_vaults'], ['other'])
-    const res = await req('/vaults/restricted', {
-      method: 'DELETE',
+    const res = await req(`/vaults/${TEST_ORG_ID}/credentials`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(403)
     const body = (await res.json()) as any
     expect(body.error).toContain('vault_admin')
-  })
-})
-
-// ─── Vault Management ────────────────────────────────────────────────────────
-
-describe('Vault Management', () => {
-  it('creates a vault', async () => {
-    const res = await mgmtReq('/vaults', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: 'team-alpha', displayName: 'Team Alpha' }),
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.ok).toBe(true)
-  })
-
-  it('rejects vault creation without slug', async () => {
-    const res = await mgmtReq('/vaults', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName: 'No Slug' }),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it('lists vaults', async () => {
-    await seedVault('personal')
-    await seedVault('team-alpha')
-    const res = await mgmtReq('/vaults')
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any[]
-    expect(body).toHaveLength(2)
-  })
-
-  it('scopes vault list by vault_admin', async () => {
-    await seedVault('personal')
-    await seedVault('team-alpha')
-    // Token with vault_admin only for 'personal'
-    const token = mintManagementToken(BISCUIT_PRIVATE_KEY, [], ['personal'])
-    const res = await req('/vaults', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any[]
-    expect(body).toHaveLength(1)
-    expect(body[0].slug).toBe('personal')
-  })
-
-  it('deletes a vault', async () => {
-    await seedVault('to-delete')
-    const res = await mgmtReq('/vaults/to-delete', { method: 'DELETE' })
-    expect(res.status).toBe(200)
-
-    const list = await mgmtReq('/vaults')
-    const body = (await list.json()) as any[]
-    expect(body.find((v: any) => v.slug === 'to-delete')).toBeUndefined()
-  })
-
-  it('returns 404 when deleting non-existent vault', async () => {
-    const res = await mgmtReq('/vaults/nonexistent', { method: 'DELETE' })
-    expect(res.status).toBe(404)
   })
 })
 
@@ -340,7 +283,7 @@ describe('Service Management', () => {
 
     // Proxy token only has access to github
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: 'personal' },
+      { services: 'api.github.com', vault: TEST_ORG_ID },
     ])
     const res = await req('/services', {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
@@ -369,31 +312,29 @@ describe('Service Management', () => {
   })
 })
 
-// ─── Credential Management (vault-scoped) ────────────────────────────────────
+// ─── Credential Management (org-scoped) ────────────────────────────────────
 
 describe('Credential Management', () => {
   beforeEach(async () => {
-    await seedVault('personal')
     await seedService()
   })
 
-  it('stores a credential in a vault', async () => {
-    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+  it('stores a credential', async () => {
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: 'ghp_test123', identity: 'alice' }),
+      body: JSON.stringify({ token: 'ghp_test123' }),
     })
     expect(res.status).toBe(200)
   })
 
-  it('stores credential with metadata and expiresAt', async () => {
+  it('stores credential with expiresAt', async () => {
     const expiresAt = new Date(Date.now() + 86400000).toISOString()
-    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token: 'ghp_test123',
-        metadata: { team: 'alpha' },
         expiresAt,
       }),
     })
@@ -401,26 +342,25 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential without token or headers', async () => {
-    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'alice' }),
+      body: JSON.stringify({}),
     })
     expect(res.status).toBe(400)
   })
 
   it('stores credential with explicit headers map', async () => {
-    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         headers: { 'Authorization': 'Bearer ghp_multi', 'X-Org-Id': 'org_123' },
-        identity: 'alice',
       }),
     })
     expect(res.status).toBe(200)
 
-    const cred = await getCredential(db, 'personal', 'api.github.com')
+    const cred = await getCredential(db, TEST_ORG_ID, 'api.github.com')
     expect(cred).not.toBeNull()
     const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
     expect(stored.headers).toEqual({
@@ -429,14 +369,14 @@ describe('Credential Management', () => {
     })
   })
 
-  it('lists credentials in a vault', async () => {
-    await mgmtReq('/vaults/personal/credentials/api.github.com', {
+  it('lists credentials for an org', async () => {
+    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq('/vaults/personal/credentials')
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials`)
     expect(res.status).toBe(200)
     const body = (await res.json()) as any[]
     expect(body).toHaveLength(1)
@@ -445,16 +385,7 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential for non-existent service', async () => {
-    const res = await mgmtReq('/vaults/personal/credentials/nonexistent', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: 'test' }),
-    })
-    expect(res.status).toBe(404)
-  })
-
-  it('rejects credential for non-existent vault', async () => {
-    const res = await mgmtReq('/vaults/nonexistent/credentials/api.github.com', {
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/nonexistent`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'test' }),
@@ -463,24 +394,24 @@ describe('Credential Management', () => {
   })
 
   it('deletes a credential', async () => {
-    await mgmtReq('/vaults/personal/credentials/api.github.com', {
+    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq('/vaults/personal/credentials/api.github.com', {
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
       method: 'DELETE',
     })
     expect(res.status).toBe(200)
 
-    const list = await mgmtReq('/vaults/personal/credentials')
+    const list = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials`)
     const body = (await list.json()) as any[]
     expect(body).toHaveLength(0)
   })
 
   it('returns 404 when deleting non-existent credential', async () => {
-    const res = await mgmtReq('/vaults/personal/credentials/nonexistent', {
+    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/nonexistent`, {
       method: 'DELETE',
     })
     expect(res.status).toBe(404)
@@ -495,7 +426,7 @@ describe('Token Minting', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        grants: [{ services: 'api.github.com', vault: 'personal' }],
+        grants: [{ services: 'api.github.com', vault: TEST_ORG_ID }],
       }),
     })
     expect(res.status).toBe(200)
@@ -509,7 +440,7 @@ describe('Token Minting', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        bindings: { 'api.github.com': { vault: 'personal' } },
+        bindings: { 'api.github.com': { vault: TEST_ORG_ID } },
       }),
     })
     expect(res.status).toBe(200)
@@ -523,7 +454,7 @@ describe('Token Minting', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         rights: ['manage_services'],
-        vaultAdmin: ['personal'],
+        vaultAdmin: [TEST_ORG_ID],
       }),
     })
     expect(res.status).toBe(200)
@@ -580,7 +511,7 @@ describe('Token Minting', () => {
       },
       body: JSON.stringify({
         rights: ['manage_services'],
-        vaultAdmin: ['personal'],
+        vaultAdmin: [TEST_ORG_ID],
       }),
     })
     expect(res.status).toBe(403)
@@ -740,7 +671,7 @@ describe('Discovery', () => {
   })
 
   it('returns 200 JSON for authenticated agent', async () => {
-    const token = mintProxyToken('api.github.com', 'personal')
+    const token = mintProxyToken('api.github.com', TEST_ORG_ID)
 
     const res = await req('/api.github.com', {
       headers: {
@@ -754,7 +685,7 @@ describe('Discovery', () => {
   })
 
   it('returns 200 HTML for authenticated browser', async () => {
-    const token = mintProxyToken('api.github.com', 'personal')
+    const token = mintProxyToken('api.github.com', TEST_ORG_ID)
 
     const res = await req('/api.github.com', {
       headers: {
@@ -767,15 +698,8 @@ describe('Discovery', () => {
     expect(text).toContain('GitHub')
   })
 
-  it('returns identity from credential in discovery', async () => {
-    await seedVault('personal')
-    await mgmtReq('/vaults/personal/credentials/api.github.com', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: 'ghp_test', identity: 'alice' }),
-    })
-
-    const token = mintProxyToken('api.github.com', 'personal')
+  it('returns authenticated status in discovery', async () => {
+    const token = mintProxyToken('api.github.com', TEST_ORG_ID)
     const res = await req('/api.github.com', {
       headers: {
         Accept: 'application/json',
@@ -784,7 +708,7 @@ describe('Discovery', () => {
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
-    expect(body.authenticated_as).toBe('alice')
+    expect(body.authenticated).toBe(true)
   })
 
   it('auto-registers unknown service and returns 401', async () => {
@@ -929,10 +853,10 @@ describe('Proxy', () => {
     expect(res.status).toBe(403)
   })
 
-  it('returns 404 when no credential found for vault', async () => {
+  it('returns 404 when no credential found for org', async () => {
     await seedService()
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: 'personal' },
+      { services: 'api.github.com', vault: TEST_ORG_ID },
     ])
     const res = await req('/api.github.com/user', {
       headers: { Authorization: `Bearer ${token}` },
@@ -945,7 +869,7 @@ describe('Proxy', () => {
   it('proxies request with bearer auth and returns upstream response', async () => {
     await seedServiceWithCred()
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: 'personal' },
+      { services: 'api.github.com', vault: TEST_ORG_ID },
     ])
 
     // Mock fetch for upstream
@@ -977,7 +901,6 @@ describe('Proxy', () => {
   })
 
   it('proxies with api_key auth method', async () => {
-    await seedVault('personal')
     // Register service with api_key auth method
     await mgmtReq('/services/api.example.com', {
       method: 'PUT',
@@ -988,14 +911,14 @@ describe('Proxy', () => {
         headerName: 'X-API-Key',
       }),
     })
-    await mgmtReq('/vaults/personal/credentials/api.example.com', {
+    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.example.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'sk_test_key' }),
     })
 
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.example.com', vault: 'personal' },
+      { services: 'api.example.com', vault: TEST_ORG_ID },
     ])
 
     const originalFetch = globalThis.fetch
@@ -1020,7 +943,6 @@ describe('Proxy', () => {
   })
 
   it('proxies with basic auth method', async () => {
-    await seedVault('personal')
     await mgmtReq('/services/api.basic.com', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1029,14 +951,14 @@ describe('Proxy', () => {
         authMethod: 'basic',
       }),
     })
-    await mgmtReq('/vaults/personal/credentials/api.basic.com', {
+    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.basic.com`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'user:pass' }),
     })
 
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.basic.com', vault: 'personal' },
+      { services: 'api.basic.com', vault: TEST_ORG_ID },
     ])
 
     const originalFetch = globalThis.fetch
@@ -1063,7 +985,7 @@ describe('Proxy', () => {
   it('forwards POST body to upstream', async () => {
     await seedServiceWithCred()
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: 'personal' },
+      { services: 'api.github.com', vault: TEST_ORG_ID },
     ])
 
     const originalFetch = globalThis.fetch
@@ -1146,7 +1068,7 @@ describe('Auth Flow Polling', () => {
   })
 
   it('returns pending status for active flow', async () => {
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'test-flow-1',
       service: 'api.github.com',
       method: 'api_key',
@@ -1160,15 +1082,16 @@ describe('Auth Flow Polling', () => {
   })
 
   it('returns completed status with token', async () => {
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'test-flow-2',
       service: 'api.github.com',
       method: 'api_key',
       expiresAt: new Date(Date.now() + 600000),
     })
-    await completeAuthFlow(db, 'test-flow-2', {
+    await completeAuthFlow(redis, 'test-flow-2', {
       wardenToken: 'wdn_test',
       identity: 'alice',
+      orgId: TEST_ORG_ID,
     })
 
     const res = await req('/auth/status/test-flow-2')
@@ -1180,7 +1103,7 @@ describe('Auth Flow Polling', () => {
   })
 
   it('returns 404 for expired flow', async () => {
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'test-flow-expired',
       service: 'api.github.com',
       method: 'api_key',
@@ -1196,29 +1119,28 @@ describe('Auth Flow Polling', () => {
 
 describe('API Key Flow', () => {
   beforeEach(async () => {
-    await seedVault('personal')
     await seedService()
   })
 
   it('shows API key form', async () => {
-    const res = await req('/auth/api.github.com/api-key')
+    const res = await sessionReq('/auth/api.github.com/api-key')
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('api_key')
   })
 
   it('returns 404 for unknown service on form', async () => {
-    const res = await req('/auth/unknown.api/api-key')
+    const res = await sessionReq('/auth/unknown.api/api-key')
     expect(res.status).toBe(404)
   })
 
   it('submits API key and stores credential', async () => {
     // First get the form to create a flow
-    const formRes = await req('/auth/api.github.com/api-key?vault=personal&flow_id=ak-flow-1')
+    const formRes = await sessionReq('/auth/api.github.com/api-key?flow_id=ak-flow-1')
     expect(formRes.status).toBe(200)
 
     // Submit the API key
-    const res = await req('/auth/api.github.com/api-key', {
+    const res = await sessionReq('/auth/api.github.com/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'api_key=ghp_testkey&flow_id=ak-flow-1',
@@ -1229,7 +1151,7 @@ describe('API Key Flow', () => {
   })
 
   it('rejects empty API key', async () => {
-    const res = await req('/auth/api.github.com/api-key', {
+    const res = await sessionReq('/auth/api.github.com/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'api_key=&flow_id=ak-flow-2',
@@ -1238,7 +1160,7 @@ describe('API Key Flow', () => {
   })
 
   it('returns 404 for unknown service on submit', async () => {
-    const res = await req('/auth/unknown.api/api-key', {
+    const res = await sessionReq('/auth/unknown.api/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'api_key=test123',
@@ -1248,14 +1170,14 @@ describe('API Key Flow', () => {
 
   it('uses existing flow and does not re-create it', async () => {
     // Create a flow via form visit
-    await req('/auth/api.github.com/api-key?vault=personal&flow_id=ak-existing')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=ak-existing')
     // Visit again with same flow_id
-    const res = await req('/auth/api.github.com/api-key?flow_id=ak-existing')
+    const res = await sessionReq('/auth/api.github.com/api-key?flow_id=ak-existing')
     expect(res.status).toBe(200)
   })
 
   it('submits API key without flow_id', async () => {
-    const res = await req('/auth/api.github.com/api-key', {
+    const res = await sessionReq('/auth/api.github.com/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'api_key=ghp_noflow',
@@ -1288,7 +1210,7 @@ describe('API Key Flow', () => {
     )
 
     try {
-      const res = await req('/auth/validated.api/api-key', {
+      const res = await sessionReq('/auth/validated.api/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=test_key_123',
@@ -1321,7 +1243,7 @@ describe('API Key Flow', () => {
     )
 
     try {
-      const res = await req('/auth/rejected.api/api-key', {
+      const res = await sessionReq('/auth/rejected.api/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=bad_key',
@@ -1359,7 +1281,7 @@ describe('API Key Flow', () => {
     )
 
     try {
-      const res = await req('/auth/apikey-svc.api/api-key', {
+      const res = await sessionReq('/auth/apikey-svc.api/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=sk_test',
@@ -1390,7 +1312,7 @@ describe('API Key Flow', () => {
     )
 
     try {
-      const res = await req('/auth/basic-svc.api/api-key', {
+      const res = await sessionReq('/auth/basic-svc.api/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=user:pass',
@@ -1424,7 +1346,7 @@ describe('API Key Flow', () => {
     )
 
     try {
-      const res = await req('/auth/post-id.api/api-key', {
+      const res = await sessionReq('/auth/post-id.api/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=test123',
@@ -1454,7 +1376,7 @@ describe('API Key Flow', () => {
 
     try {
       // Should succeed with default identity despite validation failure
-      const res = await req('/auth/fail-id.api/api-key', {
+      const res = await sessionReq('/auth/fail-id.api/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=test123',
@@ -1469,9 +1391,9 @@ describe('API Key Flow', () => {
 
   it('accepts JSON POST with api_key and flow_id in query', async () => {
     // Create a flow first
-    await req('/auth/api.github.com/api-key?vault=personal&flow_id=json-flow-1')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1')
 
-    const res = await req('/auth/api.github.com/api-key?flow_id=json-flow-1', {
+    const res = await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ api_key: 'ghp_jsonkey' }),
@@ -1483,9 +1405,9 @@ describe('API Key Flow', () => {
   })
 
   it('accepts JSON POST with flow_id in body', async () => {
-    await req('/auth/api.github.com/api-key?vault=personal&flow_id=json-flow-2')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-2')
 
-    const res = await req('/auth/api.github.com/api-key', {
+    const res = await sessionReq('/auth/api.github.com/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ api_key: 'ghp_jsonkey2', flow_id: 'json-flow-2' }),
@@ -1496,9 +1418,9 @@ describe('API Key Flow', () => {
   })
 
   it('completes flow so polling returns token (JSON path)', async () => {
-    await req('/auth/api.github.com/api-key?vault=personal&flow_id=json-poll-1')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1')
 
-    await req('/auth/api.github.com/api-key?flow_id=json-poll-1', {
+    await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ api_key: 'ghp_pollkey' }),
@@ -1512,7 +1434,7 @@ describe('API Key Flow', () => {
   })
 
   it('rejects JSON POST with missing api_key', async () => {
-    const res = await req('/auth/api.github.com/api-key', {
+    const res = await sessionReq('/auth/api.github.com/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -1523,7 +1445,7 @@ describe('API Key Flow', () => {
   })
 
   it('returns JSON 404 for unknown service', async () => {
-    const res = await req('/auth/unknown.api/api-key', {
+    const res = await sessionReq('/auth/unknown.api/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ api_key: 'test' }),
@@ -1553,7 +1475,7 @@ describe('API Key Flow', () => {
     )
 
     try {
-      const res = await req('/auth/json-rejected.api/api-key', {
+      const res = await sessionReq('/auth/json-rejected.api/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: 'bad_key' }),
@@ -1588,7 +1510,7 @@ describe('OAuth Flow', () => {
   })
 
   it('redirects to OAuth provider', async () => {
-    const res = await req('/auth/github-oauth.com/oauth?vault=personal', {
+    const res = await sessionReq('/auth/github-oauth.com/oauth', {
       redirect: 'manual',
     })
     expect(res.status).toBe(302)
@@ -1600,13 +1522,13 @@ describe('OAuth Flow', () => {
   })
 
   it('returns 404 for unknown service in OAuth start', async () => {
-    const res = await req('/auth/unknown.api/oauth', { redirect: 'manual' })
+    const res = await sessionReq('/auth/unknown.api/oauth', { redirect: 'manual' })
     expect(res.status).toBe(404)
   })
 
   it('returns 400 for service without OAuth config', async () => {
     await seedService() // GitHub without OAuth config
-    const res = await req('/auth/api.github.com/oauth', { redirect: 'manual' })
+    const res = await sessionReq('/auth/api.github.com/oauth', { redirect: 'manual' })
     expect(res.status).toBe(400)
   })
 
@@ -1632,7 +1554,7 @@ describe('OAuth Flow', () => {
   })
 
   it('rejects callback for expired flow', async () => {
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'expired-flow',
       service: 'github-oauth.com',
       method: 'oauth',
@@ -1647,16 +1569,17 @@ describe('OAuth Flow', () => {
   })
 
   it('rejects callback for already completed flow', async () => {
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'completed-flow',
       service: 'github-oauth.com',
       method: 'oauth',
       codeVerifier: 'test',
       expiresAt: new Date(Date.now() + 600000),
     })
-    await completeAuthFlow(db, 'completed-flow', {
+    await completeAuthFlow(redis, 'completed-flow', {
       wardenToken: 'wdn_old',
       identity: 'alice',
+      orgId: TEST_ORG_ID,
     })
 
     const res = await req('/auth/github-oauth.com/oauth/callback?code=abc&state=completed-flow')
@@ -1666,13 +1589,12 @@ describe('OAuth Flow', () => {
   })
 
   it('handles failed token exchange', async () => {
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'token-fail-flow',
       service: 'github-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1692,13 +1614,12 @@ describe('OAuth Flow', () => {
   })
 
   it('handles missing access token in response', async () => {
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'no-token-flow',
       service: 'github-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1718,13 +1639,12 @@ describe('OAuth Flow', () => {
   })
 
   it('completes successful OAuth flow', async () => {
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'success-flow',
       service: 'github-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1743,7 +1663,7 @@ describe('OAuth Flow', () => {
       expect(text).toContain('wdn_')
 
       // Verify flow was completed
-      const flow = await getAuthFlow(db, 'success-flow')
+      const flow = await getAuthFlow(redis, 'success-flow')
       expect(flow!.status).toBe('completed')
       expect(flow!.wardenToken).toMatch(/^wdn_/)
     } finally {
@@ -1769,13 +1689,12 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'id-flow',
       service: 'id-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1799,7 +1718,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/id-oauth.com/oauth/callback?code=abc&state=id-flow')
       expect(res.status).toBe(200)
 
-      const flow = await getAuthFlow(db, 'id-flow')
+      const flow = await getAuthFlow(redis, 'id-flow')
       expect(flow!.identity).toBe('carol@example.com')
     } finally {
       globalThis.fetch = originalFetch
@@ -1824,13 +1743,12 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'post-id-flow',
       service: 'post-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1851,7 +1769,7 @@ describe('OAuth Flow', () => {
     try {
       const res = await req('/auth/post-oauth.com/oauth/callback?code=abc&state=post-id-flow')
       expect(res.status).toBe(200)
-      const flow = await getAuthFlow(db, 'post-id-flow')
+      const flow = await getAuthFlow(redis, 'post-id-flow')
       expect(flow!.identity).toBe('frank')
     } finally {
       globalThis.fetch = originalFetch
@@ -1873,13 +1791,12 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'fail-id-flow',
       service: 'fail-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1898,7 +1815,7 @@ describe('OAuth Flow', () => {
     try {
       const res = await req('/auth/fail-oauth.com/oauth/callback?code=abc&state=fail-id-flow')
       expect(res.status).toBe(200)
-      const flow = await getAuthFlow(db, 'fail-id-flow')
+      const flow = await getAuthFlow(redis, 'fail-id-flow')
       expect(flow!.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
@@ -1922,13 +1839,12 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'nopath-flow',
       service: 'nopath-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1950,7 +1866,7 @@ describe('OAuth Flow', () => {
     try {
       const res = await req('/auth/nopath-oauth.com/oauth/callback?code=abc&state=nopath-flow')
       expect(res.status).toBe(200)
-      const flow = await getAuthFlow(db, 'nopath-flow')
+      const flow = await getAuthFlow(redis, 'nopath-flow')
       expect(flow!.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
@@ -1974,13 +1890,12 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await seedVault('personal')
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'custom-token-flow',
       service: 'custom-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
-      vaultSlug: 'personal',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -1997,9 +1912,9 @@ describe('OAuth Flow', () => {
     }
   })
 
-  it('uses default vault when flow has no vaultSlug', async () => {
-    await createAuthFlow(db, {
-      id: 'no-vault-flow',
+  it('uses session orgId when flow has no orgId', async () => {
+    await createAuthFlow(redis, {
+      id: 'no-org-flow',
       service: 'github-oauth.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
@@ -2012,7 +1927,7 @@ describe('OAuth Flow', () => {
     )
 
     try {
-      const res = await req('/auth/github-oauth.com/oauth/callback?code=abc&state=no-vault-flow')
+      const res = await sessionReq('/auth/github-oauth.com/oauth/callback?code=abc&state=no-org-flow')
       expect(res.status).toBe(200)
     } finally {
       globalThis.fetch = originalFetch
@@ -2032,7 +1947,7 @@ describe('OAuth Flow', () => {
         supportedAuthMethods: ['oauth'],
       }),
     })
-    await createAuthFlow(db, {
+    await createAuthFlow(redis, {
       id: 'no-token-url-flow',
       service: 'no-token-url.com',
       method: 'oauth',
@@ -2344,8 +2259,8 @@ describe('Discovery Functions', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }
-    const result = buildAuthDiscovery(svc, 'alice', 'http://localhost:3000') as any
-    expect(result.authenticated_as).toBe('alice')
+    const result = buildAuthDiscovery(svc, 'http://localhost:3000') as any
+    expect(result.authenticated).toBe(true)
     expect(result.api_type).toBe('rest')
     expect(result.proxy).toBe('http://localhost:3000/api.github.com')
     expect(result.docs_url).toBe('https://docs.github.com')
@@ -2384,9 +2299,9 @@ describe('Query Functions', () => {
     await upsertService(db, 'test.api', { baseUrl: 'https://test.api' })
     const enc1 = await encryptCredentials(TEST_ENCRYPTION_KEY, { headers: { Authorization: 'Bearer token1' } })
     const enc2 = await encryptCredentials(TEST_ENCRYPTION_KEY, { headers: { Authorization: 'Bearer token2' } })
-    await upsertCredential(db, 'vault1', 'test.api', enc1, 'alice')
-    await upsertCredential(db, 'vault1', 'test.api', enc2, 'bob')
-    const cred = await getCredential(db, 'vault1', 'test.api')
+    await upsertCredential(db, TEST_ORG_ID, 'test.api', 'default', enc1)
+    await upsertCredential(db, TEST_ORG_ID, 'test.api', 'default', enc2)
+    const cred = await getCredential(db, TEST_ORG_ID, 'test.api')
     const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
     expect(stored.headers.Authorization).toBe('Bearer token2')
   })
@@ -2398,8 +2313,8 @@ describe('Query Functions', () => {
     const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, {
       headers: { Authorization: 'Bearer shared-token' },
     })
-    await upsertCredential(db, 'personal', 'api.one.test', encrypted, 'alice')
-    await upsertCredential(db, 'team-alpha', 'api.one.test', encrypted, 'bob')
+    await upsertCredential(db, 'personal', 'api.one.test', 'alice', encrypted)
+    await upsertCredential(db, 'team-alpha', 'api.one.test', 'bob', encrypted)
 
     const rows = await listServicesWithCredentialCounts(db)
     const serviceOne = rows.find(row => row.service === 'api.one.test')
@@ -2416,7 +2331,7 @@ describe('Query Functions', () => {
     const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, {
       headers: { Authorization: 'Bearer counted' },
     })
-    await upsertCredential(db, 'personal', 'api.counted.test', encrypted, 'alice')
+    await upsertCredential(db, 'personal', 'api.counted.test', 'alice', encrypted)
 
     expect(await countCredentialsForService(db, 'api.counted.test')).toBe(1)
   })

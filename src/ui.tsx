@@ -8,20 +8,23 @@ type ServiceWithPopularity = ServiceRow & { credentialCount?: number }
 
 const STYLES = `
   :root {
-    --smithery-white: #ffffff;
-    --smithery-offwhite: #efead6;
-    --smithery-offblack: #232323;
-    --smithery-yellow: #ffdc4a;
-    --smithery-orange: #ff5601;
-    --smithery-maroon: #7b1707;
-
-    --paper: var(--smithery-offwhite);
-    --ink: var(--smithery-offblack);
-    --muted: #5a5750;
-    --line: rgba(35, 35, 35, 0.16);
+    --background: #efead6;
+    --foreground: #232323;
     --card: rgba(255, 255, 255, 0.78);
-    --card-strong: rgba(255, 255, 255, 0.94);
-    --radius: 16px;
+    --card-foreground: #232323;
+    --muted: rgba(255, 255, 255, 0.94);
+    --muted-foreground: #5a5750;
+    --border: rgba(35, 35, 35, 0.16);
+    --input: rgba(35, 35, 35, 0.16);
+    --ring: rgba(255, 86, 1, 0.3);
+    --primary: #ff5601;
+    --primary-foreground: #ffffff;
+    --secondary: rgba(255, 255, 255, 0.94);
+    --secondary-foreground: #232323;
+    --accent: #ffdc4a;
+    --destructive: #7b1707;
+    --success: #4e8a37;
+    --radius: 0.5rem;
 
     --font-sans: 'GT Pantheon Micro', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
@@ -32,10 +35,10 @@ const STYLES = `
   body {
     margin: 0;
     min-height: 100vh;
-    color: var(--ink);
+    color: var(--foreground);
     background: radial-gradient(1200px 520px at 92% -10%, rgba(255, 86, 1, 0.15), transparent 64%),
       radial-gradient(900px 460px at -8% 110%, rgba(255, 220, 74, 0.22), transparent 60%),
-      var(--paper);
+      var(--background);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -71,40 +74,9 @@ const STYLES = `
 
   .brand-mark {
     width: 28px;
-    height: 30px;
-    position: relative;
+    height: 32px;
     display: inline-block;
-    clip-path: polygon(50% 2%, 90% 15%, 90% 57%, 50% 100%, 10% 57%, 10% 15%);
-    background: linear-gradient(180deg, #ff8a34 0%, var(--smithery-orange) 56%, #d44300 100%);
-    border: 1px solid rgba(123, 23, 7, 0.38);
-    border-radius: 5px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  }
-
-  .brand-mark::before {
-    content: '';
-    position: absolute;
-    width: 9px;
-    height: 13px;
-    left: 8px;
-    top: 6px;
-    border-radius: 60% 60% 65% 65%;
-    background: var(--smithery-white);
-    transform: rotate(-8deg);
-    clip-path: polygon(52% 0%, 78% 22%, 70% 48%, 90% 82%, 56% 100%, 24% 80%, 30% 52%, 18% 20%);
-    opacity: 0.97;
-  }
-
-  .brand-mark::after {
-    content: '';
-    position: absolute;
-    width: 4px;
-    height: 6px;
-    left: 10px;
-    top: 9px;
-    border-radius: 60%;
-    background: var(--smithery-orange);
-    transform: rotate(-9deg);
+    flex-shrink: 0;
   }
 
   .brand-word {
@@ -121,7 +93,7 @@ const STYLES = `
   }
 
   .brand-word small {
-    color: var(--muted);
+    color: var(--muted-foreground);
     font-size: 0.83rem;
     letter-spacing: 0.02em;
   }
@@ -136,7 +108,7 @@ const STYLES = `
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    color: var(--smithery-orange);
+    color: var(--primary);
     font-size: 0.83rem;
     letter-spacing: 0.045em;
     text-transform: uppercase;
@@ -148,7 +120,7 @@ const STYLES = `
     width: 0.65rem;
     height: 0.65rem;
     border-radius: 2px;
-    background: var(--smithery-orange);
+    background: var(--primary);
   }
 
   h1 {
@@ -162,7 +134,7 @@ const STYLES = `
 
   .subtitle {
     margin: 0;
-    color: var(--muted);
+    color: var(--muted-foreground);
     font-size: 1.08rem;
     line-height: 1.32;
     max-width: 62ch;
@@ -179,7 +151,7 @@ const STYLES = `
     align-items: center;
     border-radius: 999px;
     padding: 0.24rem 0.62rem;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     background: var(--card);
     font-size: 0.84rem;
     gap: 0.35rem;
@@ -200,7 +172,7 @@ const STYLES = `
   .pill.success {
     background: rgba(123, 23, 7, 0.12);
     border-color: rgba(123, 23, 7, 0.34);
-    color: var(--smithery-maroon);
+    color: var(--destructive);
   }
 
   .code-block,
@@ -212,8 +184,8 @@ const STYLES = `
   .code-block {
     width: fit-content;
     max-width: 100%;
-    background: var(--card-strong);
-    border: 1px solid var(--line);
+    background: var(--muted);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 0.74rem 0.85rem;
     font-size: 0.83rem;
@@ -232,7 +204,7 @@ const STYLES = `
   .copyable:hover { border-color: rgba(255, 86, 1, 0.45); }
 
   .copy-hint {
-    color: var(--muted);
+    color: var(--muted-foreground);
     font-size: 0.74rem;
     font-family: var(--font-sans);
     white-space: nowrap;
@@ -248,7 +220,7 @@ const STYLES = `
   }
 
   .mode-card {
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--card);
     padding: 0.82rem 0.9rem;
@@ -262,7 +234,7 @@ const STYLES = `
 
   .mode-card p {
     margin: 0;
-    color: var(--muted);
+    color: var(--muted-foreground);
     font-size: 0.9rem;
     line-height: 1.34;
   }
@@ -280,7 +252,7 @@ const STYLES = `
 
   .section > p {
     margin: 0;
-    color: var(--muted);
+    color: var(--muted-foreground);
   }
 
   .cards,
@@ -297,7 +269,7 @@ const STYLES = `
   .registry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
   .card {
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     background: var(--card);
     border-radius: var(--radius);
     padding: 0.95rem;
@@ -312,7 +284,7 @@ const STYLES = `
 
   .card p {
     margin: 0.38rem 0 0;
-    color: var(--muted);
+    color: var(--muted-foreground);
     font-size: 0.94rem;
     line-height: 1.34;
   }
@@ -324,7 +296,7 @@ const STYLES = `
 
   .service-link:hover {
     border-color: rgba(255, 86, 1, 0.35);
-    background: var(--card-strong);
+    background: var(--muted);
     transform: translateY(-1px);
   }
 
@@ -354,7 +326,7 @@ const STYLES = `
   .service-blurb {
     margin-top: 0.52rem;
     font-size: 0.91rem;
-    color: var(--muted);
+    color: var(--muted-foreground);
     line-height: 1.34;
   }
 
@@ -428,8 +400,8 @@ const STYLES = `
   }
 
   .btn-primary {
-    background: var(--smithery-orange);
-    color: var(--smithery-white);
+    background: var(--primary);
+    color: var(--primary-foreground);
     border-color: rgba(123, 23, 7, 0.35);
   }
 
@@ -438,9 +410,9 @@ const STYLES = `
   }
 
   .btn-secondary {
-    background: var(--card-strong);
-    border-color: var(--line);
-    color: var(--ink);
+    background: var(--muted);
+    border-color: var(--border);
+    color: var(--foreground);
   }
 
   .btn-secondary:hover {
@@ -450,14 +422,14 @@ const STYLES = `
   .btn-soft {
     background: rgba(255, 220, 74, 0.25);
     border-color: rgba(255, 220, 74, 0.6);
-    color: var(--ink);
+    color: var(--foreground);
   }
 
   label,
   .label {
     font-size: 0.86rem;
     font-weight: 500;
-    color: var(--muted);
+    color: var(--muted-foreground);
     margin-bottom: 0.35rem;
     display: block;
   }
@@ -465,8 +437,8 @@ const STYLES = `
   input[type='text'],
   input[type='password'] {
     width: 100%;
-    background: var(--smithery-white);
-    border: 1px solid var(--line);
+    background: var(--primary-foreground);
+    border: 1px solid var(--border);
     border-radius: 11px;
     height: 42px;
     padding: 0 0.74rem;
@@ -484,16 +456,16 @@ const STYLES = `
 
   .token-box {
     margin-top: 0.55rem;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 11px;
-    background: var(--smithery-white);
+    background: var(--primary-foreground);
     padding: 0.65rem;
     font-size: 0.78rem;
     line-height: 1.45;
     word-break: break-all;
   }
 
-  .error { color: var(--smithery-maroon); font-weight: 500; }
+  .error { color: var(--destructive); font-weight: 500; }
 
   ul.clean,
   ol.clean {
@@ -506,7 +478,7 @@ const STYLES = `
 
   ul.clean li,
   ol.clean li {
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.52);
     border-radius: 11px;
     padding: 0.56rem 0.66rem;
@@ -518,8 +490,8 @@ const STYLES = `
     margin: 0.6rem 0 0;
     padding: 0.8rem;
     border-radius: 12px;
-    border: 1px solid var(--line);
-    background: var(--smithery-white);
+    border: 1px solid var(--border);
+    background: var(--primary-foreground);
     overflow-x: auto;
     font-size: 0.78rem;
     line-height: 1.4;
@@ -537,7 +509,7 @@ const STYLES = `
     gap: 0.45rem;
     margin-top: 0.6rem;
     font-size: 0.88rem;
-    color: var(--muted);
+    color: var(--muted-foreground);
   }
 
   .status-dot {
@@ -547,8 +519,18 @@ const STYLES = `
     background: #8a877d;
   }
 
-  .status-dot.active { background: var(--smithery-orange); }
-  .status-dot.ready { background: #4e8a37; }
+  .status-dot.active { background: var(--primary); }
+  .status-dot.ready { background: var(--success); }
+
+  .credential-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.84rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: var(--radius);
+    background: var(--muted);
+  }
 
   @media (max-width: 980px) {
     .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -637,7 +619,17 @@ function Layout({
         <div class="page">
           <header class="topbar">
             <a href="/" class="brand">
-              <span class="brand-mark" aria-hidden="true"></span>
+              <svg class="brand-mark" viewBox="0 0 188 211" fill="var(--primary)" aria-hidden="true">
+                <path d="M41.7011 77.48H0V100.264C0 118.171 14.5275 132.698 32.4342 132.698H55.2183V90.9971C55.2183 83.5418 49.1565 77.48 41.7011 77.48Z"/>
+                <path d="M66.0879 90.9971V132.698H107.789C115.244 132.698 121.306 126.636 121.306 119.181V77.48H79.6051C72.1497 77.48 66.0879 83.5418 66.0879 90.9971Z"/>
+                <path d="M154.995 77.48H132.21V119.181C132.21 126.636 138.272 132.698 145.728 132.698H187.429V106.152C187.429 88.2449 172.901 77.5148 154.995 77.5148V77.48Z"/>
+                <path d="M0 45.9514V66.6103H41.7011C49.1565 66.6103 55.2183 60.5485 55.2183 53.0932V0C25.8498 0.209028 0.034838 14.6668 0 45.9514Z"/>
+                <path d="M66.0879 53.093C66.0879 60.5483 72.1497 66.6101 79.6051 66.6101H121.306V11.4615C100.926 8.36092 90.3003 1.74169 66.0879 0.243652V53.0581V53.093Z"/>
+                <path d="M144.09 13.0639C139.77 13.0639 135.834 12.9246 132.21 12.6807V66.61H154.995C172.901 66.61 187.429 52.0825 187.429 34.1758V0.173828C177.291 8.1169 162.903 13.0639 144.09 13.0639Z"/>
+                <path d="M0 176.002V210.004C10.1379 202.061 24.526 197.114 43.3385 197.114C47.6584 197.114 51.5951 197.253 55.2183 197.532V143.603H32.4342C14.5275 143.603 0 158.13 0 176.037L0 176.002Z"/>
+                <path d="M107.789 143.603H66.0879V198.716C86.4681 201.817 97.0938 208.436 121.306 209.934V157.12C121.306 149.664 115.244 143.603 107.789 143.603Z"/>
+                <path d="M132.21 157.085V210.178C161.544 209.969 187.324 195.511 187.429 164.296V143.568H145.728C138.272 143.568 132.21 149.63 132.21 157.085Z"/>
+              </svg>
               <span class="brand-word">
                 <strong>Warden</strong>
                 <small>Smithery API Registry</small>
@@ -689,7 +681,7 @@ function RouteSpec({
   return (
     <li>
       <span class="mono" style="font-size: 0.79rem">{method} {path}</span>
-      <div style="margin-top: 0.18rem; color: var(--muted)">{notes}</div>
+      <div style="margin-top: 0.18rem; color: var(--muted-foreground)">{notes}</div>
     </li>
   )
 }
@@ -752,15 +744,16 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
 
 export function ServiceLandingPage({
   service,
-  identity,
   credentialCount = 0,
   discoveryStatus,
+  userCredentials,
 }: {
   service: ServiceRow
-  identity?: string
   credentialCount?: number
   discoveryStatus?: Record<string, unknown>
+  userCredentials?: { slug: string; updatedAt: Date }[]
 }) {
+  const hasCredentials = (userCredentials?.length ?? 0) > 0
   const supported = parseSupportedAuth(service)
   const pipelineState = (discoveryStatus?.pipeline_state as string) ?? 'idle'
   const isActive = pipelineState === 'probing' || pipelineState === 'parsing' || pipelineState === 'enriching'
@@ -785,6 +778,20 @@ export function ServiceLandingPage({
         </div>
       </section>
 
+      {hasCredentials ? (
+        <article class="card" style="margin-top: 0.82rem">
+          <span class="label">Your credentials</span>
+          <ul class="clean">
+            {(userCredentials ?? []).map(credential => (
+              <li>
+                <span class="mono">{credential.slug}</span>
+                <span style="float: right; color: var(--muted);">{formatTimeAgo(credential.updatedAt)}</span>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ) : null}
+
       <div class="code-block copyable" style="margin-top: 0.82rem" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
         <span class="mono">{`curl https://warden.run/${service.service} and help me use ${serviceName(service)}`}</span>
         <small class="copy-hint">click to copy</small>
@@ -795,7 +802,7 @@ export function ServiceLandingPage({
         <span class="pill"><strong>{supported.length || 1}</strong> auth methods</span>
         <span class="pill"><strong>{service.apiType ?? 'unknown'}</strong> API type</span>
         <span class="pill"><strong>{totalPages}</strong> doc pages</span>
-        {identity ? <span class="pill success">Connected as <strong>{identity}</strong></span> : null}
+        {hasCredentials ? <span class="pill success">Connected <strong>{userCredentials?.length ?? 0}</strong></span> : null}
       </div>
 
       <ModeSplit
@@ -821,7 +828,7 @@ export function ServiceLandingPage({
 
         <article class="card">
           <h3>Access</h3>
-          {!identity ? (
+          {!hasCredentials ? (
             <>
               <p>Pick an auth path to connect credentials. Warden stores them and agents only receive revocable Warden tokens.</p>
               <div class="button-row">
@@ -899,11 +906,6 @@ export function ApiKeyFormPage({
         </div>
       </section>
 
-      <ModeSplit
-        human="Paste your credential in this browser flow. The raw key is never passed back to the agent."
-        agent="POST JSON to this endpoint with api_key + flow_id if you're automating key-based auth."
-      />
-
       <div class="stack">
         <div class="card">
           <h3>Enter API Key</h3>
@@ -980,6 +982,17 @@ export function SuccessPage({
       </div>
     </Layout>
   )
+}
+
+function formatTimeAgo(date: Date) {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 export function ErrorPage({ message }: { message: string }) {
