@@ -19,7 +19,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const connectionString = this.env.HYPERDRIVE?.connectionString
     if (!connectionString) throw new Error('HYPERDRIVE binding not configured')
 
-    const { logger, flush } = createLogger('warden', this.env.BETTERSTACK_SOURCE_TOKEN)
+    const { logger, flush } = createLogger('warden', this.env.BETTERSTACK_ERRORS_DSN)
     const log = logger.child({ hostname, workflow: 'discovery' })
 
     // Step 1: Look up service and set crawl state to 'crawling'

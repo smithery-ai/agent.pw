@@ -160,7 +160,7 @@ export function createApp(deps: AppDeps = {}) {
       c.set('redis', new Redis({ url: c.env.KV_REST_API_URL, token: c.env.KV_REST_API_TOKEN }))
     }
 
-    const { logger, flush } = createLogger('warden', c.env.BETTERSTACK_SOURCE_TOKEN)
+    const { logger, flush } = createLogger('warden', c.env.BETTERSTACK_ERRORS_DSN)
     c.set('logger', logger)
     c.set('flushLogger', flush)
     return next()

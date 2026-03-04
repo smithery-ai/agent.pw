@@ -20,7 +20,7 @@ export interface Env {
   WORKOS_COOKIE_PASSWORD: string
   KV_REST_API_URL: string
   KV_REST_API_TOKEN: string
-  BETTERSTACK_SOURCE_TOKEN?: string
+  BETTERSTACK_ERRORS_DSN?: string
   HYPERDRIVE?: Hyperdrive
   DISCOVERY_WORKFLOW?: Workflow
 }
