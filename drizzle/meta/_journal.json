@@ -8,6 +8,27 @@
       "when": 1772608561698,
       "tag": "0000_tranquil_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772646000000,
+      "tag": "0001_oauth_apps",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772650000000,
+      "tag": "0002_encrypt_oauth_secret",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772740000000,
+      "tag": "0003_auth_schemes",
+      "breakpoints": true
     }
   ]
 }

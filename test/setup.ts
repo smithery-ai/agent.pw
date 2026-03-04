@@ -58,15 +58,9 @@ export async function createTestDb() {
       base_url TEXT NOT NULL,
       display_name TEXT,
       description TEXT,
-      auth_method TEXT NOT NULL DEFAULT 'bearer',
-      header_name TEXT NOT NULL DEFAULT 'Authorization',
-      header_scheme TEXT NOT NULL DEFAULT 'Bearer',
+      auth_schemes TEXT,
       oauth_client_id TEXT,
-      oauth_client_secret TEXT,
-      oauth_authorize_url TEXT,
-      oauth_token_url TEXT,
-      oauth_scopes TEXT,
-      supported_auth_methods TEXT,
+      encrypted_oauth_client_secret BYTEA,
       api_type TEXT,
       docs_url TEXT,
       preview TEXT,
@@ -95,6 +89,18 @@ export async function createTestDb() {
       revocation_id TEXT PRIMARY KEY,
       revoked_at TIMESTAMP NOT NULL DEFAULT now(),
       reason TEXT
+    )
+  `)
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS warden.oauth_apps (
+      org_id TEXT NOT NULL,
+      service TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      encrypted_client_secret BYTEA,
+      scopes TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      PRIMARY KEY (org_id, service)
     )
   `)
 

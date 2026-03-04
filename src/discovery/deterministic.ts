@@ -1,18 +1,77 @@
 import type { PipelineContext, ProbeResult, DocIndexPage, DocResourcesPage, DocResourceDetailPage, DocMeta } from './types'
-import { upsertDocPage } from '../db/queries'
+import { upsertDocPage, upsertService } from '../db/queries'
+import { parseAuthSchemes, getOAuthScheme, DEFAULT_API_KEY_SCHEME, type AuthScheme } from '../auth-schemes'
 
 interface DeterministicResult {
   pagesWritten: number
   resourcesFound: string[]
   hasSpec: boolean
+  oauthMeta?: {
+    authorizeUrl: string
+    tokenUrl: string
+    scopes?: string
+  }
+}
+
+function deriveAuthLabels(schemes: AuthScheme[], hasExtraOAuth = false): string[] {
+  const labels = new Set<string>()
+  for (const s of schemes) {
+    if (s.type === 'oauth2') labels.add('oauth')
+    else labels.add('api_key')
+  }
+  if (hasExtraOAuth) labels.add('oauth')
+  if (labels.size === 0) labels.add('api_key')
+  return Array.from(labels)
 }
 
 // ─── OpenAPI Parsing ─────────────────────────────────────────────────────────
+
+function extractOAuthFromOpenApi(spec: Record<string, unknown>) {
+  const oauthSchemes: { authorizeUrl: string; tokenUrl: string; scopes?: string }[] = []
+
+  const securitySchemes = (
+    (spec.components as Record<string, unknown> | undefined)?.securitySchemes ??
+    spec.securityDefinitions
+  ) as Record<string, unknown> | undefined
+
+  if (!securitySchemes) return null
+
+  for (const scheme of Object.values(securitySchemes)) {
+    const s = scheme as Record<string, unknown>
+    if (s.type !== 'oauth2') continue
+
+    const flows = s.flows as Record<string, unknown> | undefined
+    if (flows) {
+      for (const flow of Object.values(flows)) {
+        const f = flow as Record<string, unknown>
+        const authorizeUrl = f.authorizationUrl
+        const tokenUrl = f.tokenUrl
+        if (typeof authorizeUrl !== 'string' || typeof tokenUrl !== 'string') continue
+        const scopesObj = f.scopes as Record<string, unknown> | undefined
+        const scopes = scopesObj ? Object.keys(scopesObj).join(' ') : undefined
+        oauthSchemes.push({ authorizeUrl, tokenUrl, scopes: scopes || undefined })
+      }
+      continue
+    }
+
+    // Swagger 2.0
+    const authorizeUrl = s.authorizationUrl
+    const tokenUrl = s.tokenUrl
+    if (typeof authorizeUrl === 'string' && typeof tokenUrl === 'string') {
+      const scopesObj = s.scopes as Record<string, unknown> | undefined
+      const scopes = scopesObj ? Object.keys(scopesObj).join(' ') : undefined
+      oauthSchemes.push({ authorizeUrl, tokenUrl, scopes: scopes || undefined })
+    }
+  }
+
+  return oauthSchemes[0] ?? null
+}
 
 function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult {
   const s = spec as Record<string, unknown>
   const info = s.info as Record<string, string> | undefined
   const paths = s.paths as Record<string, Record<string, unknown>> | undefined
+  const oauthMeta = extractOAuthFromOpenApi(s)
 
   // Group endpoints by tag or first path segment into resources
   const resourceMap = new Map<string, { method: string; path: string; summary: string; operationId?: string }[]>()
@@ -37,9 +96,8 @@ function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult 
     }
   }
 
-  const supported: string[] = ctx.service.supportedAuthMethods
-    ? JSON.parse(ctx.service.supportedAuthMethods)
-    : []
+  const schemes = parseAuthSchemes(ctx.service.authSchemes)
+  const authLabels = deriveAuthLabels(schemes, !!oauthMeta)
 
   // Build L0 index
   const indexPage: DocIndexPage = {
@@ -49,9 +107,9 @@ function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult 
     api_type: 'rest',
     base_url: `/${ctx.hostname}`,
     description: (info?.description as string) ?? ctx.service.description ?? '',
-    auth: supported.map(m => ({
+    auth: authLabels.map(m => ({
       type: m,
-      setup_url: `/auth/${ctx.hostname}/${m === 'oauth' ? 'oauth' : 'api-key'}`,
+      setup_url: `/auth/${ctx.hostname}`,
     })),
     docs_url: ctx.service.docsUrl ?? undefined,
   }
@@ -113,6 +171,7 @@ function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult 
     pagesWritten: pages.length,
     resourcesFound: Array.from(resourceMap.keys()),
     hasSpec: true,
+    oauthMeta: oauthMeta ?? undefined,
     ...({ _pages: pages } as Record<string, unknown>),
   }
 }
@@ -162,9 +221,8 @@ function parseGraphQL(ctx: PipelineContext, schemaJson: string): DeterministicRe
   addOps(queryType?.fields, 'QUERY')
   addOps(mutationType?.fields, 'MUTATION')
 
-  const supported: string[] = ctx.service.supportedAuthMethods
-    ? JSON.parse(ctx.service.supportedAuthMethods)
-    : []
+  const schemes = parseAuthSchemes(ctx.service.authSchemes)
+  const authLabels = deriveAuthLabels(schemes)
 
   const indexPage: DocIndexPage = {
     level: 0,
@@ -173,9 +231,9 @@ function parseGraphQL(ctx: PipelineContext, schemaJson: string): DeterministicRe
     api_type: 'graphql',
     base_url: `/${ctx.hostname}`,
     description: ctx.service.description ?? 'GraphQL API',
-    auth: supported.map(m => ({
+    auth: authLabels.map(m => ({
       type: m,
-      setup_url: `/auth/${ctx.hostname}/${m === 'oauth' ? 'oauth' : 'api-key'}`,
+      setup_url: `/auth/${ctx.hostname}`,
     })),
     docs_url: ctx.service.docsUrl ?? undefined,
   }
@@ -239,9 +297,8 @@ function parseGraphQL(ctx: PipelineContext, schemaJson: string): DeterministicRe
 // ─── Fallback (no spec) ─────────────────────────────────────────────────────
 
 function buildFallback(ctx: PipelineContext): { path: string; content: string; status: string }[] {
-  const supported: string[] = ctx.service.supportedAuthMethods
-    ? JSON.parse(ctx.service.supportedAuthMethods)
-    : []
+  const schemes = parseAuthSchemes(ctx.service.authSchemes)
+  const authLabels = deriveAuthLabels(schemes)
 
   const indexPage: DocIndexPage = {
     level: 0,
@@ -250,9 +307,9 @@ function buildFallback(ctx: PipelineContext): { path: string; content: string; s
     api_type: (ctx.service.apiType as 'rest' | 'graphql') ?? 'unknown',
     base_url: `/${ctx.hostname}`,
     description: ctx.service.description ?? '',
-    auth: supported.map(m => ({
+    auth: authLabels.map(m => ({
       type: m,
-      setup_url: `/auth/${ctx.hostname}/${m === 'oauth' ? 'oauth' : 'api-key'}`,
+      setup_url: `/auth/${ctx.hostname}`,
     })),
     docs_url: ctx.service.docsUrl ?? undefined,
   }
@@ -274,6 +331,27 @@ export async function runDeterministicDiscovery(
   ctx: PipelineContext,
   probe: ProbeResult,
 ): Promise<DeterministicResult> {
+  if (probe.oauthMeta && !getOAuthScheme(parseAuthSchemes(ctx.service.authSchemes))) {
+    const existingSchemes = parseAuthSchemes(ctx.service.authSchemes)
+    if (existingSchemes.length === 0) {
+      existingSchemes.push(DEFAULT_API_KEY_SCHEME)
+    }
+    existingSchemes.push({
+      type: 'oauth2',
+      authorizeUrl: probe.oauthMeta.authorizeUrl,
+      tokenUrl: probe.oauthMeta.tokenUrl,
+      scopes: probe.oauthMeta.scopes,
+    })
+
+    const updatedSchemes = JSON.stringify(existingSchemes)
+    await upsertService(ctx.db, ctx.hostname, {
+      baseUrl: ctx.service.baseUrl,
+      authSchemes: updatedSchemes,
+    })
+
+    ctx.service.authSchemes = updatedSchemes
+  }
+
   let pages: { path: string; content: string; status: string }[]
   let result: DeterministicResult
 

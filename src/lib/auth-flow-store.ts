@@ -7,6 +7,7 @@ export interface AuthFlow {
   status: 'pending' | 'completed'
   codeVerifier?: string
   orgId?: string
+  oauthSource?: 'managed' | 'byo'
   wardenToken?: string
   identity?: string
   createdAt: string
@@ -25,6 +26,7 @@ export async function createAuthFlow(
     method: string
     codeVerifier?: string
     orgId?: string
+    oauthSource?: 'managed' | 'byo'
     expiresAt: Date
   },
 ) {
@@ -36,6 +38,7 @@ export async function createAuthFlow(
     status: 'pending',
     codeVerifier: data.codeVerifier,
     orgId: data.orgId,
+    oauthSource: data.oauthSource,
     createdAt: new Date().toISOString(),
     expiresAt: data.expiresAt.toISOString(),
   }

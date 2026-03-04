@@ -1,5 +1,5 @@
 import { eq, and, sql } from 'drizzle-orm'
-import { users, services, credentials, revocations, docPages } from './schema'
+import { users, services, credentials, oauthApps, revocations, docPages } from './schema'
 import type { Database } from './index'
 
 // ─── Users ──────────────────────────────────────────────────────────────────
@@ -42,17 +42,11 @@ export async function upsertService(
   service: string,
   data: {
     baseUrl: string
-    authMethod?: string
-    headerName?: string
-    headerScheme?: string
+    authSchemes?: string
     displayName?: string
     description?: string
     oauthClientId?: string
-    oauthClientSecret?: string
-    oauthAuthorizeUrl?: string
-    oauthTokenUrl?: string
-    oauthScopes?: string
-    supportedAuthMethods?: string
+    encryptedOauthClientSecret?: Buffer | null
     apiType?: string
     docsUrl?: string
     preview?: string
@@ -64,17 +58,11 @@ export async function upsertService(
     .values({
       service,
       baseUrl: data.baseUrl,
-      authMethod: data.authMethod ?? 'bearer',
-      headerName: data.headerName ?? 'Authorization',
-      headerScheme: data.headerScheme ?? 'Bearer',
+      authSchemes: data.authSchemes,
       displayName: data.displayName,
       description: data.description,
       oauthClientId: data.oauthClientId,
-      oauthClientSecret: data.oauthClientSecret,
-      oauthAuthorizeUrl: data.oauthAuthorizeUrl,
-      oauthTokenUrl: data.oauthTokenUrl,
-      oauthScopes: data.oauthScopes,
-      supportedAuthMethods: data.supportedAuthMethods,
+      encryptedOauthClientSecret: data.encryptedOauthClientSecret ?? null,
       apiType: data.apiType,
       docsUrl: data.docsUrl,
       preview: data.preview,
@@ -84,17 +72,11 @@ export async function upsertService(
       target: services.service,
       set: {
         baseUrl: sql`excluded.base_url`,
-        authMethod: sql`coalesce(excluded.auth_method, ${services.authMethod})`,
-        headerName: sql`coalesce(excluded.header_name, ${services.headerName})`,
-        headerScheme: sql`coalesce(excluded.header_scheme, ${services.headerScheme})`,
+        authSchemes: sql`coalesce(excluded.auth_schemes, ${services.authSchemes})`,
         displayName: sql`coalesce(excluded.display_name, ${services.displayName})`,
         description: sql`coalesce(excluded.description, ${services.description})`,
         oauthClientId: sql`coalesce(excluded.oauth_client_id, ${services.oauthClientId})`,
-        oauthClientSecret: sql`coalesce(excluded.oauth_client_secret, ${services.oauthClientSecret})`,
-        oauthAuthorizeUrl: sql`coalesce(excluded.oauth_authorize_url, ${services.oauthAuthorizeUrl})`,
-        oauthTokenUrl: sql`coalesce(excluded.oauth_token_url, ${services.oauthTokenUrl})`,
-        oauthScopes: sql`coalesce(excluded.oauth_scopes, ${services.oauthScopes})`,
-        supportedAuthMethods: sql`coalesce(excluded.supported_auth_methods, ${services.supportedAuthMethods})`,
+        encryptedOauthClientSecret: sql`coalesce(excluded.encrypted_oauth_client_secret, ${services.encryptedOauthClientSecret})`,
         apiType: sql`coalesce(excluded.api_type, ${services.apiType})`,
         docsUrl: sql`coalesce(excluded.docs_url, ${services.docsUrl})`,
         preview: sql`coalesce(excluded.preview, ${services.preview})`,
@@ -163,6 +145,45 @@ export async function deleteCredential(db: Database, orgId: string, service: str
     .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
     .returning()
   return result.length > 0
+}
+
+// ─── OAuth Apps ──────────────────────────────────────────────────────────────
+
+export async function getOAuthApp(db: Database, orgId: string, service: string) {
+  const rows = await db
+    .select()
+    .from(oauthApps)
+    .where(and(eq(oauthApps.orgId, orgId), eq(oauthApps.service, service)))
+  return rows[0] ?? null
+}
+
+export async function upsertOAuthApp(
+  db: Database,
+  orgId: string,
+  service: string,
+  data: {
+    clientId: string
+    encryptedClientSecret?: Buffer | null
+    scopes?: string
+  },
+) {
+  await db
+    .insert(oauthApps)
+    .values({
+      orgId,
+      service,
+      clientId: data.clientId,
+      encryptedClientSecret: data.encryptedClientSecret ?? null,
+      scopes: data.scopes ?? null,
+    })
+    .onConflictDoUpdate({
+      target: [oauthApps.orgId, oauthApps.service],
+      set: {
+        clientId: sql`excluded.client_id`,
+        encryptedClientSecret: sql`coalesce(excluded.encrypted_client_secret, ${oauthApps.encryptedClientSecret})`,
+        scopes: sql`coalesce(excluded.scopes, ${oauthApps.scopes})`,
+      },
+    })
 }
 
 // ─── Revocations ─────────────────────────────────────────────────────────────
