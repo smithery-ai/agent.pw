@@ -1311,20 +1311,16 @@ curl -H "Authorization: Bearer <token>" \\
               </div>
               <span class="copy-hint">Paste this to your agent</span>
             </div>
-            {!hasCredentials ? (
-              <div class="button-row" style="margin-top: 0.8rem">
-                {hasOAuth ? (
-                  <a href={`/auth/${service.service}/oauth`} class="btn btn-primary" style="width: 100%">Connect with OAuth</a>
-                ) : null}
-                {hasApiKey || schemes.length === 0 ? (
+            <div class="button-row" style="margin-top: 0.8rem">
+              {hasOAuth ? (
+                <a href={`/auth/${service.service}/oauth`} class="btn btn-primary" style="width: 100%">Connect with OAuth</a>
+              ) : null}
+              {!hasCredentials ? (
+                hasApiKey || schemes.length === 0 ? (
                   <a href={`/auth/${service.service}/api-key`} class="btn btn-secondary" style="width: 100%">Enter API Key</a>
-                ) : null}
-              </div>
-            ) : (
-              <div class="button-row" style="margin-top: 0.8rem">
-                <a href={docsHref} class="btn btn-soft" style="width: 100%">Browse docs</a>
-              </div>
-            )}
+                ) : null
+              ) : null}
+            </div>
           </section>
 
           {hasCredentials ? (
