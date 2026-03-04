@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import type { HonoEnv } from '../types'
 import { getDocPage, getService } from '../db/queries'
 import { getOrGeneratePage } from './index'
+import { wantsJson } from '../discovery'
+import { DocPageViewer } from '../ui'
 
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
 
@@ -44,7 +46,17 @@ export function docRoutes() {
     const page = await getOrGeneratePage(ctx, 'docs/index.json')
     if (!page) return c.json({ error: 'Documentation not available' }, 404)
 
-    return c.json(JSON.parse(page.content!))
+    const parsed = JSON.parse(page.content!)
+    if (wantsJson(c.req.header('Accept'))) return c.json(parsed)
+
+    return c.html(
+      DocPageViewer({
+        service: svc,
+        docPath: 'docs/index.json',
+        content: parsed,
+        status: page.status ?? undefined,
+      }),
+    )
   })
 
   router.get('/:service/docs/*', async c => {
@@ -71,7 +83,17 @@ export function docRoutes() {
     const page = await getOrGeneratePage(ctx, docPath)
     if (!page) return c.json({ error: `Page not found: ${docPath}` }, 404)
 
-    return c.json(JSON.parse(page.content!))
+    const parsed = JSON.parse(page.content!)
+    if (wantsJson(c.req.header('Accept'))) return c.json(parsed)
+
+    return c.html(
+      DocPageViewer({
+        service: svc,
+        docPath,
+        content: parsed,
+        status: page.status ?? undefined,
+      }),
+    )
   })
 
   return router

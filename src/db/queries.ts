@@ -37,6 +37,46 @@ export async function listServices(db: Database) {
   return db.select().from(services)
 }
 
+export async function listServicesWithCredentialCounts(db: Database) {
+  const [allServices, counts] = await Promise.all([
+    listServices(db),
+    db
+      .select({
+        service: credentials.service,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(credentials)
+      .groupBy(credentials.service),
+  ])
+
+  const countMap = new Map<string, number>()
+  for (const row of counts) {
+    countMap.set(row.service, Number(row.count))
+  }
+
+  return allServices.map(service => ({
+    ...service,
+    credentialCount: countMap.get(service.service) ?? 0,
+  }))
+}
+
+export async function countDistinctOrgs(db: Database) {
+  const rows = await db
+    .select({ count: sql<number>`count(distinct ${credentials.orgId})::int` })
+    .from(credentials)
+
+  return Number(rows[0].count)
+}
+
+export async function countCredentialsForService(db: Database, service: string) {
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(credentials)
+    .where(eq(credentials.service, service))
+
+  return Number(rows[0].count)
+}
+
 export async function upsertService(
   db: Database,
   service: string,

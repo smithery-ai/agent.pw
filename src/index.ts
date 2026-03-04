@@ -10,7 +10,6 @@ import {
   restrictToken,
   extractGrants,
   extractManagementRights,
-  extractVaultFromToken,
   getPublicKeyHex,
   getRevocationIds,
   generateKeyPairHex,
@@ -20,12 +19,13 @@ import {
   listServices,
   upsertService,
   deleteService,
-  getCredential,
   listCredentials,
   listCredentialsForService,
   upsertCredential,
   deleteCredential,
   revokeToken,
+  listServicesWithCredentialCounts,
+  countCredentialsForService,
   listDocPages,
   getDocPage,
 } from './db/queries'
@@ -42,6 +42,7 @@ import { AuthPage, ErrorPage, ServiceLandingPage, WardenLandingPage } from './ui
 import { docRoutes } from './discovery/serve'
 import { triggerDiscoveryWorkflow } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
+import { mergeServicePreviewWithInferredIcon } from './service-preview'
 import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme, DEFAULT_API_KEY_SCHEME, type AuthScheme } from './auth-schemes'
 
 function errorMessage(e: unknown): string {
@@ -158,18 +159,14 @@ export function createApp(deps: AppDeps = {}) {
 
   app.get('/', async c => {
     const accept = c.req.header('Accept')
-    if (accept?.includes('application/json')) {
+    if (wantsJson(accept)) {
       return c.json(buildWardenGuide(c.env.BASE_URL))
     }
 
     const db = c.get('db')
-    const recentServices = (await listServices(db)).filter(s => looksLikeHostname(s.service))
-
-    if (wantsJson(accept)) {
-      // curl sends */* — return readable plain text onboarding
-      return c.text(buildWardenOnboarding(c.env.BASE_URL, recentServices))
-    }
-    return c.html(WardenLandingPage({ services: recentServices }))
+    const recentServices = await listServicesWithCredentialCounts(db)
+    const filtered = recentServices.filter(s => looksLikeHostname(s.service))
+    return c.html(WardenLandingPage({ services: filtered }))
   })
 
   // ─── Credential Management (org-scoped, vault_admin checks use org_id) ────
@@ -303,6 +300,15 @@ export function createApp(deps: AppDeps = {}) {
     if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
 
     const db = c.get('db')
+    const existing = await getService(db, service)
+    const displayName = body.displayName ?? existing?.displayName ?? deriveDisplayName(service)
+    const preview =
+      body.preview !== undefined
+        ? mergeServicePreviewWithInferredIcon(service, body.preview, displayName)
+        : existing
+          ? undefined
+          : mergeServicePreviewWithInferredIcon(service, undefined, displayName)
+
     await upsertService(db, service, {
       baseUrl: body.baseUrl,
       authSchemes: body.authSchemes ? JSON.stringify(body.authSchemes) : undefined,
@@ -314,7 +320,7 @@ export function createApp(deps: AppDeps = {}) {
         : undefined,
       apiType: body.apiType,
       docsUrl: body.docsUrl,
-      preview: body.preview ? JSON.stringify(body.preview) : undefined,
+      preview: preview ? JSON.stringify(preview) : undefined,
       authConfig: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
     })
 
@@ -546,6 +552,7 @@ export function createApp(deps: AppDeps = {}) {
     if (!svc) {
       console.log(`[discovery] auto-registering new service: ${serviceName}`)
       const baseUrl = `https://${serviceName}`
+      const displayName = deriveDisplayName(serviceName)
       const knownProvider = getKnownOAuthProvider(serviceName)
 
       let authSchemes: AuthScheme[]
@@ -566,9 +573,10 @@ export function createApp(deps: AppDeps = {}) {
 
       await upsertService(db, serviceName, {
         baseUrl,
-        displayName: deriveDisplayName(serviceName),
+        displayName,
         authSchemes: JSON.stringify(authSchemes),
         authConfig: knownProvider ? JSON.stringify(knownProvider.authConfig) : undefined,
+        preview: JSON.stringify(mergeServicePreviewWithInferredIcon(serviceName, undefined, displayName)),
       })
       svc = await getService(db, serviceName)
       if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)
@@ -646,6 +654,8 @@ export function createApp(deps: AppDeps = {}) {
     const token = extractBearerToken(c.req.header('Authorization'))
     const json = wantsJson(c.req.header('Accept'))
 
+    const credentialCount = await countCredentialsForService(db, serviceName)
+
     if (!token) {
       if (json) {
         // Create an auth flow so the agent can poll/SSE for completion
@@ -656,20 +666,17 @@ export function createApp(deps: AppDeps = {}) {
           method: 'api_key',
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         })
-        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), discovery: discoveryStatus }, 401, {
+        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), credential_count: credentialCount, discovery: discoveryStatus }, 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
-      return c.html(ServiceLandingPage({ service: svc, userCredentials }))
+      return c.html(ServiceLandingPage({ service: svc, credentialCount, discoveryStatus, userCredentials }))
     }
-
-    const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-    const orgId = extractVaultFromToken(token, publicKeyHex, serviceName)
 
     if (json) {
-      return c.json({ ...buildAuthDiscovery(svc, c.env.BASE_URL), discovery: discoveryStatus })
+      return c.json({ ...buildAuthDiscovery(svc, c.env.BASE_URL), credential_count: credentialCount, discovery: discoveryStatus })
     }
-    return c.html(ServiceLandingPage({ service: svc, userCredentials }))
+    return c.html(ServiceLandingPage({ service: svc, credentialCount, discoveryStatus, userCredentials }))
   })
 
   // ─── Legacy redirect ──────────────────────────────────────────────────────

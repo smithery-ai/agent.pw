@@ -44,6 +44,8 @@ import {
   listSkeletonPages,
   listStaleDocPages,
   deleteDocPages,
+  listServicesWithCredentialCounts,
+  countCredentialsForService,
 } from '../src/db/queries'
 import { createAuthFlow, completeAuthFlow, getAuthFlow } from '../src/lib/auth-flow-store'
 import { encryptCredentials, decryptCredentials, buildCredentialHeaders } from '../src/lib/credentials-crypto'
@@ -116,19 +118,17 @@ describe('Root Landing Page', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('Warden')
-    expect(text).toContain('Quick Start')
+    expect(text).toContain('One URL between your agents and every API')
   })
 
-  it('returns plain text onboarding for curl (Accept: */*)', async () => {
+  it('returns JSON agent guide for curl-style Accept: */*', async () => {
     const res = await req('/', { headers: { Accept: '*/*' } })
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/plain')
-    const text = await res.text()
-    expect(text).toContain('# Warden')
-    expect(text).toContain('How to connect')
-    expect(text).toContain('secrets stay secret')
-    expect(text).toContain('curl')
-    expect(text).toContain('/{hostname}')
+    expect(res.headers.get('content-type')).toContain('application/json')
+    const body = (await res.json()) as any
+    expect(body.service).toBe('warden')
+    expect(body.routes).toBeDefined()
+    expect(body.quick_start).toBeDefined()
   })
 
   it('returns JSON agent guide for Accept: application/json', async () => {
@@ -243,6 +243,26 @@ describe('Service Management', () => {
     expect(res.status).toBe(400)
   })
 
+  it('infers icon preview for newly created services', async () => {
+    const putRes = await mgmtReq('/services/api.linear.app', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseUrl: 'https://api.linear.app',
+        displayName: 'Linear',
+      }),
+    })
+    expect(putRes.status).toBe(200)
+
+    const discoverRes = await req('/api.linear.app', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(discoverRes.status).toBe(401)
+    const body = (await discoverRes.json()) as any
+    expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/linear.app.ico')
+    expect(body.preview.icon.fallback).toBe('LI')
+  })
+
   it('deletes a service', async () => {
     await seedService()
     const res = await mgmtReq('/services/api.github.com', { method: 'DELETE' })
@@ -347,7 +367,7 @@ describe('Credential Management', () => {
 
     const cred = await getCredential(db, TEST_ORG_ID, 'api.github.com')
     expect(cred).not.toBeNull()
-    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
+    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred?.encryptedCredentials)
     expect(stored.headers).toEqual({
       'Authorization': 'Bearer ghp_multi',
       'X-Org-Id': 'org_123',
@@ -640,7 +660,7 @@ describe('Discovery', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('GitHub')
-    expect(text).toContain('Authenticate')
+    expect(text).toContain('Enter API Key')
   })
 
   it('auto-registers unknown service on first discovery', async () => {
@@ -654,6 +674,8 @@ describe('Discovery', () => {
     expect(body.canonical).toBe('api.unknown.com')
     expect(body.auth_url).toContain('/auth/api.unknown.com?flow_id=')
     expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
+    expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/unknown.com.ico')
+    expect(body.preview.icon.fallback).toBe('UN')
   })
 
   it('returns 200 JSON for authenticated agent', async () => {
@@ -712,6 +734,79 @@ describe('Discovery', () => {
       headers: { Accept: 'application/json' },
     })
     expect(res.status).toBe(404)
+  })
+})
+
+// ─── Documentation Routes (content-negotiated) ──────────────────────────────
+
+describe('Documentation Routes', () => {
+  beforeEach(async () => {
+    await seedService()
+    await upsertDocPage(
+      db,
+      'api.github.com',
+      'docs/index.json',
+      JSON.stringify({
+        level: 0,
+        service: 'GitHub',
+        hostname: 'api.github.com',
+        api_type: 'rest',
+        base_url: '/api.github.com',
+        description: 'REST API for GitHub',
+        auth: [{ type: 'oauth', setup_url: '/auth/api.github.com/oauth' }],
+      }),
+      'enriched',
+    )
+    await upsertDocPage(
+      db,
+      'api.github.com',
+      'docs/resources.json',
+      JSON.stringify({
+        level: 1,
+        resources: [
+          {
+            name: 'Repositories',
+            slug: 'repositories',
+            description: 'Repository operations',
+            common_operations: [{ method: 'GET', path: '/repos', summary: 'List repos' }],
+          },
+        ],
+      }),
+      'enriched',
+    )
+  })
+
+  it('returns JSON docs for agents', async () => {
+    const res = await req('/api.github.com/docs/', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    const body = (await res.json()) as any
+    expect(body.level).toBe(0)
+    expect(body.hostname).toBe('api.github.com')
+  })
+
+  it('returns HTML docs for humans', async () => {
+    const res = await req('/api.github.com/docs/', {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    const text = await res.text()
+    expect(text).toContain('Documentation')
+    expect(text).toContain('docs/index.json')
+    expect(text).toContain('Raw JSON')
+  })
+
+  it('renders nested docs page as HTML when requested by browser', async () => {
+    const res = await req('/api.github.com/docs/resources.json', {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('docs/resources.json')
+    expect(text).toContain('Repositories')
   })
 })
 
@@ -1568,8 +1663,8 @@ describe('OAuth Flow', () => {
 
       // Verify flow was completed
       const flow = await getAuthFlow(redis, 'success-flow')
-      expect(flow!.status).toBe('completed')
-      expect(flow!.wardenToken).toMatch(/^wdn_/)
+      expect(flow?.status).toBe('completed')
+      expect(flow?.wardenToken).toMatch(/^wdn_/)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1624,7 +1719,7 @@ describe('OAuth Flow', () => {
       expect(res.status).toBe(200)
 
       const flow = await getAuthFlow(redis, 'id-flow')
-      expect(flow!.identity).toBe('carol@example.com')
+      expect(flow?.identity).toBe('carol@example.com')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1676,7 +1771,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/post-oauth.com/oauth/callback?code=abc&state=post-id-flow')
       expect(res.status).toBe(200)
       const flow = await getAuthFlow(redis, 'post-id-flow')
-      expect(flow!.identity).toBe('frank')
+      expect(flow?.identity).toBe('frank')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1723,7 +1818,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/fail-oauth.com/oauth/callback?code=abc&state=fail-id-flow')
       expect(res.status).toBe(200)
       const flow = await getAuthFlow(redis, 'fail-id-flow')
-      expect(flow!.identity).toBe('default')
+      expect(flow?.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1775,7 +1870,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/nopath-oauth.com/oauth/callback?code=abc&state=nopath-flow')
       expect(res.status).toBe(200)
       const flow = await getAuthFlow(redis, 'nopath-flow')
-      expect(flow!.identity).toBe('default')
+      expect(flow?.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -2194,8 +2289,38 @@ describe('Query Functions', () => {
     await upsertCredential(db, TEST_ORG_ID, 'test.api', 'default', enc1)
     await upsertCredential(db, TEST_ORG_ID, 'test.api', 'default', enc2)
     const cred = await getCredential(db, TEST_ORG_ID, 'test.api')
-    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
+    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred?.encryptedCredentials)
     expect(stored.headers.Authorization).toBe('Bearer token2')
+  })
+
+  it('listServicesWithCredentialCounts returns per-service popularity', async () => {
+    await upsertService(db, 'api.one.test', { baseUrl: 'https://api.one.test' })
+    await upsertService(db, 'api.two.test', { baseUrl: 'https://api.two.test' })
+
+    const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, {
+      headers: { Authorization: 'Bearer shared-token' },
+    })
+    await upsertCredential(db, 'personal', 'api.one.test', 'alice', encrypted)
+    await upsertCredential(db, 'team-alpha', 'api.one.test', 'bob', encrypted)
+
+    const rows = await listServicesWithCredentialCounts(db)
+    const serviceOne = rows.find(row => row.service === 'api.one.test')
+    const serviceTwo = rows.find(row => row.service === 'api.two.test')
+
+    expect(serviceOne?.credentialCount).toBe(2)
+    expect(serviceTwo?.credentialCount).toBe(0)
+  })
+
+  it('countCredentialsForService returns zero and non-zero counts', async () => {
+    expect(await countCredentialsForService(db, 'api.none.test')).toBe(0)
+
+    await upsertService(db, 'api.counted.test', { baseUrl: 'https://api.counted.test' })
+    const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, {
+      headers: { Authorization: 'Bearer counted' },
+    })
+    await upsertCredential(db, 'personal', 'api.counted.test', 'alice', encrypted)
+
+    expect(await countCredentialsForService(db, 'api.counted.test')).toBe(1)
   })
 
   it('upsertOAuthApp stores and updates a BYO oauth app', async () => {
@@ -2273,16 +2398,16 @@ describe('Doc Page Queries', () => {
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"level":0}', 'skeleton')
     const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
     expect(page).not.toBeNull()
-    expect(page!.content).toBe('{"level":0}')
-    expect(page!.status).toBe('skeleton')
+    expect(page?.content).toBe('{"level":0}')
+    expect(page?.status).toBe('skeleton')
   })
 
   it('upsertDocPage updates existing page', async () => {
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":1}', 'skeleton')
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":2}', 'enriched')
     const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
-    expect(page!.content).toBe('{"v":2}')
-    expect(page!.status).toBe('enriched')
+    expect(page?.content).toBe('{"v":2}')
+    expect(page?.status).toBe('enriched')
   })
 
   it('listDocPages returns all pages for a hostname', async () => {
@@ -2312,7 +2437,7 @@ describe('Doc Page Queries', () => {
   it('upsertDocPage with custom ttlDays', async () => {
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton', 30)
     const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
-    expect(page!.ttlDays).toBe(30)
+    expect(page?.ttlDays).toBe(30)
   })
 
   it('listStaleDocPages returns pages past their TTL', async () => {
