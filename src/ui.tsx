@@ -1218,7 +1218,7 @@ export function ServiceLandingPage({
     | { total_resources?: number; total_operations?: number }
     | undefined
   const totalPages = Number(discoveryStatus?.total_pages ?? 0)
-  const docsHref = `/${service.service}/docs/`
+  const docsHref = `/${service.service}/sitemap/`
 
   const statusText = isActive
     ? `Discovery in progress (${pipelineState})`
