@@ -266,9 +266,17 @@ const STYLES = `
   .copyable.copied .copy-icon .icon-copy { display: none; }
   .copyable.copied .copy-icon .icon-check { display: block; color: var(--success); }
 
+  .copy-command {
+    width: fit-content;
+    max-width: 100%;
+    display: inline-grid;
+    gap: 0.32rem;
+    justify-items: start;
+  }
+
   .copy-hint {
     display: none;
-    margin-left: 0.08rem;
+    margin-left: 0.1rem;
     font-size: 0.66rem;
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -276,7 +284,7 @@ const STYLES = `
     color: var(--success);
   }
 
-  .copyable.copied .copy-hint { display: inline-flex; }
+  .copyable.copied + .copy-hint { display: inline-flex; }
 
   .section {
     margin-top: 1.5rem;
@@ -298,6 +306,8 @@ const STYLES = `
   .two-col,
   .grid-3,
   .registry-grid,
+  .transform-grid,
+  .value-grid,
   .stack {
     display: grid;
     gap: 1rem;
@@ -1038,35 +1048,29 @@ function RouteSpec({
   )
 }
 
-export function WardenLandingPage({ services = [], userCount = 0 }: { services?: ServiceWithPopularity[]; userCount?: number } = {}) {
+export function WardenLandingPage({ services = [] }: { services?: ServiceWithPopularity[] } = {}) {
   const withCreds = services.filter(s => (s.credentialCount ?? 0) > 0)
   const ranked = [...withCreds].sort((a, b) => {
     const byPopularity = (b.credentialCount ?? 0) - (a.credentialCount ?? 0)
     if (byPopularity !== 0) return byPopularity
     return serviceName(a).localeCompare(serviceName(b))
   })
-  const totalCredentials = services.reduce((sum, service) => sum + (service.credentialCount ?? 0), 0)
-  const activeServices = ranked.length
 
   return (
     <Layout title="Warden — Secure auth for AI agents">
       <section class="hero">
-        <p class="eyebrow">Agent auth boundary</p>
         <h1>One URL between your agents and every API</h1>
         <p class="subtitle">
           Warden handles user auth, secure token handoff, and request proxying so agents can act without ever seeing provider secrets.
         </p>
-        <div class="metrics">
-          <span class="pill hot"><strong>{userCount}</strong> active orgs</span>
-          <span class="pill warm"><strong>{activeServices}</strong> services in use</span>
-          <span class="pill"><strong>{totalCredentials}</strong> stored credentials</span>
-        </div>
-        <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
-          <span class="mono">curl https://warden.run and help me connect to services</span>
-          <span class="copy-icon" aria-hidden="true">
-            <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-            <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-          </span>
+        <div class="copy-command">
+          <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
+            <span class="mono">curl https://warden.run and help me connect to services</span>
+            <span class="copy-icon" aria-hidden="true">
+              <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            </span>
+          </div>
           <span class="copy-hint">Paste this to your agent</span>
         </div>
       </section>
@@ -1122,28 +1126,31 @@ export function WardenLandingPage({ services = [], userCount = 0 }: { services?:
         <div class="transform-grid">
           <div class="card">
             <span class="transform-label bad">Without Warden</span>
-            <pre class="doc-pre flow-pre"><code>{`api.linear.app/graphql
-Authorization: Bearer sk_live_...
+            <pre class="doc-pre flow-pre"><code>{`store raw keys in agent context:
+LINEAR_API_KEY=lin_...
+GITHUB_TOKEN=ghp_...
+NOTION_API_KEY=ntn_...
 
-401 Unauthorized
-{ "message": "Invalid API key" }
+api.linear.app/graphql
+api.github.com/repos
+api.notion.com/v1/pages
 
-agent retries blindly`}</code></pre>
+rotate + secure every key separately`}</code></pre>
           </div>
           <div class="card">
             <span class="transform-label good">With Warden</span>
             <pre class="doc-pre flow-pre"><code>{`GET /api.linear.app -> { auth_url, docs }
 user authenticates in browser
 GET /auth/status/{flow_id} -> token
-
-POST /api.linear.app/graphql
-Authorization: Bearer wdn_...`}</code></pre>
+POST /api.linear.app/graphql  Authorization: Bearer wdn_...
+GET  /api.github.com/repos    Authorization: Bearer wdn_...
+POST /api.notion.com/v1/pages Authorization: Bearer wdn_...`}</code></pre>
           </div>
         </div>
       </section>
 
       <section class="section">
-        <h2>Why teams use it</h2>
+        <h2>Features</h2>
         <div class="value-grid">
           <div class="card value-card">
             <span class="value-no">01</span>
@@ -1259,12 +1266,14 @@ curl -H "Authorization: Bearer <token>" \\
         <div class="col-right">
           <section class="col-section">
             <h3>Connect</h3>
-            <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
-              <span class="mono">{`curl https://warden.run/${service.service} and help me use ${serviceName(service)}`}</span>
-              <span class="copy-icon" aria-hidden="true">
-                <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-              </span>
+            <div class="copy-command">
+              <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
+                <span class="mono">{`curl https://warden.run/${service.service} and help me use ${serviceName(service)}`}</span>
+                <span class="copy-icon" aria-hidden="true">
+                  <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                  <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                </span>
+              </div>
               <span class="copy-hint">Paste this to your agent</span>
             </div>
             {!hasCredentials ? (
