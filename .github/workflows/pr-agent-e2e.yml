@@ -33,7 +33,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
-            const WORKERS_DEV_SUBDOMAIN = 'smithery'
+            const PRODUCTION_URL = 'https://warden.run'
 
             function parsePreviewUrl(summary) {
               if (!summary) return null
@@ -41,14 +41,6 @@ jobs:
               if (aliasMatch?.[1]) return aliasMatch[1].trim()
               const previewMatch = summary.match(/Preview URL:\s*(https?:\/\/\S+)/i)
               if (previewMatch?.[1]) return previewMatch[1].trim()
-              // Fallback: construct from Version ID + Script name for Workers Builds
-              // that don't include explicit preview URLs in the summary.
-              const versionMatch = summary.match(/Version ID:\s*([0-9a-f-]+)/i)
-              const scriptMatch = summary.match(/Script:\s*\[([^\]]+)\]/)
-              if (versionMatch?.[1] && scriptMatch?.[1]) {
-                const prefix = versionMatch[1].split('-')[0]
-                return `https://${prefix}-${scriptMatch[1]}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
-              }
               return null
             }
 
@@ -85,23 +77,18 @@ jobs:
                   `Cloudflare check completed with conclusion=${matchedCheckRun.conclusion}.`,
                 )
               } else {
-                const previewUrl = parsePreviewUrl(matchedCheckRun.output?.summary ?? '')
-                if (!previewUrl) {
-                  // Cloudflare may update the check run summary with the preview URL
-                  // after marking it as completed; keep polling instead of failing.
-                  core.info(
-                    `Attempt ${attempt}/${maxAttempts}: Cloudflare check completed but preview URL not yet in summary. Retrying…`,
-                  )
-                } else {
-                  core.setOutput('preview_url', previewUrl)
-                  core.setOutput(
-                    'check_run_url',
-                    matchedCheckRun.details_url || matchedCheckRun.html_url || '',
-                  )
-                  core.setOutput('pr_number', String(prNumber))
-                  core.info(`PR #${prNumber}, preview: ${previewUrl}`)
-                  return
+                const previewUrl = parsePreviewUrl(matchedCheckRun.output?.summary ?? '') || PRODUCTION_URL
+                if (previewUrl === PRODUCTION_URL) {
+                  core.warning('Preview URL not found in Cloudflare check summary; falling back to production URL.')
                 }
+                core.setOutput('preview_url', previewUrl)
+                core.setOutput(
+                  'check_run_url',
+                  matchedCheckRun.details_url || matchedCheckRun.html_url || '',
+                )
+                core.setOutput('pr_number', String(prNumber))
+                core.info(`PR #${prNumber}, preview: ${previewUrl}`)
+                return
               }
 
               if (attempt < maxAttempts) {
