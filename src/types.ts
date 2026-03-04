@@ -10,6 +10,7 @@ export interface Env {
   ENCRYPTION_KEY: string
   AWS_BEARER_TOKEN_BEDROCK?: string
   HYPERDRIVE?: Hyperdrive
+  DISCOVERY_WORKFLOW?: Workflow
 }
 
 export interface ManagementRights {

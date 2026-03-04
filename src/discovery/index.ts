@@ -4,16 +4,12 @@ import { probeService } from './probe'
 import { runDeterministicDiscovery } from './deterministic'
 import { enrichPages } from './enrichment'
 
-// In-memory tracking to prevent duplicate runs per hostname
-const activePipelines = new Map<string, Promise<void>>()
-const activeEnrichments = new Map<string, Promise<void>>()
-
 /**
  * Get a doc page, generating it if necessary.
  * - Cache hit (fresh): return immediately
- * - Cache hit (stale): return stale, queue background refresh
- * - Cache miss (other pages exist): generate on-demand (blocking)
- * - Cache miss (no pages): trigger full pipeline (blocking)
+ * - Cache hit (stale): return stale, trigger workflow refresh
+ * - Cache miss (other pages exist): trigger workflow, return null (caller returns 404)
+ * - Cache miss (no pages): trigger workflow, return null
  */
 export async function getOrGeneratePage(
   ctx: PipelineContext,
@@ -26,8 +22,8 @@ export async function getOrGeneratePage(
   }
 
   if (existing && existing.status === 'stale') {
-    // Serve stale, queue background re-generation
-    queueBackgroundEnrichment(ctx)
+    // Serve stale, trigger workflow refresh in background
+    triggerDiscoveryWorkflow(ctx)
     return existing
   }
 
@@ -35,96 +31,44 @@ export async function getOrGeneratePage(
   const anyPages = await listDocPages(ctx.db, ctx.hostname)
 
   if (anyPages.length === 0) {
-    // No pages at all: trigger full pipeline
-    await triggerFullPipeline(ctx)
+    // No pages at all: trigger full pipeline via workflow
+    await triggerDiscoveryWorkflow(ctx)
     return await getDocPage(ctx.db, ctx.hostname, path)
   }
 
   // Pages exist but this one doesn't.
-  // For index and resources, they should have been created by the pipeline.
-  // For other pages, try enrichment on demand.
   if (path === 'docs/index.json' || path === 'docs/resources.json') {
     // These should exist after pipeline, something went wrong
-    await triggerFullPipeline(ctx)
+    await triggerDiscoveryWorkflow(ctx)
     return await getDocPage(ctx.db, ctx.hostname, path)
   }
 
-  // For L2/L3 pages, the skeleton might not exist yet — return null
-  // The enrichment pipeline will create them in the background
-  queueBackgroundEnrichment(ctx)
+  // For L2/L3 pages, trigger enrichment workflow
+  triggerDiscoveryWorkflow(ctx)
   return null
 }
 
 /**
- * Run the full pipeline: probe → deterministic discovery → queue enrichment.
- * Idempotent: concurrent calls for the same hostname share one pipeline run.
+ * Trigger the discovery workflow for a hostname.
+ * Uses Cloudflare Workflows when available, falls back to in-process execution.
  */
-export function triggerFullPipeline(ctx: PipelineContext): Promise<void> {
-  const key = ctx.hostname
-  const existing = activePipelines.get(key)
-  if (existing) {
-    console.log(`[discovery] pipeline already running for ${key}, joining existing run`)
-    return existing
+export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
+  if (ctx.workflow) {
+    const id = `discovery-${ctx.hostname}-${Date.now()}`
+    console.log(`[discovery] triggering workflow for ${ctx.hostname} (instance: ${id})`)
+    await ctx.workflow.create({ id, params: { hostname: ctx.hostname } })
+    return id
   }
 
-  const pipeline = runFullPipeline(ctx)
-    .finally(() => activePipelines.delete(key))
+  // Fallback: run in-process (for local dev / tests without workflow binding)
+  console.log(`[discovery] no workflow binding, running in-process for ${ctx.hostname}`)
 
-  activePipelines.set(key, pipeline)
-  return pipeline
-}
-
-async function runFullPipeline(ctx: PipelineContext) {
-  console.log(`[discovery] pipeline started for ${ctx.hostname} (baseUrl: ${ctx.service.baseUrl})`)
-
-  // Phase 1: Probe
   const probe = await probeService(ctx.service.baseUrl, ctx.service.apiType ?? undefined)
-  console.log(`[discovery] probe complete for ${ctx.hostname}: type=${probe.apiType}, spec=${!!probe.specContent}, graphql=${!!probe.graphqlSchema}, docsUrl=${probe.docsUrl ?? 'none'}`)
+  await runDeterministicDiscovery(ctx, probe)
 
-  // Phase 2: Deterministic discovery
-  const result = await runDeterministicDiscovery(ctx, probe)
-  console.log(`[discovery] deterministic complete for ${ctx.hostname}: ${result.pagesWritten} pages, ${result.resourcesFound.length} resources, hasSpec=${result.hasSpec}`)
-
-  // Phase 3: Queue enrichment in background
-  queueBackgroundEnrichment(ctx)
-}
-
-/**
- * Queue background enrichment for skeleton pages.
- * Idempotent: only one enrichment job per hostname runs at a time.
- */
-function queueBackgroundEnrichment(ctx: PipelineContext) {
-  const key = ctx.hostname
-  if (activeEnrichments.has(key)) return
-
-  const job = runBackgroundEnrichment(ctx)
-    .catch(err => console.error(`[discovery] background enrichment failed for ${key}:`, err))
-    .finally(() => activeEnrichments.delete(key))
-
-  if (ctx.waitUntil) ctx.waitUntil(job)
-  activeEnrichments.set(key, job)
-}
-
-async function runBackgroundEnrichment(ctx: PipelineContext) {
-  if (!ctx.bedrockToken) {
-    console.log(`[discovery] skipping enrichment for ${ctx.hostname}: no AWS_BEARER_TOKEN_BEDROCK configured`)
-    return
+  if (ctx.bedrockToken) {
+    const skeletons = await listSkeletonPages(ctx.db, ctx.hostname)
+    const sorted = skeletons.sort((a, b) => a.path.split('/').length - b.path.split('/').length)
+    await enrichPages(ctx, sorted.map(p => p.path))
   }
-
-  const skeletons = await listSkeletonPages(ctx.db, ctx.hostname)
-  if (skeletons.length === 0) {
-    console.log(`[discovery] no skeleton pages to enrich for ${ctx.hostname}`)
-    return
-  }
-  console.log(`[discovery] enriching ${skeletons.length} skeleton pages for ${ctx.hostname}`)
-
-  // BFS order: sort by level (derived from path depth)
-  const sorted = skeletons.sort((a, b) => {
-    const depthA = a.path.split('/').length
-    const depthB = b.path.split('/').length
-    return depthA - depthB
-  })
-
-  const paths = sorted.map(p => p.path)
-  await enrichPages(ctx, paths)
 }

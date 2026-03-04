@@ -12,8 +12,8 @@ export interface PipelineContext {
   service: ServiceRow
   bedrockToken?: string
   baseUrl: string
-  /** Keep background work alive in CF Workers; no-op in Node.js */
-  waitUntil?: (promise: Promise<unknown>) => void
+  /** Cloudflare Workflow binding for durable discovery execution */
+  workflow?: Workflow
 }
 
 // ─── Probe Result (Phase 1) ──────────────────────────────────────────────────

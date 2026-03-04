@@ -31,20 +31,13 @@ export function docRoutes() {
     const svc = await getService(db, serviceName)
     if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
 
-    let waitUntil: ((promise: Promise<unknown>) => void) | undefined
-    try {
-      waitUntil = c.executionCtx?.waitUntil?.bind(c.executionCtx)
-    } catch {
-      // executionCtx not available in non-CF environments (e.g., tests)
-    }
-
     const ctx = {
       db,
       hostname: serviceName,
       service: svc,
       bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK,
       baseUrl: new URL(c.req.url).origin,
-      waitUntil,
+      workflow: c.env.DISCOVERY_WORKFLOW,
     }
 
     const page = await getOrGeneratePage(ctx, 'docs/index.json')
@@ -64,20 +57,13 @@ export function docRoutes() {
     const svc = await getService(db, serviceName)
     if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
 
-    let waitUntil: ((promise: Promise<unknown>) => void) | undefined
-    try {
-      waitUntil = c.executionCtx?.waitUntil?.bind(c.executionCtx)
-    } catch {
-      // executionCtx not available in non-CF environments (e.g., tests)
-    }
-
     const ctx = {
       db,
       hostname: serviceName,
       service: svc,
       bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK,
       baseUrl: new URL(c.req.url).origin,
-      waitUntil,
+      workflow: c.env.DISCOVERY_WORKFLOW,
     }
 
     const page = await getOrGeneratePage(ctx, docPath)

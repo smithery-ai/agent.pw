@@ -39,7 +39,7 @@ import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
-import { triggerFullPipeline } from './discovery/index'
+import { triggerDiscoveryWorkflow } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 
 function errorMessage(e: unknown): string {
@@ -526,19 +526,12 @@ export function createApp(deps: AppDeps = {}) {
     // Kick off discovery pipeline if no docs exist yet
     const docs = await listDocPages(db, serviceName)
     if (docs.length === 0) {
-      let waitUntil: ((promise: Promise<unknown>) => void) | undefined
-      try {
-        waitUntil = c.executionCtx?.waitUntil?.bind(c.executionCtx)
-      } catch {
-        // executionCtx not available in non-CF environments (e.g., tests)
-      }
-      const ctx = { db, hostname: serviceName, service: svc, bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK, baseUrl: c.env.BASE_URL, waitUntil }
+      const ctx = { db, hostname: serviceName, service: svc, bedrockToken: c.env.AWS_BEARER_TOKEN_BEDROCK, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
       console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
-      // Non-blocking: fire and forget; waitUntil keeps it alive in CF Workers
-      const pipeline = triggerFullPipeline(ctx).catch(err =>
+      // Non-blocking: workflow handles its own lifecycle
+      triggerDiscoveryWorkflow(ctx).catch(err =>
         console.error(`[discovery] pipeline failed for ${serviceName}:`, err),
       )
-      if (waitUntil) waitUntil(pipeline)
     }
 
     // Build discovery status from doc metadata
