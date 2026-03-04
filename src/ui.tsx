@@ -614,44 +614,56 @@ const STYLES = `
     appearance: none;
     border: 1px solid transparent;
     text-decoration: none;
-    border-radius: var(--radius);
-    padding: 0.58rem 0.9rem;
-    font-size: 0.88rem;
+    border-radius: calc(var(--radius) - 2px);
+    padding: 0 1rem;
+    height: 36px;
+    font-size: 0.875rem;
     font-family: var(--font-sans);
     font-weight: 500;
     line-height: 1;
+    white-space: nowrap;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 0.5rem;
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
-  .btn:active { transform: scale(0.97); }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255, 86, 1, 0.15);
+  }
+
+  .btn:active { transform: scale(0.98); }
+
+  .btn:disabled {
+    pointer-events: none;
+    opacity: 0.5;
+  }
 
   .btn-primary {
     background: var(--primary);
     color: var(--primary-foreground);
     border-color: rgba(123, 23, 7, 0.3);
-    box-shadow: 0 1px 3px rgba(255, 86, 1, 0.2);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 
   .btn-primary:hover {
     background: #eb4f00;
-    box-shadow: 0 2px 8px rgba(255, 86, 1, 0.25);
-    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(255, 86, 1, 0.2);
   }
 
   .btn-secondary {
-    background: var(--muted);
-    border-color: var(--border);
+    background: var(--primary-foreground);
+    border-color: var(--input);
     color: var(--foreground);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
 
   .btn-secondary:hover {
-    border-color: rgba(255, 86, 1, 0.35);
-    box-shadow: 0 1px 4px rgba(35, 35, 35, 0.06);
-    transform: translateY(-1px);
+    background: var(--muted);
+    border-color: var(--input);
   }
 
   .btn-soft {
@@ -667,34 +679,59 @@ const STYLES = `
 
   label,
   .label {
-    font-size: 0.84rem;
-    font-weight: 600;
-    color: var(--muted-foreground);
-    margin-bottom: 0.35rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--foreground);
+    margin-bottom: 0.5rem;
     display: block;
-    letter-spacing: 0.01em;
+    line-height: 1;
+    letter-spacing: -0.005em;
   }
 
   input[type='text'],
   input[type='password'] {
     width: 100%;
     background: var(--primary-foreground);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    height: 44px;
-    padding: 0 0.78rem;
-    font-size: 0.86rem;
+    border: 1px solid var(--input);
+    border-radius: calc(var(--radius) - 2px);
+    height: 36px;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
     font-family: var(--font-mono);
-    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    color: var(--foreground);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  input::placeholder {
+    color: var(--muted-foreground);
+    opacity: 0.6;
   }
 
   input:focus {
     outline: none;
-    border-color: rgba(255, 86, 1, 0.5);
-    box-shadow: 0 0 0 3px rgba(255, 86, 1, 0.1);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(255, 86, 1, 0.15);
   }
 
-  .form-group { margin-bottom: 0.85rem; }
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .form-group label { margin-bottom: 0; }
+
+  .form-description {
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+    line-height: 1.4;
+  }
 
   .token-box {
     margin-top: 0.55rem;
@@ -728,9 +765,10 @@ const STYLES = `
   }
   .tab-label {
     display: inline-flex; align-items: center; justify-content: center;
-    text-align: center; min-height: 36px; border-radius: var(--radius);
-    border: 1px solid var(--border); background: var(--muted); color: var(--muted-foreground);
-    font-size: 0.75rem; font-weight: 500; cursor: pointer; padding: 0 0.5rem;
+    text-align: center; height: 36px; border-radius: calc(var(--radius) - 2px);
+    border: 1px solid var(--input); background: var(--primary-foreground); color: var(--muted-foreground);
+    font-size: 0.8rem; font-weight: 500; cursor: pointer; padding: 0 0.75rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
   }
   .tab-panel {
@@ -738,7 +776,7 @@ const STYLES = `
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: rgba(255, 255, 255, 0.6);
-    padding: 1rem;
+    padding: 1.25rem;
   }
   #tab-oauth:checked ~ .tab-list [for="tab-oauth"],
   #tab-api:checked ~ .tab-list [for="tab-api"] {
@@ -778,9 +816,9 @@ const STYLES = `
   }
   .helper {
     color: var(--muted-foreground);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     line-height: 1.5;
-    margin-top: 0.625rem;
+    margin-top: 0.75rem;
   }
   .helper code {
     color: var(--foreground);
