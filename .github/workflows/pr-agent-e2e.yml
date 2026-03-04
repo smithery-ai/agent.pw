@@ -284,10 +284,10 @@ jobs:
           const base = (process.env.PREVIEW_URL || '').replace(/\/+$/, '')
           const linearKey = process.env.LINEAR_TEST_KEY || ''
           const checks = []
-          let allPass = true
+          let corePass = true
           let latestTicket = null
 
-          function pushCheck(name, request, statusCode, pass, details) {
+          function pushCheck(name, request, statusCode, pass, details, informational = false) {
             checks.push({
               name,
               request,
@@ -295,7 +295,7 @@ jobs:
               pass,
               details: details || '',
             })
-            if (!pass) allPass = false
+            if (!pass && !informational) corePass = false
           }
 
           async function fetchJson(url, init = {}) {
@@ -402,7 +402,7 @@ jobs:
                 )
               }
 
-              // Discovery doc generation check (poll for generated docs)
+              // Discovery doc generation check (poll for generated docs) — informational
               let docsPass = false
               for (let i = 0; i < 9; i++) {
                 const docs = await fetchJson(`${base}/api.linear.app/docs/`, {
@@ -415,6 +415,7 @@ jobs:
                     docs.status,
                     true,
                     `Found docs after ${(i + 1) * 10}s`,
+                    true,
                   )
                   docsPass = true
                   break
@@ -431,10 +432,11 @@ jobs:
                   docs.status,
                   false,
                   'Docs not generated within 90s (informational)',
+                  true,
                 )
               }
 
-              // Discovery meta check
+              // Discovery meta check — informational
               const meta = await fetchJson(`${base}/api.linear.app/_meta.json`, {
                 headers: { Accept: 'application/json' },
               })
@@ -444,6 +446,7 @@ jobs:
                 meta.status,
                 meta.status === 200 && meta.json !== null,
                 meta.status === 200 ? 'Meta available' : 'Meta not yet generated (informational)',
+                true,
               )
             } catch (err) {
               pushCheck('Fallback runtime', 'local fallback', 0, false, String(err))
@@ -451,7 +454,7 @@ jobs:
           }
 
           run().then(() => {
-            const status = allPass && latestTicket?.identifier ? 'pass' : 'fail'
+            const status = corePass && latestTicket?.identifier ? 'pass' : 'fail'
             const summary =
               status === 'pass'
                 ? 'Fallback e2e succeeded: Linear auth and latest ticket query passed.'
