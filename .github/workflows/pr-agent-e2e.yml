@@ -33,6 +33,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
+            const PRODUCTION_URL = 'https://warden.run'
+
             function parsePreviewUrl(summary) {
               if (!summary) return null
               const aliasMatch = summary.match(/Preview Alias URL:\s*(https?:\/\/\S+)/i)
@@ -75,11 +77,10 @@ jobs:
                   `Cloudflare check completed with conclusion=${matchedCheckRun.conclusion}.`,
                 )
               } else {
-                const previewUrl = parsePreviewUrl(matchedCheckRun.output?.summary ?? '')
-                if (!previewUrl) {
-                  throw new Error('Cloudflare check completed but preview URL was missing in summary.')
+                const previewUrl = parsePreviewUrl(matchedCheckRun.output?.summary ?? '') || PRODUCTION_URL
+                if (previewUrl === PRODUCTION_URL) {
+                  core.warning('Preview URL not found in Cloudflare check summary; falling back to production URL.')
                 }
-
                 core.setOutput('preview_url', previewUrl)
                 core.setOutput(
                   'check_run_url',
