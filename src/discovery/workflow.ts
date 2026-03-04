@@ -3,7 +3,7 @@ import type { WorkflowEvent } from 'cloudflare:workers'
 import type { Env } from '../types'
 import type { ProbeResult } from './types'
 import { createDb } from '../db/index'
-import { getService, listSkeletonPages } from '../db/queries'
+import { getService, listEnrichablePages } from '../db/queries'
 import { probeService } from './probe'
 import { runDeterministicDiscovery } from './deterministic'
 import { enrichPages } from './enrichment'
@@ -26,14 +26,14 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       return svc
     })
 
-    // Step 2: Probe the service
+    // Step 2: Probe the service (including external docs URLs)
     const probe = await step.do(
       'probe',
       { retries: { limit: 2, delay: '5 seconds', backoff: 'linear' } },
       async () => {
         console.log(`[discovery] probing ${hostname} (baseUrl: ${service.baseUrl})`)
-        const result = await probeService(service.baseUrl, service.apiType ?? undefined)
-        console.log(`[discovery] probe complete for ${hostname}: type=${result.apiType}, spec=${!!result.specContent}, graphql=${!!result.graphqlSchema}, docsUrl=${result.docsUrl ?? 'none'}`)
+        const result = await probeService(service.baseUrl, service.apiType ?? undefined, hostname)
+        console.log(`[discovery] probe complete for ${hostname}: type=${result.apiType}, spec=${!!result.specContent}, graphql=${!!result.graphqlSchema}, docsUrl=${result.docsUrl ?? 'none'}, externalDocs=${result.externalDocsUrls.length}`)
         return result
       },
     )
@@ -46,15 +46,18 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         hostname,
         service,
         anthropicApiKey: this.env.ANTHROPIC_API_KEY,
+        awsAccessKeyId: this.env.AWS_ACCESS_KEY_ID,
+        awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
+        awsRegion: this.env.AWS_REGION,
         baseUrl: this.env.BASE_URL,
       }
       const result = await runDeterministicDiscovery(ctx, probe as ProbeResult)
       console.log(`[discovery] deterministic complete for ${hostname}: ${result.pagesWritten} pages, ${result.resourcesFound.length} resources, hasSpec=${result.hasSpec}`)
 
-      // Return skeleton page paths for enrichment
+      // Return all enrichable page paths (skeleton + already enriched for re-enrichment)
       const db2 = createDb(connectionString)
-      const skeletons = await listSkeletonPages(db2, hostname)
-      const sorted = skeletons.sort((a, b) => {
+      const enrichable = await listEnrichablePages(db2, hostname)
+      const sorted = enrichable.sort((a, b) => {
         const depthA = a.path.split('/').length
         const depthB = b.path.split('/').length
         return depthA - depthB
@@ -62,18 +65,20 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       return sorted.map(p => p.path)
     })
 
-    // Step 4: Enrich each skeleton page individually
-    if (!this.env.ANTHROPIC_API_KEY) {
-      console.log(`[discovery] skipping enrichment for ${hostname}: no ANTHROPIC_API_KEY configured`)
+    // Step 4: Enrich each page individually (skeletons and re-enrichment of existing pages)
+    const hasLlmProvider = this.env.AWS_ACCESS_KEY_ID || this.env.ANTHROPIC_API_KEY
+    if (!hasLlmProvider) {
+      console.log(`[discovery] skipping enrichment for ${hostname}: no LLM provider configured`)
       return
     }
 
     if (pagePaths.length === 0) {
-      console.log(`[discovery] no skeleton pages to enrich for ${hostname}`)
+      console.log(`[discovery] no pages to enrich for ${hostname}`)
       return
     }
 
-    console.log(`[discovery] enriching ${pagePaths.length} skeleton pages for ${hostname}`)
+    const probeResult = probe as ProbeResult
+    console.log(`[discovery] enriching ${pagePaths.length} pages for ${hostname}`)
 
     for (const path of pagePaths) {
       await step.do(
@@ -86,7 +91,11 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             hostname,
             service,
             anthropicApiKey: this.env.ANTHROPIC_API_KEY,
+            awsAccessKeyId: this.env.AWS_ACCESS_KEY_ID,
+            awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
+            awsRegion: this.env.AWS_REGION,
             baseUrl: this.env.BASE_URL,
+            externalDocsUrls: probeResult.externalDocsUrls,
           }
           await enrichPages(ctx, [path])
         },

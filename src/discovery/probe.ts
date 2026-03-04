@@ -186,23 +186,63 @@ export async function probeOAuthWellKnown(
   return null
 }
 
+/** Extract root domain from API hostname (e.g., api.linear.app → linear.app) */
+function extractRootDomain(hostname: string): string {
+  const parts = hostname.split('.')
+  if (parts.length > 2 && (parts[0] === 'api' || parts[0] === 'app')) {
+    return parts.slice(1).join('.')
+  }
+  return hostname
+}
+
+/** Probe external domains for documentation (e.g., docs.linear.app, developers.github.com) */
+async function probeExternalDocs(hostname: string): Promise<string[]> {
+  const root = extractRootDomain(hostname)
+  if (root === hostname) return []
+
+  const candidates = [
+    `https://docs.${root}`,
+    `https://developers.${root}`,
+    `https://developer.${root}`,
+    `https://${root}/docs`,
+    `https://${root}/api-reference`,
+  ]
+
+  const results = await Promise.allSettled(
+    candidates.map(async url => {
+      const res = await fetchWithTimeout(url, { method: 'HEAD' })
+      return res && res.ok ? url : null
+    }),
+  )
+
+  return results
+    .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled' && r.value !== null)
+    .map(r => r.value)
+}
+
 export async function probeService(
   baseUrl: string,
   apiType?: string,
+  hostname?: string,
 ): Promise<ProbeResult> {
   const result: ProbeResult = {
     apiType: (apiType as ProbeResult['apiType']) ?? 'unknown',
+    externalDocsUrls: [],
     authDetected: [],
   }
 
   console.log(`[probe] probing ${baseUrl} (hint: ${apiType ?? 'unknown'})`)
 
+  // Derive hostname from baseUrl if not provided
+  const host = hostname ?? new URL(baseUrl).hostname
+
   // Run probes in parallel
-  const [openApi, graphql, docsUrl, oauthWellKnown] = await Promise.all([
+  const [openApi, graphql, docsUrl, oauthWellKnown, externalDocs] = await Promise.all([
     apiType !== 'graphql' ? probeOpenApi(baseUrl) : Promise.resolve(null),
     apiType !== 'rest' ? probeGraphQL(baseUrl) : Promise.resolve(null),
     probeDocsUrl(baseUrl),
     probeOAuthWellKnown(baseUrl),
+    probeExternalDocs(host),
   ])
 
   if (openApi) {
@@ -247,6 +287,13 @@ export async function probeService(
       source: 'well_known',
     }
   }
+
+  result.externalDocsUrls = externalDocs
+  if (!result.docsUrl && externalDocs.length > 0) {
+    result.docsUrl = externalDocs[0]
+  }
+
+  console.log(`[probe] external docs for ${host}: ${externalDocs.length > 0 ? externalDocs.join(', ') : 'none'}`)
 
   return result
 }

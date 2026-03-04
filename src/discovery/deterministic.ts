@@ -387,7 +387,7 @@ export async function runDeterministicDiscovery(
   // Write _meta.json
   const meta: DocMeta = {
     hostname: ctx.hostname,
-    sources: [probe.specUrl, probe.docsUrl].filter(Boolean) as string[],
+    sources: [probe.specUrl, probe.docsUrl, ...(probe.externalDocsUrls ?? [])].filter(Boolean) as string[],
     api_type: probe.apiType,
     coverage: {
       total_resources: result.resourcesFound.length,
@@ -396,6 +396,7 @@ export async function runDeterministicDiscovery(
       enriched_operations: 0,
     },
     pipeline_state: 'idle',
+    last_full_run: new Date().toISOString(),
     staleness: { stale_pages: 0 },
   }
   await upsertDocPage(ctx.db, ctx.hostname, '_meta.json', JSON.stringify(meta), 'enriched')

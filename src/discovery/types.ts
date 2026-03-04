@@ -12,7 +12,12 @@ export interface PipelineContext {
   service: ServiceRow
   anthropicApiKey?: string
   anthropicBaseUrl?: string
+  awsAccessKeyId?: string
+  awsSecretAccessKey?: string
+  awsRegion?: string
   baseUrl: string
+  /** External documentation URLs discovered by probing (e.g., docs.linear.app) */
+  externalDocsUrls?: string[]
   /** Cloudflare Workflow binding for durable discovery execution */
   workflow?: Workflow
 }
@@ -25,6 +30,8 @@ export interface ProbeResult {
   specContent?: string
   graphqlSchema?: string
   docsUrl?: string
+  /** All discovered documentation URLs (including external domains like docs.stripe.com) */
+  externalDocsUrls: string[]
   authDetected: string[]
   oauthMeta?: {
     authorizeUrl: string

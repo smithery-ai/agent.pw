@@ -1,11 +1,28 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from '../types'
+import type { PipelineContext } from './types'
+import type { Context } from 'hono'
 import { getDocPage, getService } from '../db/queries'
 import { getOrGeneratePage } from './index'
 import { wantsJson } from '../discovery'
 import { DocPageViewer } from '../ui'
 
 const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy'])
+
+function buildPipelineCtx(c: Context<HonoEnv>, serviceName: string, svc: NonNullable<Awaited<ReturnType<typeof getService>>>): PipelineContext {
+  return {
+    db: c.get('db'),
+    hostname: serviceName,
+    service: svc,
+    anthropicApiKey: c.env.ANTHROPIC_API_KEY,
+    anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL,
+    awsAccessKeyId: c.env.AWS_ACCESS_KEY_ID,
+    awsSecretAccessKey: c.env.AWS_SECRET_ACCESS_KEY,
+    awsRegion: c.env.AWS_REGION,
+    baseUrl: new URL(c.req.url).origin,
+    workflow: c.env.DISCOVERY_WORKFLOW,
+  }
+}
 
 export function docRoutes() {
   const router = new Hono<HonoEnv>()
@@ -33,17 +50,7 @@ export function docRoutes() {
     const svc = await getService(db, serviceName)
     if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
 
-    const ctx = {
-      db,
-      hostname: serviceName,
-      service: svc,
-      anthropicApiKey: c.env.ANTHROPIC_API_KEY,
-      anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL,
-      baseUrl: new URL(c.req.url).origin,
-      workflow: c.env.DISCOVERY_WORKFLOW,
-    }
-
-    const page = await getOrGeneratePage(ctx, 'docs/index.json')
+    const page = await getOrGeneratePage(buildPipelineCtx(c, serviceName, svc), 'docs/index.json')
     if (!page) return c.json({ error: 'Documentation not available' }, 404)
 
     const parsed = JSON.parse(page.content!)
@@ -70,17 +77,7 @@ export function docRoutes() {
     const svc = await getService(db, serviceName)
     if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
 
-    const ctx = {
-      db,
-      hostname: serviceName,
-      service: svc,
-      anthropicApiKey: c.env.ANTHROPIC_API_KEY,
-      anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL,
-      baseUrl: new URL(c.req.url).origin,
-      workflow: c.env.DISCOVERY_WORKFLOW,
-    }
-
-    const page = await getOrGeneratePage(ctx, docPath)
+    const page = await getOrGeneratePage(buildPipelineCtx(c, serviceName, svc), docPath)
     if (!page) return c.json({ error: `Page not found: ${docPath}` }, 404)
 
     const parsed = JSON.parse(page.content!)

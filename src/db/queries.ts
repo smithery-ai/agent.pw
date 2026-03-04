@@ -301,6 +301,19 @@ export async function listStaleDocPages(db: Database, hostname: string) {
     )
 }
 
+export async function listEnrichablePages(db: Database, hostname: string) {
+  return db
+    .select()
+    .from(docPages)
+    .where(
+      and(
+        eq(docPages.hostname, hostname),
+        sql`${docPages.path} != '_meta.json'`,
+        sql`${docPages.status} IN ('skeleton', 'enriched')`,
+      ),
+    )
+}
+
 export async function deleteDocPages(db: Database, hostname: string) {
   return db.delete(docPages).where(eq(docPages.hostname, hostname))
 }
