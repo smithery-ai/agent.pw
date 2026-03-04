@@ -33,12 +33,22 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
+            const WORKERS_DEV_SUBDOMAIN = 'smithery'
+
             function parsePreviewUrl(summary) {
               if (!summary) return null
               const aliasMatch = summary.match(/Preview Alias URL:\s*(https?:\/\/\S+)/i)
               if (aliasMatch?.[1]) return aliasMatch[1].trim()
               const previewMatch = summary.match(/Preview URL:\s*(https?:\/\/\S+)/i)
               if (previewMatch?.[1]) return previewMatch[1].trim()
+              // Fallback: construct from Version ID + Script name for Workers Builds
+              // that don't include explicit preview URLs in the summary.
+              const versionMatch = summary.match(/Version ID:\s*([0-9a-f-]+)/i)
+              const scriptMatch = summary.match(/Script:\s*\[([^\]]+)\]/)
+              if (versionMatch?.[1] && scriptMatch?.[1]) {
+                const prefix = versionMatch[1].split('-')[0]
+                return `https://${prefix}-${scriptMatch[1]}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
+              }
               return null
             }
 
