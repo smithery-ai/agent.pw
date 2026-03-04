@@ -1,7 +1,9 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { streamSSE } from 'hono/streaming'
 import type { HonoEnv, ProxyConstraint } from './types'
 import { createDb, type Database } from './db/index'
+import { Redis } from '@upstash/redis'
 import {
   mintToken,
   mintManagementToken,
@@ -19,24 +21,21 @@ import {
   upsertService,
   deleteService,
   getCredential,
+  listCredentials,
+  listCredentialsForService,
   upsertCredential,
   deleteCredential,
   revokeToken,
-  getAuthFlow,
-  createAuthFlow,
-  getVault,
-  listVaults,
-  createVault,
-  deleteVault,
-  listCredentials,
   listDocPages,
   getDocPage,
 } from './db/queries'
+import { createAuthFlow, getAuthFlow } from './lib/auth-flow-store'
 import { extractBearerToken, handleProxy } from './proxy'
-import { requireToken, requireRight, requireVaultAdmin } from './middleware'
+import { requireToken, requireRight, requireVaultAdmin, optionalSession } from './middleware'
 import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, buildWardenOnboarding, wantsJson } from './discovery'
 import { oauthRoutes } from './oauth'
 import { apiKeyRoutes } from './api-key'
+import { workosRoutes } from './workos'
 import { ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
 import { triggerDiscoveryWorkflow } from './discovery/index'
@@ -83,11 +82,15 @@ function looksLikeHostname(service: string) {
 
 interface AppDeps {
   db?: Database
+  redis?: Redis
   biscuitPrivateKey?: string
   baseUrl?: string
   encryptionKey?: string
   anthropicApiKey?: string
   anthropicBaseUrl?: string
+  workosClientId?: string
+  workosApiKey?: string
+  workosCookiePassword?: string
 }
 
 export function createApp(deps: AppDeps = {}) {
@@ -125,11 +128,20 @@ export function createApp(deps: AppDeps = {}) {
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
     if (deps.anthropicApiKey) c.env.ANTHROPIC_API_KEY = deps.anthropicApiKey
     if (deps.anthropicBaseUrl) c.env.ANTHROPIC_BASE_URL = deps.anthropicBaseUrl
+    if (deps.workosClientId) c.env.WORKOS_CLIENT_ID = deps.workosClientId
+    if (deps.workosApiKey) c.env.WORKOS_API_KEY = deps.workosApiKey
+    if (deps.workosCookiePassword) c.env.WORKOS_COOKIE_PASSWORD = deps.workosCookiePassword
 
     if (deps.db) {
       c.set('db', deps.db)
     } else if (c.env.HYPERDRIVE) {
       c.set('db', createDb(c.env.HYPERDRIVE.connectionString))
+    }
+
+    if (deps.redis) {
+      c.set('redis', deps.redis)
+    } else if (c.env.KV_REST_API_URL && c.env.KV_REST_API_TOKEN) {
+      c.set('redis', new Redis({ url: c.env.KV_REST_API_URL, token: c.env.KV_REST_API_TOKEN }))
     }
     return next()
   })
@@ -152,42 +164,16 @@ export function createApp(deps: AppDeps = {}) {
     return c.html(WardenLandingPage({ services: recentServices }))
   })
 
-  // ─── Vault Management ─────────────────────────────────────────────────────
-
-  app.post('/vaults', requireToken, requireRight('manage_vaults'), async c => {
-    const body = await c.req.json<{ slug: string; displayName?: string }>()
-    if (!body.slug) return c.json({ error: 'slug is required' }, 400)
-    const db = c.get('db')
-    await createVault(db, body.slug, body.displayName)
-    return c.json({ ok: true, slug: body.slug })
-  })
-
-  app.get('/vaults', requireToken, async c => {
-    const mgmt = c.get('managementRights')!
-    const db = c.get('db')
-    const allVaults = await listVaults(db)
-    if (mgmt.rights.includes('manage_vaults') || mgmt.vaultAdminSlugs.includes('*')) {
-      return c.json(allVaults)
-    }
-    return c.json(allVaults.filter(v => mgmt.vaultAdminSlugs.includes(v.slug)))
-  })
-
-  app.delete('/vaults/:slug', requireToken, requireVaultAdmin('slug'), async c => {
-    const db = c.get('db')
-    const deleted = await deleteVault(db, c.req.param('slug'))
-    if (!deleted) return c.json({ error: 'Vault not found' }, 404)
-    return c.json({ ok: true })
-  })
-
-  // ─── Credential Management (vault-scoped) ─────────────────────────────────
+  // ─── Credential Management (org-scoped, vault_admin checks use org_id) ────
 
   app.get('/vaults/:slug/credentials', requireToken, requireVaultAdmin('slug'), async c => {
     const db = c.get('db')
-    const creds = await listCredentials(db, c.req.param('slug'))
+    const orgId = c.req.param('slug')
+    const creds = await listCredentials(db, orgId)
     return c.json(
       creds.map(cr => ({
         service: cr.service,
-        identity: cr.identity,
+        slug: cr.slug,
         hasCredentials: !!cr.encryptedCredentials,
         expiresAt: cr.expiresAt,
       })),
@@ -199,14 +185,12 @@ export function createApp(deps: AppDeps = {}) {
     requireToken,
     requireVaultAdmin('slug'),
     async c => {
-      const vaultSlug = c.req.param('slug')
+      const orgId = c.req.param('slug')
       const service = c.req.param('service')
       const body = await c.req.json<{
         token?: string
         headers?: Record<string, string>
-        identity?: string
-        metadata?: Record<string, string>
-        expiresAt?: string
+        slug?: string
       }>()
       if (!body.token && !body.headers) {
         return c.json({ error: 'Either token or headers is required' }, 400)
@@ -215,23 +199,13 @@ export function createApp(deps: AppDeps = {}) {
       const db = c.get('db')
       const svc = await getService(db, service)
       if (!svc) return c.json({ error: `Service '${service}' not configured` }, 404)
-      const vault = await getVault(db, vaultSlug)
-      if (!vault) return c.json({ error: `Vault '${vaultSlug}' not found` }, 404)
 
       // Build headers: use explicit map or derive from token + service config
       const credHeaders = body.headers ?? buildCredentialHeaders(svc, body.token!)
       const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
-      await upsertCredential(
-        db,
-        vaultSlug,
-        service,
-        encrypted,
-        body.identity,
-        body.metadata,
-        body.expiresAt ? new Date(body.expiresAt) : undefined,
-      )
-      return c.json({ ok: true, vault: vaultSlug, service })
+      await upsertCredential(db, orgId, service, body.slug ?? 'default', encrypted)
+      return c.json({ ok: true, org: orgId, service })
     },
   )
 
@@ -241,7 +215,9 @@ export function createApp(deps: AppDeps = {}) {
     requireVaultAdmin('slug'),
     async c => {
       const db = c.get('db')
-      const deleted = await deleteCredential(db, c.req.param('slug'), c.req.param('service'))
+      const orgId = c.req.param('slug')
+      const credSlug = c.req.query('slug') ?? 'default'
+      const deleted = await deleteCredential(db, orgId, c.req.param('service'), credSlug)
       if (!deleted) return c.json({ error: 'Credential not found' }, 404)
       return c.json({ ok: true })
     },
@@ -480,15 +456,41 @@ export function createApp(deps: AppDeps = {}) {
 
   // ─── Auth Flows ────────────────────────────────────────────────────────────
 
+  app.route('/auth', workosRoutes)
   app.route('/auth', oauthRoutes)
   app.route('/auth', apiKeyRoutes)
 
   app.get('/auth/status/:flowId', async c => {
-    const db = c.get('db')
-    const flow = await getAuthFlow(db, c.req.param('flowId'))
+    const redis = c.get('redis')
+    const flowId = c.req.param('flowId')
+    const accept = c.req.header('Accept')
 
+    // SSE mode — hold connection until flow completes
+    if (accept?.includes('text/event-stream')) {
+      return streamSSE(c, async (stream) => {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const flow = await getAuthFlow(redis, flowId)
+          if (!flow) {
+            await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: 'Flow not found or expired' }) })
+            return
+          }
+          if (flow.status === 'completed') {
+            await stream.writeSSE({
+              event: 'complete',
+              data: JSON.stringify({ status: 'completed', token: flow.wardenToken, identity: flow.identity }),
+            })
+            return
+          }
+          await stream.writeSSE({ event: 'pending', data: JSON.stringify({ status: 'pending' }) })
+          await new Promise(r => setTimeout(r, 2000))
+        }
+      })
+    }
+
+    // Fallback: JSON polling (backward compat)
+    const flow = await getAuthFlow(redis, flowId)
     if (!flow) return c.json({ error: 'Flow not found' }, 404)
-    if (flow.expiresAt < new Date()) return c.json({ error: 'Flow expired' }, 404)
 
     if (flow.status === 'completed') {
       return c.json({ status: 'completed', token: flow.wardenToken, identity: flow.identity })
@@ -503,7 +505,7 @@ export function createApp(deps: AppDeps = {}) {
 
   // ─── Discovery (content-negotiated) ────────────────────────────────────────
 
-  app.get('/:service', async c => {
+  app.get('/:service', optionalSession, async c => {
     const serviceName = c.req.param('service')
     if (RESERVED_PATHS.has(serviceName)) return c.notFound()
     if (!looksLikeHostname(serviceName)) return c.notFound()
@@ -543,36 +545,43 @@ export function createApp(deps: AppDeps = {}) {
       ? JSON.parse(meta.content!)
       : { pipeline_state: docs.length === 0 ? 'probing' : 'idle', total_pages: docs.length }
 
+    // Check for saved credentials (if user is signed in)
+    const session = c.get('session')
+    let userCredentials: { slug: string; updatedAt: Date }[] | undefined
+    if (session) {
+      const creds = await listCredentialsForService(db, session.orgId, serviceName)
+      if (creds.length > 0) {
+        userCredentials = creds.map(cr => ({ slug: cr.slug, updatedAt: cr.updatedAt }))
+      }
+    }
+
     const token = extractBearerToken(c.req.header('Authorization'))
     const json = wantsJson(c.req.header('Accept'))
 
     if (!token) {
       if (json) {
-        // Create an auth flow so the agent can poll for completion
+        // Create an auth flow so the agent can poll/SSE for completion
         const flowId = randomId()
-        await createAuthFlow(db, {
+        await createAuthFlow(c.get('redis'), {
           id: flowId,
           service: serviceName,
           method: 'api_key',
-          vaultSlug: 'personal',
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         })
         return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), discovery: discoveryStatus }, 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
-      return c.html(ServiceLandingPage({ service: svc }))
+      return c.html(ServiceLandingPage({ service: svc, userCredentials }))
     }
 
     const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-    const vaultSlug = extractVaultFromToken(token, publicKeyHex, serviceName) ?? 'personal'
-    const cred = await getCredential(db, vaultSlug, serviceName)
-    const identity = cred?.identity ?? 'default'
+    const orgId = extractVaultFromToken(token, publicKeyHex, serviceName)
 
     if (json) {
-      return c.json({ ...buildAuthDiscovery(svc, identity, c.env.BASE_URL), discovery: discoveryStatus })
+      return c.json({ ...buildAuthDiscovery(svc, c.env.BASE_URL), discovery: discoveryStatus })
     }
-    return c.html(ServiceLandingPage({ service: svc, identity }))
+    return c.html(ServiceLandingPage({ service: svc, userCredentials }))
   })
 
   // ─── Legacy redirect ──────────────────────────────────────────────────────

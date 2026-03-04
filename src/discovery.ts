@@ -188,11 +188,11 @@ Replace \`{hostname}\` with the API hostname (e.g. \`api.github.com\`).
 `
 }
 
-export function buildAuthDiscovery(svc: ServiceRow, identity: string, baseUrl: string) {
+export function buildAuthDiscovery(svc: ServiceRow, baseUrl: string) {
   const result: Record<string, unknown> = {
     service: svc.displayName ?? svc.service,
     canonical: svc.service,
-    authenticated_as: identity,
+    authenticated: true,
     proxy: `${baseUrl}/${svc.service}`,
   }
 

@@ -250,12 +250,12 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceRow[] }
 
 export function ServiceLandingPage({
   service,
-  identity,
   discoveryStatus,
+  userCredentials,
 }: {
   service: ServiceRow
-  identity?: string
   discoveryStatus?: Record<string, unknown>
+  userCredentials?: { slug: string; updatedAt: Date }[]
 }) {
   const supported: string[] = service.supportedAuthMethods
     ? JSON.parse(service.supportedAuthMethods)
@@ -277,11 +277,29 @@ export function ServiceLandingPage({
     <Layout title={`${service.displayName ?? service.service} — Warden`}>
       <ServiceHeader service={service} />
 
-      {identity ? (
+      {userCredentials && userCredentials.length > 0 && (
+        <div class="card" style="margin-bottom: 0.75rem">
+          <span class="card-label">Your credentials</span>
+          <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem">
+            {userCredentials.map(cr => {
+              const ago = formatTimeAgo(cr.updatedAt)
+              return (
+                <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; padding: 0.375rem 0.5rem; border-radius: var(--radius); background: var(--muted)">
+                  <span style="color: var(--success); flex-shrink: 0">&#10003;</span>
+                  <span style="color: var(--foreground)">
+                    {cr.slug}
+                  </span>
+                  <span style="color: #52525b; font-size: 0.75rem; margin-left: auto">{ago}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {userCredentials && userCredentials.length > 0 ? (
         <div class="card">
-          <p>
-            Authenticated as <span class="badge">{identity}</span>
-          </p>
+          <p>Connected</p>
           {service.docsUrl && (
             <p class="meta">
               <a href={service.docsUrl}>API Documentation</a>
@@ -398,11 +416,22 @@ export function SuccessPage({
           Copy Token
         </button>
         <p class="meta">
-          Give this token to your agent. It can be revoked at any time.
+          This token works for all your connected services. Give it to your agent.
         </p>
       </div>
     </Layout>
   )
+}
+
+function formatTimeAgo(date: Date) {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 export function ErrorPage({ message }: { message: string }) {
