@@ -1092,7 +1092,7 @@ function RouteSpec({
 }
 
 export function WardenLandingPage({ services = [] }: { services?: ServiceWithPopularity[] } = {}) {
-  const visible = services.filter(s => (s.credentialCount ?? 0) > 0 || !!s.description || (s.crawlState && s.crawlState !== 'pending'))
+  const visible = services.filter(s => s.crawlState === 'ready' || (s.credentialCount ?? 0) > 0 || !!s.oauthClientId)
   const ranked = [...visible].sort((a, b) => {
     const byPopularity = (b.credentialCount ?? 0) - (a.credentialCount ?? 0)
     if (byPopularity !== 0) return byPopularity
@@ -1187,16 +1187,16 @@ POST /api.notion.com/v1/pages Authorization: Bearer wdn_...`}</code></pre>
         <h2>Features</h2>
         <div class="value-grid">
           <div class="card value-card">
-            <h3>Credential boundary</h3>
-            <p>Agents get revocable Warden tokens. Provider secrets stay out of agent context.</p>
+            <h3>Secure credential proxy</h3>
+            <p>Agents get revocable tokens — provider secrets never enter agent context. One URL pattern for auth, discovery, and proxying across every API.</p>
           </div>
           <div class="card value-card">
-            <h3>No auth glue code</h3>
-            <p>One URL pattern for discovery and proxying, instead of custom auth handlers per API.</p>
+            <h3>Webhook events</h3>
+            <p>Register callbacks through the proxy with a single header. Warden normalizes upstream signatures into one Ed25519 envelope agents can verify statelessly.</p>
           </div>
           <div class="card value-card">
-            <h3>Cleaner recovery</h3>
-            <p>Credential failures are normalized with explicit re-auth URLs so agents recover deterministically.</p>
+            <h3>Auto-discovery</h3>
+            <p>Hit any hostname to auto-index its API surface — auth schemes, docs, and resource maps are generated in the background.</p>
           </div>
         </div>
       </section>
