@@ -69,17 +69,41 @@ const STYLES = `
   }
 
   .brand-mark {
-    width: 20px;
-    height: 20px;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 2px;
+    width: 28px;
+    height: 30px;
+    position: relative;
+    display: inline-block;
+    clip-path: polygon(50% 2%, 90% 15%, 90% 57%, 50% 100%, 10% 57%, 10% 15%);
+    background: linear-gradient(180deg, #ff8a34 0%, var(--smithery-orange) 56%, #d44300 100%);
+    border: 1px solid rgba(123, 23, 7, 0.38);
+    border-radius: 5px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
 
-  .brand-mark span {
+  .brand-mark::before {
+    content: '';
+    position: absolute;
+    width: 9px;
+    height: 13px;
+    left: 8px;
+    top: 6px;
+    border-radius: 60% 60% 65% 65%;
+    background: var(--smithery-white);
+    transform: rotate(-8deg);
+    clip-path: polygon(52% 0%, 78% 22%, 70% 48%, 90% 82%, 56% 100%, 24% 80%, 30% 52%, 18% 20%);
+    opacity: 0.97;
+  }
+
+  .brand-mark::after {
+    content: '';
+    position: absolute;
+    width: 4px;
+    height: 6px;
+    left: 10px;
+    top: 9px;
+    border-radius: 60%;
     background: var(--smithery-orange);
-    border-radius: 2px;
-    opacity: 0.95;
+    transform: rotate(-9deg);
   }
 
   .brand-word {
@@ -121,9 +145,9 @@ const STYLES = `
   }
 
   .hero {
-    padding: 1rem 0 1.2rem;
+    padding: 0.4rem 0 0.8rem;
     display: grid;
-    gap: 1.1rem;
+    gap: 0.7rem;
   }
 
   .eyebrow {
@@ -243,7 +267,7 @@ const STYLES = `
   }
 
   .section {
-    margin-top: 1rem;
+    margin-top: 0.4rem;
   }
 
   .section h2 {
@@ -269,7 +293,7 @@ const STYLES = `
 
   .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .registry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .registry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
   .card {
     border: 1px solid var(--line);
@@ -499,6 +523,7 @@ const STYLES = `
 
   @media (max-width: 980px) {
     .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .registry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
   @media (max-width: 860px) {
@@ -563,17 +588,7 @@ function Layout({
         <div class="page">
           <header class="topbar">
             <a href="/" class="brand">
-              <span class="brand-mark" aria-hidden="true">
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-              </span>
+              <span class="brand-mark" aria-hidden="true"></span>
               <span class="brand-word">
                 <strong>Warden</strong>
                 <small>Smithery API Registry</small>
@@ -646,35 +661,17 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
   return (
     <Layout title="Warden — Smithery API Registry" mode="human">
       <section class="hero">
-        <p class="eyebrow">Where API identities stay safe</p>
-        <h1>Warden is Smithery for APIs.</h1>
-        <p class="subtitle">
-          Human-friendly browsing, agent-native discovery. Explore real services, authenticate once,
-          and proxy calls without exposing raw credentials to agents.
-        </p>
+        <h1>Service Registry</h1>
 
         <div class="metrics">
-          <span class="pill warm"><strong>{ranked.length}</strong> registered services</span>
+          <span class="pill warm"><strong>{ranked.length}</strong> services</span>
           <span class="pill hot"><strong>{credentialTotal}</strong> credentials stored</span>
-          <span class="pill"><strong>MVP</strong> popularity signal = credentials per service</span>
-        </div>
-
-        <div class="code-block">
-          <span class="mono">$ curl -H "Accept: application/json" warden.run/api.linear.app</span>
         </div>
       </section>
 
-      <ModeSplit
-        human="Browse a service, understand what it does, and complete auth in browser flows."
-        agent="Use Accept: application/json to get auth_url, proxy path, docs links, and discovery state."
-      />
-
       <section class="section">
-        <h2>Service Registry</h2>
-        <p>Sorted by credentials stored. This acts as the MVP popularity counter.</p>
-
         {ranked.length === 0 ? (
-          <div class="card" style="margin-top: 0.9rem">
+          <div class="card">
             <h3>No services yet</h3>
             <p>Hit <span class="mono">/{'{hostname}'}</span> once to auto-register a service and start discovery.</p>
           </div>
@@ -696,18 +693,6 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
             ))}
           </div>
         )}
-      </section>
-
-      <section class="section">
-        <h2>Core Routes</h2>
-        <div class="card">
-          <ol class="clean">
-            <RouteSpec method="GET" path="/" notes="Warden landing page (HTML for humans, JSON for agents)." />
-            <RouteSpec method="GET" path="/{hostname}" notes="Service landing page + auth bootstrap + proxy contract." />
-            <RouteSpec method="GET" path="/{hostname}/docs/..." notes="Generated docs tree (human HTML or agent JSON)." />
-            <RouteSpec method="ANY" path="/{hostname}/{path}" notes="Authenticated proxy to upstream API." />
-          </ol>
-        </div>
       </section>
     </Layout>
   )
