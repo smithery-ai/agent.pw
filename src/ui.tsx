@@ -1092,7 +1092,7 @@ function RouteSpec({
 }
 
 export function WardenLandingPage({ services = [] }: { services?: ServiceWithPopularity[] } = {}) {
-  const visible = services.filter(s => (s.credentialCount ?? 0) > 0 || !!s.description)
+  const visible = services.filter(s => (s.credentialCount ?? 0) > 0 || !!s.description || (s.crawlState && s.crawlState !== 'pending'))
   const ranked = [...visible].sort((a, b) => {
     const byPopularity = (b.credentialCount ?? 0) - (a.credentialCount ?? 0)
     if (byPopularity !== 0) return byPopularity
