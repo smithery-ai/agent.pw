@@ -381,6 +381,7 @@ export async function runDeterministicDiscovery(
 
   let pages: { path: string; content: string; status: string }[]
   let result: DeterministicResult
+  let specDescription: string | undefined
 
   if (probe.specContent) {
     try {
@@ -388,6 +389,8 @@ export async function runDeterministicDiscovery(
       const parsed = parseOpenApi(ctx, spec)
       pages = (parsed as unknown as { _pages: typeof pages })._pages
       result = { pagesWritten: parsed.pagesWritten, resourcesFound: parsed.resourcesFound, hasSpec: true }
+      const info = (spec as Record<string, unknown>).info as Record<string, string> | undefined
+      specDescription = info?.description
     } catch {
       pages = buildFallback(ctx)
       result = { pagesWritten: pages.length, resourcesFound: [], hasSpec: false }
@@ -404,6 +407,15 @@ export async function runDeterministicDiscovery(
   } else {
     pages = buildFallback(ctx)
     result = { pagesWritten: pages.length, resourcesFound: [], hasSpec: false }
+  }
+
+  // Update service record with discovered metadata
+  const serviceUpdate: Record<string, string | undefined> = {}
+  if (probe.apiType !== 'unknown') serviceUpdate.apiType = probe.apiType
+  if (probe.docsUrl) serviceUpdate.docsUrl = probe.docsUrl
+  if (specDescription) serviceUpdate.description = specDescription
+  if (Object.keys(serviceUpdate).length > 0) {
+    await upsertService(ctx.db, ctx.hostname, { baseUrl: ctx.service.baseUrl, ...serviceUpdate })
   }
 
   // Write all pages to DB

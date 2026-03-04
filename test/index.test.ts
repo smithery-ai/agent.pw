@@ -36,6 +36,7 @@ import {
   deleteCredential,
   isRevoked,
   upsertService,
+  getService,
   getOAuthApp,
   upsertOAuthApp,
   getDocPage,
@@ -2556,5 +2557,40 @@ describe('Deterministic Discovery', () => {
     const invoicesPage = await getDocPage(db, 'api.test.com', 'sitemap/invoices.json')
     expect(customersPage).toBeTruthy()
     expect(invoicesPage).toBeTruthy()
+  })
+
+  it('updates service record with apiType and description from spec', async () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 'Acme API', version: '1.0', description: 'The Acme platform API' },
+      paths: {
+        '/widgets': { get: { summary: 'List widgets' } },
+      },
+    }
+
+    // Pre-register with no apiType or description
+    await upsertService(db, 'api.acme.com', { baseUrl: 'https://api.acme.com' })
+
+    const service = (await getService(db, 'api.acme.com'))!
+    expect(service.apiType).toBeNull()
+    expect(service.description).toBeNull()
+
+    await runDeterministicDiscovery(
+      { db, hostname: 'api.acme.com', service, baseUrl: 'http://localhost' },
+      {
+        apiType: 'rest',
+        specContent: JSON.stringify(spec),
+        specUrl: null,
+        graphqlSchema: null,
+        docsUrl: 'https://docs.acme.com',
+        oauthMeta: null,
+        externalDocsUrls: [],
+      },
+    )
+
+    const updated = await getService(db, 'api.acme.com')
+    expect(updated?.apiType).toBe('rest')
+    expect(updated?.description).toBe('The Acme platform API')
+    expect(updated?.docsUrl).toBe('https://docs.acme.com')
   })
 })
