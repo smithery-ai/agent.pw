@@ -49,6 +49,8 @@ import {
 } from '../src/db/queries'
 import { createAuthFlow, completeAuthFlow, getAuthFlow } from '../src/lib/auth-flow-store'
 import { encryptCredentials, decryptCredentials, buildCredentialHeaders } from '../src/lib/credentials-crypto'
+import { runDeterministicDiscovery } from '../src/discovery/deterministic'
+import type { ProbeResult } from '../src/discovery/types'
 
 // 32-byte base64 key for test encryption
 const TEST_ENCRYPTION_KEY = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')
@@ -2495,5 +2497,64 @@ describe('Credentials Crypto', () => {
 
   it('buildCredentialHeaders derives oauth2 header', () => {
     expect(buildCredentialHeaders({ type: 'oauth2', authorizeUrl: '', tokenUrl: '' }, 'tok')).toEqual({ Authorization: 'Bearer tok' })
+  })
+})
+
+// ─── Deterministic Discovery ────────────────────────────────────────────────
+
+describe('Deterministic Discovery', () => {
+  it('groups versioned paths by resource, not version prefix', async () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 'Test API', version: '1.0' },
+      paths: {
+        '/v1/customers': { get: { summary: 'List customers' } },
+        '/v1/customers/{id}': { get: { summary: 'Get customer' } },
+        '/v1/invoices': { get: { summary: 'List invoices' } },
+        '/v1/invoices/{id}': { get: { summary: 'Get invoice' } },
+      },
+    }
+
+    const service = {
+      service: 'api.test.com',
+      baseUrl: 'https://api.test.com',
+      displayName: 'Test',
+      description: null,
+      authSchemes: '[]',
+      oauthClientId: null,
+      encryptedOauthClientSecret: null,
+      apiType: 'rest',
+      docsUrl: null,
+      preview: null,
+      authConfig: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    const probe: ProbeResult = {
+      apiType: 'rest',
+      specContent: JSON.stringify(spec),
+      specUrl: null,
+      graphqlSchema: null,
+      docsUrl: null,
+      oauthMeta: null,
+      externalDocsUrls: [],
+    }
+
+    const result = await runDeterministicDiscovery(
+      { db, hostname: 'api.test.com', service, baseUrl: 'http://localhost' },
+      probe,
+    )
+
+    // Should find 2 resources (customers, invoices), not 1 (v1)
+    expect(result.resourcesFound.length).toBe(2)
+    expect(result.resourcesFound).toContain('customers')
+    expect(result.resourcesFound).toContain('invoices')
+
+    // Should have resource detail pages for each
+    const customersPage = await getDocPage(db, 'api.test.com', 'sitemap/customers.json')
+    const invoicesPage = await getDocPage(db, 'api.test.com', 'sitemap/invoices.json')
+    expect(customersPage).toBeTruthy()
+    expect(invoicesPage).toBeTruthy()
   })
 })

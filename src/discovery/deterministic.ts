@@ -90,7 +90,10 @@ function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult 
         if (method.startsWith('x-') || method === 'parameters') continue
         const operation = op as Record<string, unknown>
         const tags = (operation.tags as string[]) ?? []
-        const resourceName = tags[0] ?? path.split('/').filter(Boolean)[0] ?? 'default'
+        const segments = path.split('/').filter(Boolean)
+        // Skip version-like segments (v1, v2, etc.) to get the actual resource name
+        const firstMeaningful = segments.find(s => !/^v\d+$/i.test(s)) ?? segments[0]
+        const resourceName = tags[0] ?? firstMeaningful ?? 'default'
         const slug = resourceName.toLowerCase().replace(/\s+/g, '-')
 
         // Extract parameters from both path-level and operation-level
