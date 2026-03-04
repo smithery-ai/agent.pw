@@ -96,6 +96,7 @@ interface AppDeps {
   awsAccessKeyId?: string
   awsSecretAccessKey?: string
   awsRegion?: string
+  exaApiKey?: string
   workosClientId?: string
   workosApiKey?: string
   workosCookiePassword?: string
@@ -144,6 +145,7 @@ export function createApp(deps: AppDeps = {}) {
     if (deps.awsAccessKeyId) c.env.AWS_ACCESS_KEY_ID = deps.awsAccessKeyId
     if (deps.awsSecretAccessKey) c.env.AWS_SECRET_ACCESS_KEY = deps.awsSecretAccessKey
     if (deps.awsRegion) c.env.AWS_REGION = deps.awsRegion
+    if (deps.exaApiKey) c.env.EXA_API_KEY = deps.exaApiKey
     if (deps.workosClientId) c.env.WORKOS_CLIENT_ID = deps.workosClientId
     if (deps.workosApiKey) c.env.WORKOS_API_KEY = deps.workosApiKey
     if (deps.workosCookiePassword) c.env.WORKOS_COOKIE_PASSWORD = deps.workosCookiePassword
@@ -639,7 +641,7 @@ export function createApp(deps: AppDeps = {}) {
     }
 
     // Kick off discovery pipeline if stale or no docs exist
-    const discoveryCtx = { db, hostname: serviceName, service: svc, anthropicApiKey: c.env.ANTHROPIC_API_KEY, anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL, awsAccessKeyId: c.env.AWS_ACCESS_KEY_ID, awsSecretAccessKey: c.env.AWS_SECRET_ACCESS_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
+    const discoveryCtx = { db, hostname: serviceName, service: svc, anthropicApiKey: c.env.ANTHROPIC_API_KEY, anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL, awsAccessKeyId: c.env.AWS_ACCESS_KEY_ID, awsSecretAccessKey: c.env.AWS_SECRET_ACCESS_KEY, awsRegion: c.env.AWS_REGION, exaApiKey: c.env.EXA_API_KEY, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
     const stale = await isDiscoveryStale(discoveryCtx)
     if (stale) {
       console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'stale'})`)

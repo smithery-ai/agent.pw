@@ -14,6 +14,7 @@ export interface Env {
   AWS_ACCESS_KEY_ID?: string
   AWS_SECRET_ACCESS_KEY?: string
   AWS_REGION?: string
+  EXA_API_KEY?: string
   WORKOS_CLIENT_ID: string
   WORKOS_API_KEY: string
   WORKOS_COOKIE_PASSWORD: string

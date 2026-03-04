@@ -1,6 +1,7 @@
-import { generateText, stepCountIs, tool } from 'ai'
+import { generateText, stepCountIs, tool, type ToolSet } from 'ai'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { createMCPClient } from '@ai-sdk/mcp'
 import { z } from 'zod'
 import type { PipelineContext } from './types'
 import { getDocPage, upsertDocPage, listDocPages } from '../db/queries'
@@ -44,6 +45,7 @@ Guidelines:
 - For operations: include required parameters and at least one example
 - Do NOT hallucinate endpoints or fields that don't exist
 - You may fetch ONE upstream URL if you need more context, then WRITE immediately
+- Use web_search_exa to find API documentation and examples when available
 - Mark content as best-effort if unsure — a partial page is better than nothing`
 }
 
@@ -57,6 +59,7 @@ Guidelines:
 - Add missing parameters, examples, or edge cases
 - Fix any inaccurate information
 - Fetch upstream documentation for reference to verify and improve content
+- Use web_search_exa to find additional API documentation, examples, and guides
 - Do NOT remove existing accurate content — only add to it or correct errors
 - Call write_doc_page when you have improvements ready`
 }
@@ -203,24 +206,50 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
 
   console.log(`[enrichment] ${ctx.hostname}/${pagePath} starting (${isReenrich ? 're-enrich' : 'initial'})`)
 
-  const result = await generateText({
-    model,
-    stopWhen: stepCountIs(maxSteps),
-    system: isReenrich ? buildReenrichSystemPrompt(ctx) : buildSystemPrompt(ctx),
-    prompt: isReenrich
-      ? buildReenrichmentPrompt(pagePath, page.content, otherPages, docsUrls)
-      : buildEnrichmentPrompt(pagePath, page.content, otherPages, docsUrls),
-    tools: buildTools(ctx),
-    onStepFinish: ({ toolCalls }) => {
-      if (toolCalls?.length) {
-        for (const tc of toolCalls) {
-          console.log(`[enrichment] ${ctx.hostname}/${pagePath} tool_use: ${tc.toolName}`)
-        }
-      }
-    },
-  })
+  // Build tools: merge local tools with Exa MCP tools when available
+  let tools: ToolSet = buildTools(ctx)
+  let mcpClient: Awaited<ReturnType<typeof createMCPClient>> | null = null
 
-  console.log(`[enrichment] ${ctx.hostname}/${pagePath} done (${result.steps.length} steps)`)
+  if (ctx.exaApiKey) {
+    try {
+      mcpClient = await createMCPClient({
+        transport: {
+          type: 'sse',
+          url: `https://mcp.exa.ai/mcp?exaApiKey=${ctx.exaApiKey}&tools=web_search_exa,crawling_exa`,
+        },
+      })
+      const mcpTools = await mcpClient.tools()
+      tools = { ...tools, ...mcpTools }
+      console.log(`[enrichment] ${ctx.hostname}/${pagePath} exa tools loaded`)
+    } catch (e) {
+      console.error(`[enrichment] ${ctx.hostname}/${pagePath} exa MCP connection failed:`, e)
+    }
+  }
+
+  try {
+    const result = await generateText({
+      model,
+      stopWhen: stepCountIs(maxSteps),
+      system: isReenrich ? buildReenrichSystemPrompt(ctx) : buildSystemPrompt(ctx),
+      prompt: isReenrich
+        ? buildReenrichmentPrompt(pagePath, page.content, otherPages, docsUrls)
+        : buildEnrichmentPrompt(pagePath, page.content, otherPages, docsUrls),
+      tools,
+      onStepFinish: ({ toolCalls }) => {
+        if (toolCalls?.length) {
+          for (const tc of toolCalls) {
+            console.log(`[enrichment] ${ctx.hostname}/${pagePath} tool_use: ${tc.toolName}`)
+          }
+        }
+      },
+    })
+
+    console.log(`[enrichment] ${ctx.hostname}/${pagePath} done (${result.steps.length} steps)`)
+  } finally {
+    if (mcpClient) {
+      await mcpClient.close()
+    }
+  }
 }
 
 export async function enrichPages(ctx: PipelineContext, paths: string[]) {
