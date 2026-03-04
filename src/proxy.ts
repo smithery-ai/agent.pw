@@ -16,6 +16,7 @@ import {
 import { refreshOAuthToken } from './oauth'
 import { randomId } from './webhooks/envelope'
 import type { WebhookConfig } from './webhooks/verify'
+import { isDnsError } from './lib/dns'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -209,11 +210,26 @@ export async function handleProxy(
     requestHeaders: Object.fromEntries(headers.entries()),
   }, 'proxy request')
 
-  const upstream = await fetch(upstreamUrl, {
-    method: c.req.method,
-    headers,
-    body,
-  })
+  let upstream: Response
+  try {
+    upstream = await fetch(upstreamUrl, {
+      method: c.req.method,
+      headers,
+      body,
+    })
+  } catch (error) {
+    const hostname = new URL(upstreamUrl).hostname
+    if (isDnsError(error)) {
+      return c.json({
+        error: `DNS resolution failed for ${hostname}`,
+        hint: 'The hostname does not resolve. Verify the service URL is correct.',
+      }, 502)
+    }
+    return c.json({
+      error: `Failed to reach upstream: ${errorMessage(error)}`,
+      hint: `Could not connect to ${hostname}. The service may be down or unreachable.`,
+    }, 502)
+  }
 
   log.info({
     service,

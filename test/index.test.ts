@@ -28,6 +28,7 @@ import {
   authorizeRequest,
 } from '../src/biscuit'
 import { extractBearerToken } from '../src/proxy'
+import { isDnsError } from '../src/lib/dns'
 import { buildUnauthDiscovery, buildAuthDiscovery, wantsJson } from '../src/discovery'
 import {
   revokeToken,
@@ -668,17 +669,25 @@ describe('Discovery', () => {
 
   it('auto-registers unknown service on first discovery', async () => {
     // No seedService() — hit a completely unknown service
-    const res = await req('/api.unknown.com', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(res.status).toBe(401)
+    // Mock fetch so the reachability check passes (domain "resolves")
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
+    try {
+      const res = await req('/api.unknown.com', {
+        headers: { Accept: 'application/json' },
+      })
+      expect(res.status).toBe(401)
 
-    const body = (await res.json()) as any
-    expect(body.canonical).toBe('api.unknown.com')
-    expect(body.auth_url).toContain('/auth/api.unknown.com?flow_id=')
-    expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
-    expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/unknown.com.ico')
-    expect(body.preview.icon.fallback).toBe('UN')
+      const body = (await res.json()) as any
+      expect(body.canonical).toBe('api.unknown.com')
+      // No auth_url yet — discovery hasn't determined auth schemes
+      expect(body.auth_url).toBeUndefined()
+      expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
+      expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/unknown.com.ico')
+      expect(body.preview.icon.fallback).toBe('UN')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('returns 200 JSON for authenticated agent', async () => {
@@ -723,13 +732,73 @@ describe('Discovery', () => {
   })
 
   it('auto-registers unknown service and returns 401', async () => {
-    const res = await req('/unknown.api.com', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(res.status).toBe(401)
-    const body = (await res.json()) as any
-    expect(body.canonical).toBe('unknown.api.com')
-    expect(body.auth_url).toContain('/auth/unknown.api.com?flow_id=')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
+    try {
+      const res = await req('/unknown.api.com', {
+        headers: { Accept: 'application/json' },
+      })
+      expect(res.status).toBe(401)
+      const body = (await res.json()) as any
+      expect(body.canonical).toBe('unknown.api.com')
+      // No auth_url — discovery hasn't determined auth schemes yet
+      expect(body.auth_url).toBeUndefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('rejects auto-registration when domain does not resolve', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
+    try {
+      const res = await req('/nonexistent.invalid.domain', {
+        headers: { Accept: 'application/json' },
+      })
+      expect(res.status).toBe(404)
+      const body = (await res.json()) as any
+      expect(body.error).toContain('Domain does not exist')
+      expect(body.hint).toContain('DNS')
+
+      // Verify no service was created in the DB
+      const svc = await getService(db, 'nonexistent.invalid.domain')
+      expect(svc).toBeNull()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('allows auto-registration when domain returns HTTP error', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('Forbidden', { status: 403 }))
+    try {
+      const res = await req('/exists-but-403.example.com', {
+        headers: { Accept: 'application/json' },
+      })
+      expect(res.status).toBe(401)
+      const body = (await res.json()) as any
+      expect(body.canonical).toBe('exists-but-403.example.com')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('allows auto-registration when reachability check times out', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new DOMException('The operation was aborted', 'AbortError'),
+    )
+    try {
+      const res = await req('/slow-but-real.example.com', {
+        headers: { Accept: 'application/json' },
+      })
+      // Timeout is NOT a DNS failure — proceed with registration
+      expect(res.status).toBe(401)
+      const body = (await res.json()) as any
+      expect(body.canonical).toBe('slow-but-real.example.com')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('returns 404 for reserved paths in discovery', async () => {
@@ -1024,6 +1093,50 @@ describe('Proxy', () => {
     }
   })
 
+  it('returns 502 with DNS hint when upstream does not resolve', async () => {
+    await seedServiceWithCred()
+    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+      { services: 'api.github.com', vault: TEST_ORG_ID },
+    ])
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
+    try {
+      const res = await req('/api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      expect(res.status).toBe(502)
+      const body = (await res.json()) as any
+      expect(body.error).toContain('DNS resolution failed')
+      expect(body.hint).toBeDefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('returns 502 for non-DNS upstream failures', async () => {
+    await seedServiceWithCred()
+    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+      { services: 'api.github.com', vault: TEST_ORG_ID },
+    ])
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new Error('connect ECONNREFUSED 1.2.3.4:443'),
+    )
+    try {
+      const res = await req('/api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      expect(res.status).toBe(502)
+      const body = (await res.json()) as any
+      expect(body.error).toContain('Failed to reach upstream')
+      expect(body.hint).toBeDefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('returns 404 for reserved paths in proxy', async () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: 'tokens' }])
     const res = await req('/tokens/something', {
@@ -1149,15 +1262,22 @@ describe('API Key Flow', () => {
     const formRes = await sessionReq('/auth/api.github.com/api-key?flow_id=ak-flow-1')
     expect(formRes.status).toBe(200)
 
-    // Submit the API key
-    const res = await sessionReq('/auth/api.github.com/api-key', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'api_key=ghp_testkey&flow_id=ak-flow-1',
-    })
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('wdn_') // Should show the minted token
+    // Mock fetch so the base URL validation passes
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    try {
+      // Submit the API key
+      const res = await sessionReq('/auth/api.github.com/api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'api_key=ghp_testkey&flow_id=ak-flow-1',
+      })
+      expect(res.status).toBe(200)
+      const text = await res.text()
+      expect(text).toContain('wdn_') // Should show the minted token
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('rejects empty API key', async () => {
@@ -1187,12 +1307,18 @@ describe('API Key Flow', () => {
   })
 
   it('submits API key without flow_id', async () => {
-    const res = await sessionReq('/auth/api.github.com/api-key', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'api_key=ghp_noflow',
-    })
-    expect(res.status).toBe(200)
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    try {
+      const res = await sessionReq('/auth/api.github.com/api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'api_key=ghp_noflow',
+      })
+      expect(res.status).toBe(200)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('validates API key via identity_url (bearer auth)', async () => {
@@ -1396,38 +1522,56 @@ describe('API Key Flow', () => {
     // Create a flow first
     await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1')
 
-    const res = await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: 'ghp_jsonkey' }),
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.token).toMatch(/^wdn_/)
-    expect(body.identity).toBe('default')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    try {
+      const res = await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: 'ghp_jsonkey' }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as any
+      expect(body.token).toMatch(/^wdn_/)
+      expect(body.identity).toBe('default')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('accepts JSON POST with flow_id in body', async () => {
     await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-2')
 
-    const res = await sessionReq('/auth/api.github.com/api-key', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: 'ghp_jsonkey2', flow_id: 'json-flow-2' }),
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.token).toMatch(/^wdn_/)
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    try {
+      const res = await sessionReq('/auth/api.github.com/api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: 'ghp_jsonkey2', flow_id: 'json-flow-2' }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as any
+      expect(body.token).toMatch(/^wdn_/)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('completes flow so polling returns token (JSON path)', async () => {
     await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1')
 
-    await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: 'ghp_pollkey' }),
-    })
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    try {
+      await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: 'ghp_pollkey' }),
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
 
     const poll = await req('/auth/status/json-poll-1')
     expect(poll.status).toBe(200)
@@ -1485,6 +1629,115 @@ describe('API Key Flow', () => {
       expect(res.status).toBe(400)
       const body = (await res.json()) as any
       expect(body.error).toContain('rejected')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+// ─── E2E: Agent with Invalid API ────────────────────────────────────────────
+
+describe('E2E: agent with invalid API', () => {
+  it('discovery returns no auth_url for pending service', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 404 }))
+    try {
+      const discovery = await req('/telemetry.betterstack.com', {
+        headers: { Accept: 'application/json' },
+      })
+      expect(discovery.status).toBe(401)
+      const body = (await discovery.json()) as any
+      expect(body.canonical).toBe('telemetry.betterstack.com')
+      // No auth_url — service is pending discovery
+      expect(body.auth_url).toBeUndefined()
+      expect(body.discovery.crawl_state).toBe('pending')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('rejects API key when upstream returns 401', async () => {
+    // Register a service with auth schemes (simulating discovery completion)
+    await mgmtReq('/services/telemetry.betterstack.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseUrl: 'https://telemetry.betterstack.com',
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
+      }),
+    })
+
+    // Agent submits an invalid API key — upstream returns 401
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('{"errors":"Invalid Team API token"}', { status: 401 }),
+    )
+    try {
+      const submit = await sessionReq('/auth/telemetry.betterstack.com/api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: 'bad_token_123' }),
+      })
+      expect(submit.status).toBe(400)
+      const body = (await submit.json()) as any
+      expect(body.error).toContain('rejected')
+      expect(body.hint).toContain('401')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('returns 502 with DNS hint when proxying to unreachable upstream', async () => {
+    // Register a service with a credential, then simulate DNS failure on proxy
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
+    try {
+      await req('/fake-api.nonexistent.test', {
+        headers: { Accept: 'application/json' },
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+
+    // Store a credential for this service
+    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/fake-api.nonexistent.test`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'test_token' }),
+    })
+
+    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+      { services: 'fake-api.nonexistent.test', vault: TEST_ORG_ID },
+    ])
+
+    // Simulate DNS failure when proxying
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
+    try {
+      const res = await req('/fake-api.nonexistent.test/api/v1/data', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      expect(res.status).toBe(502)
+      const body = (await res.json()) as any
+      expect(body.error).toContain('DNS resolution failed')
+      expect(body.hint).toBeDefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('blocks auto-registration for NXDOMAIN and returns 404', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new Error('getaddrinfo ENOTFOUND api.nonexistent.fake'),
+    )
+    try {
+      const res = await req('/api.nonexistent.fake', {
+        headers: { Accept: 'application/json' },
+      })
+      expect(res.status).toBe(404)
+      const body = (await res.json()) as any
+      expect(body.error).toContain('Domain does not exist')
+      expect(body.hint).toContain('DNS')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -2164,6 +2417,27 @@ describe('extractBearerToken', () => {
   })
 })
 
+// ─── DNS Helpers ─────────────────────────────────────────────────────────────
+
+describe('isDnsError', () => {
+  it('detects getaddrinfo ENOTFOUND', () => {
+    expect(isDnsError(new Error('getaddrinfo ENOTFOUND api.example.com'))).toBe(true)
+  })
+
+  it('detects TypeError fetch failed (CF Workers)', () => {
+    expect(isDnsError(new TypeError('fetch failed'))).toBe(true)
+  })
+
+  it('does not match connection refused', () => {
+    expect(isDnsError(new Error('connect ECONNREFUSED 1.2.3.4:443'))).toBe(false)
+  })
+
+  it('does not match non-Error values', () => {
+    expect(isDnsError('some string')).toBe(false)
+    expect(isDnsError(null)).toBe(false)
+  })
+})
+
 // ─── Discovery Functions ────────────────────────────────────────────────────
 
 describe('Discovery Functions', () => {
@@ -2187,13 +2461,13 @@ describe('Discovery Functions', () => {
     expect(wantsJson('text/html,application/xhtml+xml,*/*;q=0.8')).toBe(false)
   })
 
-  it('buildUnauthDiscovery includes description and docs_url', () => {
+  it('buildUnauthDiscovery includes auth_url when schemes exist', () => {
     const svc = {
       service: 'api.github.com',
       baseUrl: 'https://api.github.com',
       displayName: 'GitHub',
       description: 'GitHub REST API',
-      authSchemes: null,
+      authSchemes: JSON.stringify([{ type: 'http', scheme: 'bearer' }]),
       oauthClientId: null,
       encryptedOauthClientSecret: null,
       apiType: null,
@@ -2210,6 +2484,29 @@ describe('Discovery Functions', () => {
     expect(result.proxy).toBe('http://localhost:3000/api.github.com')
     expect(result.auth_url).toBe('http://localhost:3000/auth/api.github.com')
     expect(result.auth_methods).toEqual([{ type: 'api_key' }])
+  })
+
+  it('buildUnauthDiscovery omits auth_url when no schemes', () => {
+    const svc = {
+      service: 'api.unknown.com',
+      baseUrl: 'https://api.unknown.com',
+      displayName: 'Unknown',
+      description: null,
+      authSchemes: null,
+      oauthClientId: null,
+      encryptedOauthClientSecret: null,
+      apiType: null,
+      docsUrl: null,
+      preview: null,
+      authConfig: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    const result = buildUnauthDiscovery(svc, 'http://localhost:3000') as any
+    expect(result.canonical).toBe('api.unknown.com')
+    expect(result.auth_url).toBeUndefined()
+    expect(result.auth_methods).toBeUndefined()
+    expect(result.proxy).toBe('http://localhost:3000/api.unknown.com')
   })
 
   it('buildUnauthDiscovery includes preview when set', () => {

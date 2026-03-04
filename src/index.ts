@@ -37,6 +37,7 @@ import { apiKeyRoutes } from './api-key'
 import { workosRoutes } from './workos'
 import { probeOAuthWellKnown } from './discovery/probe'
 import { getKnownOAuthProvider } from './oauth-providers'
+import { checkHostReachable } from './lib/dns'
 import { AuthPage, ErrorPage, ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
 import { triggerDiscoveryWorkflow, isDiscoveryStale } from './discovery/index'
@@ -580,17 +581,32 @@ export function createApp(deps: AppDeps = {}) {
 
     // Auto-register unknown services, attempting OAuth detection up front.
     if (!svc) {
-      c.get('logger').info({ service: serviceName, action: 'auto-register' }, 'registering new service')
       const baseUrl = `https://${serviceName}`
-      const displayName = deriveDisplayName(serviceName)
       const knownProvider = getKnownOAuthProvider(serviceName)
+
+      // For unknown providers, verify the domain actually resolves before
+      // creating DB records, auth pages, and kicking off discovery.
+      if (!knownProvider) {
+        const reachability = await checkHostReachable(serviceName)
+        if (!reachability.reachable && reachability.reason === 'dns') {
+          return c.json({
+            error: `Domain does not exist: ${serviceName}`,
+            hint: 'DNS resolution failed. Check that the hostname is spelled correctly.',
+          }, 404)
+        }
+      }
+
+      c.get('logger').info({ service: serviceName, action: 'auto-register' }, 'registering new service')
+      const displayName = deriveDisplayName(serviceName)
 
       let authSchemes: AuthScheme[]
       if (knownProvider) {
         authSchemes = knownProvider.authSchemes
       } else {
+        // Don't assign auth schemes without evidence — discovery will determine them.
+        // Only add OAuth if we detect well-known endpoints during registration.
         const oauthWellKnown = await probeOAuthWellKnown(baseUrl)
-        authSchemes = [DEFAULT_API_KEY_SCHEME]
+        authSchemes = []
         if (oauthWellKnown) {
           authSchemes.push({
             type: 'oauth2',
@@ -692,15 +708,23 @@ export function createApp(deps: AppDeps = {}) {
 
     if (!token) {
       if (json) {
-        // Create an auth flow so the agent can poll/SSE for completion
-        const flowId = randomId()
-        await createAuthFlow(c.get('redis'), {
-          id: flowId,
-          service: serviceName,
-          method: 'api_key',
-          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        })
-        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), credential_count: credentialCount, discovery: discoveryStatus }, 401, {
+        const schemes = parseAuthSchemes(svc.authSchemes)
+        // Only create auth flow if service has known auth schemes.
+        // Services still being discovered have no schemes yet.
+        if (schemes.length > 0) {
+          const flowId = randomId()
+          await createAuthFlow(c.get('redis'), {
+            id: flowId,
+            service: serviceName,
+            method: 'api_key',
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+          })
+          return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL, flowId), credential_count: credentialCount, discovery: discoveryStatus }, 401, {
+            'WWW-Authenticate': 'Bearer realm="warden"',
+          })
+        }
+        // No auth schemes yet — discovery is still running
+        return c.json({ ...buildUnauthDiscovery(svc, c.env.BASE_URL), credential_count: credentialCount, discovery: discoveryStatus }, 401, {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }

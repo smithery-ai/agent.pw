@@ -77,36 +77,35 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
     return c.html(ErrorPage({ message: 'API key is required' }), 400)
   }
 
-  // Optionally validate the key via a "whoami" call
+  // Validate the key via a "whoami" call (or fallback to base URL probe)
   const authConfig: Record<string, string> = svc.authConfig ? JSON.parse(svc.authConfig) : {}
   const apiKeyScheme = getApiKeyScheme(parseAuthSchemes(svc.authSchemes)) ?? DEFAULT_API_KEY_SCHEME
   let identity = 'default'
 
-  if (authConfig.identity_url) {
-    try {
-      const headers: Record<string, string> = buildCredentialHeaders(apiKeyScheme, apiKey)
+  const validationUrl = authConfig.identity_url ?? svc.baseUrl
+  try {
+    const headers: Record<string, string> = buildCredentialHeaders(apiKeyScheme, apiKey)
 
-      let identityRes: Response
+    let identityRes: Response
 
-      if (authConfig.identity_method === 'POST') {
-        headers['Content-Type'] = 'application/json'
-        identityRes = await fetch(authConfig.identity_url, {
-          method: 'POST',
-          headers,
-          body: authConfig.identity_body || undefined,
-        })
-      } else {
-        identityRes = await fetch(authConfig.identity_url, { headers })
-      }
+    if (authConfig.identity_url && authConfig.identity_method === 'POST') {
+      headers['Content-Type'] = 'application/json'
+      identityRes = await fetch(authConfig.identity_url, {
+        method: 'POST',
+        headers,
+        body: authConfig.identity_body || undefined,
+      })
+    } else {
+      identityRes = await fetch(validationUrl, { headers })
+    }
 
-      if (!identityRes.ok) {
-        if (isJson) return c.json({ error: 'Invalid API key. The upstream service rejected it.' }, 400)
-        return c.html(
-          ErrorPage({ message: 'Invalid API key. The upstream service rejected it.' }),
-          400,
-        )
-      }
+    if (identityRes.status === 401) {
+      const msg = 'Invalid API key. The upstream service rejected it.'
+      if (isJson) return c.json({ error: msg, hint: `${validationUrl} returned 401 Unauthorized.` }, 400)
+      return c.html(ErrorPage({ message: msg }), 400)
+    }
 
+    if (authConfig.identity_url && identityRes.ok) {
       const data = (await identityRes.json()) as Record<string, unknown>
       if (authConfig.identity_path) {
         const resolved = getNestedValue(data, authConfig.identity_path)
@@ -114,9 +113,9 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
           identity = resolved
         }
       }
-    } catch {
-      // Validation failed but don't block — store with default identity
     }
+  } catch {
+    // Validation failed (network error, etc.) — don't block, store with default identity
   }
 
   const session = c.get('session')!

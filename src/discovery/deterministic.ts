@@ -409,6 +409,20 @@ export async function runDeterministicDiscovery(
     result = { pagesWritten: pages.length, resourcesFound: [], hasSpec: false }
   }
 
+  // If the service still has no auth schemes after OAuth detection,
+  // discovery reaching this point is evidence that the service exists.
+  // Set http/bearer as the default scheme so agents can authenticate.
+  const currentSchemes = parseAuthSchemes(ctx.service.authSchemes)
+  if (currentSchemes.length === 0) {
+    const defaultSchemes: AuthScheme[] = [DEFAULT_API_KEY_SCHEME]
+    const updatedSchemes = JSON.stringify(defaultSchemes)
+    await upsertService(ctx.db, ctx.hostname, {
+      baseUrl: ctx.service.baseUrl,
+      authSchemes: updatedSchemes,
+    })
+    ctx.service.authSchemes = updatedSchemes
+  }
+
   // Update service record with discovered metadata
   const serviceUpdate: Record<string, string | undefined> = {}
   if (probe.apiType !== 'unknown') serviceUpdate.apiType = probe.apiType
