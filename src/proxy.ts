@@ -200,11 +200,29 @@ export async function handleProxy(
     webhookRegistrationId = registrationId
   }
 
+  const log = c.get('logger')
+  log.info({
+    service,
+    orgId,
+    method: c.req.method,
+    upstreamUrl,
+    requestHeaders: Object.fromEntries(headers.entries()),
+  }, 'proxy request')
+
   const upstream = await fetch(upstreamUrl, {
     method: c.req.method,
     headers,
     body,
   })
+
+  log.info({
+    service,
+    orgId,
+    method: c.req.method,
+    upstreamUrl,
+    status: upstream.status,
+    responseHeaders: Object.fromEntries(upstream.headers.entries()),
+  }, 'proxy response')
 
   // For services with secretSource "response", extract and store the webhook secret
   if (wardenCallback && webhookRegistrationId && upstream.ok) {
