@@ -47,21 +47,23 @@ Rebasing before opening the PR prevents merge conflicts from blocking CI and kee
 
 ## 4. Watch CI
 
-- `gh pr checks <PR> --watch --fail-fast` (timeout 10 min).
+- Poll with `gh run watch <RUN_ID> --exit-status` for each workflow, or use `gh pr checks <PR>` to check status.
+- Don't use `--fail-fast` — it aborts on the first failure which may be an unrelated job.
 - If all checks pass → report the PR URL and stop.
 
 ## 5. Fix failures and iterate
 
 CI failures are common — the goal is to diagnose from logs rather than guessing.
 
-- `gh pr checks <PR>` to identify the failing job.
+- `gh pr checks <PR>` to identify the failing job(s) and run IDs.
 - `gh run view <RUN_ID> --log-failed` to read the actual error.
-- Fix the code, create a new commit (never amend pushed commits — it force-pushes and breaks review history), and push.
+- If the error is in the code, fix it, commit (never amend pushed commits), and push.
+- If the error is environmental (flaky infra, transient DB issues), rerun the job: `gh run rerun <RUN_ID> --failed`.
 - Return to step 4. Repeat up to 4 times.
 
 ## Rules
 
-- Never force-push or amend published commits.
+- Never force-push or amend published commits — except after a `git rebase`, where `--force-with-lease` is required and acceptable.
 - Never skip hooks (`--no-verify`).
 - Base branch is `main` unless told otherwise.
-- Non-blocking/informational CI jobs (like `pr-agent-e2e`) should be ignored — don't wait for them or fix their failures.
+- Investigate ALL failing CI jobs, including e2e. If the failure is clearly environmental or unrelated to the PR changes, note that in the PR and move on — but don't silently ignore failures.
