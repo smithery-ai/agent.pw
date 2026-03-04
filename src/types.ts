@@ -1,4 +1,5 @@
 import type { Database } from './db/index'
+import type { Redis } from '@upstash/redis'
 
 export interface Hyperdrive {
   connectionString: string
@@ -10,6 +11,11 @@ export interface Env {
   ENCRYPTION_KEY: string
   ANTHROPIC_API_KEY?: string
   ANTHROPIC_BASE_URL?: string
+  WORKOS_CLIENT_ID: string
+  WORKOS_API_KEY: string
+  WORKOS_COOKIE_PASSWORD: string
+  KV_REST_API_URL: string
+  KV_REST_API_TOKEN: string
   HYPERDRIVE?: Hyperdrive
   DISCOVERY_WORKFLOW?: Workflow
 }
@@ -23,8 +29,10 @@ export interface HonoEnv {
   Bindings: Env
   Variables: {
     db: Database
+    redis: Redis
     managementRights?: ManagementRights
     token?: string
+    session?: import('./lib/session').Session
   }
 }
 

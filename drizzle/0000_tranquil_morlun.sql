@@ -1,45 +1,40 @@
-CREATE TABLE "wdn_auth_flows" (
-	"id" text PRIMARY KEY NOT NULL,
-	"service" text NOT NULL,
-	"method" text NOT NULL,
-	"status" text DEFAULT 'pending' NOT NULL,
-	"code_verifier" text,
-	"vault_slug" text,
-	"warden_token" text,
-	"identity" text,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"expires_at" timestamp NOT NULL
-);
+CREATE SCHEMA IF NOT EXISTS "warden";
 --> statement-breakpoint
-CREATE TABLE "wdn_credentials" (
-	"vault_slug" text NOT NULL,
+DROP TABLE IF EXISTS "warden"."auth_flows";
+--> statement-breakpoint
+DROP TABLE IF EXISTS "warden"."vaults";
+--> statement-breakpoint
+DROP TABLE IF EXISTS "warden"."credentials";
+--> statement-breakpoint
+CREATE TABLE "warden"."credentials" (
+	"org_id" text NOT NULL,
 	"service" text NOT NULL,
-	"identity" text,
+	"slug" text DEFAULT 'default' NOT NULL,
 	"encrypted_credentials" "bytea" NOT NULL,
-	"metadata" text,
+	"tags" jsonb,
 	"expires_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "wdn_credentials_vault_slug_service_pk" PRIMARY KEY("vault_slug","service")
+	CONSTRAINT "credentials_org_id_service_slug_pk" PRIMARY KEY("org_id","service","slug")
 );
 --> statement-breakpoint
-CREATE TABLE "wdn_doc_pages" (
+CREATE TABLE IF NOT EXISTS "warden"."doc_pages" (
 	"hostname" text NOT NULL,
 	"path" text NOT NULL,
 	"content" text,
 	"status" text DEFAULT 'skeleton' NOT NULL,
 	"generated_at" timestamp DEFAULT now() NOT NULL,
 	"ttl_days" integer DEFAULT 7 NOT NULL,
-	CONSTRAINT "wdn_doc_pages_hostname_path_pk" PRIMARY KEY("hostname","path")
+	CONSTRAINT "doc_pages_hostname_path_pk" PRIMARY KEY("hostname","path")
 );
 --> statement-breakpoint
-CREATE TABLE "wdn_revocations" (
+CREATE TABLE IF NOT EXISTS "warden"."revocations" (
 	"revocation_id" text PRIMARY KEY NOT NULL,
 	"revoked_at" timestamp DEFAULT now() NOT NULL,
 	"reason" text
 );
 --> statement-breakpoint
-CREATE TABLE "wdn_services" (
+CREATE TABLE IF NOT EXISTS "warden"."services" (
 	"service" text PRIMARY KEY NOT NULL,
 	"base_url" text NOT NULL,
 	"display_name" text,
@@ -61,9 +56,10 @@ CREATE TABLE "wdn_services" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "wdn_vaults" (
-	"slug" text PRIMARY KEY NOT NULL,
-	"display_name" text,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL
+CREATE TABLE IF NOT EXISTS "warden"."users" (
+	"workos_user_id" text PRIMARY KEY NOT NULL,
+	"workos_org_id" text NOT NULL,
+	"email" text,
+	"name" text,
+	"created_at" timestamp DEFAULT now() NOT NULL
 );

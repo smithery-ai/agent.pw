@@ -1,25 +1,29 @@
 import { eq, and, sql } from 'drizzle-orm'
-import { vaults, services, credentials, revocations, authFlows, docPages } from './schema'
+import { users, services, credentials, revocations, docPages } from './schema'
 import type { Database } from './index'
 
-// ─── Vaults ──────────────────────────────────────────────────────────────────
+// ─── Users ──────────────────────────────────────────────────────────────────
 
-export async function getVault(db: Database, slug: string) {
-  const rows = await db.select().from(vaults).where(eq(vaults.slug, slug))
+export async function getUser(db: Database, workosUserId: string) {
+  const rows = await db.select().from(users).where(eq(users.workosUserId, workosUserId))
   return rows[0] ?? null
 }
 
-export async function listVaults(db: Database) {
-  return db.select().from(vaults)
-}
-
-export async function createVault(db: Database, slug: string, displayName?: string) {
-  await db.insert(vaults).values({ slug, displayName }).onConflictDoNothing()
-}
-
-export async function deleteVault(db: Database, slug: string) {
-  const result = await db.delete(vaults).where(eq(vaults.slug, slug)).returning()
-  return result.length > 0
+export async function upsertUser(
+  db: Database,
+  data: { workosUserId: string; workosOrgId: string; email?: string; name?: string },
+) {
+  await db
+    .insert(users)
+    .values(data)
+    .onConflictDoUpdate({
+      target: users.workosUserId,
+      set: {
+        workosOrgId: sql`excluded.workos_org_id`,
+        email: sql`coalesce(excluded.email, ${users.email})`,
+        name: sql`coalesce(excluded.name, ${users.name})`,
+      },
+    })
 }
 
 // ─── Services ────────────────────────────────────────────────────────────────
@@ -107,53 +111,56 @@ export async function deleteService(db: Database, service: string) {
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
 
-export async function getCredential(db: Database, vaultSlug: string, service: string) {
+export async function getCredential(db: Database, orgId: string, service: string, slug = 'default') {
   const rows = await db
     .select()
     .from(credentials)
-    .where(and(eq(credentials.vaultSlug, vaultSlug), eq(credentials.service, service)))
+    .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
   return rows[0] ?? null
 }
 
-export async function listCredentials(db: Database, vaultSlug: string) {
-  return db.select().from(credentials).where(eq(credentials.vaultSlug, vaultSlug))
+export async function listCredentials(db: Database, orgId: string) {
+  return db.select().from(credentials).where(eq(credentials.orgId, orgId))
+}
+
+export async function listCredentialsForService(db: Database, orgId: string, service: string) {
+  return db
+    .select()
+    .from(credentials)
+    .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service)))
 }
 
 export async function upsertCredential(
   db: Database,
-  vaultSlug: string,
+  orgId: string,
   service: string,
+  slug: string,
   encryptedCredentials: Buffer,
-  identity?: string,
-  metadata?: Record<string, string>,
-  expiresAt?: Date,
+  tags?: Record<string, string>,
 ) {
   await db
     .insert(credentials)
     .values({
-      vaultSlug,
+      orgId,
       service,
-      identity,
+      slug,
       encryptedCredentials,
-      metadata: metadata ? JSON.stringify(metadata) : null,
-      expiresAt: expiresAt ?? null,
+      tags: tags ?? null,
     })
     .onConflictDoUpdate({
-      target: [credentials.vaultSlug, credentials.service],
+      target: [credentials.orgId, credentials.service, credentials.slug],
       set: {
         encryptedCredentials: sql`excluded.encrypted_credentials`,
-        identity: sql`coalesce(excluded.identity, ${credentials.identity})`,
-        metadata: sql`coalesce(excluded.metadata, ${credentials.metadata})`,
-        expiresAt: sql`excluded.expires_at`,
+        tags: sql`coalesce(excluded.tags, ${credentials.tags})`,
         updatedAt: sql`now()`,
       },
     })
 }
 
-export async function deleteCredential(db: Database, vaultSlug: string, service: string) {
+export async function deleteCredential(db: Database, orgId: string, service: string, slug: string) {
   const result = await db
     .delete(credentials)
-    .where(and(eq(credentials.vaultSlug, vaultSlug), eq(credentials.service, service)))
+    .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
     .returning()
   return result.length > 0
 }
@@ -173,49 +180,6 @@ export async function revokeToken(db: Database, revocationId: string, reason?: s
     .insert(revocations)
     .values({ revocationId, reason })
     .onConflictDoNothing()
-}
-
-// ─── Auth Flows ──────────────────────────────────────────────────────────────
-
-export async function createAuthFlow(
-  db: Database,
-  data: {
-    id: string
-    service: string
-    method: string
-    codeVerifier?: string
-    vaultSlug?: string
-    expiresAt: Date
-  },
-) {
-  await db.insert(authFlows).values({
-    id: data.id,
-    service: data.service,
-    method: data.method,
-    codeVerifier: data.codeVerifier,
-    vaultSlug: data.vaultSlug,
-    expiresAt: data.expiresAt,
-  })
-}
-
-export async function getAuthFlow(db: Database, id: string) {
-  const rows = await db.select().from(authFlows).where(eq(authFlows.id, id))
-  return rows[0] ?? null
-}
-
-export async function completeAuthFlow(
-  db: Database,
-  id: string,
-  data: { wardenToken: string; identity: string },
-) {
-  await db
-    .update(authFlows)
-    .set({
-      status: 'completed',
-      wardenToken: data.wardenToken,
-      identity: data.identity,
-    })
-    .where(eq(authFlows.id, id))
 }
 
 // ─── Doc Pages ──────────────────────────────────────────────────────────────

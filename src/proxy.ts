@@ -56,13 +56,16 @@ export async function handleProxy(
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  // Extract vault from token (falls back to "personal")
-  const vaultSlug = extractVaultFromToken(token, publicKeyHex, service) ?? 'personal'
+  // Extract org from token (grant_vault carries org_id)
+  const orgId = extractVaultFromToken(token, publicKeyHex, service)
+  if (!orgId) {
+    return c.json({ error: `No org scope found in token for ${service}` }, 403)
+  }
 
-  // Look up credential by (vault, service)
-  const cred = await getCredential(db, vaultSlug, service)
+  // Look up credential by (org_id, service, slug)
+  const cred = await getCredential(db, orgId, service)
   if (!cred) {
-    return c.json({ error: `No credential found for ${service} in vault "${vaultSlug}"` }, 404)
+    return c.json({ error: `No credential found for ${service} in org "${orgId}"` }, 404)
   }
 
   // Build upstream request

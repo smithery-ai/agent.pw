@@ -7,6 +7,7 @@ import {
   getRevocationIds,
 } from './biscuit'
 import { isRevoked } from './db/queries'
+import { getSessionFromCookie } from './lib/session'
 
 export async function requireToken(c: Context<HonoEnv>, next: Next) {
   const token = extractBearerToken(c.req.header('Authorization'))
@@ -53,4 +54,25 @@ export function requireVaultAdmin(paramName: string) {
     }
     return next()
   }
+}
+
+export async function requireBrowserSession(c: Context<HonoEnv>, next: Next) {
+  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD)
+
+  if (!session) {
+    const url = new URL(c.req.url)
+    const returnTo = url.pathname + url.search
+    return c.redirect(`/auth/login?return_to=${encodeURIComponent(returnTo)}`)
+  }
+
+  c.set('session', session)
+  return next()
+}
+
+export async function optionalSession(c: Context<HonoEnv>, next: Next) {
+  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD)
+  if (session) {
+    c.set('session', session)
+  }
+  return next()
 }
