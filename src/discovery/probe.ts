@@ -1,9 +1,11 @@
 import type { ProbeResult } from './types'
+import type { Logger } from '../lib/logger'
 
 const PROBE_TIMEOUT = 2000
 
 export interface ProbeOptions {
   authHeaders?: Record<string, string>
+  logger?: Logger
 }
 
 const OPENAPI_PATHS = [
@@ -295,7 +297,9 @@ export async function probeService(
     authDetected: [],
   }
 
-  console.log(`[probe] probing ${baseUrl} (hint: ${apiType ?? 'unknown'})`)
+  const log = options?.logger
+
+  log?.info({ hostname, baseUrl, apiTypeHint: apiType ?? 'unknown' }, 'probing service')
 
   // Derive hostname from baseUrl if not provided
   const host = hostname ?? new URL(baseUrl).hostname
@@ -318,7 +322,7 @@ export async function probeService(
     result.specContent = spec.specContent
     if (result.apiType === 'unknown') result.apiType = 'rest'
     if (apisGuru && !openApi) {
-      console.log(`[probe] found spec via APIs.guru registry: ${spec.specUrl}`)
+      log?.info({ hostname, specUrl: spec.specUrl, source: 'apis_guru' }, 'found spec via APIs.guru registry')
     }
 
     if (!oauthWellKnown) {
@@ -364,7 +368,7 @@ export async function probeService(
     result.docsUrl = externalDocs[0]
   }
 
-  console.log(`[probe] external docs for ${host}: ${externalDocs.length > 0 ? externalDocs.join(', ') : 'none'}`)
+  log?.info({ hostname, externalDocsCount: externalDocs.length, externalDocs }, 'external docs probe complete')
 
   return result
 }

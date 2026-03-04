@@ -25,6 +25,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.8
         version: 1.19.10(hono@4.12.0)
+      '@logtail/edge':
+        specifier: ^0.5.7
+        version: 0.5.7(@cloudflare/workers-types@4.20260305.0)
       '@smithery/biscuit':
         specifier: ^1.0.0
         version: 1.0.0
@@ -39,7 +42,7 @@ importers:
         version: 6.0.111(zod@4.3.6)
       drizzle-orm:
         specifier: ^0.44.1
-        version: 0.44.7(@electric-sql/pglite@0.2.17)(@opentelemetry/api@1.9.0)(@upstash/redis@1.36.3)(gel@2.2.0)(postgres@3.4.8)
+        version: 0.44.7(@cloudflare/workers-types@4.20260305.0)(@electric-sql/pglite@0.2.17)(@opentelemetry/api@1.9.0)(@upstash/redis@1.36.3)(gel@2.2.0)(postgres@3.4.8)
       hono:
         specifier: ^4.12.0
         version: 4.12.0
@@ -76,7 +79,7 @@ importers:
         version: 3.2.4(@types/node@25.3.3)(tsx@4.21.0)
       wrangler:
         specifier: ^4.69.0
-        version: 4.69.0
+        version: 4.69.0(@cloudflare/workers-types@4.20260305.0)
 
 packages:
 
@@ -249,6 +252,9 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
+
+  '@cloudflare/workers-types@4.20260305.0':
+    resolution: {integrity: sha512-sCgPFnQ03SVpC2OVW8wysONLZW/A8hlp9Mq2ckG/h1oId4kr9NawA6vUiOmOjCWRn2hIohejBYVQ+Vu20rCdKA==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -864,6 +870,24 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
+  '@logtail/core@0.5.6':
+    resolution: {integrity: sha512-wbExeqFgH8mfEJ0N1X1KmBZVmh1oGyQLtHo329O9TvDqyL3tmyQnXbtEHwB0whfCKrkzHPZvWAamcv/Y8uPOZw==}
+
+  '@logtail/edge@0.5.7':
+    resolution: {integrity: sha512-joxu8ygUOc6VuQyhSK6dRhqi5VS7lNIFUfy/m14mcmFJZ4hPplAI8qwoQ23UPkDmClyytkgLeNIH/FTatrrV6g==}
+    peerDependencies:
+      '@cloudflare/workers-types': ^4.20230904.0
+
+  '@logtail/tools@0.5.6':
+    resolution: {integrity: sha512-l6VIzOUGZs6eLIWjZD88hNyE61xjRN0xypvFvY7CGl9nH+MlBSoFobA8XPTB+JpU1Zn3UhovOJrRM2SAoVyq4Q==}
+
+  '@logtail/types@0.5.6':
+    resolution: {integrity: sha512-a7tkl2rBE24SoV1dG3Jme6sfSRtQjSonlVym0PvoBHFbretqm0FB1SQuba27zOC9qH0kcYtyJGkoFi4vpJE/tQ==}
+
+  '@msgpack/msgpack@2.8.0':
+    resolution: {integrity: sha512-h9u4u/jiIRKbq25PM+zymTyW6bhTzELvOoUd+AvYriWOAKpLGnIamaET3pnHYoI5iYphAHBI4ayx0MehR+VVPQ==}
+    engines: {node: '>= 10'}
+
   '@opentelemetry/api@1.9.0':
     resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
     engines: {node: '>=8.0.0'}
@@ -1069,6 +1093,9 @@ packages:
 
   '@types/node@25.3.3':
     resolution: {integrity: sha512-DpzbrH7wIcBaJibpKo9nnSQL0MTRdnWttGyE5haGwK86xgMOkFLp7vEyfQPGLOJh5wNYiJ3V9PmUMDhV9u8kkQ==}
+
+  '@types/stack-trace@0.0.33':
+    resolution: {integrity: sha512-O7in6531Bbvlb2KEsJ0dq0CHZvc3iWSR5ZYMtvGgnHA56VgriAN/AU2LorfmcvAl2xc9N5fbCTRyMRRl8nd74g==}
 
   '@upstash/redis@1.36.3':
     resolution: {integrity: sha512-wxo1ei4OHDHm4UGMgrNVz9QUEela9N/Iwi4p1JlHNSowQiPi+eljlGnfbZVkV0V4PIrjGtGFJt5GjWM5k28enA==}
@@ -1546,6 +1573,10 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
+  serialize-error@8.1.0:
+    resolution: {integrity: sha512-3NnuWfM6vBYoy5gZFvHiYsVbafvI9vZv/+jlIigFn4oP4zjNPK3LhcY0xSCgeb1a5L8jO71Mit9LlNoi2UfDDQ==}
+    engines: {node: '>=10'}
+
   sharp@0.34.5:
     resolution: {integrity: sha512-Ou9I5Ft9WNcCbXrU9cMgPBcCK8LiwLqcbywW3t4oDV37n1pzpuNLsYiAV8eODnjbtQlSDwZ2cUEeQz4E54Hltg==}
     engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
@@ -1579,6 +1610,9 @@ packages:
   source-map@0.6.1:
     resolution: {integrity: sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==}
     engines: {node: '>=0.10.0'}
+
+  stack-trace@0.0.10:
+    resolution: {integrity: sha512-KGzahc7puUKkzyMt+IqAep+TVNbKP+k2Lmwhub39m1AsTSkaDutx56aDCo+HLDzf/D26BIHTJWNiTG1KAJiQCg==}
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
@@ -1646,6 +1680,10 @@ packages:
     resolution: {integrity: sha512-5C1sg4USs1lfG0GFb2RLXsdpXqBSEhAaA/0kPL01wxzpMqLILNxIxIOKiILz+cdg/pLnOUxFYOR5yhHU666wbw==}
     engines: {node: '>=18.0.0'}
     hasBin: true
+
+  type-fest@0.20.2:
+    resolution: {integrity: sha512-Ne+eE4r0/iWnpAxD852z3A+N0Bt5RN//NjJwRd2VFHEmrywxf5vsZlh4R6lixl6B+wz/8d+maTSAkN1FIkI3LQ==}
+    engines: {node: '>=10'}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -1940,6 +1978,8 @@ snapshots:
 
   '@cloudflare/workerd-windows-64@1.20260305.0':
     optional: true
+
+  '@cloudflare/workers-types@4.20260305.0': {}
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -2307,6 +2347,30 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@logtail/core@0.5.6':
+    dependencies:
+      '@logtail/tools': 0.5.6
+      '@logtail/types': 0.5.6
+      serialize-error: 8.1.0
+
+  '@logtail/edge@0.5.7(@cloudflare/workers-types@4.20260305.0)':
+    dependencies:
+      '@cloudflare/workers-types': 4.20260305.0
+      '@logtail/core': 0.5.6
+      '@logtail/types': 0.5.6
+      '@msgpack/msgpack': 2.8.0
+      '@types/stack-trace': 0.0.33
+      minimatch: 9.0.9
+      stack-trace: 0.0.10
+
+  '@logtail/tools@0.5.6':
+    dependencies:
+      '@logtail/types': 0.5.6
+
+  '@logtail/types@0.5.6': {}
+
+  '@msgpack/msgpack@2.8.0': {}
+
   '@opentelemetry/api@1.9.0': {}
 
   '@petamoriken/float16@3.9.3': {}
@@ -2466,6 +2530,8 @@ snapshots:
   '@types/node@25.3.3':
     dependencies:
       undici-types: 7.18.2
+
+  '@types/stack-trace@0.0.33': {}
 
   '@upstash/redis@1.36.3':
     dependencies:
@@ -2627,8 +2693,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.44.7(@electric-sql/pglite@0.2.17)(@opentelemetry/api@1.9.0)(@upstash/redis@1.36.3)(gel@2.2.0)(postgres@3.4.8):
+  drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260305.0)(@electric-sql/pglite@0.2.17)(@opentelemetry/api@1.9.0)(@upstash/redis@1.36.3)(gel@2.2.0)(postgres@3.4.8):
     optionalDependencies:
+      '@cloudflare/workers-types': 4.20260305.0
       '@electric-sql/pglite': 0.2.17
       '@opentelemetry/api': 1.9.0
       '@upstash/redis': 1.36.3
@@ -2939,6 +3006,10 @@ snapshots:
 
   semver@7.7.4: {}
 
+  serialize-error@8.1.0:
+    dependencies:
+      type-fest: 0.20.2
+
   sharp@0.34.5:
     dependencies:
       '@img/colour': 1.1.0
@@ -2990,6 +3061,8 @@ snapshots:
       source-map: 0.6.1
 
   source-map@0.6.1: {}
+
+  stack-trace@0.0.10: {}
 
   stackback@0.0.2: {}
 
@@ -3054,6 +3127,8 @@ snapshots:
       get-tsconfig: 4.13.6
     optionalDependencies:
       fsevents: 2.3.3
+
+  type-fest@0.20.2: {}
 
   typescript@5.9.3: {}
 
@@ -3165,7 +3240,7 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20260305.0
       '@cloudflare/workerd-windows-64': 1.20260305.0
 
-  wrangler@4.69.0:
+  wrangler@4.69.0(@cloudflare/workers-types@4.20260305.0):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.4.2
       '@cloudflare/unenv-preset': 2.14.0(unenv@2.0.0-rc.24)(workerd@1.20260305.0)
@@ -3176,6 +3251,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       workerd: 1.20260305.0
     optionalDependencies:
+      '@cloudflare/workers-types': 4.20260305.0
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil

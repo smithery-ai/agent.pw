@@ -66,14 +66,15 @@ export async function getOrGeneratePage(
  * Non-blocking — fires and forgets.
  */
 async function maybeRetriggerDiscovery(ctx: PipelineContext) {
+  const log = ctx.logger
   try {
     const stale = await isDiscoveryStale(ctx)
     if (stale) {
-      console.log(`[discovery] re-triggering for ${ctx.hostname} (stale >1h)`)
+      log?.info({ hostname: ctx.hostname, trigger: 'stale' }, 're-triggering discovery (stale >1h)')
       triggerDiscoveryWorkflow(ctx)
     }
   } catch (e) {
-    console.error(`[discovery] staleness check failed for ${ctx.hostname}:`, e)
+    log?.error({ hostname: ctx.hostname, error: e instanceof Error ? e.message : String(e) }, 'staleness check failed')
   }
 }
 
@@ -82,15 +83,17 @@ async function maybeRetriggerDiscovery(ctx: PipelineContext) {
  * Uses Cloudflare Workflows when available, falls back to in-process execution.
  */
 export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
+  const log = ctx.logger
+
   if (ctx.workflow) {
     const id = `discovery-${ctx.hostname.replaceAll('.', '_')}-${Date.now()}`
-    console.log(`[discovery] triggering workflow for ${ctx.hostname} (instance: ${id})`)
+    log?.info({ hostname: ctx.hostname, workflowId: id }, 'triggering workflow')
     await ctx.workflow.create({ id, params: { hostname: ctx.hostname } })
     return id
   }
 
   // Fallback: run in-process (for local dev / tests without workflow binding)
-  console.log(`[discovery] no workflow binding, running in-process for ${ctx.hostname}`)
+  log?.info({ hostname: ctx.hostname }, 'no workflow binding, running in-process')
 
   try {
     await updateCrawlState(ctx.db, ctx.hostname, 'crawling')
@@ -103,7 +106,7 @@ export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
         if (cred) {
           const stored = await decryptCredentials(ctx.encryptionKey, cred.encryptedCredentials)
           authHeaders = stored.headers
-          console.log(`[discovery] using stored credentials for ${ctx.hostname} probe`)
+          log?.info({ hostname: ctx.hostname }, 'using stored credentials for probe')
         }
       } catch {
         // Credential decryption failed — proceed without auth
@@ -120,7 +123,7 @@ export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
 
     await updateCrawlState(ctx.db, ctx.hostname, 'ready')
   } catch (e) {
-    console.error(`[discovery] in-process discovery failed for ${ctx.hostname}:`, e)
+    log?.error({ hostname: ctx.hostname, error: e instanceof Error ? e.message : String(e) }, 'in-process discovery failed')
     try {
       await updateCrawlState(ctx.db, ctx.hostname, 'failed')
     } catch {

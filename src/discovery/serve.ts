@@ -22,6 +22,7 @@ function buildPipelineCtx(c: Context<HonoEnv>, serviceName: string, svc: NonNull
     baseUrl: new URL(c.req.url).origin,
     encryptionKey: c.env.ENCRYPTION_KEY,
     workflow: c.env.DISCOVERY_WORKFLOW,
+    logger: c.get('logger').child({ hostname: serviceName }),
   }
 }
 

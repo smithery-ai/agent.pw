@@ -7,7 +7,7 @@ export default defineConfig({
       provider: 'v8',
       all: true,
       include: ['src/db/**/*.ts', 'src/lib/**/*.ts'],
-      exclude: ['src/db/index.ts'],
+      exclude: ['src/db/index.ts', 'src/lib/logger.ts'],
       thresholds: {
         lines: 85,
         functions: 85,

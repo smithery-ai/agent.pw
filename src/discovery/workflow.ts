@@ -7,6 +7,7 @@ import { probeService } from './probe'
 import { runDeterministicDiscovery } from './deterministic'
 import { runDiscoveryAgent } from './enrichment'
 import { decryptCredentials } from '../lib/credentials-crypto'
+import { createLogger } from '../lib/logger'
 
 interface WorkflowParams {
   hostname: string
@@ -18,12 +19,16 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const connectionString = this.env.HYPERDRIVE?.connectionString
     if (!connectionString) throw new Error('HYPERDRIVE binding not configured')
 
+    const { logger, flush } = createLogger('warden', this.env.BETTERSTACK_SOURCE_TOKEN)
+    const log = logger.child({ hostname, workflow: 'discovery' })
+
     // Step 1: Look up service and set crawl state to 'crawling'
     const service = await step.do('lookup-service', async () => {
       const db = createDb(connectionString)
       const svc = await getService(db, hostname)
       if (!svc) throw new Error(`Service not found: ${hostname}`)
       await updateCrawlState(db, hostname, 'crawling')
+      log.info({ step: 'lookup-service' }, 'service found, crawl state set to crawling')
       return svc
     })
 
@@ -42,7 +47,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
               try {
                 const stored = await decryptCredentials(this.env.ENCRYPTION_KEY, cred.encryptedCredentials)
                 authHeaders = stored.headers
-                console.log(`[discovery] using stored credentials for ${hostname} probe`)
+                log.info({ step: 'probe-and-discover' }, 'using stored credentials for probe')
               } catch {
                 // Credential decryption failed — proceed without auth
               }
@@ -50,14 +55,21 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           }
 
           // Probe the service
-          console.log(`[discovery] probing ${hostname} (baseUrl: ${service.baseUrl})`)
+          log.info({ step: 'probe-and-discover', baseUrl: service.baseUrl }, 'probing service')
           const probe = await probeService(
             service.baseUrl,
             service.apiType ?? undefined,
             hostname,
             { authHeaders },
           )
-          console.log(`[discovery] probe complete for ${hostname}: type=${probe.apiType}, spec=${!!probe.specContent}, graphql=${!!probe.graphqlSchema}, docsUrl=${probe.docsUrl ?? 'none'}, externalDocs=${probe.externalDocsUrls.length}`)
+          log.info({
+            step: 'probe-and-discover',
+            apiType: probe.apiType,
+            hasSpec: !!probe.specContent,
+            hasGraphql: !!probe.graphqlSchema,
+            docsUrl: probe.docsUrl ?? null,
+            externalDocsCount: probe.externalDocsUrls.length,
+          }, 'probe complete')
 
           // Run deterministic discovery (consumes spec content in-memory, writes pages to DB)
           const db = createDb(connectionString)
@@ -70,9 +82,15 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
             awsRegion: this.env.AWS_REGION,
             baseUrl: this.env.BASE_URL,
+            logger: log,
           }
           const result = await runDeterministicDiscovery(ctx, probe)
-          console.log(`[discovery] deterministic complete for ${hostname}: ${result.pagesWritten} pages, ${result.resourcesFound.length} resources, hasSpec=${result.hasSpec}`)
+          log.info({
+            step: 'probe-and-discover',
+            pagesWritten: result.pagesWritten,
+            resourceCount: result.resourcesFound.length,
+            hasSpec: result.hasSpec,
+          }, 'deterministic discovery complete')
 
           // Return only small metadata (not the full spec content)
           return { hasSpec: result.hasSpec, externalDocsUrls: probe.externalDocsUrls }
@@ -82,9 +100,10 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       const hasLlmProvider = this.env.AWS_ACCESS_KEY_ID || this.env.ANTHROPIC_API_KEY
 
       if (!hasLlmProvider) {
-        console.log(`[discovery] skipping discovery agent for ${hostname}: no LLM provider configured`)
+        log.info({ step: 'skip-agent' }, 'no LLM provider configured, skipping discovery agent')
         const db = createDb(connectionString)
         await updateCrawlState(db, hostname, 'ready')
+        await flush()
         return
       }
 
@@ -93,7 +112,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         'discovery-agent',
         { retries: { limit: 1, delay: '10 seconds' } },
         async () => {
-          console.log(`[discovery] running discovery agent for ${hostname}`)
+          log.info({ step: 'discovery-agent' }, 'starting discovery agent')
           const db = createDb(connectionString)
           const ctx = {
             db,
@@ -105,6 +124,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             awsRegion: this.env.AWS_REGION,
             baseUrl: this.env.BASE_URL,
             externalDocsUrls: discoveryResult.externalDocsUrls,
+            logger: log,
           }
           await runDiscoveryAgent(ctx)
         },
@@ -114,8 +134,11 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await step.do('mark-ready', async () => {
         const db = createDb(connectionString)
         await updateCrawlState(db, hostname, 'ready')
+        log.info({ step: 'mark-ready' }, 'discovery workflow complete')
+        await flush()
       })
     } catch (e) {
+      log.error({ step: 'workflow-error', error: e instanceof Error ? e.message : String(e) }, 'discovery workflow failed')
       // Mark as failed on any unrecoverable error
       try {
         const db = createDb(connectionString)
@@ -123,6 +146,7 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       } catch {
         // Best effort
       }
+      await flush()
       throw e
     }
   }

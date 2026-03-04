@@ -24,6 +24,7 @@
     "@ai-sdk/anthropic": "^3.0.54",
     "@ai-sdk/mcp": "^1.0.23",
     "@hono/node-server": "^1.13.8",
+    "@logtail/edge": "^0.5.7",
     "@smithery/biscuit": "^1.0.0",
     "@upstash/redis": "^1.36.3",
     "@workos-inc/node": "^8.8.0",
