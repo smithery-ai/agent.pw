@@ -448,6 +448,34 @@ export function extractManagementRights(
   }
 }
 
+/**
+ * Extract the first vault from any grant in the token, regardless of service.
+ * Useful for listing webhook registrations across all services.
+ */
+export function extractFirstVault(
+  tokenBase64: string,
+  publicKeyHex: string,
+): string | null {
+  try {
+    const raw = stripPrefix(tokenBase64)
+    const publicKey = parsePublicKey(publicKeyHex)
+    const token = Biscuit.fromBase64(raw, publicKey)
+    const source = token.getBlockSource(0)
+
+    for (const line of source.split('\n')) {
+      const trimmed = line.trim().replace(/;$/, '')
+      const match = trimmed.match(/grant_vault\(\d+,\s*"([^"]+)"\)/)
+      if (match) {
+        return match[1]
+      }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 export function extractVaultFromToken(
   tokenBase64: string,
   publicKeyHex: string,

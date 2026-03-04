@@ -85,6 +85,34 @@ export function buildWardenGuide(baseUrl: string) {
         description:
           'Generated API documentation with resources, operations, and examples.',
       },
+      hooks_register_via_proxy: {
+        method: 'POST',
+        path: '/{hostname}/{webhook_endpoint}',
+        description:
+          'Create a webhook through the proxy with Warden-Callback header. Use $WARDEN_HOOK_URL and $WARDEN_HOOK_SECRET placeholders in the body — Warden replaces them with generated values, stores the webhook secret, and registers the forwarding target. One call.',
+        headers: {
+          Authorization: 'Bearer <warden_token>',
+          'Warden-Callback': '<your_callback_url>',
+        },
+      },
+      hooks_registrations: {
+        method: 'GET',
+        path: '/hooks/registrations',
+        description: 'List your webhook registrations.',
+        headers: { Authorization: 'Bearer <warden_token>' },
+      },
+      hooks_ingestion: {
+        method: 'POST',
+        path: '/hooks/{hostname}/{id}',
+        description:
+          'Webhook ingestion endpoint. Upstream services POST here. Not called by agents directly.',
+      },
+      hooks_verification: {
+        method: 'GET',
+        path: '/.well-known/jwks.json',
+        description:
+          'Ed25519 public key (JWK) for verifying Warden-Signature on forwarded events.',
+      },
     },
     example_flow: {
       description: 'Connect to Linear and list issues',
@@ -106,6 +134,36 @@ export function buildWardenGuide(baseUrl: string) {
           },
           body: '{ "query": "{ issues { nodes { id title } } }" }',
           note: 'Proxied to Linear with injected credentials',
+        },
+      ],
+    },
+    example_webhook_flow: {
+      description: 'Subscribe to GitHub push events via webhook',
+      steps: [
+        {
+          request: `POST ${baseUrl}/api.github.com/repos/{owner}/{repo}/hooks`,
+          headers: {
+            Authorization: 'Bearer <token>',
+            'Content-Type': 'application/json',
+            'Warden-Callback': 'https://your-agent.example.com/on-push',
+          },
+          body: JSON.stringify({
+            events: ['push'],
+            config: {
+              url: '$WARDEN_HOOK_URL',
+              secret: '$WARDEN_HOOK_SECRET',
+              content_type: 'json',
+            },
+          }),
+          note: 'Warden replaces placeholders, stores the secret, and registers forwarding. Returns the GitHub response with a Warden-Registration-Id header.',
+        },
+        {
+          event: 'GitHub sends push event to Warden',
+          note: 'Warden verifies the upstream signature, wraps the payload in a WardenWebhookEnvelope, signs it with Ed25519, and forwards to your callback.',
+        },
+        {
+          verification: `GET ${baseUrl}/.well-known/jwks.json`,
+          note: 'Fetch the Ed25519 public key to verify the Warden-Signature header on forwarded events.',
         },
       ],
     },
@@ -179,6 +237,31 @@ Replace \`{hostname}\` with the API hostname (e.g. \`api.github.com\`).
 | \`GET\` | \`/auth/status/{flow_id}\` | Poll for auth completion |
 | \`ANY\` | \`/{hostname}/{path}\` | Proxy with injected credentials |
 | \`GET\` | \`/{hostname}/docs/\` | Auto-generated API documentation |
+| \`POST\` | \`/{hostname}/{webhook_endpoint}\` | Create webhook with \`Warden-Callback\` header |
+| \`GET\` | \`/hooks/registrations\` | List webhook registrations |
+| \`GET\` | \`/.well-known/jwks.json\` | Ed25519 public key for verifying forwarded events |
+
+## Webhooks (Events)
+
+Warden normalizes webhook verification — register once, receive events
+with a consistent \`Warden-Signature\` header signed by Warden's Ed25519 key.
+
+1. **Create a webhook** through the proxy with the \`Warden-Callback\` header:
+   \`\`\`
+   curl -X POST ${baseUrl}/{hostname}/{webhook_endpoint} \\
+     -H "Authorization: Bearer <token>" \\
+     -H "Warden-Callback: https://your-agent.example.com/callback" \\
+     -H "Content-Type: application/json" \\
+     -d '{"url": "$WARDEN_HOOK_URL", "secret": "$WARDEN_HOOK_SECRET"}'
+   \`\`\`
+   Warden replaces \`$WARDEN_HOOK_URL\` and \`$WARDEN_HOOK_SECRET\` with
+   generated values, stores the secret, and registers the forwarding.
+
+2. **Receive events** at your callback URL. Each event is wrapped in a
+   \`WardenWebhookEnvelope\` and signed with Warden's Ed25519 key.
+
+3. **Verify the signature** using the public key from
+   \`${baseUrl}/.well-known/jwks.json\` and the \`Warden-Signature\` header.
 
 ## Important
 

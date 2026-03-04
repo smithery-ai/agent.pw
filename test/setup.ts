@@ -65,6 +65,20 @@ export async function createTestDb() {
       docs_url TEXT,
       preview TEXT,
       auth_config TEXT,
+      webhook_config TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `)
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS warden.webhook_registrations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      service TEXT NOT NULL,
+      callback_url TEXT NOT NULL,
+      encrypted_webhook_secret BYTEA,
+      metadata TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )

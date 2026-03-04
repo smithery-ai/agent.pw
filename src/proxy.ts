@@ -6,7 +6,7 @@ import {
   getPublicKeyHex,
   getRevocationIds,
 } from './biscuit'
-import { getCredential, getService, isRevoked, upsertCredential } from './db/queries'
+import { getCredential, getService, isRevoked, upsertCredential, upsertWebhookRegistration } from './db/queries'
 import {
   decryptCredentials,
   encryptCredentials,
@@ -14,6 +14,8 @@ import {
   type StoredCredentials,
 } from './lib/credentials-crypto'
 import { refreshOAuthToken } from './oauth'
+import { randomId } from './webhooks/envelope'
+import type { WebhookConfig } from './webhooks/verify'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -23,6 +25,16 @@ function errorMessage(e: unknown): string {
   } catch /* v8 ignore start */ {
     return String(e)
   } /* v8 ignore stop */
+}
+
+/** Traverse a nested object by dot-separated path, e.g. "data.secret" */
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  let current: unknown = obj
+  for (const key of path.split('.')) {
+    if (current == null || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[key]
+  }
+  return current
 }
 
 export function extractBearerToken(header: string | undefined): string | null {
@@ -147,8 +159,46 @@ export async function handleProxy(
     headers.set(name, value)
   }
 
+  // ─── Webhook registration interception ─────────────────────────────────
+  // When Warden-Callback is present, this is a webhook creation request.
+  // Generate hookUrl + secret, replace placeholders, and register the forwarding target.
+
+  const wardenCallback = c.req.header('Warden-Callback')
+  let webhookRegistrationId: string | undefined
+  headers.delete('warden-callback')
+
   // Forward request
-  const body = ['GET', 'HEAD'].includes(c.req.method) ? undefined : await c.req.raw.arrayBuffer()
+  let body: ArrayBuffer | string | undefined
+  if (['GET', 'HEAD'].includes(c.req.method)) {
+    body = undefined
+  } else {
+    body = await c.req.raw.arrayBuffer()
+  }
+
+  if (wardenCallback && body) {
+    const registrationId = randomId()
+    const webhookSecret = randomId() + randomId() // 64-char hex secret
+    const hookUrl = `${c.env.BASE_URL}/hooks/${service}/${registrationId}`
+
+    let bodyText = new TextDecoder().decode(body)
+    bodyText = bodyText.replace(/\$WARDEN_HOOK_URL/g, hookUrl)
+    bodyText = bodyText.replace(/\$WARDEN_HOOK_SECRET/g, webhookSecret)
+    body = bodyText
+
+    // Encrypt and store the webhook secret
+    const encryptedSecret = await encryptCredentials(c.env.ENCRYPTION_KEY, {
+      headers: { secret: webhookSecret },
+    })
+
+    await upsertWebhookRegistration(db, registrationId, {
+      orgId,
+      service,
+      callbackUrl: wardenCallback,
+      encryptedWebhookSecret: encryptedSecret,
+    })
+
+    webhookRegistrationId = registrationId
+  }
 
   const upstream = await fetch(upstreamUrl, {
     method: c.req.method,
@@ -156,9 +206,40 @@ export async function handleProxy(
     body,
   })
 
+  // For services with secretSource "response", extract and store the webhook secret
+  if (wardenCallback && webhookRegistrationId && upstream.ok) {
+    const webhookConfig: WebhookConfig | null = svc.webhookConfig
+      ? JSON.parse(svc.webhookConfig)
+      : null
+
+    if (webhookConfig?.secretSource === 'response' && webhookConfig.secretResponsePath) {
+      try {
+        const responseBody = await upstream.clone().json() as Record<string, unknown>
+        const secret = getNestedValue(responseBody, webhookConfig.secretResponsePath)
+        if (typeof secret === 'string') {
+          const encryptedSecret = await encryptCredentials(c.env.ENCRYPTION_KEY, {
+            headers: { secret },
+          })
+          await upsertWebhookRegistration(db, webhookRegistrationId, {
+            orgId,
+            service,
+            callbackUrl: wardenCallback,
+            encryptedWebhookSecret: encryptedSecret,
+          })
+        }
+      } catch {
+        // Response parsing failed — the client-provided secret (if any) remains
+      }
+    }
+  }
+
   // Return response transparently
   const responseHeaders = new Headers(upstream.headers)
   responseHeaders.delete('transfer-encoding')
+
+  if (webhookRegistrationId) {
+    responseHeaders.set('Warden-Registration-Id', webhookRegistrationId)
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,

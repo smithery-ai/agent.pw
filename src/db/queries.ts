@@ -1,5 +1,5 @@
 import { eq, and, sql } from 'drizzle-orm'
-import { users, services, credentials, oauthApps, revocations, docPages } from './schema'
+import { users, services, credentials, oauthApps, revocations, docPages, webhookRegistrations } from './schema'
 import type { Database } from './index'
 
 // ─── Users ──────────────────────────────────────────────────────────────────
@@ -91,6 +91,7 @@ export async function upsertService(
     docsUrl?: string
     preview?: string
     authConfig?: string
+    webhookConfig?: string
   },
 ) {
   await db
@@ -107,6 +108,7 @@ export async function upsertService(
       docsUrl: data.docsUrl,
       preview: data.preview,
       authConfig: data.authConfig,
+      webhookConfig: data.webhookConfig,
     })
     .onConflictDoUpdate({
       target: services.service,
@@ -121,6 +123,7 @@ export async function upsertService(
         docsUrl: sql`coalesce(excluded.docs_url, ${services.docsUrl})`,
         preview: sql`coalesce(excluded.preview, ${services.preview})`,
         authConfig: sql`coalesce(excluded.auth_config, ${services.authConfig})`,
+        webhookConfig: sql`coalesce(excluded.webhook_config, ${services.webhookConfig})`,
         updatedAt: sql`now()`,
       },
     })
@@ -300,4 +303,58 @@ export async function listStaleDocPages(db: Database, hostname: string) {
 
 export async function deleteDocPages(db: Database, hostname: string) {
   return db.delete(docPages).where(eq(docPages.hostname, hostname))
+}
+
+// ─── Webhook Registrations ──────────────────────────────────────────────────
+
+export async function getWebhookRegistration(db: Database, service: string, id: string) {
+  const rows = await db
+    .select()
+    .from(webhookRegistrations)
+    .where(and(eq(webhookRegistrations.service, service), eq(webhookRegistrations.id, id)))
+  return rows[0] ?? null
+}
+
+export async function listWebhookRegistrations(db: Database, orgId: string) {
+  return db.select().from(webhookRegistrations).where(eq(webhookRegistrations.orgId, orgId))
+}
+
+export async function upsertWebhookRegistration(
+  db: Database,
+  id: string,
+  data: {
+    orgId: string
+    service: string
+    callbackUrl: string
+    encryptedWebhookSecret?: Buffer | null
+    metadata?: string
+  },
+) {
+  await db
+    .insert(webhookRegistrations)
+    .values({
+      id,
+      orgId: data.orgId,
+      service: data.service,
+      callbackUrl: data.callbackUrl,
+      encryptedWebhookSecret: data.encryptedWebhookSecret ?? null,
+      metadata: data.metadata,
+    })
+    .onConflictDoUpdate({
+      target: webhookRegistrations.id,
+      set: {
+        callbackUrl: sql`excluded.callback_url`,
+        encryptedWebhookSecret: sql`coalesce(excluded.encrypted_webhook_secret, ${webhookRegistrations.encryptedWebhookSecret})`,
+        metadata: sql`coalesce(excluded.metadata, ${webhookRegistrations.metadata})`,
+        updatedAt: sql`now()`,
+      },
+    })
+}
+
+export async function deleteWebhookRegistration(db: Database, id: string, orgId: string) {
+  const result = await db
+    .delete(webhookRegistrations)
+    .where(and(eq(webhookRegistrations.id, id), eq(webhookRegistrations.orgId, orgId)))
+    .returning()
+  return result.length > 0
 }

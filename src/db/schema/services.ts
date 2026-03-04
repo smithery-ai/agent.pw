@@ -16,6 +16,8 @@ export const services = wardenSchema.table('services', {
   docsUrl: text('docs_url'),
   preview: text('preview'), // JSON
   authConfig: text('auth_config'), // JSON: provider-specific overrides
+  // Webhooks
+  webhookConfig: text('webhook_config'), // JSON: WebhookConfig for signature verification
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
