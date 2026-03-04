@@ -1,15 +1,26 @@
+import type { AuthScheme } from '../auth-schemes'
+
 /**
  * Credentials stored alongside a connection, encrypted at rest in the database.
  * Used by the proxy to inject auth headers when forwarding to upstream APIs.
  */
 export type StoredCredentials = {
   headers: Record<string, string>
+  oauth?: {
+    refreshToken: string
+    accessToken: string
+    expiresAt?: string
+    tokenUrl: string
+    clientId: string
+    clientSecret?: string
+    scopes?: string
+  }
 }
 
 /**
  * Import a base64-encoded AES-256 key for use with crypto.subtle.
  */
-async function importKey(encryptionKey: string): Promise<CryptoKey> {
+export async function importAesKey(encryptionKey: string): Promise<CryptoKey> {
   const raw = new Uint8Array(Buffer.from(encryptionKey, 'base64'))
   if (raw.length !== 32) throw new Error('Encryption key must be 32 bytes')
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt'])
@@ -23,7 +34,7 @@ export async function encryptCredentials(
   encryptionKey: string,
   credentials: StoredCredentials,
 ): Promise<Buffer> {
-  const key = await importKey(encryptionKey)
+  const key = await importAesKey(encryptionKey)
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const plaintext = new TextEncoder().encode(JSON.stringify(credentials))
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext)
@@ -41,7 +52,7 @@ export async function decryptCredentials(
   encrypted: Buffer,
 ): Promise<StoredCredentials> {
   if (encrypted.length < 12 + 16) throw new Error('Invalid ciphertext')
-  const key = await importKey(encryptionKey)
+  const key = await importAesKey(encryptionKey)
   const iv = new Uint8Array(encrypted.subarray(0, 12))
   const ciphertext = new Uint8Array(encrypted.subarray(12))
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
@@ -49,19 +60,20 @@ export async function decryptCredentials(
 }
 
 /**
- * Derive proxy headers from a service's auth config and a raw token value.
- * Used at write time (OAuth callback, API key submit, PUT with token).
+ * Derive proxy headers from a token and an auth scheme.
+ * Each scheme type is self-describing — no ambiguity about formatting.
  */
 export function buildCredentialHeaders(
-  svc: { authMethod: string; headerName: string; headerScheme: string },
+  scheme: AuthScheme,
   token: string,
 ): Record<string, string> {
-  if (svc.authMethod === 'bearer' || svc.authMethod === 'oauth2') {
-    return { [svc.headerName]: `${svc.headerScheme} ${token}` }
+  switch (scheme.type) {
+    case 'apiKey':
+      return { [scheme.name]: token }
+    case 'http':
+      if (scheme.scheme === 'basic') return { Authorization: `Basic ${btoa(token)}` }
+      return { Authorization: `Bearer ${token}` }
+    case 'oauth2':
+      return { Authorization: `Bearer ${token}` }
   }
-  if (svc.authMethod === 'basic') {
-    return { [svc.headerName]: `Basic ${btoa(token)}` }
-  }
-  // api_key and any other method
-  return { [svc.headerName]: token }
 }

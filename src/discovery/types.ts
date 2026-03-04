@@ -26,6 +26,12 @@ export interface ProbeResult {
   graphqlSchema?: string
   docsUrl?: string
   authDetected: string[]
+  oauthMeta?: {
+    authorizeUrl: string
+    tokenUrl: string
+    scopes?: string
+    source: 'well_known' | 'openapi' | 'registry'
+  }
 }
 
 // ─── Doc Page Content Shapes ─────────────────────────────────────────────────

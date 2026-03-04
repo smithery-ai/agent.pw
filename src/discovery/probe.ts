@@ -29,6 +29,45 @@ const GRAPHQL_INTROSPECTION_QUERY = `{
   }
 }`
 
+function extractOAuthFromOpenApiSpec(spec: Record<string, unknown>) {
+  const securitySchemes = (
+    (spec.components as Record<string, unknown> | undefined)?.securitySchemes ??
+    spec.securityDefinitions
+  ) as Record<string, unknown> | undefined
+
+  if (!securitySchemes) return null
+
+  for (const scheme of Object.values(securitySchemes)) {
+    const s = scheme as Record<string, unknown>
+    if (s.type !== 'oauth2') continue
+
+    const flows = s.flows as Record<string, unknown> | undefined
+    if (flows) {
+      for (const flow of Object.values(flows)) {
+        const f = flow as Record<string, unknown>
+        const authorizeUrl = f.authorizationUrl
+        const tokenUrl = f.tokenUrl
+        if (typeof authorizeUrl !== 'string' || typeof tokenUrl !== 'string') continue
+        const scopesObj = f.scopes as Record<string, unknown> | undefined
+        const scopes = scopesObj ? Object.keys(scopesObj).join(' ') : undefined
+        return { authorizeUrl, tokenUrl, scopes: scopes || undefined }
+      }
+      continue
+    }
+
+    // Swagger 2.0
+    const authorizeUrl = s.authorizationUrl
+    const tokenUrl = s.tokenUrl
+    if (typeof authorizeUrl === 'string' && typeof tokenUrl === 'string') {
+      const scopesObj = s.scopes as Record<string, unknown> | undefined
+      const scopes = scopesObj ? Object.keys(scopesObj).join(' ') : undefined
+      return { authorizeUrl, tokenUrl, scopes: scopes || undefined }
+    }
+  }
+
+  return null
+}
+
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response | null> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT)
@@ -111,6 +150,42 @@ async function probeDocsUrl(baseUrl: string): Promise<string | null> {
   return null
 }
 
+export async function probeOAuthWellKnown(
+  baseUrl: string,
+): Promise<{ authorizeUrl: string; tokenUrl: string; scopes?: string } | null> {
+  const base = baseUrl.replace(/\/$/, '')
+  const paths = [
+    '/.well-known/openid-configuration',
+    '/.well-known/oauth-authorization-server',
+  ]
+
+  for (const path of paths) {
+    const url = `${base}${path}`
+    const res = await fetchWithTimeout(url)
+    if (!res || !res.ok) continue
+
+    try {
+      const data = (await res.json()) as Record<string, unknown>
+      const authorizeUrl = data.authorization_endpoint
+      const tokenUrl = data.token_endpoint
+      if (typeof authorizeUrl !== 'string' || typeof tokenUrl !== 'string') {
+        continue
+      }
+
+      const scopes =
+        Array.isArray(data.scopes_supported)
+          ? data.scopes_supported.filter((s): s is string => typeof s === 'string').join(' ')
+          : undefined
+
+      return { authorizeUrl, tokenUrl, scopes: scopes || undefined }
+    } catch {
+      // ignore malformed response
+    }
+  }
+
+  return null
+}
+
 export async function probeService(
   baseUrl: string,
   apiType?: string,
@@ -123,16 +198,35 @@ export async function probeService(
   console.log(`[probe] probing ${baseUrl} (hint: ${apiType ?? 'unknown'})`)
 
   // Run probes in parallel
-  const [openApi, graphql, docsUrl] = await Promise.all([
+  const [openApi, graphql, docsUrl, oauthWellKnown] = await Promise.all([
     apiType !== 'graphql' ? probeOpenApi(baseUrl) : Promise.resolve(null),
     apiType !== 'rest' ? probeGraphQL(baseUrl) : Promise.resolve(null),
     probeDocsUrl(baseUrl),
+    probeOAuthWellKnown(baseUrl),
   ])
 
   if (openApi) {
     result.specUrl = openApi.specUrl
     result.specContent = openApi.specContent
     if (result.apiType === 'unknown') result.apiType = 'rest'
+
+    if (!oauthWellKnown) {
+      try {
+        const spec = JSON.parse(openApi.specContent) as Record<string, unknown>
+        const oauthFromSpec = extractOAuthFromOpenApiSpec(spec)
+        if (oauthFromSpec) {
+          result.authDetected.push('oauth')
+          result.oauthMeta = {
+            authorizeUrl: oauthFromSpec.authorizeUrl,
+            tokenUrl: oauthFromSpec.tokenUrl,
+            scopes: oauthFromSpec.scopes,
+            source: 'openapi',
+          }
+        }
+      } catch {
+        // Skip non-JSON OpenAPI docs for oauth extraction.
+      }
+    }
   }
 
   if (graphql) {
@@ -142,6 +236,16 @@ export async function probeService(
 
   if (docsUrl) {
     result.docsUrl = docsUrl
+  }
+
+  if (oauthWellKnown) {
+    result.authDetected.push('oauth')
+    result.oauthMeta = {
+      authorizeUrl: oauthWellKnown.authorizeUrl,
+      tokenUrl: oauthWellKnown.tokenUrl,
+      scopes: oauthWellKnown.scopes,
+      source: 'well_known',
+    }
   }
 
   return result

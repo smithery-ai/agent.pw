@@ -6,8 +6,14 @@ import {
   getPublicKeyHex,
   getRevocationIds,
 } from './biscuit'
-import { getCredential, getService, isRevoked } from './db/queries'
-import { decryptCredentials } from './lib/credentials-crypto'
+import { getCredential, getService, isRevoked, upsertCredential } from './db/queries'
+import {
+  decryptCredentials,
+  encryptCredentials,
+  buildCredentialHeaders,
+  type StoredCredentials,
+} from './lib/credentials-crypto'
+import { refreshOAuthToken } from './oauth'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -22,6 +28,57 @@ function errorMessage(e: unknown): string {
 export function extractBearerToken(header: string | undefined): string | null {
   if (!header) return null
   return header.startsWith('Bearer ') ? header.slice(7) : header
+}
+
+function shouldRefresh(expiresAt: string | undefined): boolean {
+  if (!expiresAt) return false
+  const expiresMs = new Date(expiresAt).getTime()
+  if (Number.isNaN(expiresMs)) return false
+  return expiresMs - Date.now() <= 5 * 60 * 1000
+}
+
+async function refreshCredentialIfNeeded(
+  c: Context<HonoEnv>,
+  service: Awaited<ReturnType<typeof getService>>,
+  orgId: string,
+  cred: Awaited<ReturnType<typeof getCredential>>,
+  stored: StoredCredentials,
+): Promise<StoredCredentials> {
+  if (!service || !cred || !stored.oauth?.refreshToken) {
+    return stored
+  }
+  if (!shouldRefresh(stored.oauth.expiresAt)) {
+    return stored
+  }
+
+  const authConfig: Record<string, string> = service.authConfig
+    ? JSON.parse(service.authConfig)
+    : {}
+
+  const refreshed = await refreshOAuthToken({
+    tokenUrl: stored.oauth.tokenUrl,
+    refreshToken: stored.oauth.refreshToken,
+    clientId: stored.oauth.clientId,
+    clientSecret: stored.oauth.clientSecret,
+    scopes: stored.oauth.scopes,
+    authConfig,
+  })
+
+  const nextStored: StoredCredentials = {
+    ...stored,
+    headers: buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, refreshed.accessToken),
+    oauth: {
+      ...stored.oauth,
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+      expiresAt: refreshed.expiresAt,
+    },
+  }
+
+  const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, nextStored)
+  await upsertCredential(c.get('db'), orgId, service.service, 'default', encrypted)
+
+  return nextStored
 }
 
 export async function handleProxy(
@@ -80,7 +137,12 @@ export async function handleProxy(
   })
 
   // Inject credential headers
-  const stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.encryptedCredentials)
+  let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.encryptedCredentials)
+  try {
+    stored = await refreshCredentialIfNeeded(c, svc, orgId, cred, stored)
+  } catch (e) {
+    return c.json({ error: `OAuth token refresh failed: ${errorMessage(e)}` }, 401)
+  }
   for (const [name, value] of Object.entries(stored.headers)) {
     headers.set(name, value)
   }

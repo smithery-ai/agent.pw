@@ -1,22 +1,17 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
 import { wardenSchema } from './warden-schema'
+import { bytea } from './types'
 
 export const services = wardenSchema.table('services', {
   service: text('service').primaryKey(), // hostname: api.github.com
   baseUrl: text('base_url').notNull(),
   displayName: text('display_name'),
   description: text('description'),
-  authMethod: text('auth_method').notNull().default('bearer'),
-  headerName: text('header_name').notNull().default('Authorization'),
-  headerScheme: text('header_scheme').notNull().default('Bearer'),
-  // OAuth
+  authSchemes: text('auth_schemes'), // JSON: AuthScheme[]
+  // Managed OAuth (operational — not part of auth scheme definition)
   oauthClientId: text('oauth_client_id'),
-  oauthClientSecret: text('oauth_client_secret'),
-  oauthAuthorizeUrl: text('oauth_authorize_url'),
-  oauthTokenUrl: text('oauth_token_url'),
-  oauthScopes: text('oauth_scopes'),
+  encryptedOauthClientSecret: bytea('encrypted_oauth_client_secret'),
   // Discovery
-  supportedAuthMethods: text('supported_auth_methods'), // JSON: ["oauth","api_key"]
   apiType: text('api_type'), // rest | graphql
   docsUrl: text('docs_url'),
   preview: text('preview'), // JSON

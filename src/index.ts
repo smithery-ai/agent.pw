@@ -32,16 +32,19 @@ import {
 } from './db/queries'
 import { createAuthFlow, getAuthFlow } from './lib/auth-flow-store'
 import { extractBearerToken, handleProxy } from './proxy'
-import { requireToken, requireRight, requireVaultAdmin, optionalSession } from './middleware'
-import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, wantsJson } from './discovery'
-import { oauthRoutes } from './oauth'
+import { requireToken, requireRight, requireVaultAdmin, optionalSession, requireBrowserSession } from './middleware'
+import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, buildWardenOnboarding, wantsJson } from './discovery'
+import { oauthRoutes, encryptSecret } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { workosRoutes } from './workos'
-import { ServiceLandingPage, WardenLandingPage } from './ui'
+import { probeOAuthWellKnown } from './discovery/probe'
+import { getKnownOAuthProvider } from './oauth-providers'
+import { AuthPage, ErrorPage, ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
 import { triggerDiscoveryWorkflow } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 import { mergeServicePreviewWithInferredIcon } from './service-preview'
+import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme, DEFAULT_API_KEY_SCHEME, type AuthScheme } from './auth-schemes'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -207,7 +210,11 @@ export function createApp(deps: AppDeps = {}) {
       if (!svc) return c.json({ error: `Service '${service}' not configured` }, 404)
 
       // Build headers: use explicit map or derive from token + service config
-      const credHeaders = body.headers ?? buildCredentialHeaders(svc, body.token!)
+      // Prefer known provider's scheme over DB (fixes stale migration data)
+      const knownProvider = getKnownOAuthProvider(service)
+      const schemes = knownProvider ? knownProvider.authSchemes : parseAuthSchemes(svc.authSchemes)
+      const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
+      const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token!)
       const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
       await upsertCredential(db, orgId, service, body.slug ?? 'default', encrypted)
@@ -283,17 +290,11 @@ export function createApp(deps: AppDeps = {}) {
 
     const body = await c.req.json<{
       baseUrl: string
-      authMethod?: string
-      headerName?: string
-      headerScheme?: string
+      authSchemes?: AuthScheme[]
       displayName?: string
       description?: string
       oauthClientId?: string
       oauthClientSecret?: string
-      oauthAuthorizeUrl?: string
-      oauthTokenUrl?: string
-      oauthScopes?: string
-      supportedAuthMethods?: string[]
       apiType?: string
       docsUrl?: string
       preview?: unknown
@@ -314,18 +315,12 @@ export function createApp(deps: AppDeps = {}) {
 
     await upsertService(db, service, {
       baseUrl: body.baseUrl,
-      authMethod: body.authMethod,
-      headerName: body.headerName,
-      headerScheme: body.headerScheme,
+      authSchemes: body.authSchemes ? JSON.stringify(body.authSchemes) : undefined,
       displayName: body.displayName,
       description: body.description,
       oauthClientId: body.oauthClientId,
-      oauthClientSecret: body.oauthClientSecret,
-      oauthAuthorizeUrl: body.oauthAuthorizeUrl,
-      oauthTokenUrl: body.oauthTokenUrl,
-      oauthScopes: body.oauthScopes,
-      supportedAuthMethods: body.supportedAuthMethods
-        ? JSON.stringify(body.supportedAuthMethods)
+      encryptedOauthClientSecret: body.oauthClientSecret
+        ? await encryptSecret(c.env.ENCRYPTION_KEY, body.oauthClientSecret)
         : undefined,
       apiType: body.apiType,
       docsUrl: body.docsUrl,
@@ -472,6 +467,34 @@ export function createApp(deps: AppDeps = {}) {
   // ─── Auth Flows ────────────────────────────────────────────────────────────
 
   app.route('/auth', workosRoutes)
+
+  // Tabbed auth page — requires browser session
+  app.get('/auth/:service', requireBrowserSession, async c => {
+    const serviceName = c.req.param('service')
+    const db = c.get('db')
+    const svc = await getService(db, serviceName)
+
+    if (!svc) {
+      return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
+    }
+
+    const flowId = c.req.query('flow_id') ?? randomId()
+
+    // Ensure a flow exists for polling
+    const existingFlow = await getAuthFlow(c.get('redis'), flowId)
+    if (!existingFlow) {
+      await createAuthFlow(c.get('redis'), {
+        id: flowId,
+        service: serviceName,
+        method: 'api_key',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      })
+    }
+
+    const callbackUrl = `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`
+    return c.html(AuthPage({ service: svc, flowId, callbackUrl }))
+  })
+
   app.route('/auth', oauthRoutes)
   app.route('/auth', apiKeyRoutes)
 
@@ -529,20 +552,80 @@ export function createApp(deps: AppDeps = {}) {
     let svc = await getService(db, serviceName)
     let isNew = false
 
-    // Auto-register unknown services with key-based auth as default
+    // Auto-register unknown services, attempting OAuth detection up front.
     if (!svc) {
       console.log(`[discovery] auto-registering new service: ${serviceName}`)
+      const baseUrl = `https://${serviceName}`
       const displayName = deriveDisplayName(serviceName)
+      const knownProvider = getKnownOAuthProvider(serviceName)
+
+      let authSchemes: AuthScheme[]
+      if (knownProvider) {
+        authSchemes = knownProvider.authSchemes
+      } else {
+        const oauthWellKnown = await probeOAuthWellKnown(baseUrl)
+        authSchemes = [DEFAULT_API_KEY_SCHEME]
+        if (oauthWellKnown) {
+          authSchemes.push({
+            type: 'oauth2',
+            authorizeUrl: oauthWellKnown.authorizeUrl,
+            tokenUrl: oauthWellKnown.tokenUrl,
+            scopes: oauthWellKnown.scopes,
+          })
+        }
+      }
+
       await upsertService(db, serviceName, {
-        baseUrl: `https://${serviceName}`,
+        baseUrl,
         displayName,
-        authMethod: 'api_key',
-        supportedAuthMethods: JSON.stringify(['api_key']),
+        authSchemes: JSON.stringify(authSchemes),
+        authConfig: knownProvider ? JSON.stringify(knownProvider.authConfig) : undefined,
         preview: JSON.stringify(mergeServicePreviewWithInferredIcon(serviceName, undefined, displayName)),
       })
       svc = await getService(db, serviceName)
       if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)
       isNew = true
+    } else {
+      const knownProvider = getKnownOAuthProvider(serviceName)
+
+      if (knownProvider) {
+        // Known providers are the source of truth — sync auth schemes if mismatched
+        // (fixes migration backfill from incorrect legacy auth_method values)
+        const expectedSchemes = JSON.stringify(knownProvider.authSchemes)
+        if (svc.authSchemes !== expectedSchemes) {
+          console.log(`[discovery] syncing auth schemes for known provider: ${serviceName}`)
+          await upsertService(db, serviceName, {
+            baseUrl: svc.baseUrl,
+            authSchemes: expectedSchemes,
+            authConfig: JSON.stringify(knownProvider.authConfig),
+          })
+          svc = await getService(db, serviceName)
+          if (!svc) return c.json({ error: `Failed to update service: ${serviceName}` }, 500)
+        }
+      } else if (!getOAuthScheme(parseAuthSchemes(svc.authSchemes))) {
+        // Probe for OAuth on unknown services that lack an OAuth scheme
+        const oauthWellKnown = await probeOAuthWellKnown(`https://${serviceName}`)
+        if (oauthWellKnown) {
+          console.log(`[discovery] backfilling OAuth for existing service: ${serviceName}`)
+          const existingSchemes = parseAuthSchemes(svc.authSchemes)
+          if (existingSchemes.length === 0) {
+            existingSchemes.push(DEFAULT_API_KEY_SCHEME)
+          }
+          existingSchemes.push({
+            type: 'oauth2',
+            authorizeUrl: oauthWellKnown.authorizeUrl,
+            tokenUrl: oauthWellKnown.tokenUrl,
+            scopes: oauthWellKnown.scopes,
+          })
+          await upsertService(db, serviceName, {
+            baseUrl: svc.baseUrl,
+            authSchemes: JSON.stringify(existingSchemes),
+            authConfig: svc.authConfig ?? undefined,
+          })
+          svc = await getService(db, serviceName)
+          if (!svc) return c.json({ error: `Failed to update service: ${serviceName}` }, 500)
+        }
+      }
     }
 
     // Kick off discovery pipeline if no docs exist yet

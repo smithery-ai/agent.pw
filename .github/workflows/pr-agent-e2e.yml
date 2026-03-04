@@ -389,12 +389,15 @@ jobs:
                   assignee: node.assignee?.name ?? 'N/A',
                 }
               }
+              const gqlDetails = gql.status === 200
+                ? `node_present=${!!node}`
+                : `status=${gql.status}, body=${(gql.text || '').slice(0, 200)}`
               pushCheck(
                 'GraphQL proxy',
                 `POST ${base}/api.linear.app/graphql`,
                 gql.status,
                 gql.status === 200 && !!node,
-                `node_present=${!!node}`,
+                gqlDetails,
               )
 
               // C. Unauthenticated discovery

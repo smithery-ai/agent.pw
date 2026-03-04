@@ -2,6 +2,7 @@
 import type { InferSelectModel } from 'drizzle-orm'
 import type { services } from './db/schema'
 import { resolveServiceIconPreview } from './service-preview'
+import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme } from './auth-schemes'
 
 type ServiceRow = InferSelectModel<typeof services>
 type ServiceWithPopularity = ServiceRow & { credentialCount?: number }
@@ -263,6 +264,18 @@ const STYLES = `
   .copy-icon .icon-check { display: none; }
   .copyable.copied .copy-icon .icon-copy { display: none; }
   .copyable.copied .copy-icon .icon-check { display: block; color: var(--success); }
+
+  .copy-hint {
+    display: none;
+    margin-left: 0.08rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--success);
+  }
+
+  .copyable.copied .copy-hint { display: inline-flex; }
 
   .section {
     margin-top: 1.5rem;
@@ -633,7 +646,90 @@ const STYLES = `
     word-break: break-all;
   }
 
+  .badge {
+    display: inline-block; padding: 0.125rem 0.4rem; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 500; background: #052e16; color: var(--success);
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+  }
   .error { color: var(--destructive); font-weight: 500; }
+  .auth-options { display: flex; flex-direction: column; gap: 0.5rem; }
+  .tab-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .tab-radio {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .tab-label {
+    display: inline-flex; align-items: center; justify-content: center;
+    text-align: center; min-height: 36px; border-radius: var(--radius);
+    border: 1px solid #3f3f46; background: #18181b; color: #a1a1aa;
+    font-size: 0.75rem; font-weight: 500; cursor: pointer; padding: 0 0.5rem;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+  .tab-panel {
+    display: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #0c0c0f;
+    padding: 1rem;
+  }
+  #tab-oauth:checked ~ .tab-list [for="tab-oauth"],
+  #tab-api:checked ~ .tab-list [for="tab-api"] {
+    border-color: #71717a; background: #27272a; color: var(--foreground);
+  }
+  #tab-oauth:checked ~ .tab-panels .panel-oauth { display: block; }
+  #tab-api:checked ~ .tab-panels .panel-api { display: block; }
+  .divider {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin: 1rem 0; color: #52525b; font-size: 0.75rem;
+  }
+  .divider::before, .divider::after {
+    content: ''; flex: 1; height: 1px; background: #3f3f46;
+  }
+  .callback-notice {
+    background: #1a1a2e;
+    border: 1px solid #3f3f46;
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .callback-notice p {
+    color: #a1a1aa;
+    font-size: 0.8125rem;
+    margin: 0 0 0.5rem;
+  }
+  .callback-url {
+    display: block;
+    color: var(--foreground);
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 0.625rem;
+    font-size: 0.75rem;
+    word-break: break-all;
+    user-select: all;
+  }
+  .helper {
+    color: #71717a;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    margin-top: 0.625rem;
+  }
+  .helper code {
+    color: var(--foreground);
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.25rem;
+    font-size: 0.6875rem;
+    word-break: break-all;
+  }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
 
   ul.clean,
   ol.clean {
@@ -758,10 +854,29 @@ const STYLES = `
       transition-duration: 0.01ms !important;
     }
   }
+  .warden-badge a:hover { color: #52525b; }
+
+  @media (max-width: 640px) {
+    body { align-items: flex-start; padding: 1rem 0; }
+    .container { padding: 1rem; }
+    .tab-list { grid-template-columns: 1fr; }
+  }
 `
 
 function serviceName(service: ServiceRow) {
   return service.displayName ?? service.service
+}
+
+function ServiceHeader({ service }: { service: ServiceRow }) {
+  const name = service.displayName ?? service.service
+  const initial = name.charAt(0).toUpperCase()
+  return (
+    <div class="service-header">
+      <div class="service-icon">{initial}</div>
+      <div class="service-name">{name}</div>
+      <div class="service-host">{service.service}</div>
+    </div>
+  )
 }
 
 function parseServicePreview(service: ServiceRow) {
@@ -796,15 +911,6 @@ function ServiceIcon({ service }: { service: ServiceRow }) {
   )
 }
 
-function parseSupportedAuth(service: ServiceRow) {
-  if (!service.supportedAuthMethods) return [] as string[]
-  try {
-    const parsed = JSON.parse(service.supportedAuthMethods) as unknown
-    return Array.isArray(parsed) ? parsed.filter(v => typeof v === 'string') : []
-  } catch {
-    return []
-  }
-}
 
 function Layout({
   children,
@@ -884,21 +990,35 @@ export function WardenLandingPage({ services = [], userCount = 0 }: { services?:
     if (byPopularity !== 0) return byPopularity
     return serviceName(a).localeCompare(serviceName(b))
   })
+  const totalCredentials = services.reduce((sum, service) => sum + (service.credentialCount ?? 0), 0)
+  const activeServices = ranked.length
 
   return (
     <Layout title="Warden — Secure auth for AI agents">
       <section class="hero">
-        <h1>Connect agents to services securely</h1>
+        <p class="eyebrow">Agent auth boundary</p>
+        <h1>One URL between your agents and every API</h1>
+        <p class="subtitle">
+          Warden handles user auth, secure token handoff, and request proxying so agents can act without ever seeing provider secrets.
+        </p>
+        <div class="metrics">
+          <span class="pill hot"><strong>{userCount}</strong> active orgs</span>
+          <span class="pill warm"><strong>{activeServices}</strong> services in use</span>
+          <span class="pill"><strong>{totalCredentials}</strong> stored credentials</span>
+        </div>
         <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
           <span class="mono">curl https://warden.run and help me connect to services</span>
           <span class="copy-icon" aria-hidden="true">
             <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
             <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
           </span>
+          <span class="copy-hint">Paste this to your agent</span>
         </div>
       </section>
 
       <section class="section">
+        <h2>Live service usage</h2>
+        <p>Connected services by real credential usage.</p>
         {ranked.length === 0 ? (
           <div class="card">
             <h3>No services yet</h3>
@@ -930,6 +1050,42 @@ export function WardenLandingPage({ services = [], userCount = 0 }: { services?:
           </div>
         )}
       </section>
+
+      <section class="section">
+        <h2>What Warden does</h2>
+        <div class="grid-3">
+          <div class="card">
+            <h3>Credential boundary</h3>
+            <p>
+              Users authenticate in the browser. Agents receive revocable Warden tokens, not raw provider API keys.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Progressive discovery</h3>
+            <p>
+              Every service path doubles as docs and proxy: <span class="mono">/{'{hostname}'}</span> for discovery, <span class="mono">/{'{hostname}'}/...</span> for calls.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Agent-safe error handling</h3>
+            <p>
+              Upstream credential failures are normalized to re-auth signals so agents stop retry loops and recover correctly.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>How auth handoff works</h2>
+        <p>Five steps from first request to live API call.</p>
+        <ol class="clean">
+          <li><span class="mono">GET /{'{hostname}'}</span> returns discovery and an <span class="mono">auth_url</span>.</li>
+          <li>Agent gives the user that URL.</li>
+          <li>User authenticates in browser with OAuth or API key.</li>
+          <li>Agent watches <span class="mono">/auth/status/{'{flow_id}'}</span> for completion.</li>
+          <li>Agent proxies through Warden with <span class="mono">Authorization: Bearer wdn_...</span>.</li>
+        </ol>
+      </section>
     </Layout>
   )
 }
@@ -946,7 +1102,9 @@ export function ServiceLandingPage({
   userCredentials?: { slug: string; updatedAt: Date }[]
 }) {
   const hasCredentials = (userCredentials?.length ?? 0) > 0
-  const supported = parseSupportedAuth(service)
+  const schemes = parseAuthSchemes(service.authSchemes)
+  const hasOAuth = !!getOAuthScheme(schemes)
+  const hasApiKey = !!getApiKeyScheme(schemes)
   const pipelineState = (discoveryStatus?.pipeline_state as string) ?? 'idle'
   const isActive = pipelineState === 'probing' || pipelineState === 'parsing' || pipelineState === 'enriching'
   const coverage = discoveryStatus?.coverage as
@@ -979,7 +1137,7 @@ export function ServiceLandingPage({
               <span>{statusText}</span>
             </div>
             <div class="metrics" style="margin-top: 0.6rem">
-              <span class="pill"><strong>{supported.length || 1}</strong> auth methods</span>
+              <span class="pill"><strong>{schemes.length || 1}</strong> auth methods</span>
               <span class="pill"><strong>{service.apiType ?? 'unknown'}</strong> API type</span>
               <span class="pill"><strong>{totalPages}</strong> doc pages</span>
             </div>
@@ -1031,13 +1189,14 @@ curl -H "Authorization: Bearer <token>" \\
                 <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                 <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
               </span>
+              <span class="copy-hint">Paste this to your agent</span>
             </div>
             {!hasCredentials ? (
               <div class="button-row" style="margin-top: 0.8rem">
-                {supported.includes('oauth') ? (
+                {hasOAuth ? (
                   <a href={`/auth/${service.service}/oauth`} class="btn btn-primary" style="width: 100%">Connect with OAuth</a>
                 ) : null}
-                {supported.includes('api_key') || supported.length === 0 ? (
+                {hasApiKey || schemes.length === 0 ? (
                   <a href={`/auth/${service.service}/api-key`} class="btn btn-secondary" style="width: 100%">Enter API Key</a>
                 ) : null}
               </div>
@@ -1066,6 +1225,147 @@ curl -H "Authorization: Bearer <token>" \\
             <div class="meta-line"><strong>{credentialCount}</strong> credentials stored</div>
             {service.docsUrl ? <div class="meta-line">Homepage: <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">{service.docsUrl}</a></div> : null}
           </section>
+        </div>
+      </div>
+    </Layout>
+  )
+}
+
+export function AuthPage({
+  service,
+  flowId,
+  callbackUrl,
+}: {
+  service: ServiceRow
+  flowId: string
+  callbackUrl: string
+}) {
+  const oauthScheme = getOAuthScheme(parseAuthSchemes(service.authSchemes))
+  const hasManagedOAuth = !!service.oauthClientId
+  const hasOAuth = !!oauthScheme
+  const defaultTab = hasOAuth ? 'oauth' : 'api'
+  const name = service.displayName ?? service.service
+
+  return (
+    <Layout title={`Connect ${name} — Warden`}>
+      <ServiceHeader service={service} />
+
+      <div class="card">
+        {/* Radio inputs must be direct children of .card so the ~ combinator can reach .tab-panels */}
+        {hasOAuth && (
+          <input
+            class="tab-radio"
+            id="tab-oauth"
+            type="radio"
+            name="auth-tab"
+            checked={defaultTab === 'oauth'}
+          />
+        )}
+        <input
+          class="tab-radio"
+          id="tab-api"
+          type="radio"
+          name="auth-tab"
+          checked={defaultTab === 'api'}
+        />
+
+        <div class="tab-list">
+          {hasOAuth && (
+            <label class="tab-label" for="tab-oauth">OAuth</label>
+          )}
+          <label class="tab-label" for="tab-api">API Key</label>
+        </div>
+
+        <div class="tab-panels">
+          {hasOAuth && (
+            <div class="tab-panel panel-oauth">
+              {hasManagedOAuth && (
+                <>
+                  <a
+                    href={`/auth/${service.service}/oauth?flow_id=${flowId}&source=managed`}
+                    class="btn btn-primary"
+                    style="width: 100%"
+                  >
+                    Connect with OAuth
+                  </a>
+                  <div class="divider"><span>or use your own OAuth app</span></div>
+                </>
+              )}
+              <div class="callback-notice">
+                <p>Set this <strong>callback URL</strong> in your OAuth app:</p>
+                <code class="callback-url">{callbackUrl}</code>
+              </div>
+              <form method="post" action={`/auth/${service.service}/oauth/byo`}>
+                <input type="hidden" name="flow_id" value={flowId} />
+                <div class="form-group">
+                  <label for="client_id">Client ID</label>
+                  <input
+                    type="text"
+                    id="client_id"
+                    name="client_id"
+                    placeholder="Your OAuth app client_id"
+                    required
+                    autocomplete="off"
+                    spellcheck={false}
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="client_secret">Client Secret</label>
+                  <input
+                    type="password"
+                    id="client_secret"
+                    name="client_secret"
+                    placeholder="Your OAuth app client_secret"
+                    autocomplete="off"
+                    spellcheck={false}
+                  />
+                </div>
+                <div class="form-group" style="margin-bottom: 0.875rem">
+                  <label for="scopes">Scopes (optional)</label>
+                  <input
+                    type="text"
+                    id="scopes"
+                    name="scopes"
+                    placeholder={oauthScheme?.scopes ?? 'repo read:user'}
+                    autocomplete="off"
+                    spellcheck={false}
+                  />
+                </div>
+                <button type="submit" class="btn btn-secondary" style="width: 100%">
+                  Connect with your app
+                </button>
+              </form>
+            </div>
+          )}
+
+          <div class="tab-panel panel-api">
+            <form method="post" action={`/auth/${service.service}/api-key`}>
+              <input type="hidden" name="flow_id" value={flowId} />
+              <div class="form-group">
+                <label for="api_key_inline">API Key</label>
+                <input
+                  type="password"
+                  id="api_key_inline"
+                  name="api_key"
+                  placeholder={`Paste your ${name} API key`}
+                  required
+                  autocomplete="off"
+                  spellcheck={false}
+                />
+              </div>
+              <button type="submit" class="btn btn-secondary" style="width: 100%">
+                Connect with API Key
+              </button>
+            </form>
+            {service.docsUrl && (
+              <p class="helper">
+                Need a key?{' '}
+                <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">
+                  Get one from {name}
+                </a>
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </Layout>

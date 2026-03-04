@@ -1,5 +1,6 @@
 import type { InferSelectModel } from 'drizzle-orm'
 import type { services } from './db/schema'
+import { parseAuthSchemes, getOAuthScheme } from './auth-schemes'
 
 type ServiceRow = InferSelectModel<typeof services>
 
@@ -12,9 +13,8 @@ export function wantsJson(accept: string | undefined) {
 }
 
 export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string, flowId?: string) {
-  const supported: string[] = svc.supportedAuthMethods
-    ? JSON.parse(svc.supportedAuthMethods)
-    : []
+  const schemes = parseAuthSchemes(svc.authSchemes)
+  const oauthScheme = getOAuthScheme(schemes)
 
   const result: Record<string, unknown> = {
     service: svc.displayName ?? svc.service,
@@ -23,18 +23,18 @@ export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string, flowId?: 
 
   if (svc.description) result.description = svc.description
 
-  // Pick the first supported auth method and build an absolute URL with flow ID
   const flowParam = flowId ? `?flow_id=${flowId}` : ''
-  for (const method of supported) {
-    if (method === 'oauth') {
-      result.auth_url = `${baseUrl}/auth/${svc.service}/oauth${flowParam}`
-      break
-    }
-    if (method === 'api_key') {
-      result.auth_url = `${baseUrl}/auth/${svc.service}/api-key${flowParam}`
-      break
-    }
+  result.auth_url = `${baseUrl}/auth/${svc.service}${flowParam}`
+
+  const authMethods: { type: string; mode?: string }[] = []
+  if (oauthScheme && svc.oauthClientId) {
+    authMethods.push({ type: 'oauth', mode: 'managed' })
   }
+  if (oauthScheme) {
+    authMethods.push({ type: 'oauth', mode: 'byo' })
+  }
+  authMethods.push({ type: 'api_key' })
+  result.auth_methods = authMethods
 
   if (flowId) {
     result.poll_url = `${baseUrl}/auth/status/${flowId}`

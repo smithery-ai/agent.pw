@@ -36,6 +36,8 @@ import {
   deleteCredential,
   isRevoked,
   upsertService,
+  getOAuthApp,
+  upsertOAuthApp,
   getDocPage,
   upsertDocPage,
   listDocPages,
@@ -89,7 +91,10 @@ async function seedService(service = 'api.github.com') {
       baseUrl: 'https://api.github.com',
       displayName: 'GitHub',
       description: 'REST API for GitHub.',
-      supportedAuthMethods: ['oauth', 'api_key'],
+      authSchemes: [
+        { type: 'http', scheme: 'bearer' },
+        { type: 'oauth2', authorizeUrl: 'https://github.com/login/oauth/authorize', tokenUrl: 'https://github.com/login/oauth/access_token', scopes: 'repo read:user' },
+      ],
       apiType: 'rest',
       docsUrl: 'https://docs.github.com/en/rest',
     }),
@@ -113,7 +118,7 @@ describe('Root Landing Page', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('Warden')
-    expect(text).toContain('Connect agents to services securely')
+    expect(text).toContain('One URL between your agents and every API')
   })
 
   it('returns JSON agent guide for curl-style Accept: */*', async () => {
@@ -632,9 +637,13 @@ describe('Discovery', () => {
     const body = (await res.json()) as any
     expect(body.service).toBe('GitHub')
     expect(body.canonical).toBe('api.github.com')
-    expect(body.auth_url).toContain('http://localhost:3000/auth/api.github.com/oauth?flow_id=')
+    expect(body.auth_url).toContain('http://localhost:3000/auth/api.github.com?flow_id=')
     expect(body.poll_url).toContain('http://localhost:3000/auth/status/')
     expect(body.proxy).toBe('http://localhost:3000/api.github.com')
+    expect(body.auth_methods).toEqual([
+      { type: 'oauth', mode: 'byo' },
+      { type: 'api_key' },
+    ])
 
     // Verify the flow was actually created and is pollable
     const flowId = body.poll_url.split('/auth/status/')[1]
@@ -651,7 +660,6 @@ describe('Discovery', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('GitHub')
-    expect(text).toContain('Connect with OAuth')
     expect(text).toContain('Enter API Key')
   })
 
@@ -664,7 +672,7 @@ describe('Discovery', () => {
 
     const body = (await res.json()) as any
     expect(body.canonical).toBe('api.unknown.com')
-    expect(body.auth_url).toContain('/auth/api.unknown.com/api-key?flow_id=')
+    expect(body.auth_url).toContain('/auth/api.unknown.com?flow_id=')
     expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
     expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/unknown.com.ico')
     expect(body.preview.icon.fallback).toBe('UN')
@@ -718,7 +726,7 @@ describe('Discovery', () => {
     expect(res.status).toBe(401)
     const body = (await res.json()) as any
     expect(body.canonical).toBe('unknown.api.com')
-    expect(body.auth_url).toContain('/auth/unknown.api.com/api-key')
+    expect(body.auth_url).toContain('/auth/unknown.api.com?flow_id=')
   })
 
   it('returns 404 for reserved paths in discovery', async () => {
@@ -900,15 +908,14 @@ describe('Proxy', () => {
     }
   })
 
-  it('proxies with api_key auth method', async () => {
-    // Register service with api_key auth method
+  it('proxies with apiKey auth scheme', async () => {
+    // Register service with apiKey auth scheme
     await mgmtReq('/services/api.example.com', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://api.example.com',
-        authMethod: 'api_key',
-        headerName: 'X-API-Key',
+        authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-API-Key' }],
       }),
     })
     await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.example.com`, {
@@ -942,13 +949,13 @@ describe('Proxy', () => {
     }
   })
 
-  it('proxies with basic auth method', async () => {
+  it('proxies with basic auth scheme', async () => {
     await mgmtReq('/services/api.basic.com', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://api.basic.com',
-        authMethod: 'basic',
+        authSchemes: [{ type: 'http', scheme: 'basic' }],
       }),
     })
     await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.basic.com`, {
@@ -1192,8 +1199,7 @@ describe('API Key Flow', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://validated.api',
-        authMethod: 'bearer',
-        supportedAuthMethods: ['api_key'],
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
         authConfig: {
           identity_url: 'https://validated.api/whoami',
           identity_path: 'user.login',
@@ -1229,8 +1235,7 @@ describe('API Key Flow', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://rejected.api',
-        authMethod: 'bearer',
-        supportedAuthMethods: ['api_key'],
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
         authConfig: {
           identity_url: 'https://rejected.api/whoami',
         },
@@ -1262,9 +1267,7 @@ describe('API Key Flow', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://apikey-svc.api',
-        authMethod: 'api_key',
-        headerName: 'X-API-Key',
-        supportedAuthMethods: ['api_key'],
+        authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-API-Key' }],
         authConfig: {
           identity_url: 'https://apikey-svc.api/me',
           identity_path: 'name',
@@ -1298,8 +1301,7 @@ describe('API Key Flow', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://basic-svc.api',
-        authMethod: 'basic',
-        supportedAuthMethods: ['api_key'],
+        authSchemes: [{ type: 'http', scheme: 'basic' }],
         authConfig: {
           identity_url: 'https://basic-svc.api/me',
         },
@@ -1329,8 +1331,7 @@ describe('API Key Flow', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://post-id.api',
-        authMethod: 'bearer',
-        supportedAuthMethods: ['api_key'],
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
         authConfig: {
           identity_url: 'https://post-id.api/verify',
           identity_method: 'POST',
@@ -1363,8 +1364,7 @@ describe('API Key Flow', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://fail-id.api',
-        authMethod: 'bearer',
-        supportedAuthMethods: ['api_key'],
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
         authConfig: {
           identity_url: 'https://fail-id.api/whoami',
         },
@@ -1461,8 +1461,7 @@ describe('API Key Flow', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://json-rejected.api',
-        authMethod: 'bearer',
-        supportedAuthMethods: ['api_key'],
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
         authConfig: {
           identity_url: 'https://json-rejected.api/whoami',
         },
@@ -1501,10 +1500,10 @@ describe('OAuth Flow', () => {
         baseUrl: 'https://api.github.com',
         oauthClientId: 'test_client_id',
         oauthClientSecret: 'test_client_secret',
-        oauthAuthorizeUrl: 'https://github.com/login/oauth/authorize',
-        oauthTokenUrl: 'https://github.com/login/oauth/access_token',
-        oauthScopes: 'repo user',
-        supportedAuthMethods: ['oauth'],
+        authSchemes: [
+          { type: 'http', scheme: 'bearer' },
+          { type: 'oauth2', authorizeUrl: 'https://github.com/login/oauth/authorize', tokenUrl: 'https://github.com/login/oauth/access_token', scopes: 'repo user' },
+        ],
       }),
     })
   })
@@ -1680,9 +1679,10 @@ describe('OAuth Flow', () => {
         baseUrl: 'https://api.id-oauth.com',
         oauthClientId: 'cid',
         oauthClientSecret: 'csecret',
-        oauthAuthorizeUrl: 'https://id-oauth.com/authorize',
-        oauthTokenUrl: 'https://id-oauth.com/token',
-        supportedAuthMethods: ['oauth'],
+        authSchemes: [
+          { type: 'http', scheme: 'bearer' },
+          { type: 'oauth2', authorizeUrl: 'https://id-oauth.com/authorize', tokenUrl: 'https://id-oauth.com/token' },
+        ],
         authConfig: {
           identity_url: 'https://api.id-oauth.com/me',
           identity_path: 'user.email',
@@ -1732,9 +1732,10 @@ describe('OAuth Flow', () => {
       body: JSON.stringify({
         baseUrl: 'https://api.post-oauth.com',
         oauthClientId: 'cid',
-        oauthAuthorizeUrl: 'https://post-oauth.com/authorize',
-        oauthTokenUrl: 'https://post-oauth.com/token',
-        supportedAuthMethods: ['oauth'],
+        authSchemes: [
+          { type: 'http', scheme: 'bearer' },
+          { type: 'oauth2', authorizeUrl: 'https://post-oauth.com/authorize', tokenUrl: 'https://post-oauth.com/token' },
+        ],
         authConfig: {
           identity_url: 'https://api.post-oauth.com/verify',
           identity_method: 'POST',
@@ -1783,9 +1784,10 @@ describe('OAuth Flow', () => {
       body: JSON.stringify({
         baseUrl: 'https://api.fail-oauth.com',
         oauthClientId: 'cid',
-        oauthAuthorizeUrl: 'https://fail-oauth.com/authorize',
-        oauthTokenUrl: 'https://fail-oauth.com/token',
-        supportedAuthMethods: ['oauth'],
+        authSchemes: [
+          { type: 'http', scheme: 'bearer' },
+          { type: 'oauth2', authorizeUrl: 'https://fail-oauth.com/authorize', tokenUrl: 'https://fail-oauth.com/token' },
+        ],
         authConfig: {
           identity_url: 'https://api.fail-oauth.com/me',
         },
@@ -1830,9 +1832,10 @@ describe('OAuth Flow', () => {
         baseUrl: 'https://api.nopath-oauth.com',
         oauthClientId: 'cid',
         oauthClientSecret: 'csecret',
-        oauthAuthorizeUrl: 'https://nopath-oauth.com/authorize',
-        oauthTokenUrl: 'https://nopath-oauth.com/token',
-        supportedAuthMethods: ['oauth'],
+        authSchemes: [
+          { type: 'http', scheme: 'bearer' },
+          { type: 'oauth2', authorizeUrl: 'https://nopath-oauth.com/authorize', tokenUrl: 'https://nopath-oauth.com/token' },
+        ],
         authConfig: {
           identity_url: 'https://api.nopath-oauth.com/me',
           // no identity_path
@@ -1881,9 +1884,10 @@ describe('OAuth Flow', () => {
         baseUrl: 'https://api.custom-oauth.com',
         oauthClientId: 'cid',
         oauthClientSecret: 'csecret',
-        oauthAuthorizeUrl: 'https://custom-oauth.com/authorize',
-        oauthTokenUrl: 'https://custom-oauth.com/token',
-        supportedAuthMethods: ['oauth'],
+        authSchemes: [
+          { type: 'http', scheme: 'bearer' },
+          { type: 'oauth2', authorizeUrl: 'https://custom-oauth.com/authorize', tokenUrl: 'https://custom-oauth.com/token' },
+        ],
         authConfig: {
           token_path: 'data.token',
           token_accept: 'application/json',
@@ -1935,16 +1939,15 @@ describe('OAuth Flow', () => {
   })
 
   it('rejects callback for service with missing OAuth token config', async () => {
-    // Register service without oauthTokenUrl
+    // Register service without oauth2 scheme (no tokenUrl)
     await mgmtReq('/services/no-token-url.com', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         baseUrl: 'https://no-token-url.com',
         oauthClientId: 'cid',
-        oauthAuthorizeUrl: 'https://no-token-url.com/authorize',
-        // Note: no oauthTokenUrl
-        supportedAuthMethods: ['oauth'],
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
+        // Note: no oauth2 scheme
       }),
     })
     await createAuthFlow(redis, {
@@ -1952,6 +1955,7 @@ describe('OAuth Flow', () => {
       service: 'no-token-url.com',
       method: 'oauth',
       codeVerifier: 'test_verifier',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
@@ -2186,15 +2190,9 @@ describe('Discovery Functions', () => {
       baseUrl: 'https://api.github.com',
       displayName: 'GitHub',
       description: 'GitHub REST API',
-      authMethod: 'bearer',
-      headerName: 'Authorization',
-      headerScheme: 'Bearer',
+      authSchemes: null,
       oauthClientId: null,
-      oauthClientSecret: null,
-      oauthAuthorizeUrl: null,
-      oauthTokenUrl: null,
-      oauthScopes: null,
-      supportedAuthMethods: null,
+      encryptedOauthClientSecret: null,
       apiType: null,
       docsUrl: 'https://docs.github.com',
       preview: null,
@@ -2207,7 +2205,8 @@ describe('Discovery Functions', () => {
     expect(result.description).toBe('GitHub REST API')
     expect(result.docs_url).toBe('https://docs.github.com')
     expect(result.proxy).toBe('http://localhost:3000/api.github.com')
-    expect(result.auth_url).toBeUndefined() // no supportedAuthMethods
+    expect(result.auth_url).toBe('http://localhost:3000/auth/api.github.com')
+    expect(result.auth_methods).toEqual([{ type: 'api_key' }])
   })
 
   it('buildUnauthDiscovery includes preview when set', () => {
@@ -2216,15 +2215,9 @@ describe('Discovery Functions', () => {
       baseUrl: 'https://test.api',
       displayName: null,
       description: null,
-      authMethod: 'bearer',
-      headerName: 'Authorization',
-      headerScheme: 'Bearer',
+      authSchemes: null,
       oauthClientId: null,
-      oauthClientSecret: null,
-      oauthAuthorizeUrl: null,
-      oauthTokenUrl: null,
-      oauthScopes: null,
-      supportedAuthMethods: null,
+      encryptedOauthClientSecret: null,
       apiType: null,
       docsUrl: null,
       preview: JSON.stringify({ example: true }),
@@ -2243,15 +2236,9 @@ describe('Discovery Functions', () => {
       baseUrl: 'https://api.github.com',
       displayName: 'GitHub',
       description: null,
-      authMethod: 'bearer',
-      headerName: 'Authorization',
-      headerScheme: 'Bearer',
+      authSchemes: null,
       oauthClientId: null,
-      oauthClientSecret: null,
-      oauthAuthorizeUrl: null,
-      oauthTokenUrl: null,
-      oauthScopes: null,
-      supportedAuthMethods: null,
+      encryptedOauthClientSecret: null,
       apiType: 'rest',
       docsUrl: 'https://docs.github.com',
       preview: null,
@@ -2334,6 +2321,68 @@ describe('Query Functions', () => {
     await upsertCredential(db, 'personal', 'api.counted.test', 'alice', encrypted)
 
     expect(await countCredentialsForService(db, 'api.counted.test')).toBe(1)
+  })
+
+  it('upsertOAuthApp stores and updates a BYO oauth app', async () => {
+    const secret1 = Buffer.from('secret-1')
+    const secret2 = Buffer.from('secret-2')
+
+    await upsertOAuthApp(db, 'personal', 'api.github.com', {
+      clientId: 'client-1',
+      encryptedClientSecret: secret1,
+      scopes: 'repo',
+    })
+
+    await upsertOAuthApp(db, 'personal', 'api.github.com', {
+      clientId: 'client-2',
+      encryptedClientSecret: secret2,
+      scopes: 'repo user',
+    })
+
+    const app = await getOAuthApp(db, 'personal', 'api.github.com')
+    expect(app).not.toBeNull()
+    expect(app!.clientId).toBe('client-2')
+    expect(Buffer.from(app!.encryptedClientSecret ?? []).toString()).toBe('secret-2')
+    expect(app!.scopes).toBe('repo user')
+  })
+
+  it('upsertOAuthApp keeps existing secret and scopes when omitted', async () => {
+    const secret = Buffer.from('persisted-secret')
+
+    await upsertOAuthApp(db, 'personal', 'api.linear.app', {
+      clientId: 'client-a',
+      encryptedClientSecret: secret,
+      scopes: 'read write',
+    })
+
+    await upsertOAuthApp(db, 'personal', 'api.linear.app', {
+      clientId: 'client-b',
+    })
+
+    const app = await getOAuthApp(db, 'personal', 'api.linear.app')
+    expect(app).not.toBeNull()
+    expect(app!.clientId).toBe('client-b')
+    expect(Buffer.from(app!.encryptedClientSecret ?? []).toString()).toBe('persisted-secret')
+    expect(app!.scopes).toBe('read write')
+  })
+
+  it('createAuthFlow with oauthSource stores source on Redis flow', async () => {
+    await createAuthFlow(redis, {
+      id: 'oauth-flow',
+      service: 'api.github.com',
+      method: 'oauth',
+      codeVerifier: 'pkce-verifier',
+      orgId: TEST_ORG_ID,
+      oauthSource: 'byo',
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+
+    const flow = await getAuthFlow(redis, 'oauth-flow')
+    expect(flow).not.toBeNull()
+    expect(flow!.method).toBe('oauth')
+    expect(flow!.oauthSource).toBe('byo')
+    expect(flow!.codeVerifier).toBe('pkce-verifier')
+    expect(flow!.orgId).toBe(TEST_ORG_ID)
   })
 })
 
@@ -2433,17 +2482,18 @@ describe('Credentials Crypto', () => {
   })
 
   it('buildCredentialHeaders derives bearer header', () => {
-    const svc = { authMethod: 'bearer', headerName: 'Authorization', headerScheme: 'Bearer' }
-    expect(buildCredentialHeaders(svc, 'tok123')).toEqual({ Authorization: 'Bearer tok123' })
+    expect(buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, 'tok123')).toEqual({ Authorization: 'Bearer tok123' })
   })
 
-  it('buildCredentialHeaders derives api_key header', () => {
-    const svc = { authMethod: 'api_key', headerName: 'X-API-Key', headerScheme: 'Bearer' }
-    expect(buildCredentialHeaders(svc, 'sk_123')).toEqual({ 'X-API-Key': 'sk_123' })
+  it('buildCredentialHeaders derives apiKey header', () => {
+    expect(buildCredentialHeaders({ type: 'apiKey', in: 'header', name: 'X-API-Key' }, 'sk_123')).toEqual({ 'X-API-Key': 'sk_123' })
   })
 
   it('buildCredentialHeaders derives basic header', () => {
-    const svc = { authMethod: 'basic', headerName: 'Authorization', headerScheme: 'Bearer' }
-    expect(buildCredentialHeaders(svc, 'user:pass')).toEqual({ Authorization: `Basic ${btoa('user:pass')}` })
+    expect(buildCredentialHeaders({ type: 'http', scheme: 'basic' }, 'user:pass')).toEqual({ Authorization: `Basic ${btoa('user:pass')}` })
+  })
+
+  it('buildCredentialHeaders derives oauth2 header', () => {
+    expect(buildCredentialHeaders({ type: 'oauth2', authorizeUrl: '', tokenUrl: '' }, 'tok')).toEqual({ Authorization: 'Bearer tok' })
   })
 })
