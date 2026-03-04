@@ -23,21 +23,25 @@ export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string, flowId?: 
 
   if (svc.description) result.description = svc.description
 
-  const flowParam = flowId ? `?flow_id=${flowId}` : ''
-  result.auth_url = `${baseUrl}/auth/${svc.service}${flowParam}`
+  // Only include auth_url and auth_methods when the service has known auth schemes.
+  // Services still being discovered have empty schemes — agents should wait.
+  if (schemes.length > 0) {
+    const flowParam = flowId ? `?flow_id=${flowId}` : ''
+    result.auth_url = `${baseUrl}/auth/${svc.service}${flowParam}`
 
-  const authMethods: { type: string; mode?: string }[] = []
-  if (oauthScheme && svc.oauthClientId) {
-    authMethods.push({ type: 'oauth', mode: 'managed' })
-  }
-  if (oauthScheme) {
-    authMethods.push({ type: 'oauth', mode: 'byo' })
-  }
-  authMethods.push({ type: 'api_key' })
-  result.auth_methods = authMethods
+    const authMethods: { type: string; mode?: string }[] = []
+    if (oauthScheme && svc.oauthClientId) {
+      authMethods.push({ type: 'oauth', mode: 'managed' })
+    }
+    if (oauthScheme) {
+      authMethods.push({ type: 'oauth', mode: 'byo' })
+    }
+    authMethods.push({ type: 'api_key' })
+    result.auth_methods = authMethods
 
-  if (flowId) {
-    result.poll_url = `${baseUrl}/auth/status/${flowId}`
+    if (flowId) {
+      result.poll_url = `${baseUrl}/auth/status/${flowId}`
+    }
   }
 
   result.proxy = `${baseUrl}/${svc.service}`

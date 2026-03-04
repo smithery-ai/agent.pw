@@ -680,7 +680,8 @@ describe('Discovery', () => {
 
       const body = (await res.json()) as any
       expect(body.canonical).toBe('api.unknown.com')
-      expect(body.auth_url).toContain('/auth/api.unknown.com?flow_id=')
+      // No auth_url yet — discovery hasn't determined auth schemes
+      expect(body.auth_url).toBeUndefined()
       expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
       expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/unknown.com.ico')
       expect(body.preview.icon.fallback).toBe('UN')
@@ -740,7 +741,8 @@ describe('Discovery', () => {
       expect(res.status).toBe(401)
       const body = (await res.json()) as any
       expect(body.canonical).toBe('unknown.api.com')
-      expect(body.auth_url).toContain('/auth/unknown.api.com?flow_id=')
+      // No auth_url — discovery hasn't determined auth schemes yet
+      expect(body.auth_url).toBeUndefined()
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1636,8 +1638,7 @@ describe('API Key Flow', () => {
 // ─── E2E: Agent with Invalid API ────────────────────────────────────────────
 
 describe('E2E: agent with invalid API', () => {
-  it('rejects API key when upstream returns 401', async () => {
-    // Step 1: Agent discovers a new service (mock fetch for reachability + OAuth probe)
+  it('discovery returns no auth_url for pending service', async () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 404 }))
     try {
@@ -1646,12 +1647,28 @@ describe('E2E: agent with invalid API', () => {
       })
       expect(discovery.status).toBe(401)
       const body = (await discovery.json()) as any
-      expect(body.auth_url).toBeDefined()
+      expect(body.canonical).toBe('telemetry.betterstack.com')
+      // No auth_url — service is pending discovery
+      expect(body.auth_url).toBeUndefined()
+      expect(body.discovery.crawl_state).toBe('pending')
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
 
-    // Step 2: Agent submits an invalid API key — upstream returns 401
+  it('rejects API key when upstream returns 401', async () => {
+    // Register a service with auth schemes (simulating discovery completion)
+    await mgmtReq('/services/telemetry.betterstack.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseUrl: 'https://telemetry.betterstack.com',
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
+      }),
+    })
+
+    // Agent submits an invalid API key — upstream returns 401
+    const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response('{"errors":"Invalid Team API token"}', { status: 401 }),
     )
@@ -2444,13 +2461,13 @@ describe('Discovery Functions', () => {
     expect(wantsJson('text/html,application/xhtml+xml,*/*;q=0.8')).toBe(false)
   })
 
-  it('buildUnauthDiscovery includes description and docs_url', () => {
+  it('buildUnauthDiscovery includes auth_url when schemes exist', () => {
     const svc = {
       service: 'api.github.com',
       baseUrl: 'https://api.github.com',
       displayName: 'GitHub',
       description: 'GitHub REST API',
-      authSchemes: null,
+      authSchemes: JSON.stringify([{ type: 'http', scheme: 'bearer' }]),
       oauthClientId: null,
       encryptedOauthClientSecret: null,
       apiType: null,
@@ -2467,6 +2484,29 @@ describe('Discovery Functions', () => {
     expect(result.proxy).toBe('http://localhost:3000/api.github.com')
     expect(result.auth_url).toBe('http://localhost:3000/auth/api.github.com')
     expect(result.auth_methods).toEqual([{ type: 'api_key' }])
+  })
+
+  it('buildUnauthDiscovery omits auth_url when no schemes', () => {
+    const svc = {
+      service: 'api.unknown.com',
+      baseUrl: 'https://api.unknown.com',
+      displayName: 'Unknown',
+      description: null,
+      authSchemes: null,
+      oauthClientId: null,
+      encryptedOauthClientSecret: null,
+      apiType: null,
+      docsUrl: null,
+      preview: null,
+      authConfig: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    const result = buildUnauthDiscovery(svc, 'http://localhost:3000') as any
+    expect(result.canonical).toBe('api.unknown.com')
+    expect(result.auth_url).toBeUndefined()
+    expect(result.auth_methods).toBeUndefined()
+    expect(result.proxy).toBe('http://localhost:3000/api.unknown.com')
   })
 
   it('buildUnauthDiscovery includes preview when set', () => {
