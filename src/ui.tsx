@@ -468,7 +468,7 @@ const STYLES = `
   .service-host {
     margin-top: 0.28rem;
     font-size: 0.77rem;
-    color: #6b685f;
+    color: var(--muted-foreground);
     overflow-wrap: anywhere;
   }
 
@@ -648,7 +648,7 @@ const STYLES = `
 
   .badge {
     display: inline-block; padding: 0.125rem 0.4rem; border-radius: 4px;
-    font-size: 0.75rem; font-weight: 500; background: #052e16; color: var(--success);
+    font-size: 0.75rem; font-weight: 500; background: rgba(78, 138, 55, 0.12); color: var(--success);
     font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
   }
   .error { color: var(--destructive); font-weight: 500; }
@@ -667,7 +667,7 @@ const STYLES = `
   .tab-label {
     display: inline-flex; align-items: center; justify-content: center;
     text-align: center; min-height: 36px; border-radius: var(--radius);
-    border: 1px solid #3f3f46; background: #18181b; color: #a1a1aa;
+    border: 1px solid var(--border); background: var(--muted); color: var(--muted-foreground);
     font-size: 0.75rem; font-weight: 500; cursor: pointer; padding: 0 0.5rem;
     transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
   }
@@ -675,31 +675,31 @@ const STYLES = `
     display: none;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: #0c0c0f;
+    background: rgba(255, 255, 255, 0.6);
     padding: 1rem;
   }
   #tab-oauth:checked ~ .tab-list [for="tab-oauth"],
   #tab-api:checked ~ .tab-list [for="tab-api"] {
-    border-color: #71717a; background: #27272a; color: var(--foreground);
+    border-color: var(--primary); background: rgba(255, 86, 1, 0.08); color: var(--foreground);
   }
   #tab-oauth:checked ~ .tab-panels .panel-oauth { display: block; }
   #tab-api:checked ~ .tab-panels .panel-api { display: block; }
   .divider {
     display: flex; align-items: center; gap: 0.75rem;
-    margin: 1rem 0; color: #52525b; font-size: 0.75rem;
+    margin: 1rem 0; color: var(--muted-foreground); font-size: 0.75rem;
   }
   .divider::before, .divider::after {
-    content: ''; flex: 1; height: 1px; background: #3f3f46;
+    content: ''; flex: 1; height: 1px; background: var(--border);
   }
   .callback-notice {
-    background: #1a1a2e;
-    border: 1px solid #3f3f46;
+    background: rgba(255, 86, 1, 0.05);
+    border: 1px solid rgba(255, 86, 1, 0.15);
     border-radius: var(--radius);
     padding: 0.75rem;
     margin-bottom: 1rem;
   }
   .callback-notice p {
-    color: #a1a1aa;
+    color: var(--muted-foreground);
     font-size: 0.8125rem;
     margin: 0 0 0.5rem;
   }
@@ -715,7 +715,7 @@ const STYLES = `
     user-select: all;
   }
   .helper {
-    color: #71717a;
+    color: var(--muted-foreground);
     font-size: 0.75rem;
     line-height: 1.5;
     margin-top: 0.625rem;
@@ -854,7 +854,7 @@ const STYLES = `
       transition-duration: 0.01ms !important;
     }
   }
-  .warden-badge a:hover { color: #52525b; }
+  .warden-badge a:hover { color: var(--muted-foreground); }
 
   @media (max-width: 640px) {
     body { align-items: flex-start; padding: 1rem 0; }
@@ -868,14 +868,14 @@ function serviceName(service: ServiceRow) {
 }
 
 function ServiceHeader({ service }: { service: ServiceRow }) {
-  const name = service.displayName ?? service.service
-  const initial = name.charAt(0).toUpperCase()
   return (
-    <div class="service-header">
-      <div class="service-icon">{initial}</div>
-      <div class="service-name">{name}</div>
-      <div class="service-host">{service.service}</div>
-    </div>
+    <section class="service-hero">
+      <ServiceIcon service={service} />
+      <div>
+        <h1 style="font-size: 1.6rem">{serviceName(service)}</h1>
+        <p class="subtitle mono">{service.service}</p>
+      </div>
+    </section>
   )
 }
 
