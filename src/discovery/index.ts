@@ -54,7 +54,7 @@ export async function getOrGeneratePage(
  */
 export async function triggerDiscoveryWorkflow(ctx: PipelineContext) {
   if (ctx.workflow) {
-    const id = `discovery-${ctx.hostname}-${Date.now()}`
+    const id = `discovery-${ctx.hostname.replaceAll('.', '_')}-${Date.now()}`
     console.log(`[discovery] triggering workflow for ${ctx.hostname} (instance: ${id})`)
     await ctx.workflow.create({ id, params: { hostname: ctx.hostname } })
     return id
