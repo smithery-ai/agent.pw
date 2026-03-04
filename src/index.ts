@@ -506,6 +506,7 @@ export function createApp(deps: AppDeps = {}) {
   app.get('/:service', async c => {
     const serviceName = c.req.param('service')
     if (RESERVED_PATHS.has(serviceName)) return c.notFound()
+    if (!looksLikeHostname(serviceName)) return c.notFound()
 
     const db = c.get('db')
     let svc = await getService(db, serviceName)
