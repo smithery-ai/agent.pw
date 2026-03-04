@@ -583,6 +583,26 @@ export function createApp(deps: AppDeps = {}) {
       svc = await getService(db, serviceName)
       if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)
       isNew = true
+    } else if (!svc.oauthAuthorizeUrl) {
+      // Backfill OAuth columns for existing services that predate OAuth detection.
+      const knownProvider = getKnownOAuthProvider(serviceName)
+      const oauthWellKnown = !knownProvider ? await probeOAuthWellKnown(`https://${serviceName}`) : null
+      const oauthMeta = knownProvider
+        ? { authorizeUrl: knownProvider.authorizeUrl, tokenUrl: knownProvider.tokenUrl, scopes: knownProvider.scopes || undefined }
+        : oauthWellKnown
+      if (oauthMeta) {
+        console.log(`[discovery] backfilling OAuth for existing service: ${serviceName}`)
+        await upsertService(db, serviceName, {
+          baseUrl: svc.baseUrl,
+          oauthAuthorizeUrl: oauthMeta.authorizeUrl,
+          oauthTokenUrl: oauthMeta.tokenUrl,
+          oauthScopes: oauthMeta.scopes,
+          authConfig: knownProvider ? JSON.stringify(knownProvider.authConfig) : svc.authConfig ?? undefined,
+          supportedAuthMethods: JSON.stringify(['oauth', 'api_key']),
+        })
+        svc = await getService(db, serviceName)
+        if (!svc) return c.json({ error: `Failed to update service: ${serviceName}` }, 500)
+      }
     }
 
     // Kick off discovery pipeline if no docs exist yet

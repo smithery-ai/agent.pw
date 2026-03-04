@@ -122,7 +122,7 @@ const STYLES = `
   .auth-options { display: flex; flex-direction: column; gap: 0.5rem; }
   .tab-list {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     gap: 0.5rem;
     margin-bottom: 1rem;
   }
@@ -138,9 +138,6 @@ const STYLES = `
     font-size: 0.75rem; font-weight: 500; cursor: pointer; padding: 0 0.5rem;
     transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
   }
-  .tab-radio:checked + .tab-label {
-    border-color: #71717a; background: #27272a; color: var(--foreground);
-  }
   .tab-panel {
     display: none;
     border: 1px solid var(--border);
@@ -148,9 +145,37 @@ const STYLES = `
     background: #0c0c0f;
     padding: 1rem;
   }
+  #tab-managed:checked ~ .tab-list [for="tab-managed"],
+  #tab-byo:checked ~ .tab-list [for="tab-byo"],
+  #tab-api:checked ~ .tab-list [for="tab-api"] {
+    border-color: #71717a; background: #27272a; color: var(--foreground);
+  }
   #tab-managed:checked ~ .tab-panels .panel-managed { display: block; }
   #tab-byo:checked ~ .tab-panels .panel-byo { display: block; }
   #tab-api:checked ~ .tab-panels .panel-api { display: block; }
+  .callback-notice {
+    background: #1a1a2e;
+    border: 1px solid #3f3f46;
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .callback-notice p {
+    color: #a1a1aa;
+    font-size: 0.8125rem;
+    margin: 0 0 0.5rem;
+  }
+  .callback-url {
+    display: block;
+    color: var(--foreground);
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 0.625rem;
+    font-size: 0.75rem;
+    word-break: break-all;
+    user-select: all;
+  }
   .helper {
     color: #71717a;
     font-size: 0.75rem;
@@ -406,40 +431,40 @@ export function AuthPage({
       <ServiceHeader service={service} />
 
       <div class="card">
-        <div class="tab-list">
-          {hasManagedOAuth && (
-            <>
-              <input
-                class="tab-radio"
-                id="tab-managed"
-                type="radio"
-                name="auth-tab"
-                checked={defaultTab === 'managed'}
-              />
-              <label class="tab-label" for="tab-managed">OAuth</label>
-            </>
-          )}
-
-          {hasByoOAuth && (
-            <>
-              <input
-                class="tab-radio"
-                id="tab-byo"
-                type="radio"
-                name="auth-tab"
-                checked={defaultTab === 'byo'}
-              />
-              <label class="tab-label" for="tab-byo">Your OAuth App</label>
-            </>
-          )}
-
+        {/* Radio inputs must be direct children of .card so the ~ combinator can reach .tab-panels */}
+        {hasManagedOAuth && (
           <input
             class="tab-radio"
-            id="tab-api"
+            id="tab-managed"
             type="radio"
             name="auth-tab"
-            checked={defaultTab === 'api'}
+            checked={defaultTab === 'managed'}
           />
+        )}
+        {hasByoOAuth && (
+          <input
+            class="tab-radio"
+            id="tab-byo"
+            type="radio"
+            name="auth-tab"
+            checked={defaultTab === 'byo'}
+          />
+        )}
+        <input
+          class="tab-radio"
+          id="tab-api"
+          type="radio"
+          name="auth-tab"
+          checked={defaultTab === 'api'}
+        />
+
+        <div class="tab-list">
+          {hasManagedOAuth && (
+            <label class="tab-label" for="tab-managed">OAuth</label>
+          )}
+          {hasByoOAuth && (
+            <label class="tab-label" for="tab-byo">Your OAuth App</label>
+          )}
           <label class="tab-label" for="tab-api">API Key</label>
         </div>
 
@@ -461,6 +486,10 @@ export function AuthPage({
 
           {hasByoOAuth && (
             <div class="tab-panel panel-byo">
+              <div class="callback-notice">
+                <p>Set this <strong>callback URL</strong> in your OAuth app before continuing:</p>
+                <code class="callback-url">{callbackUrl}</code>
+              </div>
               <form method="post" action={`/auth/${service.service}/oauth/byo`}>
                 <input type="hidden" name="flow_id" value={flowId} />
                 <div class="form-group">
@@ -501,9 +530,6 @@ export function AuthPage({
                   Save and Connect
                 </button>
               </form>
-              <p class="helper">
-                Register this redirect URI in your OAuth app: <code>{callbackUrl}</code>
-              </p>
             </div>
           )}
 

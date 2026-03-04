@@ -617,7 +617,10 @@ describe('Discovery', () => {
     expect(body.auth_url).toContain('http://localhost:3000/auth/api.github.com?flow_id=')
     expect(body.poll_url).toContain('http://localhost:3000/auth/status/')
     expect(body.proxy).toBe('http://localhost:3000/api.github.com')
-    expect(body.auth_methods).toEqual([{ type: 'api_key' }])
+    expect(body.auth_methods).toEqual([
+      { type: 'oauth', mode: 'byo' },
+      { type: 'api_key' },
+    ])
 
     // Verify the flow was actually created and is pollable
     const flowId = body.poll_url.split('/auth/status/')[1]

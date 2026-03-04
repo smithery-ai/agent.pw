@@ -1,4 +1,4 @@
-CREATE TABLE "warden"."oauth_apps" (
+CREATE TABLE IF NOT EXISTS "warden"."oauth_apps" (
   "org_id" text NOT NULL,
   "service" text NOT NULL,
   "client_id" text NOT NULL,
