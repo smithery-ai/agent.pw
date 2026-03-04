@@ -96,6 +96,11 @@ interface AppDeps {
 export function createApp(deps: AppDeps = {}) {
   const app = new Hono<HonoEnv>()
 
+  app.onError((err, c) => {
+    console.error(`[error] ${c.req.method} ${c.req.path}:`, err.message, err.stack)
+    return c.json({ error: 'Internal Server Error' }, 500)
+  })
+
   // ─── Global middleware ─────────────────────────────────────────────────────
 
   app.use('*', cors())
