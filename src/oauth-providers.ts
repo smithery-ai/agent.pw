@@ -1,8 +1,10 @@
 import type { AuthScheme } from './auth-schemes'
+import type { WebhookConfig } from './webhooks/verify'
 
 export interface KnownOAuthProvider {
   authSchemes: AuthScheme[]
   authConfig: Record<string, string>
+  webhookConfig?: WebhookConfig
 }
 
 export const KNOWN_OAUTH_PROVIDERS: Record<string, KnownOAuthProvider> = {
@@ -16,6 +18,12 @@ export const KNOWN_OAUTH_PROVIDERS: Record<string, KnownOAuthProvider> = {
       identity_url: 'https://api.github.com/user',
       identity_path: 'login',
     },
+    webhookConfig: {
+      signatureHeader: 'X-Hub-Signature-256',
+      signaturePrefix: 'sha256=',
+      algorithm: 'hmac-sha256',
+      secretSource: 'client',
+    },
   },
   'api.linear.app': {
     authSchemes: [
@@ -28,6 +36,11 @@ export const KNOWN_OAUTH_PROVIDERS: Record<string, KnownOAuthProvider> = {
       identity_method: 'POST',
       identity_body: '{"query":"query { viewer { email } }"}',
       identity_path: 'data.viewer.email',
+    },
+    webhookConfig: {
+      signatureHeader: 'Linear-Signature',
+      algorithm: 'hmac-sha256',
+      secretSource: 'client',
     },
   },
   'api.notion.com': {

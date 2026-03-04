@@ -44,6 +44,7 @@ import { triggerDiscoveryWorkflow } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 import { mergeServicePreviewWithInferredIcon } from './service-preview'
 import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme, DEFAULT_API_KEY_SCHEME, type AuthScheme } from './auth-schemes'
+import { webhookRoutes } from './webhooks/index'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -68,7 +69,7 @@ function deriveDisplayName(hostname: string) {
   return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
-const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy', 'favicon.ico'])
+const RESERVED_PATHS = new Set(['auth', 'tokens', 'services', 'vaults', 'keys', 'proxy', 'hooks', '.well-known', 'favicon.ico'])
 
 const FILE_EXTENSIONS = new Set([
   'json', 'html', 'htm', 'xml', 'php', 'asp', 'aspx', 'axd', 'jsp', 'cgi',
@@ -295,6 +296,7 @@ export function createApp(deps: AppDeps = {}) {
       docsUrl?: string
       preview?: unknown
       authConfig?: Record<string, unknown>
+      webhookConfig?: Record<string, unknown>
     }>()
 
     if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
@@ -322,6 +324,7 @@ export function createApp(deps: AppDeps = {}) {
       docsUrl: body.docsUrl,
       preview: preview ? JSON.stringify(preview) : undefined,
       authConfig: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
+      webhookConfig: body.webhookConfig ? JSON.stringify(body.webhookConfig) : undefined,
     })
 
     return c.json({ ok: true, service })
@@ -537,6 +540,10 @@ export function createApp(deps: AppDeps = {}) {
 
   app.route('/', docRoutes())
 
+  // ─── Webhooks (must be before proxy catch-all) ─────────────────────────────
+
+  app.route('/', webhookRoutes())
+
   // ─── Discovery (content-negotiated) ────────────────────────────────────────
 
   app.get('/:service', optionalSession, async c => {
@@ -576,6 +583,7 @@ export function createApp(deps: AppDeps = {}) {
         displayName,
         authSchemes: JSON.stringify(authSchemes),
         authConfig: knownProvider ? JSON.stringify(knownProvider.authConfig) : undefined,
+        webhookConfig: knownProvider?.webhookConfig ? JSON.stringify(knownProvider.webhookConfig) : undefined,
         preview: JSON.stringify(mergeServicePreviewWithInferredIcon(serviceName, undefined, displayName)),
       })
       svc = await getService(db, serviceName)

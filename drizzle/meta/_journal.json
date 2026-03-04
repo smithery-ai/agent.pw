@@ -29,6 +29,13 @@
       "when": 1772740000000,
       "tag": "0003_auth_schemes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772870000000,
+      "tag": "0004_webhook_registrations",
+      "breakpoints": true
     }
   ]
 }
