@@ -145,14 +145,19 @@ const STYLES = `
     background: #0c0c0f;
     padding: 1rem;
   }
-  #tab-managed:checked ~ .tab-list [for="tab-managed"],
-  #tab-byo:checked ~ .tab-list [for="tab-byo"],
+  #tab-oauth:checked ~ .tab-list [for="tab-oauth"],
   #tab-api:checked ~ .tab-list [for="tab-api"] {
     border-color: #71717a; background: #27272a; color: var(--foreground);
   }
-  #tab-managed:checked ~ .tab-panels .panel-managed { display: block; }
-  #tab-byo:checked ~ .tab-panels .panel-byo { display: block; }
+  #tab-oauth:checked ~ .tab-panels .panel-oauth { display: block; }
   #tab-api:checked ~ .tab-panels .panel-api { display: block; }
+  .divider {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin: 1rem 0; color: #52525b; font-size: 0.75rem;
+  }
+  .divider::before, .divider::after {
+    content: ''; flex: 1; height: 1px; background: #3f3f46;
+  }
   .callback-notice {
     background: #1a1a2e;
     border: 1px solid #3f3f46;
@@ -422,8 +427,8 @@ export function AuthPage({
   callbackUrl: string
 }) {
   const hasManagedOAuth = !!service.oauthClientId
-  const hasByoOAuth = !!service.oauthAuthorizeUrl
-  const defaultTab = hasManagedOAuth ? 'managed' : hasByoOAuth ? 'byo' : 'api'
+  const hasOAuth = !!service.oauthAuthorizeUrl
+  const defaultTab = hasOAuth ? 'oauth' : 'api'
   const name = service.displayName ?? service.service
 
   return (
@@ -432,22 +437,13 @@ export function AuthPage({
 
       <div class="card">
         {/* Radio inputs must be direct children of .card so the ~ combinator can reach .tab-panels */}
-        {hasManagedOAuth && (
+        {hasOAuth && (
           <input
             class="tab-radio"
-            id="tab-managed"
+            id="tab-oauth"
             type="radio"
             name="auth-tab"
-            checked={defaultTab === 'managed'}
-          />
-        )}
-        {hasByoOAuth && (
-          <input
-            class="tab-radio"
-            id="tab-byo"
-            type="radio"
-            name="auth-tab"
-            checked={defaultTab === 'byo'}
+            checked={defaultTab === 'oauth'}
           />
         )}
         <input
@@ -459,35 +455,29 @@ export function AuthPage({
         />
 
         <div class="tab-list">
-          {hasManagedOAuth && (
-            <label class="tab-label" for="tab-managed">OAuth</label>
-          )}
-          {hasByoOAuth && (
-            <label class="tab-label" for="tab-byo">Your OAuth App</label>
+          {hasOAuth && (
+            <label class="tab-label" for="tab-oauth">OAuth</label>
           )}
           <label class="tab-label" for="tab-api">API Key</label>
         </div>
 
         <div class="tab-panels">
-          {hasManagedOAuth && (
-            <div class="tab-panel panel-managed">
-              <a
-                href={`/auth/${service.service}/oauth?flow_id=${flowId}&source=managed`}
-                class="btn btn-primary"
-                style="width: 100%"
-              >
-                Connect with OAuth
-              </a>
-              <p class="helper">
-                Use Warden&apos;s pre-configured OAuth app for {name}.
-              </p>
-            </div>
-          )}
-
-          {hasByoOAuth && (
-            <div class="tab-panel panel-byo">
+          {hasOAuth && (
+            <div class="tab-panel panel-oauth">
+              {hasManagedOAuth && (
+                <>
+                  <a
+                    href={`/auth/${service.service}/oauth?flow_id=${flowId}&source=managed`}
+                    class="btn btn-primary"
+                    style="width: 100%"
+                  >
+                    Connect with OAuth
+                  </a>
+                  <div class="divider"><span>or use your own OAuth app</span></div>
+                </>
+              )}
               <div class="callback-notice">
-                <p>Set this <strong>callback URL</strong> in your OAuth app before continuing:</p>
+                <p>Set this <strong>callback URL</strong> in your OAuth app:</p>
                 <code class="callback-url">{callbackUrl}</code>
               </div>
               <form method="post" action={`/auth/${service.service}/oauth/byo`}>
@@ -516,7 +506,7 @@ export function AuthPage({
                   />
                 </div>
                 <div class="form-group" style="margin-bottom: 0.875rem">
-                  <label for="scopes">Scopes (optional override)</label>
+                  <label for="scopes">Scopes (optional)</label>
                   <input
                     type="text"
                     id="scopes"
@@ -526,8 +516,8 @@ export function AuthPage({
                     spellcheck={false}
                   />
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%">
-                  Save and Connect
+                <button type="submit" class="btn btn-secondary" style="width: 100%">
+                  Connect with your app
                 </button>
               </form>
             </div>

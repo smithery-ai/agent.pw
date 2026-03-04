@@ -1,11 +1,6 @@
-import { text, timestamp, primaryKey, customType } from 'drizzle-orm/pg-core'
+import { text, timestamp, primaryKey } from 'drizzle-orm/pg-core'
 import { wardenSchema } from './warden-schema'
-
-const bytea = customType<{ data: Buffer }>({
-  dataType() {
-    return 'bytea'
-  },
-})
+import { bytea } from './types'
 
 export const oauthApps = wardenSchema.table(
   'oauth_apps',

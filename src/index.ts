@@ -33,7 +33,7 @@ import { createAuthFlow, getAuthFlow } from './lib/auth-flow-store'
 import { extractBearerToken, handleProxy } from './proxy'
 import { requireToken, requireRight, requireVaultAdmin, optionalSession, requireBrowserSession } from './middleware'
 import { buildUnauthDiscovery, buildAuthDiscovery, buildWardenGuide, buildWardenOnboarding, wantsJson } from './discovery'
-import { oauthRoutes } from './oauth'
+import { oauthRoutes, encryptSecret } from './oauth'
 import { apiKeyRoutes } from './api-key'
 import { workosRoutes } from './workos'
 import { probeOAuthWellKnown } from './discovery/probe'
@@ -312,7 +312,9 @@ export function createApp(deps: AppDeps = {}) {
       displayName: body.displayName,
       description: body.description,
       oauthClientId: body.oauthClientId,
-      oauthClientSecret: body.oauthClientSecret,
+      encryptedOauthClientSecret: body.oauthClientSecret
+        ? await encryptSecret(c.env.ENCRYPTION_KEY, body.oauthClientSecret)
+        : undefined,
       oauthAuthorizeUrl: body.oauthAuthorizeUrl,
       oauthTokenUrl: body.oauthTokenUrl,
       oauthScopes: body.oauthScopes,

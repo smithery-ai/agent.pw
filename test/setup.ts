@@ -62,7 +62,7 @@ export async function createTestDb() {
       header_name TEXT NOT NULL DEFAULT 'Authorization',
       header_scheme TEXT NOT NULL DEFAULT 'Bearer',
       oauth_client_id TEXT,
-      oauth_client_secret TEXT,
+      encrypted_oauth_client_secret BYTEA,
       oauth_authorize_url TEXT,
       oauth_token_url TEXT,
       oauth_scopes TEXT,

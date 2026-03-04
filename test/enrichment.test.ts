@@ -71,7 +71,7 @@ describe('Enrichment', () => {
         headerName: 'Authorization',
         headerScheme: 'Bearer',
         oauthClientId: null,
-        oauthClientSecret: null,
+        encryptedOauthClientSecret: null,
         oauthAuthorizeUrl: null,
         oauthTokenUrl: null,
         oauthScopes: null,

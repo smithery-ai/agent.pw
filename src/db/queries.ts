@@ -48,7 +48,7 @@ export async function upsertService(
     displayName?: string
     description?: string
     oauthClientId?: string
-    oauthClientSecret?: string
+    encryptedOauthClientSecret?: Buffer | null
     oauthAuthorizeUrl?: string
     oauthTokenUrl?: string
     oauthScopes?: string
@@ -70,7 +70,7 @@ export async function upsertService(
       displayName: data.displayName,
       description: data.description,
       oauthClientId: data.oauthClientId,
-      oauthClientSecret: data.oauthClientSecret,
+      encryptedOauthClientSecret: data.encryptedOauthClientSecret ?? null,
       oauthAuthorizeUrl: data.oauthAuthorizeUrl,
       oauthTokenUrl: data.oauthTokenUrl,
       oauthScopes: data.oauthScopes,
@@ -90,7 +90,7 @@ export async function upsertService(
         displayName: sql`coalesce(excluded.display_name, ${services.displayName})`,
         description: sql`coalesce(excluded.description, ${services.description})`,
         oauthClientId: sql`coalesce(excluded.oauth_client_id, ${services.oauthClientId})`,
-        oauthClientSecret: sql`coalesce(excluded.oauth_client_secret, ${services.oauthClientSecret})`,
+        encryptedOauthClientSecret: sql`coalesce(excluded.encrypted_oauth_client_secret, ${services.encryptedOauthClientSecret})`,
         oauthAuthorizeUrl: sql`coalesce(excluded.oauth_authorize_url, ${services.oauthAuthorizeUrl})`,
         oauthTokenUrl: sql`coalesce(excluded.oauth_token_url, ${services.oauthTokenUrl})`,
         oauthScopes: sql`coalesce(excluded.oauth_scopes, ${services.oauthScopes})`,

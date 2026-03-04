@@ -15,7 +15,7 @@ type OAuthSource = 'managed' | 'byo'
 
 type ServiceOAuthConfig = {
   oauthClientId: string | null
-  oauthClientSecret: string | null
+  encryptedOauthClientSecret: Buffer | null
   oauthAuthorizeUrl: string | null
   oauthTokenUrl: string | null
   oauthScopes: string | null
@@ -36,7 +36,7 @@ function randomId() {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 
-async function encryptSecret(encryptionKey: string, secret: string): Promise<Buffer> {
+export async function encryptSecret(encryptionKey: string, secret: string): Promise<Buffer> {
   const key = await importAesKey(encryptionKey)
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const plaintext = new TextEncoder().encode(secret)
@@ -155,7 +155,7 @@ export async function resolveOAuthConfig(
     return {
       source: 'managed',
       clientId: svc.oauthClientId,
-      clientSecret: svc.oauthClientSecret ?? undefined,
+      clientSecret: await decryptSecret(encryptionKey, svc.encryptedOauthClientSecret),
       authorizeUrl: svc.oauthAuthorizeUrl,
       tokenUrl: svc.oauthTokenUrl,
       scopes: svc.oauthScopes ?? undefined,
