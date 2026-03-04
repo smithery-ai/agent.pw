@@ -25,7 +25,7 @@ export const AuthScheme = z.discriminatedUnion('type', [
 ])
 export type AuthScheme = z.infer<typeof AuthScheme>
 
-export const DEFAULT_API_KEY_SCHEME: AuthScheme = { type: 'apiKey', in: 'header', name: 'Authorization' }
+export const DEFAULT_API_KEY_SCHEME: AuthScheme = { type: 'http', scheme: 'bearer' }
 
 export function parseAuthSchemes(raw: string | null): AuthScheme[] {
   if (!raw) return []

@@ -37,6 +37,7 @@ import { apiKeyRoutes } from './api-key'
 import { workosRoutes } from './workos'
 import { probeOAuthWellKnown } from './discovery/probe'
 import { getKnownOAuthProvider } from './oauth-providers'
+import { checkHostReachable } from './lib/dns'
 import { AuthPage, ErrorPage, ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
 import { triggerDiscoveryWorkflow, isDiscoveryStale } from './discovery/index'
@@ -580,10 +581,23 @@ export function createApp(deps: AppDeps = {}) {
 
     // Auto-register unknown services, attempting OAuth detection up front.
     if (!svc) {
-      c.get('logger').info({ service: serviceName, action: 'auto-register' }, 'registering new service')
       const baseUrl = `https://${serviceName}`
-      const displayName = deriveDisplayName(serviceName)
       const knownProvider = getKnownOAuthProvider(serviceName)
+
+      // For unknown providers, verify the domain actually resolves before
+      // creating DB records, auth pages, and kicking off discovery.
+      if (!knownProvider) {
+        const reachability = await checkHostReachable(serviceName)
+        if (!reachability.reachable && reachability.reason === 'dns') {
+          return c.json({
+            error: `Domain does not exist: ${serviceName}`,
+            hint: 'DNS resolution failed. Check that the hostname is spelled correctly.',
+          }, 404)
+        }
+      }
+
+      c.get('logger').info({ service: serviceName, action: 'auto-register' }, 'registering new service')
+      const displayName = deriveDisplayName(serviceName)
 
       let authSchemes: AuthScheme[]
       if (knownProvider) {
