@@ -95,7 +95,7 @@ describe('Enrichment', () => {
 
     expect(generateText).not.toHaveBeenCalled()
     const page = await getDocPage(db, 'api.example.com', 'docs/test.json')
-    expect(page!.status).toBe('skeleton')
+    expect(page?.status).toBe('skeleton')
   })
 
   it('skips enrichment when page does not exist', async () => {
@@ -126,7 +126,7 @@ describe('Enrichment', () => {
     // Verify the page was enriched in the database
     const page = await getDocPage(db, 'api.example.com', 'docs/test.json')
     expect(page).toBeTruthy()
-    expect(page!.status).toBe('enriched')
+    expect(page?.status).toBe('enriched')
     const content = JSON.parse(page!.content!)
     expect(content.description).toBe('AI-enriched description for testing')
     expect(content.operations).toHaveLength(1)
@@ -179,8 +179,8 @@ describe('Enrichment', () => {
 
     const pageA = await getDocPage(db, 'api.example.com', 'docs/a.json')
     const pageB = await getDocPage(db, 'api.example.com', 'docs/b.json')
-    expect(pageA!.status).toBe('enriched')
-    expect(pageB!.status).toBe('enriched')
+    expect(pageA?.status).toBe('enriched')
+    expect(pageB?.status).toBe('enriched')
   })
 
   it('enrichPages continues after individual page failure', async () => {
@@ -207,10 +207,10 @@ describe('Enrichment', () => {
 
     // First page should remain skeleton (enrichment failed)
     const pageA = await getDocPage(db, 'api.example.com', 'docs/a.json')
-    expect(pageA!.status).toBe('skeleton')
+    expect(pageA?.status).toBe('skeleton')
 
     // Second page should be enriched (enrichment succeeded)
     const pageB = await getDocPage(db, 'api.example.com', 'docs/b.json')
-    expect(pageB!.status).toBe('enriched')
+    expect(pageB?.status).toBe('enriched')
   })
 })

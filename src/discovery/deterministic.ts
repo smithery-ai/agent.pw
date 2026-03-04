@@ -27,7 +27,7 @@ function parseOpenApi(ctx: PipelineContext, spec: unknown): DeterministicResult 
         const slug = resourceName.toLowerCase().replace(/\s+/g, '-')
 
         if (!resourceMap.has(slug)) resourceMap.set(slug, [])
-        resourceMap.get(slug)!.push({
+        resourceMap.get(slug)?.push({
           method: method.toUpperCase(),
           path,
           summary: (operation.summary as string) ?? (operation.description as string) ?? '',
@@ -150,7 +150,7 @@ function parseGraphQL(ctx: PipelineContext, schemaJson: string): DeterministicRe
       const slug = resource.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'misc'
 
       if (!resourceMap.has(slug)) resourceMap.set(slug, [])
-      resourceMap.get(slug)!.push({
+      resourceMap.get(slug)?.push({
         method,
         path: field.name,
         summary: field.description ?? '',

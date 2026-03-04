@@ -10,11 +10,11 @@ const STYLES = `
   :root {
     --background: #efead6;
     --foreground: #232323;
-    --card: rgba(255, 255, 255, 0.78);
+    --card: rgba(255, 255, 255, 0.88);
     --card-foreground: #232323;
     --muted: rgba(255, 255, 255, 0.94);
     --muted-foreground: #5a5750;
-    --border: rgba(35, 35, 35, 0.13);
+    --border: rgba(35, 35, 35, 0.10);
     --input: rgba(35, 35, 35, 0.16);
     --ring: rgba(255, 86, 1, 0.3);
     --primary: #ff5601;
@@ -24,7 +24,7 @@ const STYLES = `
     --accent: #ffdc4a;
     --destructive: #7b1707;
     --success: #4e8a37;
-    --radius: 0.625rem;
+    --radius: 0.75rem;
 
     --font-sans: 'GT Pantheon Micro', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
     --font-mono: 'Berkeley Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -100,8 +100,6 @@ const STYLES = `
     gap: 1rem;
     padding: 0.85rem 0;
     margin-bottom: 1.2rem;
-    backdrop-filter: blur(12px) saturate(1.4);
-    border-bottom: 1px solid var(--border);
     animation: fadeIn 0.5s ease both;
   }
 
@@ -136,16 +134,11 @@ const STYLES = `
     letter-spacing: -0.015em;
   }
 
-  .brand-word small {
-    color: var(--muted-foreground);
-    font-size: 0.82rem;
-    letter-spacing: 0.03em;
-  }
 
   .hero {
-    padding: 0.8rem 0 1rem;
+    padding: 1.5rem 0 2rem;
     display: grid;
-    gap: 0.8rem;
+    gap: 1.2rem;
     animation: fadeUp 0.55s ease both;
   }
 
@@ -189,7 +182,7 @@ const STYLES = `
   .metrics {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.6rem;
     animation: fadeIn 0.6s ease 0.2s both;
   }
 
@@ -232,10 +225,9 @@ const STYLES = `
   .code-block {
     width: fit-content;
     max-width: 100%;
-    background: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(6px);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--primary);
+    background: #2a2520;
+    color: #e8e2d0;
+    border: 1px solid rgba(50, 44, 36, 0.2);
     border-radius: var(--radius);
     padding: 0.78rem 0.92rem;
     font-size: 0.82rem;
@@ -252,31 +244,28 @@ const STYLES = `
   }
 
   .copyable:hover {
-    border-color: rgba(255, 86, 1, 0.4);
-    box-shadow: 0 2px 12px rgba(255, 86, 1, 0.08);
+    border-color: rgba(255, 86, 1, 0.3);
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
     transform: translateY(-1px);
   }
 
   .copyable:active { transform: scale(0.995); }
 
-  .copy-hint {
-    color: var(--muted-foreground);
-    font-size: 0.72rem;
-    font-family: var(--font-sans);
-    white-space: nowrap;
-    opacity: 0.7;
+  .copy-icon {
+    color: #8a8578;
+    flex-shrink: 0;
+    opacity: 0.5;
     transition: opacity 0.15s ease;
   }
 
-  .copyable:hover .copy-hint { opacity: 1; }
+  .copyable:hover .copy-icon { opacity: 0.85; }
 
-  .copyable.copied .copy-hint::after {
-    content: ' \u2014 copied!';
-    color: var(--success);
-  }
+  .copy-icon .icon-check { display: none; }
+  .copyable.copied .copy-icon .icon-copy { display: none; }
+  .copyable.copied .copy-icon .icon-check { display: block; color: var(--success); }
 
   .section {
-    margin-top: 0.6rem;
+    margin-top: 1.5rem;
   }
 
   .section h2 {
@@ -292,15 +281,100 @@ const STYLES = `
   }
 
   .cards,
+  .two-col,
   .grid-3,
   .registry-grid,
   .stack {
     display: grid;
-    gap: 0.8rem;
-    margin-top: 0.9rem;
+    gap: 1rem;
+    margin-top: 1.2rem;
   }
 
   .stack { grid-template-columns: 1fr; max-width: 680px; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 3rem;
+    margin-top: 0.5rem;
+    align-items: start;
+  }
+
+  .two-col > .col-left,
+  .two-col > .col-right {
+    display: grid;
+    gap: 0;
+  }
+
+  .two-col > .col-left {
+    animation: fadeUp 0.45s ease 0.06s both;
+  }
+
+  .two-col > .col-right {
+    animation: fadeUp 0.45s ease 0.12s both;
+  }
+
+  .col-right .code-block { width: 100%; }
+
+  .col-section {
+    padding: 1.8rem 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .col-section:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .col-section h3 {
+    margin: 0 0 0.55rem;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+
+  .col-section p {
+    margin: 0.4rem 0 0;
+    color: var(--muted-foreground);
+    font-size: 0.9rem;
+    line-height: 1.48;
+  }
+
+  .connect-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.35rem;
+  }
+
+  .credential-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0;
+  }
+
+  .credential-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.86rem;
+  }
+
+  .credential-list li:last-child { border-bottom: none; }
+
+  .meta-line {
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+    margin-top: 0.25rem;
+  }
+
+  .meta-line a { text-decoration: underline; text-underline-offset: 2px; }
   .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .registry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
@@ -326,10 +400,8 @@ const STYLES = `
     border: 1px solid var(--border);
     background: var(--card);
     border-radius: var(--radius);
-    padding: 1rem 1.05rem;
-    box-shadow:
-      0 1px 2px rgba(35, 35, 35, 0.04),
-      0 4px 16px rgba(35, 35, 35, 0.03);
+    padding: 1.1rem 1.2rem;
+    box-shadow: 0 1px 3px rgba(35, 35, 35, 0.04);
     transition: box-shadow 0.22s ease, border-color 0.22s ease;
   }
 
@@ -361,7 +433,7 @@ const STYLES = `
   }
 
   .service-link:hover .service-icon {
-    box-shadow: 0 0 16px rgba(255, 86, 1, 0.2);
+    border-color: rgba(255, 86, 1, 0.3);
   }
 
   .service-row {
@@ -407,8 +479,8 @@ const STYLES = `
     font-size: 1rem;
     font-weight: 600;
     letter-spacing: 0.02em;
-    background: linear-gradient(145deg, rgba(255, 220, 74, 0.65), rgba(255, 86, 1, 0.32));
-    border: 1px solid rgba(255, 86, 1, 0.22);
+    background: var(--muted);
+    border: 1px solid var(--border);
     transition: box-shadow 0.22s ease;
   }
 
@@ -428,6 +500,7 @@ const STYLES = `
 
   .service-hero {
     margin-top: 0.4rem;
+    margin-bottom: 1.4rem;
     display: flex;
     align-items: center;
     gap: 0.9rem;
@@ -439,7 +512,6 @@ const STYLES = `
     height: 64px;
     border-radius: 16px;
     font-size: 1.2rem;
-    box-shadow: 0 4px 20px rgba(255, 86, 1, 0.12);
   }
 
   .service-hero .service-icon img {
@@ -468,8 +540,8 @@ const STYLES = `
     border: 1px solid transparent;
     text-decoration: none;
     border-radius: var(--radius);
-    padding: 0.54rem 0.82rem;
-    font-size: 0.9rem;
+    padding: 0.58rem 0.9rem;
+    font-size: 0.88rem;
     font-family: var(--font-sans);
     font-weight: 500;
     line-height: 1;
@@ -652,6 +724,10 @@ const STYLES = `
   }
 
   @media (max-width: 860px) {
+    .two-col {
+      grid-template-columns: 1fr;
+    }
+
     .registry-grid,
     .grid-3 {
       grid-template-columns: 1fr;
@@ -769,7 +845,6 @@ function Layout({
               </svg>
               <span class="brand-word">
                 <strong>Warden</strong>
-                <small>Connect agents to services securely</small>
               </span>
             </a>
           </header>
@@ -811,18 +886,14 @@ export function WardenLandingPage({ services = [], userCount = 0 }: { services?:
   })
 
   return (
-    <Layout title="Warden — Connect agents to services securely">
+    <Layout title="Warden — Secure auth for AI agents">
       <section class="hero">
-        <h1>Service Registry</h1>
+        <h1>Connect agents to services securely</h1>
         <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
           <span class="mono">curl https://warden.run and help me connect to services</span>
-          <small class="copy-hint">click to copy</small>
-        </div>
-        <div class="metrics">
-          <span class="pill warm"><strong>{ranked.length}</strong> services</span>
-          <span class="pill">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <strong>{userCount}</strong> users
+          <span class="copy-icon" aria-hidden="true">
+            <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
           </span>
         </div>
       </section>
@@ -845,11 +916,15 @@ export function WardenLandingPage({ services = [], userCount = 0 }: { services?:
                       <div class="service-host mono">{service.service}</div>
                     </div>
                   </div>
-                  <span class="pill hot">
-                    <strong>{service.credentialCount ?? 0}</strong> creds
+                  <span class="pill" style="gap: 0.3rem; display: inline-flex; align-items: center;">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                      <circle cx="8" cy="5" r="3"/>
+                      <path d="M2 14.5C2 11.5 4.7 9.5 8 9.5s6 2 6 5"/>
+                    </svg>
+                    {service.credentialCount ?? 0}
                   </span>
                 </div>
-                <div class="service-blurb">{service.description ?? 'No description yet. Open to explore auth and docs.'}</div>
+                {service.description ? <div class="service-blurb">{service.description}</div> : null}
               </a>
             ))}
           </div>
@@ -889,110 +964,109 @@ export function ServiceLandingPage({
       <section class="service-hero">
         <ServiceIcon service={service} />
         <div>
-          <p class="eyebrow">Service Page</p>
           <h1>{serviceName(service)}</h1>
           <p class="subtitle mono">{service.service}</p>
         </div>
       </section>
 
-      {hasCredentials ? (
-        <article class="card" style="margin-top: 0.82rem">
-          <span class="label">Your credentials</span>
-          <ul class="clean">
-            {(userCredentials ?? []).map(credential => (
-              <li>
-                <span class="mono">{credential.slug}</span>
-                <span style="float: right; color: var(--muted);">{formatTimeAgo(credential.updatedAt)}</span>
-              </li>
-            ))}
-          </ul>
-        </article>
-      ) : null}
+      <div class="two-col">
+        <div class="col-left">
+          <section class="col-section">
+            <h3>About</h3>
+            <p>{service.description ?? 'No service description yet. Warden can still handle auth and proxying.'}</p>
+            <div class="status-row">
+              <span class={`status-dot ${isActive ? 'active' : 'ready'}`}></span>
+              <span>{statusText}</span>
+            </div>
+            <div class="metrics" style="margin-top: 0.6rem">
+              <span class="pill"><strong>{supported.length || 1}</strong> auth methods</span>
+              <span class="pill"><strong>{service.apiType ?? 'unknown'}</strong> API type</span>
+              <span class="pill"><strong>{totalPages}</strong> doc pages</span>
+            </div>
+            <div class="button-row">
+              <a class="btn btn-secondary" href={docsHref}>Open docs</a>
+              {service.docsUrl ? (
+                <a class="btn btn-secondary" href={service.docsUrl} target="_blank" rel="noopener noreferrer">Upstream docs</a>
+              ) : null}
+            </div>
+          </section>
 
-      <div class="code-block copyable" style="margin-top: 0.82rem" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
-        <span class="mono">{`curl https://warden.run/${service.service} and help me use ${serviceName(service)}`}</span>
-        <small class="copy-hint">click to copy</small>
-      </div>
-
-      <div class="metrics" style="margin-top: 0.82rem">
-        <span class="pill hot"><strong>{credentialCount}</strong> credentials stored</span>
-        <span class="pill"><strong>{supported.length || 1}</strong> auth methods</span>
-        <span class="pill"><strong>{service.apiType ?? 'unknown'}</strong> API type</span>
-        <span class="pill"><strong>{totalPages}</strong> doc pages</span>
-        {hasCredentials ? <span class="pill success">Connected <strong>{userCredentials?.length ?? 0}</strong></span> : null}
-      </div>
-
-      <div class="stack">
-        <article class="card">
-          <h3>About</h3>
-          <p>{service.description ?? 'No service description yet. Warden can still handle auth and proxying.'}</p>
-          <div class="status-row">
-            <span class={`status-dot ${isActive ? 'active' : 'ready'}`}></span>
-            <span>{statusText}</span>
-          </div>
-          <div class="button-row">
-            <a class="btn btn-secondary" href={docsHref}>Open docs</a>
-            {service.docsUrl ? (
-              <a class="btn btn-secondary" href={service.docsUrl} target="_blank" rel="noopener noreferrer">Upstream docs</a>
-            ) : null}
-          </div>
-        </article>
-
-        <article class="card">
-          <h3>Access</h3>
-          {!hasCredentials ? (
-            <>
-              <p>Pick an auth path to connect credentials. Warden stores them and agents only receive revocable Warden tokens.</p>
-              <div class="button-row">
-                {supported.includes('oauth') ? (
-                  <a href={`/auth/${service.service}/oauth`} class="btn btn-primary">Connect with OAuth</a>
-                ) : null}
-                {supported.includes('api_key') || supported.length === 0 ? (
-                  <a href={`/auth/${service.service}/api-key`} class="btn btn-secondary">Enter API Key</a>
-                ) : null}
-              </div>
-            </>
-          ) : (
-            <>
-              <p>Your credential is connected. Agents can now call this service through Warden's proxy.</p>
-              <div class="button-row">
-                <a href={docsHref} class="btn btn-soft">Browse docs</a>
-              </div>
-            </>
-          )}
-        </article>
-
-        <article class="card">
-          <h3>Agent Reference</h3>
-          <p>Routes and examples for agent integration:</p>
-          <ol class="clean">
-            <RouteSpec
-              method="GET"
-              path={`/${service.service}`}
-              notes="Returns discovery payload, auth_url, and docs links in JSON."
-            />
-            <RouteSpec
-              method="GET"
-              path="/auth/status/{flow_id}"
-              notes="Polls auth flow until token is ready."
-            />
-            <RouteSpec
-              method="ANY"
-              path={`/${service.service}/{path}`}
-              notes="Proxy request with injected credentials using Bearer token."
-            />
-          </ol>
-          <pre class="doc-pre"><code>{`curl -H "Accept: application/json" \\
+          <section class="col-section">
+            <h3>Agent Reference</h3>
+            <p>Routes and examples for agent integration:</p>
+            <ol class="clean">
+              <RouteSpec
+                method="GET"
+                path={`/${service.service}`}
+                notes="Returns discovery payload, auth_url, and docs links in JSON."
+              />
+              <RouteSpec
+                method="GET"
+                path="/auth/status/{flow_id}"
+                notes="Polls auth flow until token is ready."
+              />
+              <RouteSpec
+                method="ANY"
+                path={`/${service.service}/{path}`}
+                notes="Proxy request with injected credentials using Bearer token."
+              />
+            </ol>
+            <pre class="doc-pre"><code>{`curl -H "Accept: application/json" \\
   warden.run/${service.service}`}</code></pre>
-          <pre class="doc-pre"><code>{`# then proxy using Warden token
+            <pre class="doc-pre"><code>{`# then proxy using Warden token
 curl -H "Authorization: Bearer <token>" \\
   warden.run/${service.service}/...`}</code></pre>
-          {coverage?.total_resources ? (
-            <p>Discovery coverage currently reports <strong>{coverage.total_resources}</strong> resources and <strong>{coverage.total_operations ?? 0}</strong> operations.</p>
-          ) : (
-            <p>Discovery coverage will appear here as docs are generated.</p>
-          )}
-        </article>
+            {coverage?.total_resources ? (
+              <p style="margin-top: 0.5rem">Discovered <strong>{coverage.total_resources}</strong> resources and <strong>{coverage.total_operations ?? 0}</strong> operations.</p>
+            ) : null}
+          </section>
+        </div>
+
+        <div class="col-right">
+          <section class="col-section">
+            <h3>Connect</h3>
+            <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
+              <span class="mono">{`curl https://warden.run/${service.service} and help me use ${serviceName(service)}`}</span>
+              <span class="copy-icon" aria-hidden="true">
+                <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              </span>
+            </div>
+            {!hasCredentials ? (
+              <div class="button-row" style="margin-top: 0.8rem">
+                {supported.includes('oauth') ? (
+                  <a href={`/auth/${service.service}/oauth`} class="btn btn-primary" style="width: 100%">Connect with OAuth</a>
+                ) : null}
+                {supported.includes('api_key') || supported.length === 0 ? (
+                  <a href={`/auth/${service.service}/api-key`} class="btn btn-secondary" style="width: 100%">Enter API Key</a>
+                ) : null}
+              </div>
+            ) : (
+              <div class="button-row" style="margin-top: 0.8rem">
+                <a href={docsHref} class="btn btn-soft" style="width: 100%">Browse docs</a>
+              </div>
+            )}
+          </section>
+
+          {hasCredentials ? (
+            <section class="col-section">
+              <h3>Your credentials</h3>
+              <ul class="credential-list">
+                {(userCredentials ?? []).map(credential => (
+                  <li>
+                    <span class="mono">{credential.slug}</span>
+                    <span style="color: var(--muted-foreground); font-size: 0.78rem">{formatTimeAgo(credential.updatedAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <section class="col-section">
+            <div class="meta-line"><strong>{credentialCount}</strong> credentials stored</div>
+            {service.docsUrl ? <div class="meta-line">Homepage: <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">{service.docsUrl}</a></div> : null}
+          </section>
+        </div>
       </div>
     </Layout>
   )

@@ -360,21 +360,21 @@ export function extractGrants(
       if (serviceMatch) {
         const gid = parseInt(serviceMatch[1], 10)
         if (!grants.has(gid)) grants.set(gid, { services: [], methods: [], paths: [] })
-        grants.get(gid)!.services.push(serviceMatch[2])
+        grants.get(gid)?.services.push(serviceMatch[2])
       }
 
       const methodMatch = trimmed.match(/grant_method\((\d+),\s*"([^"]+)"\)/)
       if (methodMatch) {
         const gid = parseInt(methodMatch[1], 10)
         if (!grants.has(gid)) grants.set(gid, { services: [], methods: [], paths: [] })
-        grants.get(gid)!.methods.push(methodMatch[2])
+        grants.get(gid)?.methods.push(methodMatch[2])
       }
 
       const pathMatch = trimmed.match(/grant_path\((\d+),\s*"([^"]+)"\)/)
       if (pathMatch) {
         const gid = parseInt(pathMatch[1], 10)
         if (!grants.has(gid)) grants.set(gid, { services: [], methods: [], paths: [] })
-        grants.get(gid)!.paths.push(pathMatch[2])
+        grants.get(gid)?.paths.push(pathMatch[2])
       }
     }
 

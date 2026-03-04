@@ -113,7 +113,7 @@ describe('Root Landing Page', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('Warden')
-    expect(text).toContain('Service Registry')
+    expect(text).toContain('Connect agents to services securely')
   })
 
   it('returns JSON agent guide for curl-style Accept: */*', async () => {
@@ -362,7 +362,7 @@ describe('Credential Management', () => {
 
     const cred = await getCredential(db, TEST_ORG_ID, 'api.github.com')
     expect(cred).not.toBeNull()
-    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
+    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred?.encryptedCredentials)
     expect(stored.headers).toEqual({
       'Authorization': 'Bearer ghp_multi',
       'X-Org-Id': 'org_123',
@@ -1664,8 +1664,8 @@ describe('OAuth Flow', () => {
 
       // Verify flow was completed
       const flow = await getAuthFlow(redis, 'success-flow')
-      expect(flow!.status).toBe('completed')
-      expect(flow!.wardenToken).toMatch(/^wdn_/)
+      expect(flow?.status).toBe('completed')
+      expect(flow?.wardenToken).toMatch(/^wdn_/)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1719,7 +1719,7 @@ describe('OAuth Flow', () => {
       expect(res.status).toBe(200)
 
       const flow = await getAuthFlow(redis, 'id-flow')
-      expect(flow!.identity).toBe('carol@example.com')
+      expect(flow?.identity).toBe('carol@example.com')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1770,7 +1770,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/post-oauth.com/oauth/callback?code=abc&state=post-id-flow')
       expect(res.status).toBe(200)
       const flow = await getAuthFlow(redis, 'post-id-flow')
-      expect(flow!.identity).toBe('frank')
+      expect(flow?.identity).toBe('frank')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1816,7 +1816,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/fail-oauth.com/oauth/callback?code=abc&state=fail-id-flow')
       expect(res.status).toBe(200)
       const flow = await getAuthFlow(redis, 'fail-id-flow')
-      expect(flow!.identity).toBe('default')
+      expect(flow?.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1867,7 +1867,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/nopath-oauth.com/oauth/callback?code=abc&state=nopath-flow')
       expect(res.status).toBe(200)
       const flow = await getAuthFlow(redis, 'nopath-flow')
-      expect(flow!.identity).toBe('default')
+      expect(flow?.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -2302,7 +2302,7 @@ describe('Query Functions', () => {
     await upsertCredential(db, TEST_ORG_ID, 'test.api', 'default', enc1)
     await upsertCredential(db, TEST_ORG_ID, 'test.api', 'default', enc2)
     const cred = await getCredential(db, TEST_ORG_ID, 'test.api')
-    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred!.encryptedCredentials)
+    const stored = await decryptCredentials(TEST_ENCRYPTION_KEY, cred?.encryptedCredentials)
     expect(stored.headers.Authorization).toBe('Bearer token2')
   })
 
@@ -2349,16 +2349,16 @@ describe('Doc Page Queries', () => {
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"level":0}', 'skeleton')
     const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
     expect(page).not.toBeNull()
-    expect(page!.content).toBe('{"level":0}')
-    expect(page!.status).toBe('skeleton')
+    expect(page?.content).toBe('{"level":0}')
+    expect(page?.status).toBe('skeleton')
   })
 
   it('upsertDocPage updates existing page', async () => {
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":1}', 'skeleton')
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":2}', 'enriched')
     const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
-    expect(page!.content).toBe('{"v":2}')
-    expect(page!.status).toBe('enriched')
+    expect(page?.content).toBe('{"v":2}')
+    expect(page?.status).toBe('enriched')
   })
 
   it('listDocPages returns all pages for a hostname', async () => {
@@ -2388,7 +2388,7 @@ describe('Doc Page Queries', () => {
   it('upsertDocPage with custom ttlDays', async () => {
     await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton', 30)
     const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
-    expect(page!.ttlDays).toBe(30)
+    expect(page?.ttlDays).toBe(30)
   })
 
   it('listStaleDocPages returns pages past their TTL', async () => {

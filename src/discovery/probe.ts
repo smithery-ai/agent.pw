@@ -105,7 +105,7 @@ async function probeDocsUrl(baseUrl: string): Promise<string | null> {
   for (const path of paths) {
     const url = `${base}${path}`
     const res = await fetchWithTimeout(url, { method: 'HEAD' })
-    if (res && res.ok) return url
+    if (res?.ok) return url
   }
 
   return null
