@@ -43,6 +43,7 @@ import { ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
 import { triggerDiscoveryWorkflow } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
+import { mergeServicePreviewWithInferredIcon } from './service-preview'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -318,6 +319,15 @@ export function createApp(deps: AppDeps = {}) {
     if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
 
     const db = c.get('db')
+    const existing = await getService(db, service)
+    const displayName = body.displayName ?? existing?.displayName ?? deriveDisplayName(service)
+    const preview =
+      body.preview !== undefined
+        ? mergeServicePreviewWithInferredIcon(service, body.preview, displayName)
+        : existing
+          ? undefined
+          : mergeServicePreviewWithInferredIcon(service, undefined, displayName)
+
     await upsertService(db, service, {
       baseUrl: body.baseUrl,
       authMethod: body.authMethod,
@@ -335,7 +345,7 @@ export function createApp(deps: AppDeps = {}) {
         : undefined,
       apiType: body.apiType,
       docsUrl: body.docsUrl,
-      preview: body.preview ? JSON.stringify(body.preview) : undefined,
+      preview: preview ? JSON.stringify(preview) : undefined,
       authConfig: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
     })
 
@@ -512,11 +522,13 @@ export function createApp(deps: AppDeps = {}) {
     // Auto-register unknown services with key-based auth as default
     if (!svc) {
       console.log(`[discovery] auto-registering new service: ${serviceName}`)
+      const displayName = deriveDisplayName(serviceName)
       await upsertService(db, serviceName, {
         baseUrl: `https://${serviceName}`,
-        displayName: deriveDisplayName(serviceName),
+        displayName,
         authMethod: 'api_key',
         supportedAuthMethods: JSON.stringify(['api_key']),
+        preview: JSON.stringify(mergeServicePreviewWithInferredIcon(serviceName, undefined, displayName)),
       })
       svc = await getService(db, serviceName)
       if (!svc) return c.json({ error: `Failed to register service: ${serviceName}` }, 500)

@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import type { InferSelectModel } from 'drizzle-orm'
 import type { services } from './db/schema'
+import { resolveServiceIconPreview } from './service-preview'
 
 type ServiceRow = InferSelectModel<typeof services>
 type ServiceWithPopularity = ServiceRow & { credentialCount?: number }
@@ -125,25 +126,6 @@ const STYLES = `
     letter-spacing: 0.02em;
   }
 
-  .mode-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    background: var(--card-strong);
-    border: 1px solid var(--line);
-    padding: 0.35rem 0.68rem;
-    border-radius: 999px;
-    font-size: 0.82rem;
-    white-space: nowrap;
-  }
-
-  .mode-chip .dot {
-    width: 0.52rem;
-    height: 0.52rem;
-    border-radius: 50%;
-    background: var(--smithery-orange);
-  }
-
   .hero {
     padding: 0.4rem 0 0.8rem;
     display: grid;
@@ -238,6 +220,25 @@ const STYLES = `
     line-height: 1.4;
     overflow-x: auto;
   }
+
+  .copyable {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    transition: border-color 0.14s ease;
+  }
+
+  .copyable:hover { border-color: rgba(255, 86, 1, 0.45); }
+
+  .copy-hint {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-family: var(--font-sans);
+    white-space: nowrap;
+  }
+
+  .copyable.copied .copy-hint::after { content: ' — copied!'; }
 
   .mode-grid {
     display: grid;
@@ -334,10 +335,20 @@ const STYLES = `
     gap: 0.7rem;
   }
 
+  .service-main {
+    display: flex;
+    align-items: center;
+    gap: 0.72rem;
+    min-width: 0;
+  }
+
+  .service-main > div { min-width: 0; }
+
   .service-host {
     margin-top: 0.3rem;
     font-size: 0.79rem;
     color: #6b685f;
+    overflow-wrap: anywhere;
   }
 
   .service-blurb {
@@ -354,10 +365,28 @@ const STYLES = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.1rem;
-    font-weight: 500;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     background: linear-gradient(145deg, rgba(255, 220, 74, 0.68), rgba(255, 86, 1, 0.35));
     border: 1px solid rgba(255, 86, 1, 0.26);
+  }
+
+  .service-icon img {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+    border-radius: 7px;
+  }
+
+  .service-icon-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
   }
 
   .service-hero {
@@ -547,8 +576,36 @@ function serviceName(service: ServiceRow) {
   return service.displayName ?? service.service
 }
 
-function serviceInitial(service: ServiceRow) {
-  return serviceName(service).charAt(0).toUpperCase()
+function parseServicePreview(service: ServiceRow) {
+  if (!service.preview) return undefined
+  try {
+    return JSON.parse(service.preview) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+function ServiceIcon({ service }: { service: ServiceRow }) {
+  const icon = resolveServiceIconPreview(service.service, parseServicePreview(service), serviceName(service))
+  const alt = `${serviceName(service)} icon`
+
+  return (
+    <div class="service-icon" title={service.service}>
+      {icon.url ? (
+        <>
+          <img
+            src={icon.url}
+            alt={alt}
+            loading="lazy"
+            onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';"
+          />
+          <span class="service-icon-fallback" style="display:none">{icon.fallback}</span>
+        </>
+      ) : (
+        <span class="service-icon-fallback">{icon.fallback}</span>
+      )}
+    </div>
+  )
 }
 
 function parseSupportedAuth(service: ServiceRow) {
@@ -561,19 +618,12 @@ function parseSupportedAuth(service: ServiceRow) {
   }
 }
 
-function modeLabel(mode: 'human' | 'agent') {
-  if (mode === 'agent') return 'Agent JSON Mode'
-  return 'Human Readable Mode'
-}
-
 function Layout({
   children,
   title,
-  mode = 'human',
 }: {
   children: any
   title?: string
-  mode?: 'human' | 'agent'
 }) {
   return (
     <html lang="en">
@@ -593,16 +643,12 @@ function Layout({
                 <small>Smithery API Registry</small>
               </span>
             </a>
-            <span class="mode-chip">
-              <span class="dot"></span>
-              {modeLabel(mode)}
-            </span>
           </header>
 
           {children}
 
           <p class="footnote">
-            Warden is a Smithery subproduct for secure API access and machine-ready discovery.
+            Forged with &lt;3 by Smithery
           </p>
         </div>
       </body>
@@ -649,7 +695,8 @@ function RouteSpec({
 }
 
 export function WardenLandingPage({ services = [] }: { services?: ServiceWithPopularity[] } = {}) {
-  const ranked = [...services].sort((a, b) => {
+  const withCreds = services.filter(s => (s.credentialCount ?? 0) > 0)
+  const ranked = [...withCreds].sort((a, b) => {
     const byPopularity = (b.credentialCount ?? 0) - (a.credentialCount ?? 0)
     if (byPopularity !== 0) return byPopularity
     return serviceName(a).localeCompare(serviceName(b))
@@ -658,10 +705,13 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
   const credentialTotal = ranked.reduce((sum, service) => sum + (service.credentialCount ?? 0), 0)
 
   return (
-    <Layout title="Warden — Smithery API Registry" mode="human">
+    <Layout title="Warden — Smithery API Registry">
       <section class="hero">
         <h1>Service Registry</h1>
-
+        <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
+          <span class="mono">curl https://warden.run and help me connect to services</span>
+          <small class="copy-hint">click to copy</small>
+        </div>
         <div class="metrics">
           <span class="pill warm"><strong>{ranked.length}</strong> services</span>
           <span class="pill hot"><strong>{credentialTotal}</strong> credentials stored</span>
@@ -679,9 +729,12 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
             {ranked.map(service => (
               <a href={`/${service.service}`} class="card service-link">
                 <div class="service-row">
-                  <div>
-                    <h3>{serviceName(service)}</h3>
-                    <div class="service-host mono">{service.service}</div>
+                  <div class="service-main">
+                    <ServiceIcon service={service} />
+                    <div>
+                      <h3>{serviceName(service)}</h3>
+                      <div class="service-host mono">{service.service}</div>
+                    </div>
                   </div>
                   <span class="pill hot">
                     <strong>{service.credentialCount ?? 0}</strong> creds
@@ -722,15 +775,20 @@ export function ServiceLandingPage({
     : `Discovery ready (${coverage?.total_resources ?? 0} resources, ${totalPages} pages)`
 
   return (
-    <Layout title={`${serviceName(service)} — Warden`} mode="human">
+    <Layout title={`${serviceName(service)} — Warden`}>
       <section class="service-hero">
-        <div class="service-icon">{serviceInitial(service)}</div>
+        <ServiceIcon service={service} />
         <div>
           <p class="eyebrow">Service Page</p>
           <h1>{serviceName(service)}</h1>
           <p class="subtitle mono">{service.service}</p>
         </div>
       </section>
+
+      <div class="code-block copyable" style="margin-top: 0.82rem" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
+        <span class="mono">{`curl https://warden.run/${service.service} and help me use ${serviceName(service)}`}</span>
+        <small class="copy-hint">click to copy</small>
+      </div>
 
       <div class="metrics" style="margin-top: 0.82rem">
         <span class="pill hot"><strong>{credentialCount}</strong> credentials stored</span>
@@ -831,9 +889,9 @@ export function ApiKeyFormPage({
   const name = serviceName(service)
 
   return (
-    <Layout title={`Connect ${name} — Warden`} mode="human">
+    <Layout title={`Connect ${name} — Warden`}>
       <section class="service-hero">
-        <div class="service-icon">{serviceInitial(service)}</div>
+        <ServiceIcon service={service} />
         <div>
           <p class="eyebrow">Credential Setup</p>
           <h1>Connect {name}</h1>
@@ -896,9 +954,9 @@ export function SuccessPage({
   const name = serviceName(service)
 
   return (
-    <Layout title={`Connected to ${name} — Warden`} mode="human">
+    <Layout title={`Connected to ${name} — Warden`}>
       <section class="service-hero">
-        <div class="service-icon">{serviceInitial(service)}</div>
+        <ServiceIcon service={service} />
         <div>
           <p class="eyebrow">Connection Complete</p>
           <h1>{name} connected</h1>
@@ -926,7 +984,7 @@ export function SuccessPage({
 
 export function ErrorPage({ message }: { message: string }) {
   return (
-    <Layout title="Error — Warden" mode="human">
+    <Layout title="Error — Warden">
       <section class="hero">
         <p class="eyebrow">Warden Error</p>
         <h1>Something failed</h1>
@@ -1041,9 +1099,9 @@ export function DocPageViewer({
   const json = JSON.stringify(content, null, 2)
 
   return (
-    <Layout title={`${serviceName(service)} docs — ${docPath}`} mode="human">
+    <Layout title={`${serviceName(service)} docs — ${docPath}`}>
       <section class="service-hero">
-        <div class="service-icon">{serviceInitial(service)}</div>
+        <ServiceIcon service={service} />
         <div>
           <p class="eyebrow">Documentation</p>
           <h1>{serviceName(service)} docs</h1>

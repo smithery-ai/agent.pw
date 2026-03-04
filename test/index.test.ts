@@ -295,6 +295,26 @@ describe('Service Management', () => {
     expect(res.status).toBe(400)
   })
 
+  it('infers icon preview for newly created services', async () => {
+    const putRes = await mgmtReq('/services/api.linear.app', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseUrl: 'https://api.linear.app',
+        displayName: 'Linear',
+      }),
+    })
+    expect(putRes.status).toBe(200)
+
+    const discoverRes = await req('/api.linear.app', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(discoverRes.status).toBe(401)
+    const body = (await discoverRes.json()) as any
+    expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/linear.app.ico')
+    expect(body.preview.icon.fallback).toBe('LI')
+  })
+
   it('deletes a service', async () => {
     await seedService()
     const res = await mgmtReq('/services/api.github.com', { method: 'DELETE' })
@@ -715,6 +735,8 @@ describe('Discovery', () => {
     expect(body.canonical).toBe('api.unknown.com')
     expect(body.auth_url).toContain('/auth/api.unknown.com/api-key?flow_id=')
     expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
+    expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/unknown.com.ico')
+    expect(body.preview.icon.fallback).toBe('UN')
   })
 
   it('returns 200 JSON for authenticated agent', async () => {
