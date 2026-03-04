@@ -150,7 +150,7 @@ function buildTools(ctx: PipelineContext) {
           const text = await res.text()
           // Truncate very large responses to avoid context overflow
           if (text.length > 100_000) {
-            return text.slice(0, 100_000) + '\n\n[truncated — response was ' + text.length + ' chars]'
+            return `${text.slice(0, 100_000)}\n\n[truncated — response was ${text.length} chars]`
           }
           return text
         } catch (e) {
@@ -217,7 +217,9 @@ export async function runDiscoveryAgent(ctx: PipelineContext) {
   const model = createModel(ctx)
   if (!model) return
 
-  console.log(`[discovery-agent] starting for ${ctx.hostname}`)
+  const log = ctx.logger
+
+  log?.info({ hostname: ctx.hostname, model: ctx.awsAccessKeyId ? BEDROCK_MODEL : ANTHROPIC_MODEL, maxSteps: MAX_STEPS }, 'starting discovery agent')
 
   const docsUrls = collectDocsUrls(ctx)
 
@@ -260,9 +262,9 @@ export async function runDiscoveryAgent(ctx: PipelineContext) {
     })
     const mcpTools = await mcpClient.tools()
     tools = { ...tools, ...mcpTools }
-    console.log(`[discovery-agent] ${ctx.hostname} exa tools loaded`)
+    log?.info({ hostname: ctx.hostname }, 'exa MCP tools loaded')
   } catch (e) {
-    console.error(`[discovery-agent] ${ctx.hostname} exa MCP connection failed:`, e)
+    log?.error({ hostname: ctx.hostname, error: e instanceof Error ? e.message : String(e) }, 'exa MCP connection failed')
   }
 
   try {
@@ -275,13 +277,13 @@ export async function runDiscoveryAgent(ctx: PipelineContext) {
       onStepFinish: ({ toolCalls }) => {
         if (toolCalls?.length) {
           for (const tc of toolCalls) {
-            console.log(`[discovery-agent] ${ctx.hostname} tool_use: ${tc.toolName}`)
+            log?.info({ hostname: ctx.hostname, toolName: tc.toolName }, 'agent tool_use')
           }
         }
       },
     })
 
-    console.log(`[discovery-agent] ${ctx.hostname} done (${result.steps.length} steps)`)
+    log?.info({ hostname: ctx.hostname, steps: result.steps.length }, 'discovery agent complete')
   } finally {
     if (mcpClient) await mcpClient.close()
   }
@@ -294,10 +296,11 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
   const model = createModel(ctx)
   if (!model) return
 
+  const log = ctx.logger
   const page = await getDocPage(ctx.db, ctx.hostname, pagePath)
   if (!page || !page.content) return
 
-  console.log(`[enrichment] ${ctx.hostname}/${pagePath} starting`)
+  log?.info({ hostname: ctx.hostname, pagePath }, 'enriching page')
 
   let tools: ToolSet = buildTools(ctx)
   let mcpClient: Awaited<ReturnType<typeof createMCPClient>> | null = null
@@ -312,7 +315,7 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
     const mcpTools = await mcpClient.tools()
     tools = { ...tools, ...mcpTools }
   } catch (e) {
-    console.error(`[enrichment] ${ctx.hostname}/${pagePath} exa MCP connection failed:`, e)
+    log?.error({ hostname: ctx.hostname, pagePath, error: e instanceof Error ? e.message : String(e) }, 'exa MCP connection failed')
   }
 
   const docsUrls = collectDocsUrls(ctx)
@@ -327,12 +330,12 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
       onStepFinish: ({ toolCalls }) => {
         if (toolCalls?.length) {
           for (const tc of toolCalls) {
-            console.log(`[enrichment] ${ctx.hostname}/${pagePath} tool_use: ${tc.toolName}`)
+            log?.info({ hostname: ctx.hostname, pagePath, toolName: tc.toolName }, 'enrichment tool_use')
           }
         }
       },
     })
-    console.log(`[enrichment] ${ctx.hostname}/${pagePath} done (${result.steps.length} steps)`)
+    log?.info({ hostname: ctx.hostname, pagePath, steps: result.steps.length }, 'enrichment complete')
   } finally {
     if (mcpClient) await mcpClient.close()
   }
@@ -344,11 +347,12 @@ export async function generateSitemapFromWeb(ctx: PipelineContext) {
 }
 
 export async function enrichPages(ctx: PipelineContext, paths: string[]) {
+  const log = ctx.logger
   for (const path of paths) {
     try {
       await enrichPage(ctx, path)
     } catch (e) {
-      console.error(`[discovery] enrichment failed for ${ctx.hostname}/${path}:`, e)
+      log?.error({ hostname: ctx.hostname, pagePath: path, error: e instanceof Error ? e.message : String(e) }, 'enrichment failed')
     }
   }
 }

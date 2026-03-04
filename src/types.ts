@@ -1,5 +1,6 @@
 import type { Database } from './db/index'
 import type { Redis } from '@upstash/redis'
+import type { Logger } from './lib/logger'
 
 export interface Hyperdrive {
   connectionString: string
@@ -19,6 +20,7 @@ export interface Env {
   WORKOS_COOKIE_PASSWORD: string
   KV_REST_API_URL: string
   KV_REST_API_TOKEN: string
+  BETTERSTACK_ERRORS_DSN?: string
   HYPERDRIVE?: Hyperdrive
   DISCOVERY_WORKFLOW?: Workflow
 }
@@ -36,6 +38,8 @@ export interface HonoEnv {
     managementRights?: ManagementRights
     token?: string
     session?: import('./lib/session').Session
+    logger: Logger
+    flushLogger: () => Promise<void>
   }
 }
 

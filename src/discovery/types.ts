@@ -1,6 +1,7 @@
 import type { InferSelectModel } from 'drizzle-orm'
 import type { services } from '../db/schema'
 import type { Database } from '../db/index'
+import type { Logger } from '../lib/logger'
 
 export type ServiceRow = InferSelectModel<typeof services>
 
@@ -22,6 +23,8 @@ export interface PipelineContext {
   externalDocsUrls?: string[]
   /** Cloudflare Workflow binding for durable discovery execution */
   workflow?: Workflow
+  /** Structured logger */
+  logger?: Logger
 }
 
 // ─── Probe Result (Phase 1) ──────────────────────────────────────────────────

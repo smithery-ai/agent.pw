@@ -44,6 +44,7 @@ import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-cr
 import { mergeServicePreviewWithInferredIcon } from './service-preview'
 import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme, DEFAULT_API_KEY_SCHEME, type AuthScheme } from './auth-schemes'
 import { webhookRoutes } from './webhooks/index'
+import { createLogger } from './lib/logger'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -104,7 +105,7 @@ export function createApp(deps: AppDeps = {}) {
   const app = new Hono<HonoEnv>()
 
   app.onError((err, c) => {
-    console.error(`[error] ${c.req.method} ${c.req.path}:`, err.message, err.stack)
+    c.get('logger')?.error({ method: c.req.method, path: c.req.path, error: err.message, stack: err.stack }, 'unhandled error')
     return c.json({ error: 'Internal Server Error' }, 500)
   })
 
@@ -158,7 +159,24 @@ export function createApp(deps: AppDeps = {}) {
     } else if (c.env.KV_REST_API_URL && c.env.KV_REST_API_TOKEN) {
       c.set('redis', new Redis({ url: c.env.KV_REST_API_URL, token: c.env.KV_REST_API_TOKEN }))
     }
+
+    const { logger, flush } = createLogger('warden', c.env.BETTERSTACK_ERRORS_DSN)
+    c.set('logger', logger)
+    c.set('flushLogger', flush)
     return next()
+  })
+
+  // ─── Request logging ─────────────────────────────────────────────────────
+
+  app.use('*', async (c, next) => {
+    const start = performance.now()
+    await next()
+    const duration = Math.round(performance.now() - start)
+    const path = new URL(c.req.url).pathname
+    if (path !== '/' && !path.startsWith('/favicon')) {
+      c.get('logger').info({ method: c.req.method, path, status: c.res.status, duration_ms: duration }, 'request')
+    }
+    try { c.executionCtx?.waitUntil?.(c.get('flushLogger')()) } catch { /* no ExecutionContext in tests */ }
   })
 
   // ─── Health ────────────────────────────────────────────────────────────────
@@ -562,7 +580,7 @@ export function createApp(deps: AppDeps = {}) {
 
     // Auto-register unknown services, attempting OAuth detection up front.
     if (!svc) {
-      console.log(`[discovery] auto-registering new service: ${serviceName}`)
+      c.get('logger').info({ service: serviceName, action: 'auto-register' }, 'registering new service')
       const baseUrl = `https://${serviceName}`
       const displayName = deriveDisplayName(serviceName)
       const knownProvider = getKnownOAuthProvider(serviceName)
@@ -602,7 +620,7 @@ export function createApp(deps: AppDeps = {}) {
         // (fixes migration backfill from incorrect legacy auth_method values)
         const expectedSchemes = JSON.stringify(knownProvider.authSchemes)
         if (svc.authSchemes !== expectedSchemes) {
-          console.log(`[discovery] syncing auth schemes for known provider: ${serviceName}`)
+          c.get('logger').info({ service: serviceName, action: 'sync-auth' }, 'syncing auth schemes for known provider')
           await upsertService(db, serviceName, {
             baseUrl: svc.baseUrl,
             authSchemes: expectedSchemes,
@@ -615,7 +633,7 @@ export function createApp(deps: AppDeps = {}) {
         // Probe for OAuth on unknown services that lack an OAuth scheme
         const oauthWellKnown = await probeOAuthWellKnown(`https://${serviceName}`)
         if (oauthWellKnown) {
-          console.log(`[discovery] backfilling OAuth for existing service: ${serviceName}`)
+          c.get('logger').info({ service: serviceName, action: 'backfill-oauth' }, 'backfilling OAuth for existing service')
           const existingSchemes = parseAuthSchemes(svc.authSchemes)
           if (existingSchemes.length === 0) {
             existingSchemes.push(DEFAULT_API_KEY_SCHEME)
@@ -638,13 +656,14 @@ export function createApp(deps: AppDeps = {}) {
     }
 
     // Kick off discovery pipeline if stale or no docs exist
-    const discoveryCtx = { db, hostname: serviceName, service: svc, anthropicApiKey: c.env.ANTHROPIC_API_KEY, anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL, awsAccessKeyId: c.env.AWS_ACCESS_KEY_ID, awsSecretAccessKey: c.env.AWS_SECRET_ACCESS_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
+    const logger = c.get('logger').child({ hostname: serviceName })
+    const discoveryCtx = { db, hostname: serviceName, service: svc, anthropicApiKey: c.env.ANTHROPIC_API_KEY, anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL, awsAccessKeyId: c.env.AWS_ACCESS_KEY_ID, awsSecretAccessKey: c.env.AWS_SECRET_ACCESS_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW, encryptionKey: c.env.ENCRYPTION_KEY, logger }
     const stale = await isDiscoveryStale(discoveryCtx)
     if (stale) {
-      console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'stale'})`)
+      logger.info({ trigger: isNew ? 'new' : 'stale' }, 'triggering discovery pipeline')
       // Non-blocking: workflow handles its own lifecycle
       triggerDiscoveryWorkflow(discoveryCtx).catch(err =>
-        console.error(`[discovery] pipeline failed for ${serviceName}:`, err),
+        logger.error({ error: err instanceof Error ? err.message : String(err) }, 'discovery pipeline failed'),
       )
     }
 
