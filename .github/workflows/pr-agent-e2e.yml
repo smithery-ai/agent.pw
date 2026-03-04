@@ -77,17 +77,21 @@ jobs:
               } else {
                 const previewUrl = parsePreviewUrl(matchedCheckRun.output?.summary ?? '')
                 if (!previewUrl) {
-                  throw new Error('Cloudflare check completed but preview URL was missing in summary.')
+                  // Cloudflare may update the check run summary with the preview URL
+                  // after marking it as completed; keep polling instead of failing.
+                  core.info(
+                    `Attempt ${attempt}/${maxAttempts}: Cloudflare check completed but preview URL not yet in summary. Retrying…`,
+                  )
+                } else {
+                  core.setOutput('preview_url', previewUrl)
+                  core.setOutput(
+                    'check_run_url',
+                    matchedCheckRun.details_url || matchedCheckRun.html_url || '',
+                  )
+                  core.setOutput('pr_number', String(prNumber))
+                  core.info(`PR #${prNumber}, preview: ${previewUrl}`)
+                  return
                 }
-
-                core.setOutput('preview_url', previewUrl)
-                core.setOutput(
-                  'check_run_url',
-                  matchedCheckRun.details_url || matchedCheckRun.html_url || '',
-                )
-                core.setOutput('pr_number', String(prNumber))
-                core.info(`PR #${prNumber}, preview: ${previewUrl}`)
-                return
               }
 
               if (attempt < maxAttempts) {
