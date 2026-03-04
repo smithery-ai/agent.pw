@@ -43,7 +43,7 @@ export function buildUnauthDiscovery(svc: ServiceRow, baseUrl: string, flowId?: 
   result.proxy = `${baseUrl}/${svc.service}`
   if (svc.preview) result.preview = JSON.parse(svc.preview)
   if (svc.docsUrl) result.docs_url = svc.docsUrl
-  result.docs = `/${svc.service}/docs/`
+  result.sitemap = `/${svc.service}/sitemap/`
 
   return result
 }
@@ -79,11 +79,11 @@ export function buildWardenGuide(baseUrl: string) {
           'Proxied request to the upstream API with injected credentials.',
         headers: { Authorization: 'Bearer <warden_token>' },
       },
-      docs: {
+      sitemap: {
         method: 'GET',
-        path: '/{hostname}/docs/',
+        path: '/{hostname}/sitemap/',
         description:
-          'Generated API documentation with resources, operations, and examples.',
+          'API sitemap with resources, operations, and links to upstream docs.',
       },
       hooks_register_via_proxy: {
         method: 'POST',
@@ -236,7 +236,7 @@ Replace \`{hostname}\` with the API hostname (e.g. \`api.github.com\`).
 | \`GET\` | \`/{hostname}\` | Discover a service and start auth |
 | \`GET\` | \`/auth/status/{flow_id}\` | Poll for auth completion |
 | \`ANY\` | \`/{hostname}/{path}\` | Proxy with injected credentials |
-| \`GET\` | \`/{hostname}/docs/\` | Auto-generated API documentation |
+| \`GET\` | \`/{hostname}/sitemap/\` | API sitemap with resources and operations |
 | \`POST\` | \`/{hostname}/{webhook_endpoint}\` | Create webhook with \`Warden-Callback\` header |
 | \`GET\` | \`/hooks/registrations\` | List webhook registrations |
 | \`GET\` | \`/.well-known/jwks.json\` | Ed25519 public key for verifying forwarded events |
@@ -281,7 +281,7 @@ export function buildAuthDiscovery(svc: ServiceRow, baseUrl: string) {
 
   if (svc.apiType) result.api_type = svc.apiType
   if (svc.docsUrl) result.docs_url = svc.docsUrl
-  result.docs = `/${svc.service}/docs/`
+  result.sitemap = `/${svc.service}/sitemap/`
 
   return result
 }

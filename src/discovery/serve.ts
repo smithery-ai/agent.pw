@@ -40,9 +40,9 @@ export function docRoutes() {
     return c.json(JSON.parse(meta.content!))
   })
 
-  // ─── Doc pages ─────────────────────────────────────────────────────────────
+  // ─── Sitemap pages ─────────────────────────────────────────────────────────
 
-  router.get('/:service/docs/', async c => {
+  router.get('/:service/sitemap/', async c => {
     const serviceName = c.req.param('service')
     if (RESERVED_PATHS.has(serviceName)) return c.notFound()
 
@@ -50,8 +50,8 @@ export function docRoutes() {
     const svc = await getService(db, serviceName)
     if (!svc) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
 
-    const page = await getOrGeneratePage(buildPipelineCtx(c, serviceName, svc), 'docs/index.json')
-    if (!page) return c.json({ error: 'Documentation not available' }, 404)
+    const page = await getOrGeneratePage(buildPipelineCtx(c, serviceName, svc), 'sitemap/index.json')
+    if (!page) return c.json({ error: 'Sitemap not available' }, 404)
 
     const parsed = JSON.parse(page.content!)
     if (wantsJson(c.req.header('Accept'))) return c.json(parsed)
@@ -59,14 +59,14 @@ export function docRoutes() {
     return c.html(
       DocPageViewer({
         service: svc,
-        docPath: 'docs/index.json',
+        docPath: 'sitemap/index.json',
         content: parsed,
         status: page.status ?? undefined,
       }),
     )
   })
 
-  router.get('/:service/docs/*', async c => {
+  router.get('/:service/sitemap/*', async c => {
     const serviceName = c.req.param('service')
     if (RESERVED_PATHS.has(serviceName)) return c.notFound()
 

@@ -745,7 +745,7 @@ describe('Documentation Routes', () => {
     await upsertDocPage(
       db,
       'api.github.com',
-      'docs/index.json',
+      'sitemap/index.json',
       JSON.stringify({
         level: 0,
         service: 'GitHub',
@@ -760,7 +760,7 @@ describe('Documentation Routes', () => {
     await upsertDocPage(
       db,
       'api.github.com',
-      'docs/resources.json',
+      'sitemap/resources.json',
       JSON.stringify({
         level: 1,
         resources: [
@@ -777,7 +777,7 @@ describe('Documentation Routes', () => {
   })
 
   it('returns JSON docs for agents', async () => {
-    const res = await req('/api.github.com/docs/', {
+    const res = await req('/api.github.com/sitemap/', {
       headers: { Accept: 'application/json' },
     })
     expect(res.status).toBe(200)
@@ -788,24 +788,24 @@ describe('Documentation Routes', () => {
   })
 
   it('returns HTML docs for humans', async () => {
-    const res = await req('/api.github.com/docs/', {
+    const res = await req('/api.github.com/sitemap/', {
       headers: { Accept: 'text/html' },
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('text/html')
     const text = await res.text()
     expect(text).toContain('Documentation')
-    expect(text).toContain('docs/index.json')
+    expect(text).toContain('sitemap/index.json')
     expect(text).toContain('Raw JSON')
   })
 
   it('renders nested docs page as HTML when requested by browser', async () => {
-    const res = await req('/api.github.com/docs/resources.json', {
+    const res = await req('/api.github.com/sitemap/resources.json', {
       headers: { Accept: 'text/html' },
     })
     expect(res.status).toBe(200)
     const text = await res.text()
-    expect(text).toContain('docs/resources.json')
+    expect(text).toContain('sitemap/resources.json')
     expect(text).toContain('Repositories')
   })
 })
@@ -2395,64 +2395,64 @@ describe('Doc Page Queries', () => {
   })
 
   it('upsertDocPage creates and retrieves a page', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"level":0}', 'skeleton')
-    const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"level":0}', 'skeleton')
+    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
     expect(page).not.toBeNull()
     expect(page?.content).toBe('{"level":0}')
     expect(page?.status).toBe('skeleton')
   })
 
   it('upsertDocPage updates existing page', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":1}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":2}', 'enriched')
-    const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"v":1}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"v":2}', 'enriched')
+    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
     expect(page?.content).toBe('{"v":2}')
     expect(page?.status).toBe('enriched')
   })
 
   it('listDocPages returns all pages for a hostname', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/repos.json', '{}', 'enriched')
-    await upsertDocPage(db, 'other.api', 'docs/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
+    await upsertDocPage(db, 'other.api', 'sitemap/index.json', '{}', 'skeleton')
     const pages = await listDocPages(db, 'api.github.com')
     expect(pages).toHaveLength(2)
   })
 
   it('listSkeletonPages returns only skeleton pages', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/repos.json', '{}', 'enriched')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
     const pages = await listSkeletonPages(db, 'api.github.com')
     expect(pages).toHaveLength(1)
-    expect(pages[0].path).toBe('docs/index.json')
+    expect(pages[0].path).toBe('sitemap/index.json')
   })
 
   it('deleteDocPages removes all pages for a hostname', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/repos.json', '{}', 'enriched')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
     await deleteDocPages(db, 'api.github.com')
     const pages = await listDocPages(db, 'api.github.com')
     expect(pages).toHaveLength(0)
   })
 
   it('upsertDocPage with custom ttlDays', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton', 30)
-    const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton', 30)
+    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
     expect(page?.ttlDays).toBe(30)
   })
 
   it('listStaleDocPages returns pages past their TTL', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'enriched', 1)
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'enriched', 1)
     // Make the page stale by backdating generated_at
     await db.execute(
       sql`UPDATE warden.doc_pages SET generated_at = now() - interval '30 days' WHERE hostname = 'api.github.com'`,
     )
     const stale = await listStaleDocPages(db, 'api.github.com')
     expect(stale).toHaveLength(1)
-    expect(stale[0].path).toBe('docs/index.json')
+    expect(stale[0].path).toBe('sitemap/index.json')
   })
 
   it('listStaleDocPages excludes fresh pages', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'enriched', 7)
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'enriched', 7)
     const stale = await listStaleDocPages(db, 'api.github.com')
     expect(stale).toHaveLength(0)
   })

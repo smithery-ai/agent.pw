@@ -43,7 +43,7 @@ export interface ProbeResult {
 
 // ─── Doc Page Content Shapes ─────────────────────────────────────────────────
 
-/** L0: Service root — what is this API, how to auth, quick start */
+/** L0: Service root — what is this API, how to auth, links to resources */
 export interface DocIndexPage {
   level: 0
   service: string
@@ -52,12 +52,6 @@ export interface DocIndexPage {
   base_url: string
   description: string
   auth: { type: string; setup_url: string }[]
-  quick_start?: {
-    method: string
-    path: string
-    description: string
-    example_response?: unknown
-  }
   docs_url?: string
 }
 
@@ -87,8 +81,8 @@ export interface DocResourceDetailPage {
     summary: string
     slug: string
     parameters?: { name: string; type: string; required: boolean; description: string }[]
-    example_request?: unknown
-    example_response?: unknown
+    response_codes?: { status: number; description: string }[]
+    docs_url?: string
   }[]
 }
 
@@ -101,8 +95,9 @@ export interface DocOperationDetailPage {
   path: string
   description: string
   parameters: { name: string; type: string; required: boolean; description: string }[]
-  request_body?: { content_type: string; schema: unknown; example: unknown }
-  responses: { status: number; description: string; example?: unknown }[]
+  request_body?: { content_type: string; schema: unknown }
+  responses: { status: number; description: string }[]
+  docs_url?: string
   notes?: string
 }
 

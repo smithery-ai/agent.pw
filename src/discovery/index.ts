@@ -56,7 +56,7 @@ export async function getOrGeneratePage(
   }
 
   // Pages exist but this one doesn't.
-  if (path === 'docs/index.json' || path === 'docs/resources.json') {
+  if (path === 'sitemap/index.json' || path === 'sitemap/resources.json') {
     // These should exist after pipeline, something went wrong
     await triggerDiscoveryWorkflow(ctx)
     return await getDocPage(ctx.db, ctx.hostname, path)

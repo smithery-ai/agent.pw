@@ -8,8 +8,8 @@ import { getDocPage, upsertDocPage, listDocPages } from '../db/queries'
 
 const BEDROCK_MODEL = 'anthropic.claude-sonnet-4-6-20250514-v1:0'
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6'
-const INITIAL_MAX_STEPS = 3
-const REENRICH_MAX_STEPS = 5
+const INITIAL_MAX_STEPS = 2
+const REENRICH_MAX_STEPS = 3
 
 function createModel(ctx: PipelineContext) {
   // Prefer Bedrock when AWS credentials are available
@@ -34,137 +34,77 @@ function createModel(ctx: PipelineContext) {
 }
 
 function buildSystemPrompt(ctx: PipelineContext) {
-  return `You are a technical writer generating API documentation for ${ctx.service.displayName ?? ctx.hostname} (${ctx.service.baseUrl}).
+  return `You are enriching a thin API sitemap for ${ctx.service.displayName ?? ctx.hostname} (${ctx.service.baseUrl}).
 
-IMPORTANT: Call write_doc_page IMMEDIATELY with your best effort. Do NOT fetch more than one URL before writing. A partial page NOW is better than a perfect page later.
+Your ONLY job is to:
+1. Add one-line descriptions where they are empty
+2. Find and attach docs_url per operation by searching for official API documentation
 
-Guidelines:
-- Write concise, developer-friendly descriptions
-- Generate realistic example requests and responses with placeholder IDs
-- For resources: identify the 3-5 most common operations
-- For operations: include required parameters and at least one example
-- Do NOT hallucinate endpoints or fields that don't exist
-- You may fetch ONE upstream URL if you need more context, then WRITE immediately
-- Use web_search_exa to find API documentation and examples when available
-- Mark content as best-effort if unsure — a partial page is better than nothing`
+Do NOT generate examples, request bodies, or response schemas.
+Do NOT hallucinate endpoints or fields.
+Call write_doc_page IMMEDIATELY after searching. One search, then write.`
 }
 
 function buildReenrichSystemPrompt(ctx: PipelineContext) {
-  return `You are a technical writer improving existing API documentation for ${ctx.service.displayName ?? ctx.hostname} (${ctx.service.baseUrl}).
+  return `You are improving an API sitemap for ${ctx.service.displayName ?? ctx.hostname} (${ctx.service.baseUrl}).
 
-You are reviewing and improving documentation that was previously generated. Your job is to make it MORE accurate and useful, not to rewrite from scratch.
+Your ONLY job is to:
+1. Improve empty or vague descriptions to be more specific
+2. Find and attach docs_url per operation via search
+3. Fix any inaccurate information
 
-Guidelines:
-- Improve descriptions to be more specific and helpful
-- Add missing parameters, examples, or edge cases
-- Fix any inaccurate information
-- Fetch upstream documentation for reference to verify and improve content
-- Use web_search_exa to find additional API documentation, examples, and guides
-- Do NOT remove existing accurate content — only add to it or correct errors
-- Call write_doc_page when you have improvements ready`
+Do NOT add examples, request bodies, or response schemas.
+Do NOT remove existing accurate content.
+Call write_doc_page when improvements are ready.`
 }
 
-function buildEnrichmentPrompt(
-  pagePath: string,
-  pageContent: string,
-  existingPages: { path: string; content: string }[],
-  docsUrls: string[],
-) {
-  let prompt = `Enrich this skeleton doc page by adding descriptions and examples, then IMMEDIATELY call write_doc_page to save it.
+function buildEnrichmentPrompt(pagePath: string, pageContent: string, docsUrls: string[]) {
+  let prompt = `Enrich this sitemap page by adding descriptions and doc URLs, then call write_doc_page.
 
 Page: ${pagePath}
 Current content:
 ${pageContent}
-
 `
 
-  if (existingPages.length > 0) {
-    prompt += `Context from other generated pages:\n`
-    for (const p of existingPages.slice(0, 5)) {
-      prompt += `--- ${p.path} ---\n${p.content.slice(0, 500)}\n\n`
-    }
-  }
-
   if (docsUrls.length > 0) {
-    prompt += `\nAPI documentation sources you can fetch for reference:\n`
+    prompt += `\nKnown documentation sources:\n`
     for (const url of docsUrls) {
       prompt += `- ${url}\n`
     }
   }
 
-  prompt += `\nUse the write_doc_page tool to save your enriched version of "${pagePath}".`
+  prompt += `\nUse web_search_exa to find official API docs for each operation, then call write_doc_page to save "${pagePath}".`
 
   return prompt
 }
 
-function buildReenrichmentPrompt(
-  pagePath: string,
-  pageContent: string,
-  existingPages: { path: string; content: string }[],
-  docsUrls: string[],
-) {
-  let prompt = `Review and improve this existing documentation page. It was previously generated and may have gaps or inaccuracies.
+function buildReenrichmentPrompt(pagePath: string, pageContent: string, docsUrls: string[]) {
+  let prompt = `Review and improve this sitemap page. Add missing descriptions and doc URLs.
 
 Page: ${pagePath}
 Current content:
 ${pageContent}
-
 `
 
-  if (existingPages.length > 0) {
-    prompt += `Context from other pages:\n`
-    for (const p of existingPages.slice(0, 5)) {
-      prompt += `--- ${p.path} ---\n${p.content.slice(0, 500)}\n\n`
-    }
-  }
-
   if (docsUrls.length > 0) {
-    prompt += `\nAPI documentation sources — fetch these to verify and improve the content:\n`
+    prompt += `\nKnown documentation sources:\n`
     for (const url of docsUrls) {
       prompt += `- ${url}\n`
     }
-    prompt += `\nFetch at least one documentation source before writing improvements.\n`
   }
 
-  prompt += `\nCall write_doc_page with your improved version of "${pagePath}". If the page is already accurate and complete, write it back unchanged.`
+  prompt += `\nSearch for official docs, then call write_doc_page with improvements for "${pagePath}".`
 
   return prompt
 }
 
 function buildTools(ctx: PipelineContext) {
   return {
-    fetch_upstream: tool({
-      description:
-        'Fetch a URL. Use this to read API documentation pages, probe endpoints, or fetch example responses from the upstream service.',
-      inputSchema: z.object({
-        url: z.string().describe('Full URL to fetch'),
-        method: z.enum(['GET', 'POST']).optional().describe('HTTP method (default GET)'),
-        body: z.string().optional().describe('Request body for POST requests'),
-      }),
-      execute: async (input) => {
-        const { url, method, body } = input
-        try {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 5000)
-          const res = await fetch(url, {
-            method: method ?? 'GET',
-            body,
-            headers: body ? { 'Content-Type': 'application/json' } : undefined,
-            signal: controller.signal,
-          })
-          clearTimeout(timer)
-          const text = await res.text()
-          return text.length > 10000 ? `${text.slice(0, 10000)}\n... (truncated)` : text
-        } catch (e) {
-          return `Error fetching ${url}: ${e instanceof Error ? e.message : String(e)}`
-        }
-      },
-    }),
     write_doc_page: tool({
       description:
-        'Write an enriched documentation page. The content should be a structured JSON object matching the doc page schema.',
+        'Write an enriched sitemap page. The content should be a structured JSON object matching the page schema.',
       inputSchema: z.object({
-        path: z.string().describe('Page path, e.g. "docs/issues.json"'),
+        path: z.string().describe('Page path, e.g. "sitemap/issues.json"'),
         content: z.record(z.string(), z.unknown()).describe('The page content object (will be JSON-stringified and stored)'),
       }),
       execute: async (input) => {
@@ -196,11 +136,6 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
 
   const isReenrich = page.status === 'enriched'
 
-  const existingPages = await listDocPages(ctx.db, ctx.hostname)
-  const otherPages = existingPages
-    .filter(p => p.path !== pagePath && p.content)
-    .map(p => ({ path: p.path, content: p.content! }))
-
   const docsUrls = collectDocsUrls(ctx)
   const maxSteps = isReenrich ? REENRICH_MAX_STEPS : INITIAL_MAX_STEPS
 
@@ -230,8 +165,8 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
       stopWhen: stepCountIs(maxSteps),
       system: isReenrich ? buildReenrichSystemPrompt(ctx) : buildSystemPrompt(ctx),
       prompt: isReenrich
-        ? buildReenrichmentPrompt(pagePath, page.content, otherPages, docsUrls)
-        : buildEnrichmentPrompt(pagePath, page.content, otherPages, docsUrls),
+        ? buildReenrichmentPrompt(pagePath, page.content, docsUrls)
+        : buildEnrichmentPrompt(pagePath, page.content, docsUrls),
       tools,
       onStepFinish: ({ toolCalls }) => {
         if (toolCalls?.length) {
