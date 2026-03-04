@@ -206,24 +206,22 @@ export async function enrichPage(ctx: PipelineContext, pagePath: string) {
 
   console.log(`[enrichment] ${ctx.hostname}/${pagePath} starting (${isReenrich ? 're-enrich' : 'initial'})`)
 
-  // Build tools: merge local tools with Exa MCP tools when available
+  // Build tools: merge local tools with Exa MCP search tools
   let tools: ToolSet = buildTools(ctx)
   let mcpClient: Awaited<ReturnType<typeof createMCPClient>> | null = null
 
-  if (ctx.exaApiKey) {
-    try {
-      mcpClient = await createMCPClient({
-        transport: {
-          type: 'sse',
-          url: `https://mcp.exa.ai/mcp?exaApiKey=${ctx.exaApiKey}&tools=web_search_exa,crawling_exa`,
-        },
-      })
-      const mcpTools = await mcpClient.tools()
-      tools = { ...tools, ...mcpTools }
-      console.log(`[enrichment] ${ctx.hostname}/${pagePath} exa tools loaded`)
-    } catch (e) {
-      console.error(`[enrichment] ${ctx.hostname}/${pagePath} exa MCP connection failed:`, e)
-    }
+  try {
+    mcpClient = await createMCPClient({
+      transport: {
+        type: 'sse',
+        url: 'https://mcp.exa.ai/mcp?tools=web_search_exa,crawling_exa',
+      },
+    })
+    const mcpTools = await mcpClient.tools()
+    tools = { ...tools, ...mcpTools }
+    console.log(`[enrichment] ${ctx.hostname}/${pagePath} exa tools loaded`)
+  } catch (e) {
+    console.error(`[enrichment] ${ctx.hostname}/${pagePath} exa MCP connection failed:`, e)
   }
 
   try {

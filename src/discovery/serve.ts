@@ -19,7 +19,6 @@ function buildPipelineCtx(c: Context<HonoEnv>, serviceName: string, svc: NonNull
     awsAccessKeyId: c.env.AWS_ACCESS_KEY_ID,
     awsSecretAccessKey: c.env.AWS_SECRET_ACCESS_KEY,
     awsRegion: c.env.AWS_REGION,
-    exaApiKey: c.env.EXA_API_KEY,
     baseUrl: new URL(c.req.url).origin,
     workflow: c.env.DISCOVERY_WORKFLOW,
   }

@@ -94,7 +94,6 @@ export class DiscoveryWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             awsAccessKeyId: this.env.AWS_ACCESS_KEY_ID,
             awsSecretAccessKey: this.env.AWS_SECRET_ACCESS_KEY,
             awsRegion: this.env.AWS_REGION,
-            exaApiKey: this.env.EXA_API_KEY,
             baseUrl: this.env.BASE_URL,
             externalDocsUrls: probeResult.externalDocsUrls,
           }

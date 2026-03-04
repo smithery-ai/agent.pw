@@ -15,7 +15,6 @@ export interface PipelineContext {
   awsAccessKeyId?: string
   awsSecretAccessKey?: string
   awsRegion?: string
-  exaApiKey?: string
   baseUrl: string
   /** External documentation URLs discovered by probing (e.g., docs.linear.app) */
   externalDocsUrls?: string[]
