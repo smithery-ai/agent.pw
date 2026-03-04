@@ -43,6 +43,7 @@ export interface ProbeResult {
     tokenUrl: string
     scopes?: string
     source: 'well_known' | 'openapi' | 'registry'
+    tokenEndpointAuthMethod?: 'basic'
   }
 }
 

@@ -50,6 +50,7 @@ export const KNOWN_OAUTH_PROVIDERS: Record<string, KnownOAuthProvider> = {
     ],
     authConfig: {
       token_accept: 'application/json',
+      token_auth: 'basic',
     },
   },
   'slack.com': {

@@ -179,7 +179,7 @@ async function probeDocsUrl(baseUrl: string): Promise<string | null> {
 
 export async function probeOAuthWellKnown(
   baseUrl: string,
-): Promise<{ authorizeUrl: string; tokenUrl: string; scopes?: string } | null> {
+): Promise<{ authorizeUrl: string; tokenUrl: string; scopes?: string; tokenEndpointAuthMethod?: 'basic' } | null> {
   const base = baseUrl.replace(/\/$/, '')
   const paths = [
     '/.well-known/openid-configuration',
@@ -204,7 +204,17 @@ export async function probeOAuthWellKnown(
           ? data.scopes_supported.filter((s): s is string => typeof s === 'string').join(' ')
           : undefined
 
-      return { authorizeUrl, tokenUrl, scopes: scopes || undefined }
+      // Detect if the token endpoint requires HTTP Basic Auth (client_secret_basic)
+      // per RFC 6749 §2.3.1. If basic is supported but post is not, use basic.
+      const authMethods = Array.isArray(data.token_endpoint_auth_methods_supported)
+        ? (data.token_endpoint_auth_methods_supported as string[])
+        : undefined
+      const tokenEndpointAuthMethod =
+        authMethods?.includes('client_secret_basic') && !authMethods?.includes('client_secret_post')
+          ? 'basic' as const
+          : undefined
+
+      return { authorizeUrl, tokenUrl, scopes: scopes || undefined, tokenEndpointAuthMethod }
     } catch {
       // ignore malformed response
     }
@@ -360,6 +370,7 @@ export async function probeService(
       tokenUrl: oauthWellKnown.tokenUrl,
       scopes: oauthWellKnown.scopes,
       source: 'well_known',
+      tokenEndpointAuthMethod: oauthWellKnown.tokenEndpointAuthMethod,
     }
   }
 

@@ -600,8 +600,10 @@ export function createApp(deps: AppDeps = {}) {
       const displayName = deriveDisplayName(serviceName)
 
       let authSchemes: AuthScheme[]
+      let authConfig: string | undefined
       if (knownProvider) {
         authSchemes = knownProvider.authSchemes
+        authConfig = JSON.stringify(knownProvider.authConfig)
       } else {
         // Don't assign auth schemes without evidence — discovery will determine them.
         // Only add OAuth if we detect well-known endpoints during registration.
@@ -614,6 +616,9 @@ export function createApp(deps: AppDeps = {}) {
             tokenUrl: oauthWellKnown.tokenUrl,
             scopes: oauthWellKnown.scopes,
           })
+          if (oauthWellKnown.tokenEndpointAuthMethod) {
+            authConfig = JSON.stringify({ token_auth: oauthWellKnown.tokenEndpointAuthMethod })
+          }
         }
       }
 
@@ -621,7 +626,7 @@ export function createApp(deps: AppDeps = {}) {
         baseUrl,
         displayName,
         authSchemes: JSON.stringify(authSchemes),
-        authConfig: knownProvider ? JSON.stringify(knownProvider.authConfig) : undefined,
+        authConfig,
         webhookConfig: knownProvider?.webhookConfig ? JSON.stringify(knownProvider.webhookConfig) : undefined,
         preview: JSON.stringify(mergeServicePreviewWithInferredIcon(serviceName, undefined, displayName)),
       })
@@ -660,10 +665,17 @@ export function createApp(deps: AppDeps = {}) {
             tokenUrl: oauthWellKnown.tokenUrl,
             scopes: oauthWellKnown.scopes,
           })
+          // Merge token_auth from well-known into existing authConfig
+          let backfillAuthConfig = svc.authConfig ?? undefined
+          if (oauthWellKnown.tokenEndpointAuthMethod) {
+            const existing: Record<string, string> = backfillAuthConfig ? JSON.parse(backfillAuthConfig) : {}
+            existing.token_auth = oauthWellKnown.tokenEndpointAuthMethod
+            backfillAuthConfig = JSON.stringify(existing)
+          }
           await upsertService(db, serviceName, {
             baseUrl: svc.baseUrl,
             authSchemes: JSON.stringify(existingSchemes),
-            authConfig: svc.authConfig ?? undefined,
+            authConfig: backfillAuthConfig,
           })
           svc = await getService(db, serviceName)
           if (!svc) return c.json({ error: `Failed to update service: ${serviceName}` }, 500)
