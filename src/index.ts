@@ -678,13 +678,13 @@ export function createApp(deps: AppDeps = {}) {
           'WWW-Authenticate': 'Bearer realm="warden"',
         })
       }
-      return c.html(ServiceLandingPage({ service: svc, credentialCount, discoveryStatus, userCredentials }))
+      return c.html(ServiceLandingPage({ service: svc, discoveryStatus, userCredentials }))
     }
 
     if (json) {
       return c.json({ ...buildAuthDiscovery(svc, c.env.BASE_URL), credential_count: credentialCount, discovery: discoveryStatus })
     }
-    return c.html(ServiceLandingPage({ service: svc, credentialCount, discoveryStatus, userCredentials }))
+    return c.html(ServiceLandingPage({ service: svc, discoveryStatus, userCredentials }))
   })
 
   // ─── Legacy redirect ──────────────────────────────────────────────────────
