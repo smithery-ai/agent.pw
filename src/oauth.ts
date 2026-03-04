@@ -257,7 +257,7 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
     return c.json({ error: `OAuth not configured for ${serviceName}` }, 400)
   }
 
-  const flowId = randomId()
+  const flowId = c.req.query('flow_id') || randomId()
   const codeVerifier = randomId() + randomId() // 96 chars
   const codeChallenge = await generateCodeChallenge(codeVerifier)
 
@@ -313,21 +313,25 @@ oauthRoutes.post('/:service/oauth/byo', requireBrowserSession, async c => {
   let clientId = ''
   let clientSecret = ''
   let scopes = ''
+  let incomingFlowId = ''
 
   if (contentType.includes('application/json')) {
     const body = await c.req.json<{
       client_id?: string
       client_secret?: string
       scopes?: string
+      flow_id?: string
     }>()
     clientId = body.client_id?.trim() ?? ''
     clientSecret = body.client_secret?.trim() ?? ''
     scopes = body.scopes?.trim() ?? ''
+    incomingFlowId = body.flow_id?.trim() ?? ''
   } else {
     const formData = await c.req.parseBody()
     clientId = ((formData.client_id as string) ?? '').trim()
     clientSecret = ((formData.client_secret as string) ?? '').trim()
     scopes = ((formData.scopes as string) ?? '').trim()
+    incomingFlowId = ((formData.flow_id as string) ?? '').trim()
   }
 
   if (!clientId) {
@@ -348,7 +352,7 @@ oauthRoutes.post('/:service/oauth/byo', requireBrowserSession, async c => {
     return c.html(ErrorPage({ message: 'Failed to resolve BYO OAuth config' }), 500)
   }
 
-  const flowId = randomId()
+  const flowId = incomingFlowId || randomId()
   const codeVerifier = randomId() + randomId()
   const codeChallenge = await generateCodeChallenge(codeVerifier)
 
