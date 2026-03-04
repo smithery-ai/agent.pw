@@ -25,6 +25,7 @@ import {
   deleteCredential,
   revokeToken,
   listServicesWithCredentialCounts,
+  countDistinctOrgs,
   countCredentialsForService,
   listDocPages,
   getDocPage,
@@ -161,8 +162,12 @@ export function createApp(deps: AppDeps = {}) {
     }
 
     const db = c.get('db')
-    const recentServices = (await listServicesWithCredentialCounts(db)).filter(s => looksLikeHostname(s.service))
-    return c.html(WardenLandingPage({ services: recentServices }))
+    const [recentServices, userCount] = await Promise.all([
+      listServicesWithCredentialCounts(db),
+      countDistinctOrgs(db),
+    ])
+    const filtered = recentServices.filter(s => looksLikeHostname(s.service))
+    return c.html(WardenLandingPage({ services: filtered, userCount }))
   })
 
   // ─── Credential Management (org-scoped, vault_admin checks use org_id) ────

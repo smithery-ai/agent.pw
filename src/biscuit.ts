@@ -15,7 +15,7 @@ import {
   KeyPair,
   SignatureAlgorithm,
 } from '@smithery/biscuit'
-import type { ProxyConstraint, HttpMethod } from './types'
+import type { ProxyConstraint } from './types'
 
 export const TOKEN_PREFIX = 'wdn_'
 const LEGACY_PREFIX = 'vt_'

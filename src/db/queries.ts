@@ -60,6 +60,14 @@ export async function listServicesWithCredentialCounts(db: Database) {
   }))
 }
 
+export async function countDistinctOrgs(db: Database) {
+  const rows = await db
+    .select({ count: sql<number>`count(distinct ${credentials.orgId})::int` })
+    .from(credentials)
+
+  return Number(rows[0].count)
+}
+
 export async function countCredentialsForService(db: Database, service: string) {
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })

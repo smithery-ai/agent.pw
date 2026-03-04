@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createTestDb, type TestDb } from './setup'
-import { upsertDocPage, getDocPage, listSkeletonPages } from '../src/db/queries'
+import { upsertDocPage, getDocPage } from '../src/db/queries'
 
 // Mock @ai-sdk/anthropic — returns a factory that produces a fake model
 vi.mock('@ai-sdk/anthropic', () => ({
