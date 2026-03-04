@@ -27,7 +27,6 @@ import {
   listServicesWithCredentialCounts,
   countCredentialsForService,
   listDocPages,
-  getDocPage,
 } from './db/queries'
 import { createAuthFlow, getAuthFlow } from './lib/auth-flow-store'
 import { extractBearerToken, handleProxy } from './proxy'
@@ -40,7 +39,7 @@ import { probeOAuthWellKnown } from './discovery/probe'
 import { getKnownOAuthProvider } from './oauth-providers'
 import { AuthPage, ErrorPage, ServiceLandingPage, WardenLandingPage } from './ui'
 import { docRoutes } from './discovery/serve'
-import { triggerDiscoveryWorkflow } from './discovery/index'
+import { triggerDiscoveryWorkflow, isDiscoveryStale } from './discovery/index'
 import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
 import { mergeServicePreviewWithInferredIcon } from './service-preview'
 import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme, DEFAULT_API_KEY_SCHEME, type AuthScheme } from './auth-schemes'
@@ -93,6 +92,9 @@ interface AppDeps {
   encryptionKey?: string
   anthropicApiKey?: string
   anthropicBaseUrl?: string
+  awsAccessKeyId?: string
+  awsSecretAccessKey?: string
+  awsRegion?: string
   workosClientId?: string
   workosApiKey?: string
   workosCookiePassword?: string
@@ -138,6 +140,9 @@ export function createApp(deps: AppDeps = {}) {
     if (deps.encryptionKey) c.env.ENCRYPTION_KEY = deps.encryptionKey
     if (deps.anthropicApiKey) c.env.ANTHROPIC_API_KEY = deps.anthropicApiKey
     if (deps.anthropicBaseUrl) c.env.ANTHROPIC_BASE_URL = deps.anthropicBaseUrl
+    if (deps.awsAccessKeyId) c.env.AWS_ACCESS_KEY_ID = deps.awsAccessKeyId
+    if (deps.awsSecretAccessKey) c.env.AWS_SECRET_ACCESS_KEY = deps.awsSecretAccessKey
+    if (deps.awsRegion) c.env.AWS_REGION = deps.awsRegion
     if (deps.workosClientId) c.env.WORKOS_CLIENT_ID = deps.workosClientId
     if (deps.workosApiKey) c.env.WORKOS_API_KEY = deps.workosApiKey
     if (deps.workosCookiePassword) c.env.WORKOS_COOKIE_PASSWORD = deps.workosCookiePassword
@@ -632,22 +637,24 @@ export function createApp(deps: AppDeps = {}) {
       }
     }
 
-    // Kick off discovery pipeline if no docs exist yet
-    const docs = await listDocPages(db, serviceName)
-    if (docs.length === 0) {
-      const ctx = { db, hostname: serviceName, service: svc, anthropicApiKey: c.env.ANTHROPIC_API_KEY, anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
-      console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'no docs'})`)
+    // Kick off discovery pipeline if stale or no docs exist
+    const discoveryCtx = { db, hostname: serviceName, service: svc, anthropicApiKey: c.env.ANTHROPIC_API_KEY, anthropicBaseUrl: c.env.ANTHROPIC_BASE_URL, awsAccessKeyId: c.env.AWS_ACCESS_KEY_ID, awsSecretAccessKey: c.env.AWS_SECRET_ACCESS_KEY, awsRegion: c.env.AWS_REGION, baseUrl: c.env.BASE_URL, workflow: c.env.DISCOVERY_WORKFLOW }
+    const stale = await isDiscoveryStale(discoveryCtx)
+    if (stale) {
+      console.log(`[discovery] triggering pipeline for ${serviceName} (${isNew ? 'new service' : 'stale'})`)
       // Non-blocking: workflow handles its own lifecycle
-      triggerDiscoveryWorkflow(ctx).catch(err =>
+      triggerDiscoveryWorkflow(discoveryCtx).catch(err =>
         console.error(`[discovery] pipeline failed for ${serviceName}:`, err),
       )
     }
 
-    // Build discovery status from doc metadata
-    const meta = await getDocPage(db, serviceName, '_meta.json')
-    const discoveryStatus = meta
-      ? JSON.parse(meta.content!)
-      : { pipeline_state: docs.length === 0 ? 'probing' : 'idle', total_pages: docs.length }
+    // Build discovery status from service crawl state + doc pages
+    const docs = await listDocPages(db, serviceName)
+    const crawlState = svc.crawlState ?? 'pending'
+    const discoveryStatus = {
+      crawl_state: crawlState,
+      total_pages: docs.length,
+    }
 
     // Check for saved credentials (if user is signed in)
     const session = c.get('session')

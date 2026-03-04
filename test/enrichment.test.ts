@@ -7,6 +7,13 @@ vi.mock('@ai-sdk/anthropic', () => ({
   createAnthropic: vi.fn(() => (modelId: string) => ({ modelId })),
 }))
 
+// Mock @ai-sdk/mcp to avoid network connections in tests
+vi.mock('@ai-sdk/mcp', () => ({
+  createMCPClient: vi.fn(async () => {
+    throw new Error('MCP not available in tests')
+  }),
+}))
+
 // Mock ai — generateText calls write_doc_page tool to simulate enrichment
 vi.mock('ai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ai')>()
@@ -15,7 +22,7 @@ vi.mock('ai', async (importOriginal) => {
     generateText: vi.fn(async (opts: any) => {
       // Extract page path from the prompt
       const match = opts.prompt?.match(/Page: (.+)\n/)
-      const pagePath = match?.[1] ?? 'docs/unknown.json'
+      const pagePath = match?.[1] ?? 'sitemap/unknown.json'
 
       // Simulate the model calling write_doc_page
       const writeTool = opts.tools?.write_doc_page
@@ -46,7 +53,7 @@ vi.mock('ai', async (importOriginal) => {
   }
 })
 
-import { enrichPage, enrichPages } from '../src/discovery/enrichment'
+import { enrichPage, enrichPages, generateSitemapFromWeb } from '../src/discovery/enrichment'
 import { generateText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 
@@ -72,6 +79,7 @@ describe('Enrichment', () => {
         encryptedOauthClientSecret: null,
         apiType: 'rest',
         docsUrl: 'https://docs.example.com',
+        crawlState: 'pending',
         preview: null,
         authConfig: null,
         createdAt: new Date(),
@@ -84,33 +92,33 @@ describe('Enrichment', () => {
   }
 
   it('skips enrichment when no API key is configured', async () => {
-    await upsertDocPage(db, 'api.example.com', 'docs/test.json', '{}', 'skeleton')
-    await enrichPage(makeCtx({ anthropicApiKey: undefined }), 'docs/test.json')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/test.json', '{}', 'skeleton')
+    await enrichPage(makeCtx({ anthropicApiKey: undefined }), 'sitemap/test.json')
 
     expect(generateText).not.toHaveBeenCalled()
-    const page = await getDocPage(db, 'api.example.com', 'docs/test.json')
+    const page = await getDocPage(db, 'api.example.com', 'sitemap/test.json')
     expect(page?.status).toBe('skeleton')
   })
 
   it('skips enrichment when page does not exist', async () => {
-    await enrichPage(makeCtx(), 'docs/nonexistent.json')
+    await enrichPage(makeCtx(), 'sitemap/nonexistent.json')
     expect(generateText).not.toHaveBeenCalled()
   })
 
   it('enriches a skeleton page via generateText tool call', async () => {
     const skeleton = JSON.stringify({ level: 2, resource: 'test-resource', description: '', operations: [] })
-    await upsertDocPage(db, 'api.example.com', 'docs/test.json', skeleton, 'skeleton')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/test.json', skeleton, 'skeleton')
 
-    await enrichPage(makeCtx(), 'docs/test.json')
+    await enrichPage(makeCtx(), 'sitemap/test.json')
 
     // Verify generateText was called with correct config
     expect(generateText).toHaveBeenCalledOnce()
     const callArgs = (generateText as any).mock.calls[0][0]
     expect(callArgs.system).toContain('Example')
     expect(callArgs.system).toContain('https://api.example.com')
-    expect(callArgs.prompt).toContain('docs/test.json')
-    expect(callArgs.tools.fetch_upstream).toBeDefined()
+    expect(callArgs.prompt).toContain('sitemap/test.json')
     expect(callArgs.tools.write_doc_page).toBeDefined()
+    expect(callArgs.tools.fetch_url).toBeDefined()
 
     // Verify createAnthropic was called with the API key
     expect(createAnthropic).toHaveBeenCalledWith(
@@ -118,7 +126,7 @@ describe('Enrichment', () => {
     )
 
     // Verify the page was enriched in the database
-    const page = await getDocPage(db, 'api.example.com', 'docs/test.json')
+    const page = await getDocPage(db, 'api.example.com', 'sitemap/test.json')
     expect(page).toBeTruthy()
     expect(page?.status).toBe('enriched')
     const content = JSON.parse(page!.content!)
@@ -127,11 +135,11 @@ describe('Enrichment', () => {
   })
 
   it('passes anthropicBaseUrl when configured', async () => {
-    await upsertDocPage(db, 'api.example.com', 'docs/test.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/test.json', '{}', 'skeleton')
 
     await enrichPage(
       makeCtx({ anthropicBaseUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw/anthropic' }),
-      'docs/test.json',
+      'sitemap/test.json',
     )
 
     expect(createAnthropic).toHaveBeenCalledWith(
@@ -142,44 +150,62 @@ describe('Enrichment', () => {
     )
   })
 
-  it('includes existing pages as context in prompt', async () => {
-    await upsertDocPage(db, 'api.example.com', 'docs/index.json', '{"level":0}', 'enriched')
-    await upsertDocPage(db, 'api.example.com', 'docs/resources.json', '{"level":1}', 'enriched')
-    await upsertDocPage(db, 'api.example.com', 'docs/target.json', '{"level":2}', 'skeleton')
+  it('does not inject other pages as context', async () => {
+    await upsertDocPage(db, 'api.example.com', 'sitemap/index.json', '{"level":0}', 'enriched')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/resources.json', '{"level":1}', 'enriched')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/target.json', '{"level":2}', 'skeleton')
 
-    await enrichPage(makeCtx(), 'docs/target.json')
+    await enrichPage(makeCtx(), 'sitemap/target.json')
 
     const callArgs = (generateText as any).mock.calls[0][0]
-    expect(callArgs.prompt).toContain('docs/index.json')
-    expect(callArgs.prompt).toContain('docs/resources.json')
+    expect(callArgs.prompt).not.toContain('sitemap/index.json')
+    expect(callArgs.prompt).not.toContain('sitemap/resources.json')
   })
 
   it('includes docsUrl hint in prompt when available', async () => {
-    await upsertDocPage(db, 'api.example.com', 'docs/test.json', '{}', 'skeleton')
-    await enrichPage(makeCtx(), 'docs/test.json')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/test.json', '{}', 'skeleton')
+    await enrichPage(makeCtx(), 'sitemap/test.json')
 
     const callArgs = (generateText as any).mock.calls[0][0]
     expect(callArgs.prompt).toContain('https://docs.example.com')
   })
 
   it('enrichPages processes multiple pages and handles errors', async () => {
-    await upsertDocPage(db, 'api.example.com', 'docs/a.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.example.com', 'docs/b.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/a.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/b.json', '{}', 'skeleton')
 
     const ctx = makeCtx()
-    await enrichPages(ctx, ['docs/a.json', 'docs/b.json'])
+    await enrichPages(ctx, ['sitemap/a.json', 'sitemap/b.json'])
 
     expect(generateText).toHaveBeenCalledTimes(2)
 
-    const pageA = await getDocPage(db, 'api.example.com', 'docs/a.json')
-    const pageB = await getDocPage(db, 'api.example.com', 'docs/b.json')
+    const pageA = await getDocPage(db, 'api.example.com', 'sitemap/a.json')
+    const pageB = await getDocPage(db, 'api.example.com', 'sitemap/b.json')
     expect(pageA?.status).toBe('enriched')
     expect(pageB?.status).toBe('enriched')
   })
 
+  it('generateSitemapFromWeb calls LLM with discovery agent prompt', async () => {
+    await generateSitemapFromWeb(makeCtx({ externalDocsUrls: ['https://docs.example.com'] }))
+
+    expect(generateText).toHaveBeenCalledOnce()
+    const callArgs = (generateText as any).mock.calls[0][0]
+    expect(callArgs.system).toContain('API documentation agent')
+    expect(callArgs.system).toContain('api.example.com')
+    expect(callArgs.prompt).toContain('https://docs.example.com')
+    expect(callArgs.tools.write_doc_page).toBeDefined()
+    expect(callArgs.tools.fetch_url).toBeDefined()
+    expect(callArgs.tools.parse_openapi_spec).toBeDefined()
+  })
+
+  it('generateSitemapFromWeb skips when no API key configured', async () => {
+    await generateSitemapFromWeb(makeCtx({ anthropicApiKey: undefined }))
+    expect(generateText).not.toHaveBeenCalled()
+  })
+
   it('enrichPages continues after individual page failure', async () => {
-    await upsertDocPage(db, 'api.example.com', 'docs/a.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.example.com', 'docs/b.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/a.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.example.com', 'sitemap/b.json', '{}', 'skeleton')
 
     // Make generateText fail on first call, succeed on second
     const mockGenerateText = generateText as ReturnType<typeof vi.fn>
@@ -190,21 +216,21 @@ describe('Enrichment', () => {
         if (writeTool?.execute) {
           const match = opts.prompt?.match(/Page: (.+)\n/)
           await writeTool.execute(
-            { path: match?.[1] ?? 'docs/b.json', content: { enriched: true } },
+            { path: match?.[1] ?? 'sitemap/b.json', content: { enriched: true } },
             { abortSignal: new AbortController().signal, toolCallId: 'mock-2' },
           )
         }
         return { steps: [{}], text: 'Done' }
       })
 
-    await enrichPages(makeCtx(), ['docs/a.json', 'docs/b.json'])
+    await enrichPages(makeCtx(), ['sitemap/a.json', 'sitemap/b.json'])
 
     // First page should remain skeleton (enrichment failed)
-    const pageA = await getDocPage(db, 'api.example.com', 'docs/a.json')
+    const pageA = await getDocPage(db, 'api.example.com', 'sitemap/a.json')
     expect(pageA?.status).toBe('skeleton')
 
     // Second page should be enriched (enrichment succeeded)
-    const pageB = await getDocPage(db, 'api.example.com', 'docs/b.json')
+    const pageB = await getDocPage(db, 'api.example.com', 'sitemap/b.json')
     expect(pageB?.status).toBe('enriched')
   })
 })

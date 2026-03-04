@@ -92,6 +92,7 @@ export async function upsertService(
     preview?: string
     authConfig?: string
     webhookConfig?: string
+    crawlState?: string
   },
 ) {
   await db
@@ -109,6 +110,7 @@ export async function upsertService(
       preview: data.preview,
       authConfig: data.authConfig,
       webhookConfig: data.webhookConfig,
+      crawlState: data.crawlState,
     })
     .onConflictDoUpdate({
       target: services.service,
@@ -124,9 +126,17 @@ export async function upsertService(
         preview: sql`coalesce(excluded.preview, ${services.preview})`,
         authConfig: sql`coalesce(excluded.auth_config, ${services.authConfig})`,
         webhookConfig: sql`coalesce(excluded.webhook_config, ${services.webhookConfig})`,
+        crawlState: sql`coalesce(excluded.crawl_state, ${services.crawlState})`,
         updatedAt: sql`now()`,
       },
     })
+}
+
+export async function updateCrawlState(db: Database, service: string, crawlState: string) {
+  await db
+    .update(services)
+    .set({ crawlState, updatedAt: new Date() })
+    .where(eq(services.service, service))
 }
 
 export async function deleteService(db: Database, service: string) {
@@ -141,6 +151,16 @@ export async function getCredential(db: Database, orgId: string, service: string
     .select()
     .from(credentials)
     .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
+  return rows[0] ?? null
+}
+
+/** Get any credential for a service regardless of org (for authenticated discovery probing) */
+export async function getAnyCredentialForService(db: Database, service: string) {
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(eq(credentials.service, service))
+    .limit(1)
   return rows[0] ?? null
 }
 
@@ -297,6 +317,19 @@ export async function listStaleDocPages(db: Database, hostname: string) {
       and(
         eq(docPages.hostname, hostname),
         sql`${docPages.generatedAt} + (${docPages.ttlDays} || ' days')::interval < now()`,
+      ),
+    )
+}
+
+export async function listEnrichablePages(db: Database, hostname: string) {
+  return db
+    .select()
+    .from(docPages)
+    .where(
+      and(
+        eq(docPages.hostname, hostname),
+        sql`${docPages.path} != '_meta.json'`,
+        sql`${docPages.status} IN ('skeleton', 'enriched')`,
       ),
     )
 }

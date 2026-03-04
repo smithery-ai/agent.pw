@@ -36,6 +36,7 @@ import {
   deleteCredential,
   isRevoked,
   upsertService,
+  getService,
   getOAuthApp,
   upsertOAuthApp,
   getDocPage,
@@ -49,6 +50,8 @@ import {
 } from '../src/db/queries'
 import { createAuthFlow, completeAuthFlow, getAuthFlow } from '../src/lib/auth-flow-store'
 import { encryptCredentials, decryptCredentials, buildCredentialHeaders } from '../src/lib/credentials-crypto'
+import { runDeterministicDiscovery } from '../src/discovery/deterministic'
+import type { ProbeResult } from '../src/discovery/types'
 
 // 32-byte base64 key for test encryption
 const TEST_ENCRYPTION_KEY = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')
@@ -745,7 +748,7 @@ describe('Documentation Routes', () => {
     await upsertDocPage(
       db,
       'api.github.com',
-      'docs/index.json',
+      'sitemap/index.json',
       JSON.stringify({
         level: 0,
         service: 'GitHub',
@@ -760,7 +763,7 @@ describe('Documentation Routes', () => {
     await upsertDocPage(
       db,
       'api.github.com',
-      'docs/resources.json',
+      'sitemap/resources.json',
       JSON.stringify({
         level: 1,
         resources: [
@@ -777,7 +780,7 @@ describe('Documentation Routes', () => {
   })
 
   it('returns JSON docs for agents', async () => {
-    const res = await req('/api.github.com/docs/', {
+    const res = await req('/api.github.com/sitemap/', {
       headers: { Accept: 'application/json' },
     })
     expect(res.status).toBe(200)
@@ -788,24 +791,24 @@ describe('Documentation Routes', () => {
   })
 
   it('returns HTML docs for humans', async () => {
-    const res = await req('/api.github.com/docs/', {
+    const res = await req('/api.github.com/sitemap/', {
       headers: { Accept: 'text/html' },
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('text/html')
     const text = await res.text()
     expect(text).toContain('Documentation')
-    expect(text).toContain('docs/index.json')
+    expect(text).toContain('sitemap/index.json')
     expect(text).toContain('Raw JSON')
   })
 
   it('renders nested docs page as HTML when requested by browser', async () => {
-    const res = await req('/api.github.com/docs/resources.json', {
+    const res = await req('/api.github.com/sitemap/resources.json', {
       headers: { Accept: 'text/html' },
     })
     expect(res.status).toBe(200)
     const text = await res.text()
-    expect(text).toContain('docs/resources.json')
+    expect(text).toContain('sitemap/resources.json')
     expect(text).toContain('Repositories')
   })
 })
@@ -2395,64 +2398,64 @@ describe('Doc Page Queries', () => {
   })
 
   it('upsertDocPage creates and retrieves a page', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"level":0}', 'skeleton')
-    const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"level":0}', 'skeleton')
+    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
     expect(page).not.toBeNull()
     expect(page?.content).toBe('{"level":0}')
     expect(page?.status).toBe('skeleton')
   })
 
   it('upsertDocPage updates existing page', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":1}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{"v":2}', 'enriched')
-    const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"v":1}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"v":2}', 'enriched')
+    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
     expect(page?.content).toBe('{"v":2}')
     expect(page?.status).toBe('enriched')
   })
 
   it('listDocPages returns all pages for a hostname', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/repos.json', '{}', 'enriched')
-    await upsertDocPage(db, 'other.api', 'docs/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
+    await upsertDocPage(db, 'other.api', 'sitemap/index.json', '{}', 'skeleton')
     const pages = await listDocPages(db, 'api.github.com')
     expect(pages).toHaveLength(2)
   })
 
   it('listSkeletonPages returns only skeleton pages', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/repos.json', '{}', 'enriched')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
     const pages = await listSkeletonPages(db, 'api.github.com')
     expect(pages).toHaveLength(1)
-    expect(pages[0].path).toBe('docs/index.json')
+    expect(pages[0].path).toBe('sitemap/index.json')
   })
 
   it('deleteDocPages removes all pages for a hostname', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'docs/repos.json', '{}', 'enriched')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
     await deleteDocPages(db, 'api.github.com')
     const pages = await listDocPages(db, 'api.github.com')
     expect(pages).toHaveLength(0)
   })
 
   it('upsertDocPage with custom ttlDays', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'skeleton', 30)
-    const page = await getDocPage(db, 'api.github.com', 'docs/index.json')
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton', 30)
+    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
     expect(page?.ttlDays).toBe(30)
   })
 
   it('listStaleDocPages returns pages past their TTL', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'enriched', 1)
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'enriched', 1)
     // Make the page stale by backdating generated_at
     await db.execute(
       sql`UPDATE warden.doc_pages SET generated_at = now() - interval '30 days' WHERE hostname = 'api.github.com'`,
     )
     const stale = await listStaleDocPages(db, 'api.github.com')
     expect(stale).toHaveLength(1)
-    expect(stale[0].path).toBe('docs/index.json')
+    expect(stale[0].path).toBe('sitemap/index.json')
   })
 
   it('listStaleDocPages excludes fresh pages', async () => {
-    await upsertDocPage(db, 'api.github.com', 'docs/index.json', '{}', 'enriched', 7)
+    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'enriched', 7)
     const stale = await listStaleDocPages(db, 'api.github.com')
     expect(stale).toHaveLength(0)
   })
@@ -2495,5 +2498,99 @@ describe('Credentials Crypto', () => {
 
   it('buildCredentialHeaders derives oauth2 header', () => {
     expect(buildCredentialHeaders({ type: 'oauth2', authorizeUrl: '', tokenUrl: '' }, 'tok')).toEqual({ Authorization: 'Bearer tok' })
+  })
+})
+
+// ─── Deterministic Discovery ────────────────────────────────────────────────
+
+describe('Deterministic Discovery', () => {
+  it('groups versioned paths by resource, not version prefix', async () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 'Test API', version: '1.0' },
+      paths: {
+        '/v1/customers': { get: { summary: 'List customers' } },
+        '/v1/customers/{id}': { get: { summary: 'Get customer' } },
+        '/v1/invoices': { get: { summary: 'List invoices' } },
+        '/v1/invoices/{id}': { get: { summary: 'Get invoice' } },
+      },
+    }
+
+    const service = {
+      service: 'api.test.com',
+      baseUrl: 'https://api.test.com',
+      displayName: 'Test',
+      description: null,
+      authSchemes: '[]',
+      oauthClientId: null,
+      encryptedOauthClientSecret: null,
+      apiType: 'rest',
+      docsUrl: null,
+      preview: null,
+      authConfig: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    const probe: ProbeResult = {
+      apiType: 'rest',
+      specContent: JSON.stringify(spec),
+      specUrl: null,
+      graphqlSchema: null,
+      docsUrl: null,
+      oauthMeta: null,
+      externalDocsUrls: [],
+    }
+
+    const result = await runDeterministicDiscovery(
+      { db, hostname: 'api.test.com', service, baseUrl: 'http://localhost' },
+      probe,
+    )
+
+    // Should find 2 resources (customers, invoices), not 1 (v1)
+    expect(result.resourcesFound.length).toBe(2)
+    expect(result.resourcesFound).toContain('customers')
+    expect(result.resourcesFound).toContain('invoices')
+
+    // Should have resource detail pages for each
+    const customersPage = await getDocPage(db, 'api.test.com', 'sitemap/customers.json')
+    const invoicesPage = await getDocPage(db, 'api.test.com', 'sitemap/invoices.json')
+    expect(customersPage).toBeTruthy()
+    expect(invoicesPage).toBeTruthy()
+  })
+
+  it('updates service record with apiType and description from spec', async () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 'Acme API', version: '1.0', description: 'The Acme platform API' },
+      paths: {
+        '/widgets': { get: { summary: 'List widgets' } },
+      },
+    }
+
+    // Pre-register with no apiType or description
+    await upsertService(db, 'api.acme.com', { baseUrl: 'https://api.acme.com' })
+
+    const service = (await getService(db, 'api.acme.com'))!
+    expect(service.apiType).toBeNull()
+    expect(service.description).toBeNull()
+
+    await runDeterministicDiscovery(
+      { db, hostname: 'api.acme.com', service, baseUrl: 'http://localhost' },
+      {
+        apiType: 'rest',
+        specContent: JSON.stringify(spec),
+        specUrl: null,
+        graphqlSchema: null,
+        docsUrl: 'https://docs.acme.com',
+        oauthMeta: null,
+        externalDocsUrls: [],
+      },
+    )
+
+    const updated = await getService(db, 'api.acme.com')
+    expect(updated?.apiType).toBe('rest')
+    expect(updated?.description).toBe('The Acme platform API')
+    expect(updated?.docsUrl).toBe('https://docs.acme.com')
   })
 })

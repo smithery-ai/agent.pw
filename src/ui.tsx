@@ -904,6 +904,11 @@ const STYLES = `
     box-shadow: 0 0 4px rgba(78, 138, 55, 0.3);
   }
 
+  .status-dot.failed {
+    background: var(--destructive);
+    box-shadow: 0 0 4px rgba(123, 23, 7, 0.3);
+  }
+
   .credential-row {
     display: flex;
     align-items: center;
@@ -1087,7 +1092,7 @@ function RouteSpec({
 }
 
 export function WardenLandingPage({ services = [] }: { services?: ServiceWithPopularity[] } = {}) {
-  const visible = services.filter(s => (s.credentialCount ?? 0) > 0 || !!s.description)
+  const visible = services.filter(s => (s.credentialCount ?? 0) > 0 || !!s.description || (s.crawlState && s.crawlState !== 'pending'))
   const ranked = [...visible].sort((a, b) => {
     const byPopularity = (b.credentialCount ?? 0) - (a.credentialCount ?? 0)
     if (byPopularity !== 0) return byPopularity
@@ -1212,17 +1217,18 @@ export function ServiceLandingPage({
   const schemes = parseAuthSchemes(service.authSchemes)
   const hasOAuth = !!getOAuthScheme(schemes)
   const hasApiKey = !!getApiKeyScheme(schemes)
-  const pipelineState = (discoveryStatus?.pipeline_state as string) ?? 'idle'
-  const isActive = pipelineState === 'probing' || pipelineState === 'parsing' || pipelineState === 'enriching'
-  const coverage = discoveryStatus?.coverage as
-    | { total_resources?: number; total_operations?: number }
-    | undefined
+  const crawlState = (discoveryStatus?.crawl_state as string) ?? 'pending'
+  const isActive = crawlState === 'crawling' || crawlState === 'pending'
   const totalPages = Number(discoveryStatus?.total_pages ?? 0)
-  const docsHref = `/${service.service}/docs/`
+  const docsHref = `/${service.service}/sitemap/`
 
-  const statusText = isActive
-    ? `Discovery in progress (${pipelineState})`
-    : `Discovery ready (${coverage?.total_resources ?? 0} resources, ${totalPages} pages)`
+  const statusLabels: Record<string, string> = {
+    pending: 'Not yet indexed',
+    crawling: 'Indexing in progress...',
+    ready: `Indexed (${totalPages} pages)`,
+    failed: 'Indexing failed',
+  }
+  const statusText = statusLabels[crawlState] ?? crawlState
 
   return (
     <Layout title={`${serviceName(service)} — Warden`}>
@@ -1240,7 +1246,7 @@ export function ServiceLandingPage({
             <h3>About</h3>
             <p>{service.description ?? 'No service description yet. Warden can still handle auth and proxying.'}</p>
             <div class="status-row">
-              <span class={`status-dot ${isActive ? 'active' : 'ready'}`}></span>
+              <span class={`status-dot ${isActive ? 'active' : crawlState === 'failed' ? 'failed' : 'ready'}`}></span>
               <span>{statusText}</span>
             </div>
             <div class="metrics" style="margin-top: 0.6rem">
@@ -1281,8 +1287,8 @@ export function ServiceLandingPage({
             <pre class="doc-pre"><code>{`# then proxy using Warden token
 curl -H "Authorization: Bearer <token>" \\
   warden.run/${service.service}/...`}</code></pre>
-            {coverage?.total_resources ? (
-              <p style="margin-top: 0.5rem">Discovered <strong>{coverage.total_resources}</strong> resources and <strong>{coverage.total_operations ?? 0}</strong> operations.</p>
+            {totalPages > 0 ? (
+              <p style="margin-top: 0.5rem">Discovered <strong>{totalPages}</strong> documentation pages.</p>
             ) : null}
           </section>
         </div>
