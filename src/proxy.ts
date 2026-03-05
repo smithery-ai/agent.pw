@@ -2,7 +2,7 @@ import type { Context } from 'hono'
 import type { CoreHonoEnv } from './core/types'
 import {
   authorizeRequest,
-  extractVaultFromToken,
+  extractUserId,
   getPublicKeyHex,
   getRevocationIds,
 } from './biscuit'
@@ -41,7 +41,7 @@ function shouldRefresh(expiresAt: string | undefined): boolean {
 async function refreshCredentialIfNeeded(
   c: Context<CoreHonoEnv>,
   service: Awaited<ReturnType<typeof getService>>,
-  orgId: string,
+  userId: string,
   cred: Awaited<ReturnType<typeof getCredential>>,
   stored: StoredCredentials,
 ): Promise<StoredCredentials> {
@@ -77,7 +77,7 @@ async function refreshCredentialIfNeeded(
   }
 
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, nextStored)
-  await upsertCredential(c.get('db'), orgId, service.service, 'default', encrypted)
+  await upsertCredential(c.get('db'), userId, service.service, 'default', encrypted)
 
   return nextStored
 }
@@ -114,16 +114,16 @@ export async function handleProxy(
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  // Extract org from token (grant_vault carries org_id)
-  const orgId = extractVaultFromToken(token, publicKeyHex, service)
-  if (!orgId) {
-    return c.json({ error: `No org scope found in token for ${service}` }, 403)
+  // Extract userId from token identity
+  const userId = extractUserId(token, publicKeyHex)
+  if (!userId) {
+    return c.json({ error: 'No identity in token' }, 403)
   }
 
-  // Look up credential by (org_id, service, slug)
-  const cred = await getCredential(db, orgId, service)
+  // Look up credential by (userId, service)
+  const cred = await getCredential(db, userId, service)
   if (!cred) {
-    return c.json({ error: `No credential found for ${service} in org "${orgId}"` }, 404)
+    return c.json({ error: `No credential found for ${service}` }, 404)
   }
 
   // Build upstream request
@@ -137,10 +137,13 @@ export async function handleProxy(
     headers.set(key, value)
   })
 
-  // Inject credential headers
+  const log = c.get('logger')
+  log.info({ service, userId, method: c.req.method, upstreamUrl }, 'proxy request')
+
+  // Inject credential headers (after logging to avoid leaking secrets)
   let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.encryptedCredentials)
   try {
-    stored = await refreshCredentialIfNeeded(c, svc, orgId, cred, stored)
+    stored = await refreshCredentialIfNeeded(c, svc, userId, cred, stored)
   } catch (e) {
     return c.json({ error: `OAuth token refresh failed: ${errorMessage(e)}` }, 401)
   }
@@ -155,15 +158,6 @@ export async function handleProxy(
   } else {
     body = await c.req.raw.arrayBuffer()
   }
-
-  const log = c.get('logger')
-  log.info({
-    service,
-    orgId,
-    method: c.req.method,
-    upstreamUrl,
-    requestHeaders: Object.fromEntries(headers.entries()),
-  }, 'proxy request')
 
   let upstream: Response
   try {
@@ -188,7 +182,7 @@ export async function handleProxy(
 
   log.info({
     service,
-    orgId,
+    userId,
     method: c.req.method,
     upstreamUrl,
     status: upstream.status,

@@ -2,12 +2,13 @@ import { Hono } from 'hono'
 import type { HonoEnv } from './types'
 import type { Database } from '../db/index'
 import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
-import { mintManagementToken } from '../biscuit'
+import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
 import { getSessionFromCookie } from './session'
 import { SuccessPage, ErrorPage } from './ui'
 import { encryptCredentials, buildCredentialHeaders, importAesKey } from '../lib/credentials-crypto'
 import { parseAuthSchemes, getOAuthScheme } from '../auth-schemes'
+import { randomId, validateFlowId } from '../lib/utils'
 
 export const oauthRoutes = new Hono<HonoEnv>()
 
@@ -23,12 +24,6 @@ export type ResolvedOAuthConfig = {
   authorizeUrl: string
   tokenUrl: string
   scopes?: string
-}
-
-function randomId() {
-  const bytes = new Uint8Array(24)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function decryptSecret(
@@ -144,7 +139,7 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
     return c.json({ error: `OAuth not configured for ${serviceName}` }, 400)
   }
 
-  const flowId = c.req.query('flow_id') || randomId()
+  const flowId = validateFlowId(c.req.query('flow_id')) ?? randomId()
   const codeVerifier = randomId() + randomId() // 96 chars
   const codeChallenge = await generateCodeChallenge(codeVerifier)
 
@@ -335,11 +330,8 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, storedCredentials)
   await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 
-  // Mint token with vault_admin + proxy grants so the user can both manage credentials and proxy
-  const workosUserId = session?.workosUserId ?? identity
-  const token = mintManagementToken(c.env.BISCUIT_PRIVATE_KEY, [], [orgId], [
-    { vault: orgId, metadata: { userId: workosUserId } },
-  ])
+  // Mint token with user identity
+  const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, orgId)
 
   // Complete the flow in DB
   await completeAuthFlow(db, state, { token, identity, orgId })

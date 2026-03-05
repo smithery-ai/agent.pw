@@ -2,7 +2,8 @@ import type { Context, Next } from 'hono'
 import type { CoreHonoEnv } from './types'
 import { extractBearerToken } from '../proxy'
 import {
-  extractManagementRights,
+  authorizeRequest,
+  extractTokenFacts,
   getPublicKeyHex,
   getRevocationIds,
 } from '../biscuit'
@@ -26,8 +27,15 @@ export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
     return c.json({ error: 'Invalid token' }, 401)
   }
 
-  const mgmt = extractManagementRights(token, publicKeyHex)
-  c.set('managementRights', mgmt)
+  // Run Biscuit authorizer to enforce attenuation checks (TTL, service restrictions).
+  // Uses "_management" as resource so service-attenuated tokens are rejected here.
+  const authResult = authorizeRequest(token, publicKeyHex, '_management', c.req.method, c.req.path)
+  if (!authResult.authorized) {
+    return c.json({ error: 'Forbidden', details: authResult.error }, 403)
+  }
+
+  const facts = extractTokenFacts(token, publicKeyHex)
+  c.set('tokenFacts', facts)
   c.set('token', token)
 
   return next()
@@ -35,50 +43,34 @@ export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
 
 export function requireRight(right: string) {
   return async (c: Context<CoreHonoEnv>, next: Next) => {
-    const mgmt = c.get('managementRights')
-    if (!mgmt || !mgmt.rights.includes(right)) {
+    const facts = c.get('tokenFacts')
+    if (!facts || !facts.rights.includes(right)) {
       return c.json({ error: `Forbidden: requires "${right}" right` }, 403)
     }
     return next()
   }
 }
 
-export function requireVaultAdmin(paramName: string) {
-  return async (c: Context<CoreHonoEnv>, next: Next) => {
-    const slug = c.req.param(paramName)
-    const mgmt = c.get('managementRights')
-    if (!mgmt) return c.json({ error: 'Forbidden' }, 403)
-    if (!mgmt.vaultAdminSlugs.includes('*') && !mgmt.vaultAdminSlugs.includes(slug)) {
-      return c.json({ error: `Forbidden: requires vault_admin("${slug}")` }, 403)
-    }
-    return next()
-  }
-}
-
 /**
- * Resolves orgId from the token's vaultAdminSlugs and sets it on context.
- * - Wildcard (`*`): uses `?org=` query param, defaults to `'local'`
- * - Single slug: uses that slug
+ * Resolves userId from the token's identity and sets it on context.
+ * - Admin tokens (right("admin")): can act as any user via ?user= param
+ * - Regular tokens: userId from user() fact, rejects ?user= override
  * Must be used after `requireToken`.
  */
-export async function resolveOrgId(c: Context<CoreHonoEnv>, next: Next) {
-  const mgmt = c.get('managementRights')
-  if (!mgmt) return c.json({ error: 'Forbidden' }, 403)
+export async function resolveUserId(c: Context<CoreHonoEnv>, next: Next) {
+  const facts = c.get('tokenFacts')
+  if (!facts) return c.json({ error: 'Forbidden' }, 403)
 
-  const slugs = mgmt.vaultAdminSlugs
-  if (slugs.includes('*')) {
-    c.set('orgId', c.req.query('org') ?? 'local')
-  } else if (slugs.length === 1) {
-    const org = c.req.query('org')
-    if (org && org !== slugs[0]) return c.json({ error: 'Forbidden for this org' }, 403)
-    c.set('orgId', slugs[0])
-  } else if (slugs.length > 1) {
-    const org = c.req.query('org')
-    if (!org) return c.json({ error: 'Multiple orgs available; specify ?org=' }, 400)
-    if (!slugs.includes(org)) return c.json({ error: 'Forbidden for this org' }, 403)
-    c.set('orgId', org)
+  if (facts.rights.includes('admin')) {
+    c.set('userId', c.req.query('user') ?? facts.userId ?? 'local')
+  } else if (facts.userId) {
+    const userParam = c.req.query('user')
+    if (userParam && userParam !== facts.userId) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    c.set('userId', facts.userId)
   } else {
-    return c.json({ error: 'No org access' }, 403)
+    return c.json({ error: 'No identity in token' }, 403)
   }
   return next()
 }

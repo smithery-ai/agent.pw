@@ -3,10 +3,6 @@ import type { CoreHonoEnv } from '../core/types'
 import type { AuthScheme } from '../auth-schemes'
 import { requireToken, requireRight } from '../core/middleware'
 import {
-  extractGrants,
-  getPublicKeyHex,
-} from '../biscuit'
-import {
   listServices,
   getService,
   upsertService,
@@ -21,65 +17,19 @@ serviceRoutes.get('/', requireToken, async c => {
   const db = c.get('db')
   const allServices = await listServices(db)
 
-  const mgmt = c.get('managementRights')!
-  if (mgmt.rights.includes('manage_services')) {
-    return c.json(
-      allServices.map(s => ({
-        service: s.service,
-        baseUrl: s.baseUrl,
-        description: s.description,
-        docsUrl: s.docsUrl,
-      })),
-    )
-  }
-
-  const token = c.get('token')!
-  const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-  const grants = extractGrants(token, publicKeyHex)
-  const allowedServices = new Set<string>()
-  for (const grant of grants) {
-    for (const svc of grant.services) {
-      if (svc === '*') {
-        for (const s of allServices) allowedServices.add(s.service)
-      } else {
-        allowedServices.add(svc)
-      }
-    }
-  }
-
   return c.json(
-    allServices
-      .filter(s => allowedServices.has(s.service))
-      .map(s => ({
-        service: s.service,
-        baseUrl: s.baseUrl,
-        description: s.description,
-        docsUrl: s.docsUrl,
-      })),
+    allServices.map(s => ({
+      service: s.service,
+      baseUrl: s.baseUrl,
+      description: s.description,
+      docsUrl: s.docsUrl,
+    })),
   )
 })
 
 serviceRoutes.get('/:service', requireToken, async c => {
   const serviceName = c.req.param('service')
   const db = c.get('db')
-
-  // Check authorization: manage_services right or a grant for this service
-  const mgmt = c.get('managementRights')!
-  let authorized = mgmt.rights.includes('manage_services')
-
-  if (!authorized) {
-    const token = c.get('token')!
-    const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-    const grants = extractGrants(token, publicKeyHex)
-    for (const grant of grants) {
-      if (grant.services.includes('*') || grant.services.includes(serviceName)) {
-        authorized = true
-        break
-      }
-    }
-  }
-
-  if (!authorized) return c.json({ error: 'Forbidden' }, 403)
 
   const service = await getService(db, serviceName)
   if (!service) return c.json({ error: 'Service not found' }, 404)

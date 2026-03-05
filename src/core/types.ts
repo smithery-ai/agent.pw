@@ -9,18 +9,18 @@ export interface CoreEnv {
   DATABASE_URL?: string
 }
 
-export interface ManagementRights {
+export interface TokenFacts {
   rights: string[]
-  vaultAdminSlugs: string[]
+  userId: string | null
 }
 
 export interface CoreHonoEnv {
   Bindings: CoreEnv
   Variables: {
     db: Database
-    managementRights?: ManagementRights
+    tokenFacts?: TokenFacts
     token?: string
-    orgId?: string
+    userId?: string
     logger: Logger
     flushLogger: () => Promise<void>
   }
@@ -28,11 +28,9 @@ export interface CoreHonoEnv {
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
 
-export interface ProxyConstraint {
+export interface TokenConstraint {
   services?: string | string[]
   methods?: HttpMethod | HttpMethod[]
   paths?: string | string[]
-  metadata?: Record<string, string>
-  vault?: string
   ttl?: string | number
 }

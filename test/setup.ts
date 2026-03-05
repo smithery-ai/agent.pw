@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/pglite'
 import { sql } from 'drizzle-orm'
 import * as schema from '../src/db/schema'
-import { mintManagementToken, mintToken } from '../src/biscuit'
+import { mintToken } from '../src/biscuit'
 import { buildSetCookieHeader, SESSION_TTL_SECONDS } from '../src/managed/session'
 
 export const BISCUIT_PRIVATE_KEY =
@@ -23,17 +23,11 @@ export async function buildTestSessionCookie(userId = 'user_test_123', orgId = T
 }
 
 export function mintRootToken() {
-  return mintManagementToken(
+  return mintToken(
     BISCUIT_PRIVATE_KEY,
-    ['manage_services', 'manage_vaults'],
-    ['*'],
+    'local',
+    ['admin', 'manage_services'],
   )
-}
-
-export function mintProxyToken(services: string, orgId: string) {
-  return mintToken(BISCUIT_PRIVATE_KEY, [
-    { services, vault: orgId, metadata: { userId: 'alice' } },
-  ])
 }
 
 export async function createTestDb() {

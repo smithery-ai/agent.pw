@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { generateKeyPairHex, mintManagementToken } from '../../biscuit'
+import { generateKeyPairHex, mintToken } from '../../biscuit'
 import { createLocalDb } from '../../db/index'
 import { migrateLocal } from '../../db/migrate-local'
 import { configExists, writeConfig, getConfigDir, getDataDir } from '../config'
@@ -23,12 +23,11 @@ export async function setup() {
   const db = await createLocalDb(dataDir)
   await migrateLocal(db)
 
-  // Mint root token: management rights + wildcard proxy grant
-  const masterToken = mintManagementToken(
+  // Mint root token: admin identity with management rights
+  const masterToken = mintToken(
     keypair.privateKey,
-    ['manage_services', 'manage_vaults'],
-    ['*'],
-    [{ vault: 'local' }],
+    'local',
+    ['admin', 'manage_services'],
   )
 
   const port = 9315

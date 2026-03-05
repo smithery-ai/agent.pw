@@ -121,9 +121,7 @@ Services:
   DELETE /services/:service          remove a service
 
 Tokens:
-  POST   /tokens/mint               mint a new token
-  POST   /tokens/restrict           attenuate a token (no auth needed)
-  POST   /tokens/revoke             revoke a token
+  POST   /tokens/revoke             revoke the caller's token
 
 Infrastructure:
   GET    /.well-known/jwks.json      Ed25519 public key (JWK format)

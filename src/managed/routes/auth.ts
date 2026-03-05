@@ -7,7 +7,7 @@ import { AuthPage, ErrorPage } from '../ui'
 import { oauthRoutes } from '../oauth'
 import { apiKeyRoutes } from '../api-key'
 import { workosRoutes } from '../workos'
-import { randomId } from '../../lib/utils'
+import { randomId, validateFlowId } from '../../lib/utils'
 
 export const authRoutes = new Hono<HonoEnv>()
 
@@ -32,7 +32,7 @@ authRoutes.get('/:service', requireBrowserSession, async c => {
     return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
   }
 
-  const flowId = c.req.query('flow_id') ?? randomId()
+  const flowId = validateFlowId(c.req.query('flow_id')) ?? randomId()
 
   // Ensure a flow exists for polling
   const existingFlow = await getAuthFlow(c.get('db'), flowId)

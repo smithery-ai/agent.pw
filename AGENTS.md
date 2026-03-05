@@ -6,7 +6,7 @@
 
 ## HTTP Headers
 
-- Avoid the `X-` prefix for custom headers — it is legacy and non-standard per RFC 6648. Use unprefixed names: `Warden-Signature`, `Warden-Callback`, `Warden-Event-Id`.
+- Avoid the `X-` prefix for custom headers — it is legacy and non-standard per RFC 6648.
 
 ## Code Style
 

@@ -14,6 +14,15 @@ export function randomId() {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 
+const MIN_FLOW_ID_LENGTH = 32
+
+/** Validate that a user-supplied flow_id has sufficient entropy (≥32 chars). */
+export function validateFlowId(flowId: string | undefined): string | undefined {
+  if (!flowId) return undefined
+  if (flowId.length < MIN_FLOW_ID_LENGTH) return undefined
+  return flowId
+}
+
 export function deriveDisplayName(hostname: string) {
   // api.linear.app → Linear, api.github.com → Github
   const parts = hostname.replace(/^(api|www)\./, '').split('.')

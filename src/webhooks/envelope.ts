@@ -1,7 +1,7 @@
 /**
  * Ed25519 JWKS endpoint support.
  *
- * Publishes Warden's Ed25519 public key at /.well-known/jwks.json so clients
+ * Publishes the Ed25519 public key at /.well-known/jwks.json so clients
  * can verify webhook envelope signatures.
  */
 
@@ -33,7 +33,7 @@ export function buildJwks(publicKeyHex: string) {
         crv: 'Ed25519' as const,
         x: base64urlEncode(publicKeyBytes),
         use: 'sig' as const,
-        kid: 'warden-ed25519-1',
+        kid: 'agentpw-ed25519-1',
       },
     ],
   }

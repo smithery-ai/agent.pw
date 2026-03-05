@@ -1,19 +1,14 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from './types'
 import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
-import { mintManagementToken } from '../biscuit'
+import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
 import { ApiKeyFormPage, SuccessPage, ErrorPage } from './ui'
 import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
 import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from '../auth-schemes'
+import { randomId, validateFlowId } from '../lib/utils'
 
 export const apiKeyRoutes = new Hono<HonoEnv>()
-
-function randomId() {
-  const bytes = new Uint8Array(24)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
-}
 
 // ─── API Key Form ────────────────────────────────────────────────────────────
 
@@ -28,7 +23,7 @@ apiKeyRoutes.get('/:service/api-key', requireBrowserSession, async c => {
   const orgId = session?.orgId ?? 'local'
 
   // Create a flow for SSE/polling
-  const flowId = c.req.query('flow_id') ?? randomId()
+  const flowId = validateFlowId(c.req.query('flow_id')) ?? randomId()
 
   const existingFlow = await getAuthFlow(db, flowId)
   if (!existingFlow) {
@@ -63,11 +58,11 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
   if (isJson) {
     const body = await c.req.json<{ api_key?: string; flow_id?: string }>()
     apiKey = body.api_key ?? ''
-    flowId = body.flow_id ?? c.req.query('flow_id')
+    flowId = validateFlowId(body.flow_id ?? c.req.query('flow_id'))
   } else {
     const formData = await c.req.parseBody()
     apiKey = formData.api_key as string
-    flowId = formData.flow_id as string
+    flowId = validateFlowId(formData.flow_id as string)
   }
 
   if (!apiKey) {
@@ -124,10 +119,8 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
   await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 
-  // Mint token with vault_admin + proxy grants so the user can both manage credentials and proxy
-  const token = mintManagementToken(c.env.BISCUIT_PRIVATE_KEY, [], [orgId], [
-    { vault: orgId, metadata: { userId: session?.workosUserId ?? identity } },
-  ])
+  // Mint token with user identity
+  const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, orgId)
 
   // Complete the flow if one exists
   if (flowId) {

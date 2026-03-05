@@ -56,15 +56,11 @@ async function main() {
     }
     case 'token': {
       const subcommand = args[1]
-      if (subcommand === 'restrict') {
-        const { restrictTokenCmd } = await import('./commands/token')
-        return restrictTokenCmd(args.slice(2))
-      }
       if (subcommand === 'revoke') {
         const { revokeTokenCmd } = await import('./commands/token')
-        return revokeTokenCmd(args.slice(2))
+        return revokeTokenCmd()
       }
-      console.error('Usage: agent.pw token <restrict|revoke> ...')
+      console.error('Usage: agent.pw token revoke')
       process.exit(1)
       return
     }
@@ -137,8 +133,7 @@ async function main() {
       console.log('  cred                            List stored credentials')
       console.log('  cred add <svc> [--value <k>]    Add a credential')
       console.log('  cred remove <svc>               Remove a credential')
-      console.log('  token restrict <token> [opts]    Attenuate a token')
-      console.log('  token revoke <token>             Revoke a token')
+      console.log('  token revoke                     Revoke the current token')
       console.log('  curl <url> [args...]             Proxy-aware curl wrapper')
       if (command && command !== 'help' && command !== '--help' && command !== '-h') {
         console.error(`\nUnknown command: ${command}`)

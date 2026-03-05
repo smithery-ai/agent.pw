@@ -11,12 +11,9 @@ import {
 } from './setup'
 import {
   mintToken,
-  mintManagementToken,
   restrictToken,
-  extractIdentityFromToken,
-  extractGrants,
-  extractVaultFromToken,
-  extractManagementRights,
+  extractTokenFacts,
+  extractUserId,
   getPublicKeyHex,
   getRevocationIds,
   generateKeyPairHex,
@@ -85,9 +82,9 @@ async function seedService(service = 'api.github.com') {
   })
 }
 
-async function seedServiceWithCred(orgId = TEST_ORG_ID) {
+async function seedServiceWithCred(userId = TEST_ORG_ID) {
   await seedService()
-  await mgmtReq(`/credentials/api.github.com?org=${orgId}`, {
+  await mgmtReq(`/credentials/api.github.com?user=${userId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: 'ghp_test123' }),
@@ -170,8 +167,8 @@ describe('Management Auth', () => {
   })
 
   it('rejects token without required right', async () => {
-    // Mint token with only manage_vaults, try to access services management
-    const token = mintManagementToken(BISCUIT_PRIVATE_KEY, ['manage_vaults'], ['*'])
+    // Mint token with no rights, try to access services management
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'some-user')
     const res = await req('/services/test.api.com', {
       method: 'PUT',
       headers: {
@@ -185,10 +182,10 @@ describe('Management Auth', () => {
     expect(body.error).toContain('manage_services')
   })
 
-  it('rejects credential access for wrong org', async () => {
-    // Token with vault_admin for "other" but not TEST_ORG_ID
-    const token = mintManagementToken(BISCUIT_PRIVATE_KEY, ['manage_vaults'], ['other'])
-    const res = await req(`/credentials?org=${TEST_ORG_ID}`, {
+  it('rejects credential access for wrong user', async () => {
+    // Token for "other" user trying to access TEST_ORG_ID's credentials
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'other')
+    const res = await req(`/credentials?user=${TEST_ORG_ID}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(403)
@@ -239,7 +236,7 @@ describe('Service Management', () => {
     expect(res.status).toBe(404)
   })
 
-  it('lists services scoped by proxy token grants', async () => {
+  it('lists all services for any authenticated user', async () => {
     await seedService('api.github.com')
     await mgmtReq('/services/api.linear.app', {
       method: 'PUT',
@@ -247,28 +244,7 @@ describe('Service Management', () => {
       body: JSON.stringify({ baseUrl: 'https://api.linear.app' }),
     })
 
-    // Proxy token only has access to github
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: TEST_ORG_ID },
-    ])
-    const res = await req('/services', {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any[]
-    expect(body).toHaveLength(1)
-    expect(body[0].service).toBe('api.github.com')
-  })
-
-  it('lists all services for wildcard proxy token', async () => {
-    await seedService('api.github.com')
-    await mgmtReq('/services/api.linear.app', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseUrl: 'https://api.linear.app' }),
-    })
-
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: '*' }])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'test-user')
     const res = await req('/services', {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     })
@@ -294,28 +270,15 @@ describe('Service Management', () => {
     expect(res.status).toBe(404)
   })
 
-  it('gets a service with scoped proxy token', async () => {
+  it('gets a service with any authenticated token', async () => {
     await seedService()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'test-user')
     const res = await req('/services/api.github.com', {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     })
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.service).toBe('api.github.com')
-  })
-
-  it('denies get service when token lacks access', async () => {
-    await seedService()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.linear.app', vault: TEST_ORG_ID },
-    ])
-    const res = await req('/services/api.github.com', {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    })
-    expect(res.status).toBe(403)
   })
 })
 
@@ -330,7 +293,7 @@ describe('JWKS Endpoint', () => {
     expect(body.keys[0].kty).toBe('OKP')
     expect(body.keys[0].crv).toBe('Ed25519')
     expect(body.keys[0].use).toBe('sig')
-    expect(body.keys[0].kid).toBe('warden-ed25519-1')
+    expect(body.keys[0].kid).toBe('agentpw-ed25519-1')
     expect(body.keys[0].x).toBeDefined()
   })
 })
@@ -343,7 +306,7 @@ describe('Credential Management', () => {
   })
 
   it('stores a credential', async () => {
-    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
+    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
@@ -353,7 +316,7 @@ describe('Credential Management', () => {
 
   it('stores credential with expiresAt', async () => {
     const expiresAt = new Date(Date.now() + 86400000).toISOString()
-    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
+    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -365,7 +328,7 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential without token or headers', async () => {
-    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
+    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -374,7 +337,7 @@ describe('Credential Management', () => {
   })
 
   it('stores credential with explicit headers map', async () => {
-    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
+    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -392,14 +355,14 @@ describe('Credential Management', () => {
     })
   })
 
-  it('lists credentials for an org', async () => {
-    await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
+  it('lists credentials for a user', async () => {
+    await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq(`/credentials?org=${TEST_ORG_ID}`)
+    const res = await mgmtReq(`/credentials?user=${TEST_ORG_ID}`)
     expect(res.status).toBe(200)
     const body = (await res.json()) as any[]
     expect(body).toHaveLength(1)
@@ -408,7 +371,7 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential for non-existent service', async () => {
-    const res = await mgmtReq(`/credentials/nonexistent?org=${TEST_ORG_ID}`, {
+    const res = await mgmtReq(`/credentials/nonexistent?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'test' }),
@@ -417,224 +380,60 @@ describe('Credential Management', () => {
   })
 
   it('deletes a credential', async () => {
-    await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
+    await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
+    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
       method: 'DELETE',
     })
     expect(res.status).toBe(200)
 
-    const list = await mgmtReq(`/credentials?org=${TEST_ORG_ID}`)
+    const list = await mgmtReq(`/credentials?user=${TEST_ORG_ID}`)
     const body = (await list.json()) as any[]
     expect(body).toHaveLength(0)
   })
 
   it('returns 404 when deleting non-existent credential', async () => {
-    const res = await mgmtReq(`/credentials/nonexistent?org=${TEST_ORG_ID}`, {
+    const res = await mgmtReq(`/credentials/nonexistent?user=${TEST_ORG_ID}`, {
       method: 'DELETE',
     })
     expect(res.status).toBe(404)
   })
 })
 
-// ─── Token Minting ──────────────────────────────────────────────────────────
-
-describe('Token Minting', () => {
-  it('mints a proxy token with grants format', async () => {
-    const res = await mgmtReq('/tokens/mint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grants: [{ services: 'api.github.com', vault: TEST_ORG_ID }],
-      }),
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.token).toMatch(/^apw_/)
-    expect(body.publicKey).toBeTruthy()
-  })
-
-  it('mints a proxy token with bindings format', async () => {
-    const res = await mgmtReq('/tokens/mint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bindings: { 'api.github.com': { vault: TEST_ORG_ID } },
-      }),
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.token).toMatch(/^apw_/)
-  })
-
-  it('mints a management token', async () => {
-    const res = await mgmtReq('/tokens/mint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        rights: ['manage_services'],
-        vaultAdmin: [TEST_ORG_ID],
-      }),
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.token).toMatch(/^apw_/)
-  })
-
-  it('rejects empty body', async () => {
-    const res = await mgmtReq('/tokens/mint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it('rejects grants with vault the caller cannot admin', async () => {
-    const token = mintManagementToken(BISCUIT_PRIVATE_KEY, ['manage_vaults'], ['personal'])
-    const res = await req('/tokens/mint', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        grants: [{ services: 'api.github.com', vault: 'restricted' }],
-      }),
-    })
-    expect(res.status).toBe(403)
-  })
-
-  it('rejects bindings with vault the caller cannot admin', async () => {
-    const token = mintManagementToken(BISCUIT_PRIVATE_KEY, ['manage_vaults'], ['personal'])
-    const res = await req('/tokens/mint', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        bindings: { 'api.github.com': { vault: 'restricted' } },
-      }),
-    })
-    expect(res.status).toBe(403)
-  })
-
-  it('rejects management token minting without manage_vaults', async () => {
-    const token = mintManagementToken(BISCUIT_PRIVATE_KEY, ['manage_services'], [])
-    const res = await req('/tokens/mint', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        rights: ['manage_services'],
-        vaultAdmin: [TEST_ORG_ID],
-      }),
-    })
-    expect(res.status).toBe(403)
-  })
-
-  it('mints grants without vault (no vault_admin check needed)', async () => {
-    const res = await mgmtReq('/tokens/mint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grants: [{ services: 'api.github.com', methods: 'GET' }],
-      }),
-    })
-    expect(res.status).toBe(200)
-  })
-})
-
 // ─── Token Revocation ───────────────────────────────────────────────────────
 
 describe('Token Revocation', () => {
-  it('revokes a token', async () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com' },
-    ])
+  it('revokes the caller\'s own token', async () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
-    const res = await mgmtReq('/tokens/revoke', {
+    const res = await req('/tokens/revoke', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, reason: 'compromised' }),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason: 'compromised' }),
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
     expect(body.ok).toBe(true)
     expect(body.revokedIds.length).toBeGreaterThan(0)
+
+    // Token is now revoked — subsequent use should fail
+    const res2 = await req('/tokens/revoke', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(res2.status).toBe(403)
   })
 
-  it('rejects revocation without token field', async () => {
-    const res = await mgmtReq('/tokens/revoke', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it('rejects revocation with invalid token', async () => {
-    const res = await mgmtReq('/tokens/revoke', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: 'invalid_token' }),
-    })
-    expect(res.status).toBe(400)
-  })
-})
-
-// ─── Token Restriction ──────────────────────────────────────────────────────
-
-describe('Token Restriction', () => {
-  it('restricts a token publicly', async () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', methods: ['GET', 'POST'], paths: '/' },
-    ])
-
-    const res = await req('/tokens/restrict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, constraints: [{ methods: 'GET' }] }),
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.token).toMatch(/^apw_/)
-    expect(body.token).not.toBe(token)
-  })
-
-  it('rejects restriction without token', async () => {
-    const res = await req('/tokens/restrict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ constraints: [{ methods: 'GET' }] }),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it('rejects restriction without constraints', async () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: '*' }])
-    const res = await req('/tokens/restrict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, constraints: [] }),
-    })
-    expect(res.status).toBe(400)
-  })
-
-  it('rejects restriction with invalid token', async () => {
-    const res = await req('/tokens/restrict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: 'invalid', constraints: [{ methods: 'GET' }] }),
-    })
-    expect(res.status).toBe(400)
+  it('rejects revocation without auth', async () => {
+    const res = await req('/tokens/revoke', { method: 'POST' })
+    expect(res.status).toBe(401)
   })
 })
 
@@ -656,17 +455,19 @@ describe('Proxy', () => {
   })
 
   it('returns 404 for unknown service in proxy', async () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: 'unknown.api.com' }])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
     const res = await req('/proxy/unknown.api.com/path', {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(404)
   })
 
-  it('returns 403 for forbidden method', async () => {
+  it('returns 403 for forbidden method via attenuation', async () => {
     await seedService()
-    // Token allows only GET
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+    // Token attenuated to allow only GET
+    const base = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
+    const publicKey = getPublicKeyHex(BISCUIT_PRIVATE_KEY)
+    const token = restrictToken(base, publicKey, [
       { services: 'api.github.com', methods: 'GET' },
     ])
     const res = await req('/proxy/api.github.com/repos', {
@@ -678,7 +479,7 @@ describe('Proxy', () => {
 
   it('returns 403 for revoked proxy token', async () => {
     await seedService()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: 'api.github.com' }])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
     const publicKey = getPublicKeyHex(BISCUIT_PRIVATE_KEY)
     const revIds = getRevocationIds(token, publicKey)
     await revokeToken(db, revIds[0], 'test')
@@ -689,11 +490,9 @@ describe('Proxy', () => {
     expect(res.status).toBe(403)
   })
 
-  it('returns 404 when no credential found for org', async () => {
+  it('returns 404 when no credential found for user', async () => {
     await seedService()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
     const res = await req('/proxy/api.github.com/user', {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -704,9 +503,7 @@ describe('Proxy', () => {
 
   it('proxies request with bearer auth and returns upstream response', async () => {
     await seedServiceWithCred()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
     // Mock fetch for upstream
     const originalFetch = globalThis.fetch
@@ -746,15 +543,13 @@ describe('Proxy', () => {
         authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-API-Key' }],
       }),
     })
-    await mgmtReq(`/credentials/api.example.com?org=${TEST_ORG_ID}`, {
+    await mgmtReq(`/credentials/api.example.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'sk_test_key' }),
     })
 
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.example.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(
@@ -786,15 +581,13 @@ describe('Proxy', () => {
         authSchemes: [{ type: 'http', scheme: 'basic' }],
       }),
     })
-    await mgmtReq(`/credentials/api.basic.com?org=${TEST_ORG_ID}`, {
+    await mgmtReq(`/credentials/api.basic.com?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'user:pass' }),
     })
 
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.basic.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(
@@ -819,9 +612,7 @@ describe('Proxy', () => {
 
   it('forwards POST body to upstream', async () => {
     await seedServiceWithCred()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(
@@ -851,9 +642,7 @@ describe('Proxy', () => {
 
   it('returns 502 with DNS hint when upstream does not resolve', async () => {
     await seedServiceWithCred()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
@@ -872,9 +661,7 @@ describe('Proxy', () => {
 
   it('returns 502 for non-DNS upstream failures', async () => {
     await seedServiceWithCred()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockRejectedValue(
@@ -894,7 +681,7 @@ describe('Proxy', () => {
   })
 
   it('returns 404 for reserved paths in proxy', async () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: 'tokens' }])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'test-user')
     const res = await req('/tokens/something', {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -1015,7 +802,7 @@ describe('API Key Flow', () => {
 
   it('submits API key and stores credential', async () => {
     // First get the form to create a flow
-    const formRes = await sessionReq('/auth/api.github.com/api-key?flow_id=ak-flow-1')
+    const formRes = await sessionReq('/auth/api.github.com/api-key?flow_id=ak-flow-1-padding-to-32-chars-xx')
     expect(formRes.status).toBe(200)
 
     // Mock fetch so the base URL validation passes
@@ -1026,7 +813,7 @@ describe('API Key Flow', () => {
       const res = await sessionReq('/auth/api.github.com/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'api_key=ghp_testkey&flow_id=ak-flow-1',
+        body: 'api_key=ghp_testkey&flow_id=ak-flow-1-padding-to-32-chars-xx',
       })
       expect(res.status).toBe(200)
       const text = await res.text()
@@ -1040,7 +827,7 @@ describe('API Key Flow', () => {
     const res = await sessionReq('/auth/api.github.com/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'api_key=&flow_id=ak-flow-2',
+      body: 'api_key=&flow_id=ak-flow-2-padding-to-32-chars-xx',
     })
     expect(res.status).toBe(400)
   })
@@ -1056,9 +843,9 @@ describe('API Key Flow', () => {
 
   it('uses existing flow and does not re-create it', async () => {
     // Create a flow via form visit
-    await sessionReq('/auth/api.github.com/api-key?flow_id=ak-existing')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=ak-existing-pad-to-32-chars-xxxx')
     // Visit again with same flow_id
-    const res = await sessionReq('/auth/api.github.com/api-key?flow_id=ak-existing')
+    const res = await sessionReq('/auth/api.github.com/api-key?flow_id=ak-existing-pad-to-32-chars-xxxx')
     expect(res.status).toBe(200)
   })
 
@@ -1276,12 +1063,12 @@ describe('API Key Flow', () => {
 
   it('accepts JSON POST with api_key and flow_id in query', async () => {
     // Create a flow first
-    await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1-pad-to-32-chars-xxxx')
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
     try {
-      const res = await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1', {
+      const res = await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-1-pad-to-32-chars-xxxx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: 'ghp_jsonkey' }),
@@ -1296,7 +1083,7 @@ describe('API Key Flow', () => {
   })
 
   it('accepts JSON POST with flow_id in body', async () => {
-    await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-2')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=json-flow-2-pad-to-32-chars-xxxx')
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
@@ -1304,7 +1091,7 @@ describe('API Key Flow', () => {
       const res = await sessionReq('/auth/api.github.com/api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: 'ghp_jsonkey2', flow_id: 'json-flow-2' }),
+        body: JSON.stringify({ api_key: 'ghp_jsonkey2', flow_id: 'json-flow-2-pad-to-32-chars-xxxx' }),
       })
       expect(res.status).toBe(200)
       const body = (await res.json()) as any
@@ -1315,12 +1102,12 @@ describe('API Key Flow', () => {
   })
 
   it('completes flow so polling returns token (JSON path)', async () => {
-    await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1')
+    await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1-pad-to-32-chars-xxxx')
 
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
     try {
-      await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1', {
+      await sessionReq('/auth/api.github.com/api-key?flow_id=json-poll-1-pad-to-32-chars-xxxx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: 'ghp_pollkey' }),
@@ -1329,7 +1116,7 @@ describe('API Key Flow', () => {
       globalThis.fetch = originalFetch
     }
 
-    const poll = await req('/auth/status/json-poll-1')
+    const poll = await req('/auth/status/json-poll-1-pad-to-32-chars-xxxx')
     expect(poll.status).toBe(200)
     const body = (await poll.json()) as any
     expect(body.status).toBe('completed')
@@ -1433,15 +1220,13 @@ describe('E2E: agent with invalid API', () => {
     })
 
     // Store a credential for this service
-    await mgmtReq(`/credentials/fake-api.nonexistent.test?org=${TEST_ORG_ID}`, {
+    await mgmtReq(`/credentials/fake-api.nonexistent.test?user=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'test_token' }),
     })
 
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'fake-api.nonexistent.test', vault: TEST_ORG_ID },
-    ])
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
 
     // Simulate DNS failure when proxying
     const originalFetch = globalThis.fetch
@@ -1939,18 +1724,6 @@ describe('OAuth Flow', () => {
   })
 })
 
-// ─── Key Generation ─────────────────────────────────────────────────────────
-
-describe('Key Generation', () => {
-  it('generates an Ed25519 keypair', async () => {
-    const res = await mgmtReq('/keys/generate', { method: 'POST' })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.privateKey).toBeTruthy()
-    expect(body.publicKey).toBeTruthy()
-  })
-})
-
 // ─── Biscuit Functions ──────────────────────────────────────────────────────
 
 describe('Biscuit Functions', () => {
@@ -1958,14 +1731,6 @@ describe('Biscuit Functions', () => {
 
   it('strips apw_ prefix', () => {
     expect(stripPrefix('apw_abc')).toBe('abc')
-  })
-
-  it('strips wdn_ legacy prefix', () => {
-    expect(stripPrefix('wdn_abc')).toBe('abc')
-  })
-
-  it('strips vt_ legacy prefix', () => {
-    expect(stripPrefix('vt_abc')).toBe('abc')
   })
 
   it('returns token as-is without prefix', () => {
@@ -1991,95 +1756,47 @@ describe('Biscuit Functions', () => {
     expect(() => parseTtlSeconds('abc')).toThrow('Invalid TTL format')
   })
 
-  it('mints token with TTL', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', ttl: '1h' },
-    ])
+  it('mints token with user identity', () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'alice')
     expect(token).toMatch(/^apw_/)
+    const userId = extractUserId(token, publicKey)
+    expect(userId).toBe('alice')
   })
 
-  it('mints token with metadata', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', metadata: { userId: 'alice' } },
-    ])
-    const identity = extractIdentityFromToken(token, publicKey, 'api.github.com')
-    expect(identity).toBe('alice')
+  it('mints token with rights', () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'admin-user', ['admin', 'manage_services'])
+    const facts = extractTokenFacts(token, publicKey)
+    expect(facts.userId).toBe('admin-user')
+    expect(facts.rights).toContain('admin')
+    expect(facts.rights).toContain('manage_services')
   })
 
-  it('extractIdentityFromToken returns null for no match', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', metadata: { userId: 'alice' } },
-    ])
-    const identity = extractIdentityFromToken(token, publicKey, 'other.api.com')
-    expect(identity).toBeNull()
+  it('extractUserId returns null for invalid token', () => {
+    const userId = extractUserId('invalid', publicKey)
+    expect(userId).toBeNull()
   })
 
-  it('extractIdentityFromToken returns null for invalid token', () => {
-    const identity = extractIdentityFromToken('invalid', publicKey, 'test')
-    expect(identity).toBeNull()
+  it('extractTokenFacts returns empty for invalid token', () => {
+    const facts = extractTokenFacts('invalid', publicKey)
+    expect(facts.rights).toEqual([])
+    expect(facts.userId).toBeNull()
   })
 
-  it('extractIdentityFromToken matches wildcard service', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: '*', metadata: { userId: 'bob' } },
-    ])
-    const identity = extractIdentityFromToken(token, publicKey, 'anything.api.com')
-    expect(identity).toBe('bob')
-  })
-
-  it('extractGrants returns grant info', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', methods: ['GET', 'POST'], paths: '/user' },
-    ])
-    const grants = extractGrants(token, publicKey)
-    expect(grants).toHaveLength(1)
-    expect(grants[0].services).toEqual(['api.github.com'])
-    expect(grants[0].methods).toEqual(['GET', 'POST'])
-    expect(grants[0].paths).toEqual(['/user'])
-  })
-
-  it('extractGrants returns empty for invalid token', () => {
-    const grants = extractGrants('invalid', publicKey)
-    expect(grants).toEqual([])
-  })
-
-  it('extractVaultFromToken returns vault', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', vault: 'team-a' },
-    ])
-    const vault = extractVaultFromToken(token, publicKey, 'api.github.com')
-    expect(vault).toBe('team-a')
-  })
-
-  it('extractVaultFromToken returns null when no vault', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com' },
-    ])
-    const vault = extractVaultFromToken(token, publicKey, 'api.github.com')
-    expect(vault).toBeNull()
-  })
-
-  it('extractVaultFromToken returns null for invalid token', () => {
-    const vault = extractVaultFromToken('invalid', publicKey, 'test')
-    expect(vault).toBeNull()
-  })
-
-  it('extractManagementRights returns empty for invalid token', () => {
-    const mgmt = extractManagementRights('invalid', publicKey)
-    expect(mgmt.rights).toEqual([])
-    expect(mgmt.vaultAdminSlugs).toEqual([])
-  })
-
-  it('authorizeRequest returns authorized for matching grant', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: 'api.github.com', methods: 'GET', paths: '/user' },
-    ])
+  it('authorizeRequest returns authorized for valid user token', () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'alice')
     const result = authorizeRequest(token, publicKey, 'api.github.com', 'GET', '/user')
     expect(result.authorized).toBe(true)
   })
 
-  it('authorizeRequest returns forbidden for non-matching method', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+  it('authorizeRequest returns authorized for admin token', () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'root', ['admin'])
+    const result = authorizeRequest(token, publicKey, 'api.github.com', 'POST', '/repos')
+    expect(result.authorized).toBe(true)
+  })
+
+  it('authorizeRequest returns forbidden for attenuated method mismatch', () => {
+    const base = mintToken(BISCUIT_PRIVATE_KEY, 'alice')
+    const token = restrictToken(base, publicKey, [
       { services: 'api.github.com', methods: 'GET' },
     ])
     const result = authorizeRequest(token, publicKey, 'api.github.com', 'POST', '/user')
@@ -2088,28 +1805,26 @@ describe('Biscuit Functions', () => {
   })
 
   it('restrictToken with multiple alternatives', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [
-      { services: ['api.github.com', 'api.linear.app'] },
-    ])
-    const restricted = restrictToken(token, publicKey, [
+    const base = mintToken(BISCUIT_PRIVATE_KEY, 'alice')
+    const restricted = restrictToken(base, publicKey, [
       { services: 'api.github.com', methods: 'GET' },
       { services: 'api.linear.app', methods: 'POST' },
     ])
     expect(restricted).toMatch(/^apw_/)
-    expect(restricted).not.toBe(token)
+    expect(restricted).not.toBe(base)
   })
 
   it('restrictToken with TTL constraint', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: '*' }])
-    const restricted = restrictToken(token, publicKey, [
+    const base = mintToken(BISCUIT_PRIVATE_KEY, 'alice')
+    const restricted = restrictToken(base, publicKey, [
       { methods: 'GET', ttl: '1h' },
     ])
     expect(restricted).toMatch(/^apw_/)
   })
 
   it('restrictToken with path constraint', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: '*' }])
-    const restricted = restrictToken(token, publicKey, [
+    const base = mintToken(BISCUIT_PRIVATE_KEY, 'alice')
+    const restricted = restrictToken(base, publicKey, [
       { paths: ['/user', '/repos'] },
     ])
     expect(restricted).toMatch(/^apw_/)

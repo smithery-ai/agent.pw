@@ -1,9 +1,6 @@
 import type { Database } from '../db/index'
 import type { Logger } from '../lib/logger'
 
-// Re-export core types so existing imports from './types' keep working
-export type { ManagementRights, HttpMethod, ProxyConstraint } from '../core/types'
-
 export interface Hyperdrive {
   connectionString: string
 }
@@ -24,8 +21,9 @@ export interface HonoEnv {
   Bindings: Env
   Variables: {
     db: Database
-    managementRights?: import('../core/types').ManagementRights
+    tokenFacts?: import('../core/types').TokenFacts
     token?: string
+    userId?: string
     session?: import('./session').Session
     logger: Logger
     flushLogger: () => Promise<void>

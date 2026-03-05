@@ -8,7 +8,7 @@ import { looksLikeHostname } from '../lib/utils'
 import { deriveEncryptionKey } from '../lib/credentials-crypto'
 import { credentialRoutes } from '../routes/credentials'
 import { serviceRoutes } from '../routes/services'
-import { tokenRoutes, keyRoutes } from '../routes/tokens'
+import { tokenRoutes } from '../routes/tokens'
 import { proxyRoutes } from '../routes/proxy'
 import { buildJwks } from '../webhooks/envelope'
 import { getPublicKeyHex } from '../biscuit'
@@ -27,7 +27,6 @@ export function mountCoreRoutes(app: Hono<any>) {
   app.route('/credentials', credentialRoutes)
   app.route('/services', serviceRoutes)
   app.route('/tokens', tokenRoutes)
-  app.route('/keys', keyRoutes)
 
   // JWKS endpoint
   app.get('/.well-known/jwks.json', c => {
