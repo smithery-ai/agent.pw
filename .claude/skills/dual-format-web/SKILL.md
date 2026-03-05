@@ -1,39 +1,35 @@
 ---
 name: dual-format-web
-description: Design web pages and API responses that serve both humans and AI agents
-  from the same URL. Use this skill when building landing pages, documentation, service
-  pages, API endpoints, or any web-facing content. Also trigger on "agent-friendly",
-  "machine-readable", "content negotiation", "llms.txt", "dual format", or when the
-  user wants a page to work for both humans and AI agents.
+description: Design web pages that serve both humans and AI agents from the same
+  URL. Use this skill when building landing pages, documentation, service pages, or
+  any web-facing content. Also trigger on "agent-friendly", "machine-readable",
+  "content negotiation", "llms.txt", "dual format", or when the user wants a page
+  to work for both humans and AI agents.
 ---
 
 # Dual-Format Web Design
 
-Every URL should serve two audiences from the same address — humans get a rendered page, agents get structured data. The mechanism is HTTP content negotiation on the `Accept` header.
+Every URL should serve two audiences from the same address — humans get a rendered page, agents get markdown. The mechanism is HTTP content negotiation on the `Accept` header.
 
 ## Content Negotiation
 
 Switch response format based on the `Accept` header:
 
 - `text/html` (browsers) → rendered HTML page
-- `application/json` → structured JSON for agents
-- `text/markdown` → clean markdown for LLMs
-- `*/*` without `text/html` (curl, agents) → default to the machine-readable format
+- `text/markdown` → clean markdown for agents
+- `*/*` without `text/html` (curl, agents) → default to markdown
 
-The same URL, the same route handler — just a format branch. Never build separate `/api/` paths for what content negotiation solves.
-
-Reference implementation in this codebase: `src/discovery.ts` (`wantsJson()`) and `src/index.ts` (root `/` and `/:service` routes).
+The same URL, the same route handler — just a format branch. Never build separate paths for what content negotiation solves.
 
 ## Inline LLM Instructions
 
-Embed a bootstrap hint in every HTML page so agents that receive HTML know to re-request in a machine-readable format:
+Embed a bootstrap hint in every HTML page so agents that receive HTML know to re-request in markdown:
 
 ```html
 <head>
   <script type="text/llms.txt">
   This page supports content negotiation.
-  Re-request this URL with `Accept: application/json` for structured data
-  or `Accept: text/markdown` for a markdown summary.
+  Re-request this URL with `Accept: text/markdown` for a clean markdown version.
   </script>
 </head>
 ```
@@ -44,22 +40,34 @@ For error pages and auth walls, the inline instruction should tell the agent wha
 
 ```html
 <script type="text/llms.txt">
-Authentication required. Re-request this URL with `Accept: application/json`
-to receive a structured response with an auth_url you can present to the user.
+Authentication required. Re-request this URL with `Accept: text/markdown`
+to receive a structured response with an auth URL you can present to the user.
 </script>
 ```
 
-## Structured JSON Responses
+## Markdown Response Format
 
-Agent-facing JSON should be self-describing and actionable:
+The markdown served to agents should be concise and structured:
 
-- **`description`**: one-line summary of what this resource is
-- **`quick_start`**: minimal steps to accomplish the most common task
-- **`next_actions`**: HATEOAS-style links/templates so the agent knows what to do next — parameterized with `<required>` and `[--optional <value>]` syntax
-- **`fix`** (on errors): plain-language remediation the agent can act on
-- **`auth_url`** (on 401s): where to send the user to authenticate
+- **Lead with a one-line summary** of what this page/resource is
+- **Use heading hierarchy** (`#`–`###`) for navigation — agents parse structure
+- **State constraints explicitly**: limits, required fields, supported methods
+- **Link to detail pages** rather than inlining everything — agents have finite context windows
+- **Include actionable next steps** at the bottom so agents know what to do after reading
 
-Keep responses concise. Link to detail pages rather than inlining everything — agents have finite context windows.
+For error responses, include a plain-language fix:
+
+```markdown
+# Error: Token Expired
+
+Re-authenticate by directing the user to the auth URL below.
+
+## Next Steps
+- [Re-authenticate](/auth/start?flow=abc)
+- [Refresh token](/auth/refresh) (POST)
+```
+
+A plain-language fix is the difference between an agent that recovers and one that spins.
 
 ## Site-Level Discovery
 
@@ -80,22 +88,3 @@ Pages that agents may fetch as HTML (before they discover content negotiation) s
 - **Explicit constraints**: state limits, required fields, and boundaries as text — not as form validation logic agents can't see.
 - **Visible content**: no hidden tabs, collapsed accordions, or content behind "show more" buttons. If it matters, render it.
 - **Facts over marketing**: agents need specifications, not persuasion. "Rate limit: 100 req/min" beats "blazing fast API."
-
-## Error Responses
-
-Errors should help agents self-recover:
-
-```json
-{
-  "ok": false,
-  "error": { "message": "Token expired", "code": "TOKEN_EXPIRED" },
-  "fix": "Re-authenticate by directing the user to the auth_url below.",
-  "auth_url": "https://example.com/auth/start?flow=abc",
-  "next_actions": [
-    { "action": "re-authenticate", "method": "GET", "url": "/auth/start" },
-    { "action": "refresh-token", "method": "POST", "url": "/auth/refresh" }
-  ]
-}
-```
-
-A `fix` field with plain-language remediation is the difference between an agent that recovers and one that spins.
