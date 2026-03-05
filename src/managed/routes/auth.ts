@@ -27,6 +27,7 @@ authRoutes.get('/:service', requireBrowserSession, async c => {
   const serviceName = c.req.param('service')
   const db = c.get('db')
   const svc = await getService(db, serviceName)
+  const session = c.get('session')
 
   if (!svc) {
     return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
@@ -41,6 +42,7 @@ authRoutes.get('/:service', requireBrowserSession, async c => {
       id: flowId,
       service: serviceName,
       method: 'api_key',
+      orgId: session?.orgId,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     })
   }
@@ -54,10 +56,11 @@ authRoutes.route('/', oauthRoutes)
 authRoutes.route('/', apiKeyRoutes)
 
 // Auth flow status polling
-authRoutes.get('/status/:flowId', async c => {
+authRoutes.get('/status/:flowId', requireBrowserSession, async c => {
   const db = c.get('db')
   const flowId = c.req.param('flowId')
   const accept = c.req.header('Accept')
+  const session = c.get('session')
 
   // SSE mode — hold connection until flow completes
   if (accept?.includes('text/event-stream')) {
@@ -67,6 +70,10 @@ authRoutes.get('/status/:flowId', async c => {
         const flow = await getAuthFlow(db, flowId)
         if (!flow) {
           await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: 'Flow not found or expired' }) })
+          return
+        }
+        if (session && flow.orgId && flow.orgId !== session.orgId) {
+          await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: 'Forbidden' }) })
           return
         }
         if (flow.status === 'completed') {
@@ -85,6 +92,9 @@ authRoutes.get('/status/:flowId', async c => {
   // Fallback: JSON polling (backward compat)
   const flow = await getAuthFlow(db, flowId)
   if (!flow) return c.json({ error: 'Flow not found' }, 404)
+  if (session && flow.orgId && flow.orgId !== session.orgId) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   if (flow.status === 'completed') {
     return c.json({ status: 'completed', token: flow.token, identity: flow.identity })
