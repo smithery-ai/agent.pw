@@ -7,7 +7,6 @@ import {
   upsertCredential,
   deleteCredential,
 } from '../db/queries'
-import { getKnownOAuthProvider } from '../oauth-providers'
 import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from '../auth-schemes'
 import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
 
@@ -42,10 +41,8 @@ credentialRoutes.put('/:service', requireToken, resolveOrgId, async c => {
   const svc = await getService(db, service)
   if (!svc) return c.json({ error: `Service '${service}' not configured` }, 404)
 
-  // Build headers: use explicit map or derive from token + service config
-  // Prefer known provider's scheme over DB (fixes stale migration data)
-  const knownProvider = getKnownOAuthProvider(service)
-  const schemes = knownProvider ? knownProvider.authSchemes : parseAuthSchemes(svc.authSchemes)
+  // Build headers: use explicit map or derive from token + service auth config
+  const schemes = parseAuthSchemes(svc.authSchemes)
   const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
   const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token!)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })

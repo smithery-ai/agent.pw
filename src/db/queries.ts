@@ -1,4 +1,4 @@
-import { eq, and, sql, lt } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import { users, services, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
 
