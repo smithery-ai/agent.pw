@@ -76,7 +76,7 @@ The CLI auto-detects which mode you're in. If a local instance is running, comma
 
 **Credentials.** A credential is the specific secret used to connect to a service — the actual API key or OAuth token. Credentials are stored encrypted and never exposed to agents. When an agent makes a proxied request, agent.pw looks up the credential for that service and injects it into the upstream request.
 
-**Tokens.** On setup, agent.pw mints a bearer token (`wdn_` prefix). The master token has full access to the service table and credential store. Tokens given to agents can be attenuated — scoped to specific services, methods, and TTLs. A restricted token can never gain more power than its parent. Tokens can be revoked instantly. Backed by [Biscuit](https://www.biscuitsec.org/) for cryptographic attenuation.
+**Tokens.** On setup, agent.pw mints a bearer token (`apw_` prefix). The master token has full access to the service table and credential store. Tokens given to agents can be attenuated — scoped to specific services, methods, and TTLs. A restricted token can never gain more power than its parent. Tokens can be revoked instantly. Backed by [Biscuit](https://www.biscuitsec.org/) for cryptographic attenuation.
 
 ## CLI Commands
 
@@ -96,6 +96,9 @@ npx agent.pw service remove <hostname>         remove a service
 npx agent.pw cred                              list credentials
 npx agent.pw cred add <service> [--value <key>] add a credential
 npx agent.pw cred remove <service>             remove a credential
+
+npx agent.pw token restrict <token> [opts]     attenuate a token (--service, --method, --ttl)
+npx agent.pw token revoke <token>              revoke a token
 
 npx agent.pw curl <url> [curl flags]           proxy request with auto-injected token
 ```

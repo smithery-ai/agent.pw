@@ -1,5 +1,5 @@
 import { eq, and, sql, lt } from 'drizzle-orm'
-import { users, services, credentials, oauthApps, revocations, webhookRegistrations, authFlows } from './schema'
+import { users, services, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
 
 // ─── Users ──────────────────────────────────────────────────────────────────
@@ -60,23 +60,6 @@ export async function listServicesWithCredentialCounts(db: Database) {
   }))
 }
 
-export async function countDistinctOrgs(db: Database) {
-  const rows = await db
-    .select({ count: sql<number>`count(distinct ${credentials.orgId})::int` })
-    .from(credentials)
-
-  return Number(rows[0].count)
-}
-
-export async function countCredentialsForService(db: Database, service: string) {
-  const rows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(credentials)
-    .where(eq(credentials.service, service))
-
-  return Number(rows[0].count)
-}
-
 export async function upsertService(
   db: Database,
   service: string,
@@ -89,7 +72,6 @@ export async function upsertService(
     encryptedOauthClientSecret?: Buffer | null
     docsUrl?: string
     authConfig?: string
-    webhookConfig?: string
   },
 ) {
   await db
@@ -104,7 +86,6 @@ export async function upsertService(
       encryptedOauthClientSecret: data.encryptedOauthClientSecret ?? null,
       docsUrl: data.docsUrl,
       authConfig: data.authConfig,
-      webhookConfig: data.webhookConfig,
     })
     .onConflictDoUpdate({
       target: services.service,
@@ -117,7 +98,6 @@ export async function upsertService(
         encryptedOauthClientSecret: sql`coalesce(excluded.encrypted_oauth_client_secret, ${services.encryptedOauthClientSecret})`,
         docsUrl: sql`coalesce(excluded.docs_url, ${services.docsUrl})`,
         authConfig: sql`coalesce(excluded.auth_config, ${services.authConfig})`,
-        webhookConfig: sql`coalesce(excluded.webhook_config, ${services.webhookConfig})`,
         updatedAt: sql`now()`,
       },
     })
@@ -142,20 +122,12 @@ export async function listCredentials(db: Database, orgId: string) {
   return db.select().from(credentials).where(eq(credentials.orgId, orgId))
 }
 
-export async function listCredentialsForService(db: Database, orgId: string, service: string) {
-  return db
-    .select()
-    .from(credentials)
-    .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service)))
-}
-
 export async function upsertCredential(
   db: Database,
   orgId: string,
   service: string,
   slug: string,
   encryptedCredentials: Buffer,
-  tags?: Record<string, string>,
 ) {
   await db
     .insert(credentials)
@@ -164,13 +136,11 @@ export async function upsertCredential(
       service,
       slug,
       encryptedCredentials,
-      tags: tags ?? null,
     })
     .onConflictDoUpdate({
       target: [credentials.orgId, credentials.service, credentials.slug],
       set: {
         encryptedCredentials: sql`excluded.encrypted_credentials`,
-        tags: sql`coalesce(excluded.tags, ${credentials.tags})`,
         updatedAt: sql`now()`,
       },
     })
@@ -182,45 +152,6 @@ export async function deleteCredential(db: Database, orgId: string, service: str
     .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
     .returning()
   return result.length > 0
-}
-
-// ─── OAuth Apps ──────────────────────────────────────────────────────────────
-
-export async function getOAuthApp(db: Database, orgId: string, service: string) {
-  const rows = await db
-    .select()
-    .from(oauthApps)
-    .where(and(eq(oauthApps.orgId, orgId), eq(oauthApps.service, service)))
-  return rows[0] ?? null
-}
-
-export async function upsertOAuthApp(
-  db: Database,
-  orgId: string,
-  service: string,
-  data: {
-    clientId: string
-    encryptedClientSecret?: Buffer | null
-    scopes?: string
-  },
-) {
-  await db
-    .insert(oauthApps)
-    .values({
-      orgId,
-      service,
-      clientId: data.clientId,
-      encryptedClientSecret: data.encryptedClientSecret ?? null,
-      scopes: data.scopes ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [oauthApps.orgId, oauthApps.service],
-      set: {
-        clientId: sql`excluded.client_id`,
-        encryptedClientSecret: sql`coalesce(excluded.encrypted_client_secret, ${oauthApps.encryptedClientSecret})`,
-        scopes: sql`coalesce(excluded.scopes, ${oauthApps.scopes})`,
-      },
-    })
 }
 
 // ─── Revocations ─────────────────────────────────────────────────────────────
@@ -240,60 +171,6 @@ export async function revokeToken(db: Database, revocationId: string, reason?: s
     .onConflictDoNothing()
 }
 
-// ─── Webhook Registrations ──────────────────────────────────────────────────
-
-export async function getWebhookRegistration(db: Database, service: string, id: string) {
-  const rows = await db
-    .select()
-    .from(webhookRegistrations)
-    .where(and(eq(webhookRegistrations.service, service), eq(webhookRegistrations.id, id)))
-  return rows[0] ?? null
-}
-
-export async function listWebhookRegistrations(db: Database, orgId: string) {
-  return db.select().from(webhookRegistrations).where(eq(webhookRegistrations.orgId, orgId))
-}
-
-export async function upsertWebhookRegistration(
-  db: Database,
-  id: string,
-  data: {
-    orgId: string
-    service: string
-    callbackUrl: string
-    encryptedWebhookSecret?: Buffer | null
-    metadata?: string
-  },
-) {
-  await db
-    .insert(webhookRegistrations)
-    .values({
-      id,
-      orgId: data.orgId,
-      service: data.service,
-      callbackUrl: data.callbackUrl,
-      encryptedWebhookSecret: data.encryptedWebhookSecret ?? null,
-      metadata: data.metadata,
-    })
-    .onConflictDoUpdate({
-      target: webhookRegistrations.id,
-      set: {
-        callbackUrl: sql`excluded.callback_url`,
-        encryptedWebhookSecret: sql`coalesce(excluded.encrypted_webhook_secret, ${webhookRegistrations.encryptedWebhookSecret})`,
-        metadata: sql`coalesce(excluded.metadata, ${webhookRegistrations.metadata})`,
-        updatedAt: sql`now()`,
-      },
-    })
-}
-
-export async function deleteWebhookRegistration(db: Database, id: string, orgId: string) {
-  const result = await db
-    .delete(webhookRegistrations)
-    .where(and(eq(webhookRegistrations.id, id), eq(webhookRegistrations.orgId, orgId)))
-    .returning()
-  return result.length > 0
-}
-
 // ─── Auth Flows ──────────────────────────────────────────────────────────────
 
 export interface CreateFlowData {
@@ -302,7 +179,6 @@ export interface CreateFlowData {
   method: string
   codeVerifier?: string
   orgId?: string
-  oauthSource?: string
   expiresAt: Date
 }
 
@@ -319,7 +195,6 @@ export async function createAuthFlow(db: Database, data: CreateFlowData) {
     method: data.method,
     codeVerifier: data.codeVerifier,
     orgId: data.orgId,
-    oauthSource: data.oauthSource,
     expiresAt: data.expiresAt,
   })
 }
@@ -345,8 +220,4 @@ export async function completeAuthFlow(db: Database, id: string, data: CompleteF
       orgId: data.orgId,
     })
     .where(eq(authFlows.id, id))
-}
-
-export async function cleanupExpiredFlows(db: Database) {
-  await db.delete(authFlows).where(lt(authFlows.expiresAt, new Date()))
 }

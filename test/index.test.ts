@@ -33,8 +33,6 @@ import {
   deleteCredential,
   isRevoked,
   upsertService,
-  getOAuthApp,
-  upsertOAuthApp,
   listServicesWithCredentialCounts,
 } from '../src/db/queries'
 import { createAuthFlow, completeAuthFlow, getAuthFlow } from '../src/db/queries'
@@ -456,7 +454,7 @@ describe('Token Minting', () => {
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
-    expect(body.token).toMatch(/^wdn_/)
+    expect(body.token).toMatch(/^apw_/)
     expect(body.publicKey).toBeTruthy()
   })
 
@@ -470,7 +468,7 @@ describe('Token Minting', () => {
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
-    expect(body.token).toMatch(/^wdn_/)
+    expect(body.token).toMatch(/^apw_/)
   })
 
   it('mints a management token', async () => {
@@ -484,7 +482,7 @@ describe('Token Minting', () => {
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
-    expect(body.token).toMatch(/^wdn_/)
+    expect(body.token).toMatch(/^apw_/)
   })
 
   it('rejects empty body', async () => {
@@ -607,7 +605,7 @@ describe('Token Restriction', () => {
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
-    expect(body.token).toMatch(/^wdn_/)
+    expect(body.token).toMatch(/^apw_/)
     expect(body.token).not.toBe(token)
   })
 
@@ -970,7 +968,7 @@ describe('Auth Flow Polling', () => {
       expiresAt: new Date(Date.now() + 600000),
     })
     await completeAuthFlow(db, 'test-flow-2', {
-      token: 'wdn_test',
+      token: 'apw_test',
       identity: 'alice',
       orgId: TEST_ORG_ID,
     })
@@ -979,7 +977,7 @@ describe('Auth Flow Polling', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
     expect(body.status).toBe('completed')
-    expect(body.token).toBe('wdn_test')
+    expect(body.token).toBe('apw_test')
     expect(body.identity).toBe('alice')
   })
 
@@ -1032,7 +1030,7 @@ describe('API Key Flow', () => {
       })
       expect(res.status).toBe(200)
       const text = await res.text()
-      expect(text).toContain('wdn_') // Should show the minted token
+      expect(text).toContain('apw_') // Should show the minted token
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1110,7 +1108,7 @@ describe('API Key Flow', () => {
       })
       expect(res.status).toBe(200)
       const text = await res.text()
-      expect(text).toContain('wdn_')
+      expect(text).toContain('apw_')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1290,7 +1288,7 @@ describe('API Key Flow', () => {
       })
       expect(res.status).toBe(200)
       const body = (await res.json()) as any
-      expect(body.token).toMatch(/^wdn_/)
+      expect(body.token).toMatch(/^apw_/)
       expect(body.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
@@ -1310,7 +1308,7 @@ describe('API Key Flow', () => {
       })
       expect(res.status).toBe(200)
       const body = (await res.json()) as any
-      expect(body.token).toMatch(/^wdn_/)
+      expect(body.token).toMatch(/^apw_/)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1335,7 +1333,7 @@ describe('API Key Flow', () => {
     expect(poll.status).toBe(200)
     const body = (await poll.json()) as any
     expect(body.status).toBe('completed')
-    expect(body.token).toMatch(/^wdn_/)
+    expect(body.token).toMatch(/^apw_/)
   })
 
   it('rejects JSON POST with missing api_key', async () => {
@@ -1551,7 +1549,7 @@ describe('OAuth Flow', () => {
       expiresAt: new Date(Date.now() + 600000),
     })
     await completeAuthFlow(db, 'completed-flow', {
-      token: 'wdn_old',
+      token: 'apw_old',
       identity: 'alice',
       orgId: TEST_ORG_ID,
     })
@@ -1634,12 +1632,12 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/github-oauth.com/oauth/callback?code=abc&state=success-flow')
       expect(res.status).toBe(200)
       const text = await res.text()
-      expect(text).toContain('wdn_')
+      expect(text).toContain('apw_')
 
       // Verify flow was completed
       const flow = await getAuthFlow(db, 'success-flow')
       expect(flow?.status).toBe('completed')
-      expect(flow?.token).toMatch(/^wdn_/)
+      expect(flow?.token).toMatch(/^apw_/)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1958,7 +1956,11 @@ describe('Key Generation', () => {
 describe('Biscuit Functions', () => {
   const publicKey = getPublicKeyHex(BISCUIT_PRIVATE_KEY)
 
-  it('strips wdn_ prefix', () => {
+  it('strips apw_ prefix', () => {
+    expect(stripPrefix('apw_abc')).toBe('abc')
+  })
+
+  it('strips wdn_ legacy prefix', () => {
     expect(stripPrefix('wdn_abc')).toBe('abc')
   })
 
@@ -1993,7 +1995,7 @@ describe('Biscuit Functions', () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
       { services: 'api.github.com', ttl: '1h' },
     ])
-    expect(token).toMatch(/^wdn_/)
+    expect(token).toMatch(/^apw_/)
   })
 
   it('mints token with metadata', () => {
@@ -2093,7 +2095,7 @@ describe('Biscuit Functions', () => {
       { services: 'api.github.com', methods: 'GET' },
       { services: 'api.linear.app', methods: 'POST' },
     ])
-    expect(restricted).toMatch(/^wdn_/)
+    expect(restricted).toMatch(/^apw_/)
     expect(restricted).not.toBe(token)
   })
 
@@ -2102,7 +2104,7 @@ describe('Biscuit Functions', () => {
     const restricted = restrictToken(token, publicKey, [
       { methods: 'GET', ttl: '1h' },
     ])
-    expect(restricted).toMatch(/^wdn_/)
+    expect(restricted).toMatch(/^apw_/)
   })
 
   it('restrictToken with path constraint', () => {
@@ -2110,7 +2112,7 @@ describe('Biscuit Functions', () => {
     const restricted = restrictToken(token, publicKey, [
       { paths: ['/user', '/repos'] },
     ])
-    expect(restricted).toMatch(/^wdn_/)
+    expect(restricted).toMatch(/^apw_/)
   })
 
   it('generateKeyPairHex returns valid keys', () => {
@@ -2214,64 +2216,19 @@ describe('Query Functions', () => {
     expect(serviceTwo?.credentialCount).toBe(0)
   })
 
-  it('upsertOAuthApp stores and updates a BYO oauth app', async () => {
-    const secret1 = Buffer.from('secret-1')
-    const secret2 = Buffer.from('secret-2')
-
-    await upsertOAuthApp(db, 'personal', 'api.github.com', {
-      clientId: 'client-1',
-      encryptedClientSecret: secret1,
-      scopes: 'repo',
-    })
-
-    await upsertOAuthApp(db, 'personal', 'api.github.com', {
-      clientId: 'client-2',
-      encryptedClientSecret: secret2,
-      scopes: 'repo user',
-    })
-
-    const app = await getOAuthApp(db, 'personal', 'api.github.com')
-    expect(app).not.toBeNull()
-    expect(app!.clientId).toBe('client-2')
-    expect(Buffer.from(app!.encryptedClientSecret ?? []).toString()).toBe('secret-2')
-    expect(app!.scopes).toBe('repo user')
-  })
-
-  it('upsertOAuthApp keeps existing secret and scopes when omitted', async () => {
-    const secret = Buffer.from('persisted-secret')
-
-    await upsertOAuthApp(db, 'personal', 'api.linear.app', {
-      clientId: 'client-a',
-      encryptedClientSecret: secret,
-      scopes: 'read write',
-    })
-
-    await upsertOAuthApp(db, 'personal', 'api.linear.app', {
-      clientId: 'client-b',
-    })
-
-    const app = await getOAuthApp(db, 'personal', 'api.linear.app')
-    expect(app).not.toBeNull()
-    expect(app!.clientId).toBe('client-b')
-    expect(Buffer.from(app!.encryptedClientSecret ?? []).toString()).toBe('persisted-secret')
-    expect(app!.scopes).toBe('read write')
-  })
-
-  it('createAuthFlow with oauthSource stores source on Redis flow', async () => {
+  it('createAuthFlow stores and retrieves a flow', async () => {
     await createAuthFlow(db, {
       id: 'oauth-flow',
       service: 'api.github.com',
       method: 'oauth',
       codeVerifier: 'pkce-verifier',
       orgId: TEST_ORG_ID,
-      oauthSource: 'byo',
       expiresAt: new Date(Date.now() + 60_000),
     })
 
     const flow = await getAuthFlow(db, 'oauth-flow')
     expect(flow).not.toBeNull()
     expect(flow!.method).toBe('oauth')
-    expect(flow!.oauthSource).toBe('byo')
     expect(flow!.codeVerifier).toBe('pkce-verifier')
     expect(flow!.orgId).toBe(TEST_ORG_ID)
   })

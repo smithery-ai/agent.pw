@@ -1,7 +1,7 @@
-import { Hono, type Context } from 'hono'
+import { Hono } from 'hono'
 import type { HonoEnv } from './types'
 import type { Database } from '../db/index'
-import { getService, upsertCredential, getOAuthApp, upsertOAuthApp, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
+import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
 import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
 import { getSessionFromCookie } from './session'
@@ -11,8 +11,6 @@ import { parseAuthSchemes, getOAuthScheme } from '../auth-schemes'
 
 export const oauthRoutes = new Hono<HonoEnv>()
 
-type OAuthSource = 'managed' | 'byo'
-
 type ServiceOAuthConfig = {
   authSchemes: string | null
   oauthClientId: string | null
@@ -20,7 +18,6 @@ type ServiceOAuthConfig = {
 }
 
 export type ResolvedOAuthConfig = {
-  source: OAuthSource
   clientId: string
   clientSecret?: string
   authorizeUrl: string
@@ -118,43 +115,15 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return current
 }
 
-function parseOAuthSource(raw: string | undefined): OAuthSource | undefined {
-  if (raw === 'managed' || raw === 'byo') return raw
-  return undefined
-}
-
 export async function resolveOAuthConfig(
-  db: Database,
   encryptionKey: string,
-  service: string,
-  orgId: string,
   svc: ServiceOAuthConfig,
-  preferredSource?: OAuthSource,
 ): Promise<ResolvedOAuthConfig | null> {
   const oauthScheme = getOAuthScheme(parseAuthSchemes(svc.authSchemes))
   if (!oauthScheme) return null
 
-  if (preferredSource !== 'managed') {
-    const app = await getOAuthApp(db, orgId, service)
-    if (app) {
-      return {
-        source: 'byo',
-        clientId: app.clientId,
-        clientSecret: await decryptSecret(encryptionKey, app.encryptedClientSecret),
-        authorizeUrl: oauthScheme.authorizeUrl,
-        tokenUrl: oauthScheme.tokenUrl,
-        scopes: app.scopes ?? oauthScheme.scopes,
-      }
-    }
-  }
-
-  if (preferredSource === 'byo') {
-    return null
-  }
-
   if (svc.oauthClientId) {
     return {
-      source: 'managed',
       clientId: svc.oauthClientId,
       clientSecret: await decryptSecret(encryptionKey, svc.encryptedOauthClientSecret),
       authorizeUrl: oauthScheme.authorizeUrl,
@@ -246,16 +215,8 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
 
   const session = c.get('session')!
   const orgId = session.orgId
-  const source = parseOAuthSource(c.req.query('source'))
 
-  const oauth = await resolveOAuthConfig(
-    db,
-    c.env.ENCRYPTION_KEY,
-    serviceName,
-    orgId,
-    svc,
-    source,
-  )
+  const oauth = await resolveOAuthConfig(c.env.ENCRYPTION_KEY, svc)
 
   if (!oauth) {
     return c.json({ error: `OAuth not configured for ${serviceName}` }, 400)
@@ -271,102 +232,6 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
     method: 'oauth',
     codeVerifier,
     orgId,
-    oauthSource: oauth.source,
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-  })
-
-  const params = new URLSearchParams({
-    client_id: oauth.clientId,
-    redirect_uri: `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`,
-    state: flowId,
-    response_type: 'code',
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-  })
-
-  if (oauth.scopes) {
-    params.set('scope', oauth.scopes)
-  }
-
-  return c.redirect(`${oauth.authorizeUrl}?${params.toString()}`)
-})
-
-// ─── Store BYO OAuth App + Start OAuth ──────────────────────────────────────
-
-oauthRoutes.post('/:service/oauth/byo', requireBrowserSession, async c => {
-  const serviceName = c.req.param('service')
-  const db = c.get('db')
-  const svc = await getService(db, serviceName)
-
-  if (!svc) {
-    return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
-  }
-
-  const oauthScheme = getOAuthScheme(parseAuthSchemes(svc.authSchemes))
-  if (!oauthScheme) {
-    return c.html(
-      ErrorPage({ message: `OAuth endpoints are not known for ${serviceName} yet` }),
-      400,
-    )
-  }
-
-  const session = c.get('session')!
-  const orgId = session.orgId
-
-  const contentType = c.req.header('Content-Type') ?? ''
-  let clientId = ''
-  let clientSecret = ''
-  let scopes = ''
-  let incomingFlowId = ''
-
-  if (contentType.includes('application/json')) {
-    const body = await c.req.json<{
-      client_id?: string
-      client_secret?: string
-      scopes?: string
-      flow_id?: string
-    }>()
-    clientId = body.client_id?.trim() ?? ''
-    clientSecret = body.client_secret?.trim() ?? ''
-    scopes = body.scopes?.trim() ?? ''
-    incomingFlowId = body.flow_id?.trim() ?? ''
-  } else {
-    const formData = await c.req.parseBody()
-    clientId = ((formData.client_id as string) ?? '').trim()
-    clientSecret = ((formData.client_secret as string) ?? '').trim()
-    scopes = ((formData.scopes as string) ?? '').trim()
-    incomingFlowId = ((formData.flow_id as string) ?? '').trim()
-  }
-
-  if (!clientId) {
-    return c.html(ErrorPage({ message: 'client_id is required' }), 400)
-  }
-
-  await upsertOAuthApp(db, orgId, serviceName, {
-    clientId,
-    encryptedClientSecret: clientSecret
-      ? await encryptSecret(c.env.ENCRYPTION_KEY, clientSecret)
-      : null,
-    scopes: scopes || undefined,
-  })
-
-  // Now initiate the OAuth flow with the BYO app
-  const oauth = await resolveOAuthConfig(db, c.env.ENCRYPTION_KEY, serviceName, orgId, svc, 'byo')
-  if (!oauth) {
-    return c.html(ErrorPage({ message: 'Failed to resolve BYO OAuth config' }), 500)
-  }
-
-  const flowId = incomingFlowId || randomId()
-  const codeVerifier = randomId() + randomId()
-  const codeChallenge = await generateCodeChallenge(codeVerifier)
-
-  await createAuthFlow(c.get('db'), {
-    id: flowId,
-    service: serviceName,
-    method: 'oauth',
-    codeVerifier,
-    orgId,
-    oauthSource: 'byo',
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
   })
 
@@ -426,15 +291,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
     return c.html(ErrorPage({ message: 'Session expired. Please try again.' }), 400)
   }
 
-  const sourceHint = parseOAuthSource(flow.oauthSource ?? undefined)
-  const oauth = await resolveOAuthConfig(
-    db,
-    c.env.ENCRYPTION_KEY,
-    serviceName,
-    orgId,
-    svc,
-    sourceHint,
-  )
+  const oauth = await resolveOAuthConfig(c.env.ENCRYPTION_KEY, svc)
 
   if (!oauth) {
     return c.html(ErrorPage({ message: `OAuth not configured for ${serviceName}` }), 500)

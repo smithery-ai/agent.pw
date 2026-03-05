@@ -1,7 +1,5 @@
 export { users } from './users'
 export { services } from './services'
 export { credentials } from './credentials'
-export { oauthApps } from './oauth-apps'
 export { revocations } from './revocations'
-export { webhookRegistrations } from './webhook-registrations'
 export { authFlows } from './auth-flows'

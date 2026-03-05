@@ -42,8 +42,31 @@ async function main() {
         const { addCred } = await import('./commands/cred')
         return addCred(service, value)
       }
+      if (subcommand === 'remove' || subcommand === 'rm') {
+        const service = args[2]
+        if (!service) {
+          console.error('Usage: agent.pw cred remove <service>')
+          process.exit(1)
+        }
+        const { removeCred } = await import('./commands/cred')
+        return removeCred(service)
+      }
       const { listCreds } = await import('./commands/cred')
       return listCreds()
+    }
+    case 'token': {
+      const subcommand = args[1]
+      if (subcommand === 'restrict') {
+        const { restrictTokenCmd } = await import('./commands/token')
+        return restrictTokenCmd(args.slice(2))
+      }
+      if (subcommand === 'revoke') {
+        const { revokeTokenCmd } = await import('./commands/token')
+        return revokeTokenCmd(args.slice(2))
+      }
+      console.error('Usage: agent.pw token <restrict|revoke> ...')
+      process.exit(1)
+      return
     }
     case 'service':
     case 'services': {
@@ -113,6 +136,9 @@ async function main() {
       console.log('  service remove <host>           Remove a service')
       console.log('  cred                            List stored credentials')
       console.log('  cred add <svc> [--value <k>]    Add a credential')
+      console.log('  cred remove <svc>               Remove a credential')
+      console.log('  token restrict <token> [opts]    Attenuate a token')
+      console.log('  token revoke <token>             Revoke a token')
       console.log('  curl <url> [args...]             Proxy-aware curl wrapper')
       if (command && command !== 'help' && command !== '--help' && command !== '-h') {
         console.error(`\nUnknown command: ${command}`)

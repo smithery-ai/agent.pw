@@ -86,3 +86,16 @@ export async function addCred(service: string, value?: string) {
 
   console.log('Stored.')
 }
+
+export async function removeCred(service: string) {
+  const res = await api(`/credentials/${service}`, { method: 'DELETE' })
+  if (res.status === 404) {
+    console.error(`No credential found for '${service}'.`)
+    process.exit(1)
+  }
+  if (!res.ok) {
+    console.error(`Failed to remove credential (${res.status})`)
+    process.exit(1)
+  }
+  console.log(`Removed credential for ${service}.`)
+}

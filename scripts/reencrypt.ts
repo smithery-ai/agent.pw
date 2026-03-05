@@ -63,21 +63,5 @@ for (const row of svcs) {
   await sql`UPDATE warden.services SET encrypted_oauth_client_secret = ${updated} WHERE service = ${row.service}`
 }
 
-// 3. oauth_apps.encrypted_client_secret
-const apps = await sql`SELECT org_id, service, encrypted_client_secret FROM warden.oauth_apps WHERE encrypted_client_secret IS NOT NULL`
-console.log(`OAuth apps with secrets: ${apps.length} rows`)
-for (const row of apps) {
-  const updated = await reencrypt(row.encrypted_client_secret)
-  await sql`UPDATE warden.oauth_apps SET encrypted_client_secret = ${updated} WHERE org_id = ${row.org_id} AND service = ${row.service}`
-}
-
-// 4. webhook_registrations.encrypted_webhook_secret
-const hooks = await sql`SELECT id, encrypted_webhook_secret FROM warden.webhook_registrations WHERE encrypted_webhook_secret IS NOT NULL`
-console.log(`Webhook registrations with secrets: ${hooks.length} rows`)
-for (const row of hooks) {
-  const updated = await reencrypt(row.encrypted_webhook_secret)
-  await sql`UPDATE warden.webhook_registrations SET encrypted_webhook_secret = ${updated} WHERE id = ${row.id}`
-}
-
 console.log('Done. You can now remove ENCRYPTION_KEY from Infisical.')
 await sql.end()

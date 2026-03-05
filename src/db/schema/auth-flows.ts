@@ -8,7 +8,6 @@ export const authFlows = wardenSchema.table('auth_flows', {
   status: text('status').notNull().default('pending'),
   codeVerifier: text('code_verifier'),
   orgId: text('org_id'),
-  oauthSource: text('oauth_source'),
   token: text('token'),
   identity: text('identity'),
   expiresAt: timestamp('expires_at').notNull(),

@@ -63,8 +63,4 @@ export async function buildSetCookieHeader(secret: string, session: Session): Pr
   return `${COOKIE_NAME}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_SECONDS}`
 }
 
-export function clearSessionCookie() {
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
-}
-
 export { SESSION_TTL_SECONDS }

@@ -17,8 +17,8 @@ import {
 } from '@smithery/biscuit'
 import type { ProxyConstraint } from './core/types'
 
-export const TOKEN_PREFIX = 'wdn_'
-const LEGACY_PREFIX = 'vt_'
+export const TOKEN_PREFIX = 'apw_'
+const LEGACY_PREFIXES = ['wdn_', 'vt_']
 
 const RUN_LIMITS = {
   max_facts: 1000,
@@ -34,7 +34,9 @@ function addPrefix(base64: string): string {
 
 export function stripPrefix(token: string): string {
   if (token.startsWith(TOKEN_PREFIX)) return token.slice(TOKEN_PREFIX.length)
-  if (token.startsWith(LEGACY_PREFIX)) return token.slice(LEGACY_PREFIX.length)
+  for (const prefix of LEGACY_PREFIXES) {
+    if (token.startsWith(prefix)) return token.slice(prefix.length)
+  }
   return token
 }
 

@@ -109,7 +109,6 @@ serviceRoutes.put('/:service', requireToken, requireRight('manage_services'), as
     oauthClientSecret?: string
     docsUrl?: string
     authConfig?: Record<string, unknown>
-    webhookConfig?: Record<string, unknown>
   }>()
 
   if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
@@ -128,7 +127,6 @@ serviceRoutes.put('/:service', requireToken, requireRight('manage_services'), as
       : undefined,
     docsUrl: body.docsUrl,
     authConfig: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
-    webhookConfig: body.webhookConfig ? JSON.stringify(body.webhookConfig) : undefined,
   })
 
   return c.json({ ok: true, service })
