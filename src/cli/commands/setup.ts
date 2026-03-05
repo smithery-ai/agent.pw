@@ -28,7 +28,7 @@ export async function setup() {
     keypair.privateKey,
     ['manage_services', 'manage_vaults'],
     ['*'],
-    [{ services: '*', vault: 'local' }],
+    [{ vault: 'local' }],
   )
 
   const port = 9315

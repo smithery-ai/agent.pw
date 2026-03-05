@@ -22,7 +22,6 @@ const rootToken = mintManagementToken(
   privateKey,
   ['manage_services', 'manage_vaults'],
   ['*'],
-  [{ services: '*', vault: '*' }],
 )
 
 console.log('Root management token (store securely):\n')
