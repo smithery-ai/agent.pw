@@ -114,12 +114,12 @@ export async function handleProxy(
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  // Resolve userId: admin tokens can use ?user= to act as another user
+  // Resolve userId: admin tokens can use Act-As header to act as another user
   const facts = extractTokenFacts(token, publicKeyHex)
-  const userParam = c.req.query('user')
+  const actAs = c.req.header('Act-As')
   let userId: string | null
-  if (facts.rights.includes('admin') && userParam) {
-    userId = userParam
+  if (facts.rights.includes('admin') && actAs) {
+    userId = actAs
   } else {
     userId = facts.userId
   }
@@ -133,16 +133,15 @@ export async function handleProxy(
     return c.json({ error: `No credential found for ${service}` }, 404)
   }
 
-  // Build upstream request — strip internal "user" param before forwarding
+  // Build upstream request
   const url = new URL(c.req.url)
-  url.searchParams.delete('user')
-  const upstreamSearch = url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''
-  const upstreamUrl = `${svc.baseUrl.replace(/\/$/, '')}${upstreamPath}${upstreamSearch}`
+  const upstreamUrl = `${svc.baseUrl.replace(/\/$/, '')}${upstreamPath}${url.search}`
 
   const headers = new Headers()
   c.req.raw.headers.forEach((value, key) => {
     if (key.toLowerCase() === 'authorization') return
     if (key.toLowerCase() === 'host') return
+    if (key.toLowerCase() === 'act-as') return
     headers.set(key, value)
   })
 

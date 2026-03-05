@@ -158,8 +158,9 @@ jobs:
           # Store Linear credential for e2e-test user
           echo "Storing credential for api.linear.app (user=e2e-test)..."
           cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
-            -X PUT "${BASE}/credentials/api.linear.app?user=e2e-test" \
+            -X PUT "${BASE}/credentials/api.linear.app" \
             -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
+            -H "Act-As: e2e-test" \
             -H "Content-Type: application/json" \
             -d "{\"token\": \"${LINEAR_TEST_KEY}\"}")
           echo "Credential store status: ${cred_status}"
@@ -169,7 +170,7 @@ jobs:
             exit 1
           fi
 
-          # Admin token can proxy as any user via ?user= param — no separate mint needed
+          # Admin token can proxy as any user via Act-As header — no separate mint needed
           echo "::add-mask::${E2E_MANAGEMENT_TOKEN}"
           echo "warden_token=${E2E_MANAGEMENT_TOKEN}" >> "$GITHUB_OUTPUT"
 
@@ -205,8 +206,9 @@ jobs:
                - JSON includes "service" field
 
              B. Authenticated query through proxy:
-               POST {base}/proxy/api.linear.app/graphql?user=e2e-test with:
+               POST {base}/proxy/api.linear.app/graphql with:
                  Authorization: Bearer \$WARDEN_TOKEN
+                 Act-As: e2e-test
                  Content-Type: application/json
                Body:
                {"query":"query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }"}
@@ -354,12 +356,13 @@ jobs:
               // B. GraphQL proxy
               const gqlQuery =
                 'query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }'
-              const gql = await fetchJson(`${base}/proxy/api.linear.app/graphql?user=e2e-test`, {
+              const gql = await fetchJson(`${base}/proxy/api.linear.app/graphql`, {
                 method: 'POST',
                 headers: {
                   Accept: 'application/json',
                   'Content-Type': 'application/json',
                   Authorization: `Bearer ${wardenToken}`,
+                  'Act-As': 'e2e-test',
                 },
                 body: JSON.stringify({ query: gqlQuery }),
               })

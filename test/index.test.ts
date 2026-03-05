@@ -65,6 +65,10 @@ function mgmtReq(path: string, init: RequestInit = {}) {
   })
 }
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 async function seedService(service = 'api.github.com') {
   await mgmtReq(`/services/${service}`, {
     method: 'PUT',
@@ -84,9 +88,9 @@ async function seedService(service = 'api.github.com') {
 
 async function seedServiceWithCred(userId = TEST_ORG_ID) {
   await seedService()
-  await mgmtReq(`/credentials/api.github.com?user=${userId}`, {
+  await mgmtReq('/credentials/api.github.com', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Act-As': userId },
     body: JSON.stringify({ token: 'ghp_test123' }),
   })
 }
@@ -185,7 +189,49 @@ describe('Management Auth', () => {
   it('rejects credential access for wrong user', async () => {
     // Token for "other" user trying to access TEST_ORG_ID's credentials
     const token = mintToken(BISCUIT_PRIVATE_KEY, 'other')
-    const res = await req(`/credentials?user=${TEST_ORG_ID}`, {
+    const res = await req('/credentials', {
+      headers: { Authorization: `Bearer ${token}`, 'Act-As': TEST_ORG_ID },
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('allows admin token to act as another user via Act-As', async () => {
+    await seedService()
+    await mgmtReq('/credentials/api.github.com', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Act-As': 'alice' },
+      body: JSON.stringify({ token: 'ghp_admin_seeded' }),
+    })
+
+    const res = await mgmtReq('/credentials', {
+      headers: { 'Act-As': 'alice' },
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any[]
+    expect(body).toHaveLength(1)
+    expect(body[0].service).toBe('api.github.com')
+  })
+
+  it('rejects service-attenuated tokens on management endpoints', async () => {
+    const base = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
+    const publicKey = getPublicKeyHex(BISCUIT_PRIVATE_KEY)
+    const token = restrictToken(base, publicKey, [
+      { services: 'api.github.com', methods: 'GET' },
+    ])
+
+    const res = await req('/credentials', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('rejects expired attenuated tokens on management endpoints', async () => {
+    const base = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
+    const publicKey = getPublicKeyHex(BISCUIT_PRIVATE_KEY)
+    const token = restrictToken(base, publicKey, [{ ttl: 1 }])
+    await sleep(2200)
+
+    const res = await req('/services', {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(403)
@@ -306,9 +352,9 @@ describe('Credential Management', () => {
   })
 
   it('stores a credential', async () => {
-    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
+    const res = await mgmtReq('/credentials/api.github.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
     expect(res.status).toBe(200)
@@ -316,9 +362,9 @@ describe('Credential Management', () => {
 
   it('stores credential with expiresAt', async () => {
     const expiresAt = new Date(Date.now() + 86400000).toISOString()
-    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
+    const res = await mgmtReq('/credentials/api.github.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({
         token: 'ghp_test123',
         expiresAt,
@@ -328,18 +374,18 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential without token or headers', async () => {
-    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
+    const res = await mgmtReq('/credentials/api.github.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({}),
     })
     expect(res.status).toBe(400)
   })
 
   it('stores credential with explicit headers map', async () => {
-    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
+    const res = await mgmtReq('/credentials/api.github.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({
         headers: { 'Authorization': 'Bearer ghp_multi', 'X-Org-Id': 'org_123' },
       }),
@@ -356,13 +402,13 @@ describe('Credential Management', () => {
   })
 
   it('lists credentials for a user', async () => {
-    await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
+    await mgmtReq('/credentials/api.github.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq(`/credentials?user=${TEST_ORG_ID}`)
+    const res = await mgmtReq('/credentials', { headers: { 'Act-As': TEST_ORG_ID } })
     expect(res.status).toBe(200)
     const body = (await res.json()) as any[]
     expect(body).toHaveLength(1)
@@ -371,34 +417,36 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential for non-existent service', async () => {
-    const res = await mgmtReq(`/credentials/nonexistent?user=${TEST_ORG_ID}`, {
+    const res = await mgmtReq('/credentials/nonexistent', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({ token: 'test' }),
     })
     expect(res.status).toBe(404)
   })
 
   it('deletes a credential', async () => {
-    await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
+    await mgmtReq('/credentials/api.github.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq(`/credentials/api.github.com?user=${TEST_ORG_ID}`, {
+    const res = await mgmtReq('/credentials/api.github.com', {
       method: 'DELETE',
+      headers: { 'Act-As': TEST_ORG_ID },
     })
     expect(res.status).toBe(200)
 
-    const list = await mgmtReq(`/credentials?user=${TEST_ORG_ID}`)
+    const list = await mgmtReq('/credentials', { headers: { 'Act-As': TEST_ORG_ID } })
     const body = (await list.json()) as any[]
     expect(body).toHaveLength(0)
   })
 
   it('returns 404 when deleting non-existent credential', async () => {
-    const res = await mgmtReq(`/credentials/nonexistent?user=${TEST_ORG_ID}`, {
+    const res = await mgmtReq('/credentials/nonexistent', {
       method: 'DELETE',
+      headers: { 'Act-As': TEST_ORG_ID },
     })
     expect(res.status).toBe(404)
   })
@@ -533,6 +581,33 @@ describe('Proxy', () => {
     }
   })
 
+  it('does not log injected credential headers', async () => {
+    await seedServiceWithCred()
+    const token = mintToken(BISCUIT_PRIVATE_KEY, TEST_ORG_ID)
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    try {
+      const res = await req('/proxy/api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      expect(res.status).toBe(200)
+
+      const logs = logSpy.mock.calls.map(call => String(call[0])).join('\n')
+      expect(logs).not.toContain('ghp_test123')
+    } finally {
+      globalThis.fetch = originalFetch
+      logSpy.mockRestore()
+    }
+  })
+
   it('proxies with apiKey auth scheme', async () => {
     // Register service with apiKey auth scheme
     await mgmtReq('/services/api.example.com', {
@@ -543,9 +618,9 @@ describe('Proxy', () => {
         authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-API-Key' }],
       }),
     })
-    await mgmtReq(`/credentials/api.example.com?user=${TEST_ORG_ID}`, {
+    await mgmtReq('/credentials/api.example.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({ token: 'sk_test_key' }),
     })
 
@@ -581,9 +656,9 @@ describe('Proxy', () => {
         authSchemes: [{ type: 'http', scheme: 'basic' }],
       }),
     })
-    await mgmtReq(`/credentials/api.basic.com?user=${TEST_ORG_ID}`, {
+    await mgmtReq('/credentials/api.basic.com', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({ token: 'user:pass' }),
     })
 
@@ -728,8 +803,14 @@ describe('Protocol prefix redirect', () => {
 // ─── Auth Flow Polling ──────────────────────────────────────────────────────
 
 describe('Auth Flow Polling', () => {
-  it('returns 404 for unknown flow', async () => {
+  it('requires a browser session', async () => {
     const res = await req('/auth/status/nonexistent')
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toContain('/auth/login')
+  })
+
+  it('returns 404 for unknown flow with session', async () => {
+    const res = await sessionReq('/auth/status/nonexistent')
     expect(res.status).toBe(404)
   })
 
@@ -738,10 +819,11 @@ describe('Auth Flow Polling', () => {
       id: 'test-flow-1',
       service: 'api.github.com',
       method: 'api_key',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
 
-    const res = await req('/auth/status/test-flow-1')
+    const res = await sessionReq('/auth/status/test-flow-1')
     expect(res.status).toBe(202)
     const body = (await res.json()) as any
     expect(body.status).toBe('pending')
@@ -752,6 +834,7 @@ describe('Auth Flow Polling', () => {
       id: 'test-flow-2',
       service: 'api.github.com',
       method: 'api_key',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() + 600000),
     })
     await completeAuthFlow(db, 'test-flow-2', {
@@ -760,7 +843,7 @@ describe('Auth Flow Polling', () => {
       orgId: TEST_ORG_ID,
     })
 
-    const res = await req('/auth/status/test-flow-2')
+    const res = await sessionReq('/auth/status/test-flow-2')
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
     expect(body.status).toBe('completed')
@@ -773,11 +856,25 @@ describe('Auth Flow Polling', () => {
       id: 'test-flow-expired',
       service: 'api.github.com',
       method: 'api_key',
+      orgId: TEST_ORG_ID,
       expiresAt: new Date(Date.now() - 1000), // already expired
     })
 
-    const res = await req('/auth/status/test-flow-expired')
+    const res = await sessionReq('/auth/status/test-flow-expired')
     expect(res.status).toBe(404)
+  })
+
+  it('forbids polling a flow for another org', async () => {
+    await createAuthFlow(db, {
+      id: 'test-flow-other-org',
+      service: 'api.github.com',
+      method: 'api_key',
+      orgId: 'org_other',
+      expiresAt: new Date(Date.now() + 600000),
+    })
+
+    const res = await sessionReq('/auth/status/test-flow-other-org')
+    expect(res.status).toBe(403)
   })
 })
 
@@ -1116,7 +1213,7 @@ describe('API Key Flow', () => {
       globalThis.fetch = originalFetch
     }
 
-    const poll = await req('/auth/status/json-poll-1-pad-to-32-chars-xxxx')
+    const poll = await sessionReq('/auth/status/json-poll-1-pad-to-32-chars-xxxx')
     expect(poll.status).toBe(200)
     const body = (await poll.json()) as any
     expect(body.status).toBe('completed')
@@ -1220,9 +1317,9 @@ describe('E2E: agent with invalid API', () => {
     })
 
     // Store a credential for this service
-    await mgmtReq(`/credentials/fake-api.nonexistent.test?user=${TEST_ORG_ID}`, {
+    await mgmtReq('/credentials/fake-api.nonexistent.test', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Act-As': TEST_ORG_ID },
       body: JSON.stringify({ token: 'test_token' }),
     })
 
@@ -1988,4 +2085,3 @@ describe('Credentials Crypto', () => {
     expect(buildCredentialHeaders({ type: 'oauth2', authorizeUrl: '', tokenUrl: '' }, 'tok')).toEqual({ Authorization: 'Bearer tok' })
   })
 })
-

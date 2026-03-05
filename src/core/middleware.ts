@@ -53,19 +53,20 @@ export function requireRight(right: string) {
 
 /**
  * Resolves userId from the token's identity and sets it on context.
- * - Admin tokens (right("admin")): can act as any user via ?user= param
- * - Regular tokens: userId from user() fact, rejects ?user= override
+ * - Admin tokens (right("admin")): can act as any user via Act-As header
+ * - Regular tokens: userId from user() fact, rejects Act-As override
  * Must be used after `requireToken`.
  */
 export async function resolveUserId(c: Context<CoreHonoEnv>, next: Next) {
   const facts = c.get('tokenFacts')
   if (!facts) return c.json({ error: 'Forbidden' }, 403)
 
+  const actAs = c.req.header('Act-As')
+
   if (facts.rights.includes('admin')) {
-    c.set('userId', c.req.query('user') ?? facts.userId ?? 'local')
+    c.set('userId', actAs ?? facts.userId ?? 'local')
   } else if (facts.userId) {
-    const userParam = c.req.query('user')
-    if (userParam && userParam !== facts.userId) {
+    if (actAs && actAs !== facts.userId) {
       return c.json({ error: 'Forbidden' }, 403)
     }
     c.set('userId', facts.userId)

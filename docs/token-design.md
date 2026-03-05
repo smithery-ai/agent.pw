@@ -71,7 +71,7 @@ right("manage_services");
 
 | Right | Purpose |
 |-------|---------|
-| `right("admin")` | Can act as any user via `?user=` param, bypasses credential ownership |
+| `right("admin")` | Can act as any user via `Act-As` header, bypasses credential ownership |
 | `right("manage_services")` | Can register/update/delete services |
 
 ## Authorization Layers
