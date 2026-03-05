@@ -7,10 +7,21 @@ Agent ──▶ agent.pw/proxy/api.github.com/user ──▶ api.github.com/user
        (bearer token)                           (real API key injected)
 ```
 
+
+## Development CLI setup
+
+```bash
+pnpm i
+pnpm build
+npm link
+```
+
+Then run the CLI directly as `agent.pw`.
+
 ## Getting Started (Cloud)
 
 ```bash
-npx agent.pw login
+agent.pw login
 ```
 
 Authenticates with the agent.pw Cloud backend. Services are pre-configured — no setup needed.
@@ -18,15 +29,15 @@ Authenticates with the agent.pw Cloud backend. Services are pre-configured — n
 Add a credential:
 
 ```
-npx agent.pw cred add api.linear.app
+agent.pw cred add api.linear.app
 → Paste your API key: ****
 → Stored.
 ```
 
-Use the proxy — `npx agent.pw curl` works like `curl` but injects the bearer token automatically:
+Use the proxy — `agent.pw curl` works like `curl` but injects the bearer token automatically:
 
 ```bash
-npx agent.pw curl agent.pw/proxy/api.linear.app/graphql \
+agent.pw curl agent.pw/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
@@ -35,7 +46,7 @@ agent.pw looks up `api.linear.app`, injects the stored credential, and proxies t
 View stored credentials:
 
 ```
-npx agent.pw cred
+agent.pw cred
 
 SERVICE                       ADDED
 api.linear.app                2d ago
@@ -47,10 +58,10 @@ Credentials are write-only. Agents cannot exfiltrate them.
 ## Getting Started (Self-Hosted)
 
 ```bash
-npx agent.pw setup
+agent.pw setup
 ```
 
-Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token. Run `npx agent.pw start` to start the proxy. Everything runs on your machine — no external dependencies.
+Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token. Run `agent.pw start` to start the proxy. Everything runs on your machine — no external dependencies.
 
 You start with an empty service table. Add services using the skill in Claude Code or Codex:
 
@@ -63,12 +74,12 @@ The agent reads the API docs, figures out the auth method and headers, and write
 Or add manually:
 
 ```bash
-npx agent.pw service add api.linear.app --file service.json
+agent.pw service add api.linear.app --file service.json
 ```
 
 Then add credentials and use the proxy the same way as Cloud — just pointed at your local instance.
 
-The CLI auto-detects which mode you're in. If a local instance is running, commands go there. Otherwise they go to the managed backend. `npx agent.pw status` shows which backend you're connected to.
+The CLI auto-detects which mode you're in. If a local instance is running, commands go there. Otherwise they go to the managed backend. `agent.pw status` shows which backend you're connected to.
 
 ## Concepts
 
@@ -81,26 +92,26 @@ The CLI auto-detects which mode you're in. If a local instance is running, comma
 ## CLI Commands
 
 ```
-npx agent.pw login [--host <url>]              authenticate with Cloud (default: https://agent.pw)
-npx agent.pw logout                            log out from agent.pw
-npx agent.pw setup                             self-hosted: generate keys, create DB, mint root token
-npx agent.pw start                             start the local proxy server
-npx agent.pw stop                              stop the local proxy server
-npx agent.pw status                            show connected backend + token info
+agent.pw login [--host <url>]              authenticate with Cloud (default: https://agent.pw)
+agent.pw logout                            log out from agent.pw
+agent.pw setup                             self-hosted: generate keys, create DB, mint root token
+agent.pw start                             start the local proxy server
+agent.pw stop                              stop the local proxy server
+agent.pw status                            show connected backend + token info
 
-npx agent.pw service                           list configured services
-npx agent.pw service get <hostname>            show service details
-npx agent.pw service add <hostname> [--file f] register a service
-npx agent.pw service remove <hostname>         remove a service
+agent.pw service                           list configured services
+agent.pw service get <hostname>            show service details
+agent.pw service add <hostname> [--file f] register a service
+agent.pw service remove <hostname>         remove a service
 
-npx agent.pw cred                              list credentials
-npx agent.pw cred add <service> [--value <key>] add a credential
-npx agent.pw cred remove <service>             remove a credential
+agent.pw cred                              list credentials
+agent.pw cred add <service> [--value <key>] add a credential
+agent.pw cred remove <service>             remove a credential
 
-npx agent.pw token restrict <token> [opts]     attenuate a token (--service, --method, --ttl)
-npx agent.pw token revoke <token>              revoke a token
+agent.pw token restrict <token> [opts]     attenuate a token (--service, --method, --ttl)
+agent.pw token revoke <token>              revoke a token
 
-npx agent.pw curl <url> [curl flags]           proxy request with auto-injected token
+agent.pw curl <url> [curl flags]           proxy request with auto-injected token
 ```
 
 ## API Reference
