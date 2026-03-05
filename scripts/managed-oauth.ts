@@ -59,7 +59,7 @@ if (!row) {
 
 if (scopes && row.auth_schemes) {
   const schemes = JSON.parse(row.auth_schemes)
-  const oauth = schemes.find((s: any) => s.type === 'oauth2')
+  const oauth = schemes.find((s: Record<string, unknown>) => s.type === 'oauth2')
   if (oauth) {
     oauth.scopes = scopes
     await sql`

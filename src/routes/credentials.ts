@@ -14,7 +14,7 @@ export const credentialRoutes = new Hono<CoreHonoEnv>()
 
 credentialRoutes.get('/', requireToken, resolveUserId, async c => {
   const db = c.get('db')
-  const userId = c.get('userId')!
+  const userId = c.get('userId') as string
   const creds = await listCredentials(db, userId)
   return c.json(
     creds.map(cr => ({
@@ -26,7 +26,7 @@ credentialRoutes.get('/', requireToken, resolveUserId, async c => {
 })
 
 credentialRoutes.put('/:service', requireToken, resolveUserId, async c => {
-  const userId = c.get('userId')!
+  const userId = c.get('userId') as string
   const service = c.req.param('service')
   const body = await c.req.json<{
     token?: string
@@ -44,7 +44,7 @@ credentialRoutes.put('/:service', requireToken, resolveUserId, async c => {
   // Build headers: use explicit map or derive from token + service auth config
   const schemes = parseAuthSchemes(svc.authSchemes)
   const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
-  const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token!)
+  const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
   await upsertCredential(db, userId, service, body.slug ?? 'default', encrypted)
@@ -53,7 +53,7 @@ credentialRoutes.put('/:service', requireToken, resolveUserId, async c => {
 
 credentialRoutes.delete('/:service', requireToken, resolveUserId, async c => {
   const db = c.get('db')
-  const userId = c.get('userId')!
+  const userId = c.get('userId') as string
   const credSlug = c.req.query('slug') ?? 'default'
   const deleted = await deleteCredential(db, userId, c.req.param('service'), credSlug)
   if (!deleted) return c.json({ error: 'Credential not found' }, 404)

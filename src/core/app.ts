@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import type { CoreHonoEnv } from './types'
 import type { Database } from '../db/index'
@@ -23,7 +24,7 @@ export interface CoreAppDeps {
  * Mounts the core route modules (vault, services, tokens, webhooks, proxy)
  * onto any Hono app. Used by both core and managed entry points.
  */
-export function mountCoreRoutes(app: Hono<any>) {
+export function mountCoreRoutes(app: Hono<CoreHonoEnv>) {
   app.route('/credentials', credentialRoutes)
   app.route('/services', serviceRoutes)
   app.route('/tokens', tokenRoutes)
@@ -39,7 +40,7 @@ export function mountCoreRoutes(app: Hono<any>) {
 }
 
 /** Redirect /https://... → /proxy/... */
-export function urlRedirectMiddleware(c: any, next: any) {
+export async function urlRedirectMiddleware(c: Context<CoreHonoEnv>, next: Next) {
   const url = new URL(c.req.url)
   const match = url.pathname.match(/^\/https?:\/\/?(.+)/)
   if (match) {
@@ -49,7 +50,7 @@ export function urlRedirectMiddleware(c: any, next: any) {
 }
 
 /** Log non-trivial requests with timing. */
-export function requestLoggingMiddleware(c: any, next: any) {
+export function requestLoggingMiddleware(c: Context<CoreHonoEnv>, next: Next) {
   const start = performance.now()
   return next().then(() => {
     const duration = Math.round(performance.now() - start)

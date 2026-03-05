@@ -79,7 +79,7 @@ export function relativeTime(date: Date) {
 export function looksLikeHostname(service: string) {
   if (!service.includes('.')) return false
   if (service.startsWith('.')) return false
-  const ext = service.split('.').pop()!.toLowerCase()
+  const ext = service.split('.').pop()?.toLowerCase() ?? ''
   if (FILE_EXTENSIONS.has(ext)) return false
   // TLDs are all-alpha; extensions with digits (e.g. php5, log4) are not real TLDs
   if (/\d/.test(ext)) return false

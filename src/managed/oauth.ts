@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from './types'
-import type { Database } from '../db/index'
 import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
 import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
@@ -202,7 +201,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   }
 
   // Resolve orgId from session (survives redirect via SameSite=Lax) or flow
-  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD!)
+  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD as string)
   const orgId = session?.orgId ?? flow.orgId
   if (!orgId) {
     return c.html(ErrorPage({ message: 'Session expired. Please try again.' }), 400)

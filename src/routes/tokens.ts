@@ -12,7 +12,7 @@ tokenRoutes.post('/revoke', requireToken, async c => {
 
   try {
     const db = c.get('db')
-    const token = c.get('token')!
+    const token = c.get('token') as string
     const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
     const revIds = getRevocationIds(token, publicKeyHex)
     for (const id of revIds) {

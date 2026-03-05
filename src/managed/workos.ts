@@ -15,12 +15,12 @@ function getWorkOS(apiKey: string) {
 workosRoutes.get('/login', async c => {
   const returnTo = c.req.query('return_to') ?? '/'
   const state = btoa(JSON.stringify({ return_to: returnTo }))
-  const workos = getWorkOS(c.env.WORKOS_API_KEY!)
+  const workos = getWorkOS(c.env.WORKOS_API_KEY as string)
 
   const url = workos.userManagement.getAuthorizationUrl({
     provider: 'authkit',
     redirectUri: `${c.env.BASE_URL}/auth/callback`,
-    clientId: c.env.WORKOS_CLIENT_ID!,
+    clientId: c.env.WORKOS_CLIENT_ID as string,
     state,
   })
 
@@ -37,10 +37,10 @@ workosRoutes.get('/callback', async c => {
   if (error) return c.json({ error: `WorkOS error: ${error}` }, 400)
   if (!code) return c.json({ error: 'Missing code parameter' }, 400)
 
-  const workos = getWorkOS(c.env.WORKOS_API_KEY!)
+  const workos = getWorkOS(c.env.WORKOS_API_KEY as string)
 
   const { user } = await workos.userManagement.authenticateWithCode({
-    clientId: c.env.WORKOS_CLIENT_ID!,
+    clientId: c.env.WORKOS_CLIENT_ID as string,
     code,
   })
 
@@ -80,7 +80,7 @@ workosRoutes.get('/callback', async c => {
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   }
 
-  const cookie = await buildSetCookieHeader(c.env.WORKOS_COOKIE_PASSWORD!, session)
+  const cookie = await buildSetCookieHeader(c.env.WORKOS_COOKIE_PASSWORD as string, session)
 
   // Redirect to return_to
   let returnTo = '/'

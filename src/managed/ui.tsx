@@ -2,7 +2,7 @@
 import type { InferSelectModel } from 'drizzle-orm'
 import type { services } from '../db/schema'
 import { inferServiceIconPreview } from '../service-preview'
-import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme } from '../auth-schemes'
+import { parseAuthSchemes, getOAuthScheme } from '../auth-schemes'
 
 type ServiceRow = InferSelectModel<typeof services>
 type ServiceWithPopularity = ServiceRow & { credentialCount?: number }
@@ -1020,7 +1020,7 @@ function Layout({
   children,
   title,
 }: {
-  children: any
+  children: unknown
   title?: string
 }) {
   return (
@@ -1422,16 +1422,6 @@ export function SuccessPage({
   )
 }
 
-function formatTimeAgo(date: Date) {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 export function ErrorPage({ message }: { message: string }) {
   return (
