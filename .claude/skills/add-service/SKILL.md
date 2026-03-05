@@ -1,6 +1,15 @@
-The user wants to add a service to the agent.pw service table. The argument is the hostname (e.g., `api.linear.app`).
+---
+name: add-service
+description: Register a new API service in agent.pw by researching its auth docs and
+  calling the service API. Use this skill whenever the user says "add a service",
+  "register <hostname>", "set up <api name>", "agent.pw service add", or any variation
+  of wanting to connect a new API service to agent.pw. Also trigger when the user
+  provides an API hostname and wants it configured.
+---
 
-A service defines how a particular API is authenticated — which headers to inject and what auth type it uses.
+# Add a Service to agent.pw
+
+The user wants to register an API service so agent.pw knows how to authenticate requests to it. The argument is typically a hostname (e.g., `api.linear.app`).
 
 ## Steps
 
