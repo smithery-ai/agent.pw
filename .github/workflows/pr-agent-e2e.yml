@@ -27,27 +27,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Mint admin token
-        id: mint
-        env:
-          BISCUIT_PRIVATE_KEY: ${{ secrets.BISCUIT_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          TOKEN=$(pnpm tsx -e "
-            import { mintToken } from './src/biscuit'
-            console.log(mintToken(process.env.BISCUIT_PRIVATE_KEY!, 'e2e-admin', ['admin', 'manage_services']))
-          ")
-          echo "::add-mask::${TOKEN}"
-          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
-
       - name: Wait for successful Cloudflare preview check
         id: cloudflare
         uses: actions/github-script@v7
@@ -154,13 +133,13 @@ jobs:
         env:
           LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
           BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
-          BISCUIT_PRIVATE_KEY: ${{ secrets.BISCUIT_PRIVATE_KEY }}
+          E2E_MANAGEMENT_TOKEN: ${{ secrets.E2E_MANAGEMENT_TOKEN }}
         run: |
           set -euo pipefail
           missing=()
           [ -z "${LINEAR_TEST_KEY:-}" ] && missing+=("LINEAR_TEST_KEY")
           [ -z "${BEDROCK_API_KEY:-}" ] && missing+=("BEDROCK_API_KEY")
-          [ -z "${BISCUIT_PRIVATE_KEY:-}" ] && missing+=("BISCUIT_PRIVATE_KEY")
+          [ -z "${E2E_MANAGEMENT_TOKEN:-}" ] && missing+=("E2E_MANAGEMENT_TOKEN")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "Missing secrets: ${missing[*]}"
             exit 1
@@ -171,7 +150,7 @@ jobs:
         env:
           PREVIEW_URL: ${{ steps.cloudflare.outputs.preview_url }}
           LINEAR_TEST_KEY: ${{ secrets.LINEAR_TEST_KEY }}
-          ADMIN_TOKEN: ${{ steps.mint.outputs.token }}
+          E2E_MANAGEMENT_TOKEN: ${{ secrets.E2E_MANAGEMENT_TOKEN }}
         run: |
           set -euo pipefail
           BASE="${PREVIEW_URL%/}"
@@ -180,7 +159,7 @@ jobs:
           echo "Storing credential for api.linear.app (user=e2e-test)..."
           cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
             -X PUT "${BASE}/credentials/api.linear.app" \
-            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
             -H "Act-As: e2e-test" \
             -H "Content-Type: application/json" \
             -d "{\"token\": \"${LINEAR_TEST_KEY}\"}")
@@ -192,7 +171,7 @@ jobs:
           fi
 
           # Admin token can proxy as any user via Act-As header
-          echo "warden_token=${ADMIN_TOKEN}" >> "$GITHUB_OUTPUT"
+          echo "warden_token=${E2E_MANAGEMENT_TOKEN}" >> "$GITHUB_OUTPUT"
 
       - name: Build e2e agent prompt
         id: prompt
