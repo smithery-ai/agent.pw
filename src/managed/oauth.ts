@@ -1,14 +1,13 @@
 import { Hono, type Context } from 'hono'
 import type { HonoEnv } from './types'
-import type { Database } from './db/index'
-import { getService, upsertCredential, getOAuthApp, upsertOAuthApp } from './db/queries'
-import { createAuthFlow, getAuthFlow, completeAuthFlow } from './lib/auth-flow-store'
-import { mintToken } from './biscuit'
+import type { Database } from '../db/index'
+import { getService, upsertCredential, getOAuthApp, upsertOAuthApp, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
+import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
-import { getSessionFromCookie } from './lib/session'
+import { getSessionFromCookie } from './session'
 import { SuccessPage, ErrorPage } from './ui'
-import { encryptCredentials, buildCredentialHeaders, importAesKey } from './lib/credentials-crypto'
-import { parseAuthSchemes, getOAuthScheme } from './auth-schemes'
+import { encryptCredentials, buildCredentialHeaders, importAesKey } from '../lib/credentials-crypto'
+import { parseAuthSchemes, getOAuthScheme } from '../auth-schemes'
 
 export const oauthRoutes = new Hono<HonoEnv>()
 
@@ -266,7 +265,7 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
   const codeVerifier = randomId() + randomId() // 96 chars
   const codeChallenge = await generateCodeChallenge(codeVerifier)
 
-  await createAuthFlow(c.get('redis'), {
+  await createAuthFlow(c.get('db'), {
     id: flowId,
     service: serviceName,
     method: 'oauth',
@@ -361,7 +360,7 @@ oauthRoutes.post('/:service/oauth/byo', requireBrowserSession, async c => {
   const codeVerifier = randomId() + randomId()
   const codeChallenge = await generateCodeChallenge(codeVerifier)
 
-  await createAuthFlow(c.get('redis'), {
+  await createAuthFlow(c.get('db'), {
     id: flowId,
     service: serviceName,
     method: 'oauth',
@@ -402,9 +401,8 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
     return c.html(ErrorPage({ message: 'Missing code or state parameter' }), 400)
   }
 
-  const redis = c.get('redis')
   const db = c.get('db')
-  const flow = await getAuthFlow(redis, state)
+  const flow = await getAuthFlow(db, state)
 
   if (!flow) {
     return c.html(ErrorPage({ message: 'Unknown or expired auth flow' }), 400)
@@ -422,13 +420,13 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   }
 
   // Resolve orgId from session (survives redirect via SameSite=Lax) or flow
-  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD)
+  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD!)
   const orgId = session?.orgId ?? flow.orgId
   if (!orgId) {
     return c.html(ErrorPage({ message: 'Session expired. Please try again.' }), 400)
   }
 
-  const sourceHint = parseOAuthSource(flow.oauthSource)
+  const sourceHint = parseOAuthSource(flow.oauthSource ?? undefined)
   const oauth = await resolveOAuthConfig(
     db,
     c.env.ENCRYPTION_KEY,
@@ -564,8 +562,8 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
     { vault: orgId, metadata: { userId: workosUserId } },
   ])
 
-  // Complete the flow in Redis
-  await completeAuthFlow(redis, state, { wardenToken, identity, orgId })
+  // Complete the flow in DB
+  await completeAuthFlow(db, state, { wardenToken, identity, orgId })
 
   return c.html(SuccessPage({ token: wardenToken, service: svc }))
 })

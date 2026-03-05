@@ -1,15 +1,14 @@
 import type { Context, Next } from 'hono'
-import type { HonoEnv } from './types'
-import { extractBearerToken } from './proxy'
+import type { CoreHonoEnv } from './types'
+import { extractBearerToken } from '../proxy'
 import {
   extractManagementRights,
   getPublicKeyHex,
   getRevocationIds,
-} from './biscuit'
-import { isRevoked } from './db/queries'
-import { getSessionFromCookie } from './lib/session'
+} from '../biscuit'
+import { isRevoked } from '../db/queries'
 
-export async function requireToken(c: Context<HonoEnv>, next: Next) {
+export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
   const token = extractBearerToken(c.req.header('Authorization'))
   if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
 
@@ -35,7 +34,7 @@ export async function requireToken(c: Context<HonoEnv>, next: Next) {
 }
 
 export function requireRight(right: string) {
-  return async (c: Context<HonoEnv>, next: Next) => {
+  return async (c: Context<CoreHonoEnv>, next: Next) => {
     const mgmt = c.get('managementRights')
     if (!mgmt || !mgmt.rights.includes(right)) {
       return c.json({ error: `Forbidden: requires "${right}" right` }, 403)
@@ -45,7 +44,7 @@ export function requireRight(right: string) {
 }
 
 export function requireVaultAdmin(paramName: string) {
-  return async (c: Context<HonoEnv>, next: Next) => {
+  return async (c: Context<CoreHonoEnv>, next: Next) => {
     const slug = c.req.param(paramName)
     const mgmt = c.get('managementRights')
     if (!mgmt) return c.json({ error: 'Forbidden' }, 403)
@@ -56,23 +55,30 @@ export function requireVaultAdmin(paramName: string) {
   }
 }
 
-export async function requireBrowserSession(c: Context<HonoEnv>, next: Next) {
-  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD)
+/**
+ * Resolves orgId from the token's vaultAdminSlugs and sets it on context.
+ * - Wildcard (`*`): uses `?org=` query param, defaults to `'local'`
+ * - Single slug: uses that slug
+ * Must be used after `requireToken`.
+ */
+export async function resolveOrgId(c: Context<CoreHonoEnv>, next: Next) {
+  const mgmt = c.get('managementRights')
+  if (!mgmt) return c.json({ error: 'Forbidden' }, 403)
 
-  if (!session) {
-    const url = new URL(c.req.url)
-    const returnTo = url.pathname + url.search
-    return c.redirect(`/auth/login?return_to=${encodeURIComponent(returnTo)}`)
-  }
-
-  c.set('session', session)
-  return next()
-}
-
-export async function optionalSession(c: Context<HonoEnv>, next: Next) {
-  const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD)
-  if (session) {
-    c.set('session', session)
+  const slugs = mgmt.vaultAdminSlugs
+  if (slugs.includes('*')) {
+    c.set('orgId', c.req.query('org') ?? 'local')
+  } else if (slugs.length === 1) {
+    const org = c.req.query('org')
+    if (org && org !== slugs[0]) return c.json({ error: 'Forbidden for this org' }, 403)
+    c.set('orgId', slugs[0])
+  } else if (slugs.length > 1) {
+    const org = c.req.query('org')
+    if (!org) return c.json({ error: 'Multiple orgs available; specify ?org=' }, 400)
+    if (!slugs.includes(org)) return c.json({ error: 'Forbidden for this org' }, 403)
+    c.set('orgId', org)
+  } else {
+    return c.json({ error: 'No org access' }, 403)
   }
   return next()
 }

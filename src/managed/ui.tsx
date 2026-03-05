@@ -1,8 +1,8 @@
 /** @jsxImportSource hono/jsx */
 import type { InferSelectModel } from 'drizzle-orm'
-import type { services } from './db/schema'
-import { resolveServiceIconPreview } from './service-preview'
-import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme } from './auth-schemes'
+import type { services } from '../db/schema'
+import { inferServiceIconPreview } from '../service-preview'
+import { parseAuthSchemes, getOAuthScheme, getApiKeyScheme } from '../auth-schemes'
 
 type ServiceRow = InferSelectModel<typeof services>
 type ServiceWithPopularity = ServiceRow & { credentialCount?: number }
@@ -992,17 +992,8 @@ function ServiceHeader({ service }: { service: ServiceRow }) {
   )
 }
 
-function parseServicePreview(service: ServiceRow) {
-  if (!service.preview) return undefined
-  try {
-    return JSON.parse(service.preview) as unknown
-  } catch {
-    return undefined
-  }
-}
-
 function ServiceIcon({ service }: { service: ServiceRow }) {
-  const icon = resolveServiceIconPreview(service.service, parseServicePreview(service), serviceName(service))
+  const icon = inferServiceIconPreview(service.service, serviceName(service))
   const alt = `${serviceName(service)} icon`
 
   return (
@@ -1079,25 +1070,8 @@ function Layout({
   )
 }
 
-function RouteSpec({
-  method,
-  path,
-  notes,
-}: {
-  method: string
-  path: string
-  notes: string
-}) {
-  return (
-    <li>
-      <span class="mono" style="font-size: 0.79rem">{method} {path}</span>
-      <div style="margin-top: 0.18rem; color: var(--muted-foreground)">{notes}</div>
-    </li>
-  )
-}
-
 export function WardenLandingPage({ services = [] }: { services?: ServiceWithPopularity[] } = {}) {
-  const visible = services.filter(s => s.crawlState === 'ready' || (s.credentialCount ?? 0) > 0 || !!s.oauthClientId)
+  const visible = services.filter(s => (s.credentialCount ?? 0) > 0 || !!s.oauthClientId)
   const ranked = [...visible].sort((a, b) => {
     const byPopularity = (b.credentialCount ?? 0) - (a.credentialCount ?? 0)
     if (byPopularity !== 0) return byPopularity
@@ -1200,150 +1174,11 @@ POST /api.notion.com/v1/pages Authorization: Bearer wdn_...`}</code></pre>
             <p>Register callbacks through the proxy with a single header. Warden normalizes upstream signatures into one Ed25519 envelope agents can verify statelessly.</p>
           </div>
           <div class="card value-card">
-            <h3>Auto-discovery</h3>
-            <p>Hit any hostname to auto-index its API surface — auth schemes, docs, and resource maps are generated in the background.</p>
+            <h3>Service catalog</h3>
+            <p>Hundreds of pre-configured services with auth schemes, webhook configs, and managed OAuth — ready to use.</p>
           </div>
         </div>
       </section>
-    </Layout>
-  )
-}
-
-export function ServiceLandingPage({
-  service,
-  discoveryStatus,
-  userCredentials,
-}: {
-  service: ServiceRow
-  discoveryStatus?: Record<string, unknown>
-  userCredentials?: { slug: string; updatedAt: Date }[]
-}) {
-  const hasCredentials = (userCredentials?.length ?? 0) > 0
-  const schemes = parseAuthSchemes(service.authSchemes)
-  const hasOAuth = !!getOAuthScheme(schemes)
-  const hasApiKey = !!getApiKeyScheme(schemes)
-  const crawlState = (discoveryStatus?.crawl_state as string) ?? 'pending'
-  const isActive = crawlState === 'crawling' || crawlState === 'pending'
-  const totalPages = Number(discoveryStatus?.total_pages ?? 0)
-  const docsHref = `/${service.service}/sitemap/`
-
-  const statusLabels: Record<string, string> = {
-    pending: 'Not yet indexed',
-    crawling: 'Indexing in progress...',
-    ready: `Indexed (${totalPages} pages)`,
-    failed: 'Indexing failed',
-  }
-  const statusText = statusLabels[crawlState] ?? crawlState
-
-  return (
-    <Layout title={`${serviceName(service)} — Warden`}>
-      <section class="service-hero">
-        <ServiceIcon service={service} />
-        <div>
-          <h1>{serviceName(service)}</h1>
-          <p class="subtitle mono">{service.service}</p>
-        </div>
-      </section>
-
-      <div class="two-col">
-        <div class="col-left">
-          <section class="col-section">
-            <h3>About</h3>
-            <p>{service.description ?? 'No service description yet. Warden can still handle auth and proxying.'}</p>
-            <div class="status-row">
-              <span class={`status-dot ${isActive ? 'active' : crawlState === 'failed' ? 'failed' : 'ready'}`}></span>
-              <span>{statusText}</span>
-            </div>
-            <div class="metrics" style="margin-top: 0.6rem">
-              <span class="pill"><strong>{schemes.length || 1}</strong> auth methods</span>
-              <span class="pill"><strong>{service.apiType ?? 'unknown'}</strong> API type</span>
-              <span class="pill"><strong>{totalPages}</strong> doc pages</span>
-            </div>
-            <div class="button-row">
-              <a class="btn btn-secondary" href={docsHref}>Open docs</a>
-              {service.docsUrl ? (
-                <a class="btn btn-secondary" href={service.docsUrl} target="_blank" rel="noopener noreferrer">Upstream docs</a>
-              ) : null}
-            </div>
-          </section>
-
-          <section class="col-section">
-            <h3>Agent Reference</h3>
-            <p>Routes and examples for agent integration:</p>
-            <ol class="clean">
-              <RouteSpec
-                method="GET"
-                path={`/${service.service}`}
-                notes="Returns discovery payload, auth_url, and docs links in JSON."
-              />
-              <RouteSpec
-                method="GET"
-                path="/auth/status/{flow_id}"
-                notes="Polls auth flow until token is ready."
-              />
-              <RouteSpec
-                method="ANY"
-                path={`/${service.service}/{path}`}
-                notes="Proxy request with injected credentials using Bearer token."
-              />
-            </ol>
-            <pre class="doc-pre"><code>{`curl -H "Accept: application/json" \\
-  warden.run/${service.service}`}</code></pre>
-            <pre class="doc-pre"><code>{`# then proxy using Warden token
-curl -H "Authorization: Bearer <token>" \\
-  warden.run/${service.service}/...`}</code></pre>
-            {totalPages > 0 ? (
-              <p style="margin-top: 0.5rem">Discovered <strong>{totalPages}</strong> documentation pages.</p>
-            ) : null}
-          </section>
-        </div>
-
-        <div class="col-right">
-          <section class="col-section">
-            <h3>Connect</h3>
-            <div class="copy-command">
-              <div class="code-block copyable" onclick="navigator.clipboard.writeText(this.querySelector('span').textContent.trim()).then(()=>{this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1800)})">
-                <span class="mono">{`curl https://warden.run/${service.service} and help me use ${serviceName(service)}`}</span>
-                <span class="copy-icon" aria-hidden="true">
-                  <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                  <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-                </span>
-              </div>
-              <span class="copy-hint">Paste this to your agent</span>
-            </div>
-            <div class="button-row" style="margin-top: 0.8rem">
-              {hasOAuth ? (
-                <a href={`/auth/${service.service}/oauth`} class="btn btn-primary" style="width: 100%">Connect with OAuth</a>
-              ) : null}
-              {!hasCredentials ? (
-                hasApiKey || schemes.length === 0 ? (
-                  <a href={`/auth/${service.service}/api-key`} class="btn btn-secondary" style="width: 100%">Enter API Key</a>
-                ) : null
-              ) : null}
-            </div>
-          </section>
-
-          {hasCredentials ? (
-            <section class="col-section">
-              <h3>Your credentials</h3>
-              <ul class="credential-list">
-                {(userCredentials ?? []).map(credential => (
-                  <li>
-                    <span class="mono">{credential.slug}</span>
-                    <span style="color: var(--muted-foreground); font-size: 0.78rem">{formatTimeAgo(credential.updatedAt)}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {service.docsUrl ? (
-          <section class="col-section">
-            <div class="meta-line">Homepage: <a href={service.docsUrl} target="_blank" rel="noopener noreferrer">{service.docsUrl}</a></div>
-          </section>
-          ) : null}
-        </div>
-      </div>
     </Layout>
   )
 }
@@ -1617,130 +1452,3 @@ export function ErrorPage({ message }: { message: string }) {
   )
 }
 
-function renderDocSummary(content: unknown) {
-  if (!content || typeof content !== 'object') {
-    return <p>Doc content is not structured JSON.</p>
-  }
-
-  const page = content as Record<string, unknown>
-  const level = typeof page.level === 'number' ? page.level : undefined
-
-  if (level === 0) {
-    const auth = Array.isArray(page.auth) ? page.auth : []
-    return (
-      <>
-        <p>{typeof page.description === 'string' && page.description.trim().length > 0 ? page.description : 'Service root documentation page.'}</p>
-        {auth.length > 0 ? (
-          <ul class="clean">
-            {auth.map((method, index) => {
-              const item = method as Record<string, unknown>
-              return (
-                <li>
-                  <strong>{String(item.type ?? `method-${index + 1}`)}</strong>
-                  <div class="mono" style="margin-top: 0.2rem; font-size: 0.8rem">{String(item.setup_url ?? '')}</div>
-                </li>
-              )
-            })}
-          </ul>
-        ) : null}
-      </>
-    )
-  }
-
-  if (level === 1) {
-    const resources = Array.isArray(page.resources) ? page.resources : []
-    if (resources.length === 0) return <p>No resources listed yet.</p>
-
-    return (
-      <ul class="clean">
-        {resources.map(resource => {
-          const item = resource as Record<string, unknown>
-          const commonOps = Array.isArray(item.common_operations) ? item.common_operations.length : 0
-          return (
-            <li>
-              <strong>{String(item.name ?? item.slug ?? 'resource')}</strong>
-              <div style="margin-top: 0.15rem">{String(item.description ?? 'No description')}</div>
-              <div style="margin-top: 0.2rem" class="mono">{commonOps} common operations</div>
-            </li>
-          )
-        })}
-      </ul>
-    )
-  }
-
-  if (level === 2) {
-    const operations = Array.isArray(page.operations) ? page.operations : []
-    if (operations.length === 0) return <p>No operations listed yet.</p>
-
-    return (
-      <ul class="clean">
-        {operations.map(operation => {
-          const item = operation as Record<string, unknown>
-          return (
-            <li>
-              <span class="mono">{String(item.method ?? 'GET')} {String(item.path ?? '')}</span>
-              <div style="margin-top: 0.16rem">{String(item.summary ?? 'No summary')}</div>
-            </li>
-          )
-        })}
-      </ul>
-    )
-  }
-
-  if (level === 3) {
-    return (
-      <>
-        <p>
-          <span class="mono">{String(page.method ?? 'METHOD')} {String(page.path ?? '')}</span>
-        </p>
-        <p>{String(page.description ?? 'Operation details page.')}</p>
-      </>
-    )
-  }
-
-  return <p>Structured documentation page loaded.</p>
-}
-
-export function DocPageViewer({
-  service,
-  docPath,
-  content,
-  status,
-}: {
-  service: ServiceRow
-  docPath: string
-  content: unknown
-  status?: string
-}) {
-  const json = JSON.stringify(content, null, 2)
-
-  return (
-    <Layout title={`${serviceName(service)} docs — ${docPath}`}>
-      <section class="service-hero">
-        <ServiceIcon service={service} />
-        <div>
-          <p class="eyebrow">Documentation</p>
-          <h1>{serviceName(service)} docs</h1>
-          <p class="subtitle mono">{service.service} / {docPath}</p>
-        </div>
-      </section>
-
-      <div class="stack">
-        <div class="card">
-          <h3>Page Summary</h3>
-          {renderDocSummary(content)}
-          <div class="metrics" style="margin-top: 0.7rem">
-            <span class="pill"><strong>path</strong> <span class="mono">{docPath}</span></span>
-            <span class="pill"><strong>status</strong> {status ?? 'unknown'}</span>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>Raw JSON</h3>
-          <p>Canonical agent representation for this doc page.</p>
-          <pre class="doc-pre"><code>{json}</code></pre>
-        </div>
-      </div>
-    </Layout>
-  )
-}

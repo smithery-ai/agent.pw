@@ -1,12 +1,11 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from './types'
-import { getService, upsertCredential } from './db/queries'
-import { createAuthFlow, getAuthFlow, completeAuthFlow } from './lib/auth-flow-store'
-import { mintToken } from './biscuit'
+import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
+import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
 import { ApiKeyFormPage, SuccessPage, ErrorPage } from './ui'
-import { encryptCredentials, buildCredentialHeaders } from './lib/credentials-crypto'
-import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from './auth-schemes'
+import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
+import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from '../auth-schemes'
 
 export const apiKeyRoutes = new Hono<HonoEnv>()
 
@@ -31,10 +30,9 @@ apiKeyRoutes.get('/:service/api-key', requireBrowserSession, async c => {
   // Create a flow for SSE/polling
   const flowId = c.req.query('flow_id') ?? randomId()
 
-  const redis = c.get('redis')
-  const existingFlow = await getAuthFlow(redis, flowId)
+  const existingFlow = await getAuthFlow(db, flowId)
   if (!existingFlow) {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: flowId,
       service: serviceName,
       method: 'api_key',
@@ -133,10 +131,9 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
 
   // Complete the flow if one exists
   if (flowId) {
-    const redis = c.get('redis')
-    const flow = await getAuthFlow(redis, flowId)
+    const flow = await getAuthFlow(db, flowId)
     if (flow && flow.status !== 'completed') {
-      await completeAuthFlow(redis, flowId, { wardenToken, identity, orgId })
+      await completeAuthFlow(db, flowId, { wardenToken, identity, orgId })
     }
   }
 

@@ -1,15 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { sql } from 'drizzle-orm'
-import { createApp } from '../src/index'
+import { createApp } from '../src/managed/app'
 import {
   createTestDb,
-  createTestRedis,
   BISCUIT_PRIVATE_KEY,
   TEST_SESSION_SECRET,
   TEST_ORG_ID,
   buildTestSessionCookie,
   mintRootToken,
-  mintProxyToken,
   type TestDb,
 } from './setup'
 import {
@@ -29,7 +26,6 @@ import {
 } from '../src/biscuit'
 import { extractBearerToken } from '../src/proxy'
 import { isDnsError } from '../src/lib/dns'
-import { buildUnauthDiscovery, buildAuthDiscovery, wantsJson } from '../src/discovery'
 import {
   revokeToken,
   upsertCredential,
@@ -37,34 +33,21 @@ import {
   deleteCredential,
   isRevoked,
   upsertService,
-  getService,
   getOAuthApp,
   upsertOAuthApp,
-  getDocPage,
-  upsertDocPage,
-  listDocPages,
-  listSkeletonPages,
-  listStaleDocPages,
-  deleteDocPages,
   listServicesWithCredentialCounts,
-  countCredentialsForService,
 } from '../src/db/queries'
-import { createAuthFlow, completeAuthFlow, getAuthFlow } from '../src/lib/auth-flow-store'
-import { encryptCredentials, decryptCredentials, buildCredentialHeaders } from '../src/lib/credentials-crypto'
-import { runDeterministicDiscovery } from '../src/discovery/deterministic'
-import type { ProbeResult } from '../src/discovery/types'
+import { createAuthFlow, completeAuthFlow, getAuthFlow } from '../src/db/queries'
+import { encryptCredentials, decryptCredentials, buildCredentialHeaders, deriveEncryptionKey } from '../src/lib/credentials-crypto'
 
-// 32-byte base64 key for test encryption
-const TEST_ENCRYPTION_KEY = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')
+const TEST_ENCRYPTION_KEY = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
 
 let db: TestDb
-let redis: ReturnType<typeof createTestRedis>
 let app: ReturnType<typeof createApp>
 
 beforeEach(async () => {
   db = await createTestDb()
-  redis = createTestRedis()
-  app = createApp({ db, redis, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, encryptionKey: TEST_ENCRYPTION_KEY, workosCookiePassword: TEST_SESSION_SECRET })
+  app = createApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY, workosCookiePassword: TEST_SESSION_SECRET })
 })
 
 function req(path: string, init?: RequestInit) {
@@ -99,7 +82,6 @@ async function seedService(service = 'api.github.com') {
         { type: 'http', scheme: 'bearer' },
         { type: 'oauth2', authorizeUrl: 'https://github.com/login/oauth/authorize', tokenUrl: 'https://github.com/login/oauth/access_token', scopes: 'repo read:user' },
       ],
-      apiType: 'rest',
       docsUrl: 'https://docs.github.com/en/rest',
     }),
   })
@@ -107,7 +89,7 @@ async function seedService(service = 'api.github.com') {
 
 async function seedServiceWithCred(orgId = TEST_ORG_ID) {
   await seedService()
-  await mgmtReq(`/vaults/${orgId}/credentials/api.github.com`, {
+  await mgmtReq(`/credentials/api.github.com?org=${orgId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: 'ghp_test123' }),
@@ -125,27 +107,6 @@ describe('Root Landing Page', () => {
     expect(text).toContain('The vault between your agents and every API')
   })
 
-  it('returns JSON agent guide for curl-style Accept: */*', async () => {
-    const res = await req('/', { headers: { Accept: '*/*' } })
-    expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('application/json')
-    const body = (await res.json()) as any
-    expect(body.service).toBe('warden')
-    expect(body.routes).toBeDefined()
-    expect(body.quick_start).toBeDefined()
-  })
-
-  it('returns JSON agent guide for Accept: application/json', async () => {
-    const res = await req('/', { headers: { Accept: 'application/json' } })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.service).toBe('warden')
-    expect(body.quick_start).toBeDefined()
-    expect(body.routes).toBeDefined()
-    expect(body.routes.discovery.method).toBe('GET')
-    expect(body.routes.proxy.path).toBe('/{hostname}/{path}')
-    expect(body.example_flow.steps).toHaveLength(3)
-  })
 })
 
 // ─── Management Auth ─────────────────────────────────────────────────────────
@@ -206,15 +167,13 @@ describe('Management Auth', () => {
     expect(body.error).toContain('manage_services')
   })
 
-  it('rejects vault admin access without vault_admin right', async () => {
+  it('rejects credential access for wrong org', async () => {
     // Token with vault_admin for "other" but not TEST_ORG_ID
     const token = mintManagementToken(BISCUIT_PRIVATE_KEY, ['manage_vaults'], ['other'])
-    const res = await req(`/vaults/${TEST_ORG_ID}/credentials`, {
+    const res = await req(`/credentials?org=${TEST_ORG_ID}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(403)
-    const body = (await res.json()) as any
-    expect(body.error).toContain('vault_admin')
   })
 })
 
@@ -245,26 +204,6 @@ describe('Service Management', () => {
       body: JSON.stringify({ displayName: 'Test' }),
     })
     expect(res.status).toBe(400)
-  })
-
-  it('infers icon preview for newly created services', async () => {
-    const putRes = await mgmtReq('/services/api.linear.app', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        baseUrl: 'https://api.linear.app',
-        displayName: 'Linear',
-      }),
-    })
-    expect(putRes.status).toBe(200)
-
-    const discoverRes = await req('/api.linear.app', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(discoverRes.status).toBe(401)
-    const body = (await discoverRes.json()) as any
-    expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/linear.app.ico')
-    expect(body.preview.icon.fallback).toBe('LI')
   })
 
   it('deletes a service', async () => {
@@ -319,6 +258,63 @@ describe('Service Management', () => {
     const body = (await res.json()) as any[]
     expect(body).toHaveLength(2)
   })
+
+  it('gets a single service by name', async () => {
+    await seedService()
+    const res = await mgmtReq('/services/api.github.com')
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.service).toBe('api.github.com')
+    expect(body.baseUrl).toBe('https://api.github.com')
+    expect(body.displayName).toBe('GitHub')
+    expect(body.authSchemes).toBeInstanceOf(Array)
+    expect(body.authSchemes).toHaveLength(2)
+  })
+
+  it('returns 404 for non-existent service', async () => {
+    const res = await mgmtReq('/services/nonexistent.api.com')
+    expect(res.status).toBe(404)
+  })
+
+  it('gets a service with scoped proxy token', async () => {
+    await seedService()
+    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+      { services: 'api.github.com', vault: TEST_ORG_ID },
+    ])
+    const res = await req('/services/api.github.com', {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.service).toBe('api.github.com')
+  })
+
+  it('denies get service when token lacks access', async () => {
+    await seedService()
+    const token = mintToken(BISCUIT_PRIVATE_KEY, [
+      { services: 'api.linear.app', vault: TEST_ORG_ID },
+    ])
+    const res = await req('/services/api.github.com', {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+    expect(res.status).toBe(403)
+  })
+})
+
+// ─── JWKS Endpoint ──────────────────────────────────────────────────────────
+
+describe('JWKS Endpoint', () => {
+  it('returns valid JWK with Ed25519 key', async () => {
+    const res = await req('/.well-known/jwks.json')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.keys).toHaveLength(1)
+    expect(body.keys[0].kty).toBe('OKP')
+    expect(body.keys[0].crv).toBe('Ed25519')
+    expect(body.keys[0].use).toBe('sig')
+    expect(body.keys[0].kid).toBe('warden-ed25519-1')
+    expect(body.keys[0].x).toBeDefined()
+  })
 })
 
 // ─── Credential Management (org-scoped) ────────────────────────────────────
@@ -329,7 +325,7 @@ describe('Credential Management', () => {
   })
 
   it('stores a credential', async () => {
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
+    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
@@ -339,7 +335,7 @@ describe('Credential Management', () => {
 
   it('stores credential with expiresAt', async () => {
     const expiresAt = new Date(Date.now() + 86400000).toISOString()
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
+    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -351,7 +347,7 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential without token or headers', async () => {
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
+    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -360,7 +356,7 @@ describe('Credential Management', () => {
   })
 
   it('stores credential with explicit headers map', async () => {
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
+    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -379,13 +375,13 @@ describe('Credential Management', () => {
   })
 
   it('lists credentials for an org', async () => {
-    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
+    await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials`)
+    const res = await mgmtReq(`/credentials?org=${TEST_ORG_ID}`)
     expect(res.status).toBe(200)
     const body = (await res.json()) as any[]
     expect(body).toHaveLength(1)
@@ -394,7 +390,7 @@ describe('Credential Management', () => {
   })
 
   it('rejects credential for non-existent service', async () => {
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/nonexistent`, {
+    const res = await mgmtReq(`/credentials/nonexistent?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'test' }),
@@ -403,24 +399,24 @@ describe('Credential Management', () => {
   })
 
   it('deletes a credential', async () => {
-    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
+    await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'ghp_test123' }),
     })
 
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.github.com`, {
+    const res = await mgmtReq(`/credentials/api.github.com?org=${TEST_ORG_ID}`, {
       method: 'DELETE',
     })
     expect(res.status).toBe(200)
 
-    const list = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials`)
+    const list = await mgmtReq(`/credentials?org=${TEST_ORG_ID}`)
     const body = (await list.json()) as any[]
     expect(body).toHaveLength(0)
   })
 
   it('returns 404 when deleting non-existent credential', async () => {
-    const res = await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/nonexistent`, {
+    const res = await mgmtReq(`/credentials/nonexistent?org=${TEST_ORG_ID}`, {
       method: 'DELETE',
     })
     expect(res.status).toBe(404)
@@ -624,276 +620,18 @@ describe('Token Restriction', () => {
   })
 })
 
-// ─── Discovery (content-negotiated) ──────────────────────────────────────────
-
-describe('Discovery', () => {
-  beforeEach(async () => {
-    await seedService()
-  })
-
-  it('returns 401 JSON for unauthenticated agent with flow', async () => {
-    const res = await req('/api.github.com', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(res.status).toBe(401)
-    expect(res.headers.get('WWW-Authenticate')).toBe('Bearer realm="warden"')
-
-    const body = (await res.json()) as any
-    expect(body.service).toBe('GitHub')
-    expect(body.canonical).toBe('api.github.com')
-    expect(body.auth_url).toContain('http://localhost:3000/auth/api.github.com?flow_id=')
-    expect(body.poll_url).toContain('http://localhost:3000/auth/status/')
-    expect(body.proxy).toBe('http://localhost:3000/api.github.com')
-    expect(body.auth_methods).toEqual([
-      { type: 'oauth', mode: 'byo' },
-      { type: 'api_key' },
-    ])
-
-    // Verify the flow was actually created and is pollable
-    const flowId = body.poll_url.split('/auth/status/')[1]
-    const pollRes = await req(`/auth/status/${flowId}`)
-    expect(pollRes.status).toBe(202)
-    const pollBody = (await pollRes.json()) as any
-    expect(pollBody.status).toBe('pending')
-  })
-
-  it('returns HTML for unauthenticated browser', async () => {
-    const res = await req('/api.github.com', {
-      headers: { Accept: 'text/html' },
-    })
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('GitHub')
-    expect(text).toContain('Enter API Key')
-  })
-
-  it('auto-registers unknown service on first discovery', async () => {
-    // No seedService() — hit a completely unknown service
-    // Mock fetch so the reachability check passes (domain "resolves")
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
-    try {
-      const res = await req('/api.unknown.com', {
-        headers: { Accept: 'application/json' },
-      })
-      expect(res.status).toBe(401)
-
-      const body = (await res.json()) as any
-      expect(body.canonical).toBe('api.unknown.com')
-      // No auth_url yet — discovery hasn't determined auth schemes
-      expect(body.auth_url).toBeUndefined()
-      expect(body.proxy).toBe('http://localhost:3000/api.unknown.com')
-      expect(body.preview.icon.url).toBe('https://icons.duckduckgo.com/ip3/unknown.com.ico')
-      expect(body.preview.icon.fallback).toBe('UN')
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  it('returns 200 JSON for authenticated agent', async () => {
-    const token = mintProxyToken('api.github.com', TEST_ORG_ID)
-
-    const res = await req('/api.github.com', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.canonical).toBe('api.github.com')
-  })
-
-  it('returns 200 HTML for authenticated browser', async () => {
-    const token = mintProxyToken('api.github.com', TEST_ORG_ID)
-
-    const res = await req('/api.github.com', {
-      headers: {
-        Accept: 'text/html',
-        Authorization: `Bearer ${token}`,
-      },
-    })
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('GitHub')
-  })
-
-  it('returns authenticated status in discovery', async () => {
-    const token = mintProxyToken('api.github.com', TEST_ORG_ID)
-    const res = await req('/api.github.com', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as any
-    expect(body.authenticated).toBe(true)
-  })
-
-  it('auto-registers unknown service and returns 401', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
-    try {
-      const res = await req('/unknown.api.com', {
-        headers: { Accept: 'application/json' },
-      })
-      expect(res.status).toBe(401)
-      const body = (await res.json()) as any
-      expect(body.canonical).toBe('unknown.api.com')
-      // No auth_url — discovery hasn't determined auth schemes yet
-      expect(body.auth_url).toBeUndefined()
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  it('rejects auto-registration when domain does not resolve', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
-    try {
-      const res = await req('/nonexistent.invalid.domain', {
-        headers: { Accept: 'application/json' },
-      })
-      expect(res.status).toBe(404)
-      const body = (await res.json()) as any
-      expect(body.error).toContain('Domain does not exist')
-      expect(body.hint).toContain('DNS')
-
-      // Verify no service was created in the DB
-      const svc = await getService(db, 'nonexistent.invalid.domain')
-      expect(svc).toBeNull()
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  it('allows auto-registration when domain returns HTTP error', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('Forbidden', { status: 403 }))
-    try {
-      const res = await req('/exists-but-403.example.com', {
-        headers: { Accept: 'application/json' },
-      })
-      expect(res.status).toBe(401)
-      const body = (await res.json()) as any
-      expect(body.canonical).toBe('exists-but-403.example.com')
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  it('allows auto-registration when reachability check times out', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockRejectedValue(
-      new DOMException('The operation was aborted', 'AbortError'),
-    )
-    try {
-      const res = await req('/slow-but-real.example.com', {
-        headers: { Accept: 'application/json' },
-      })
-      // Timeout is NOT a DNS failure — proceed with registration
-      expect(res.status).toBe(401)
-      const body = (await res.json()) as any
-      expect(body.canonical).toBe('slow-but-real.example.com')
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  it('returns 404 for reserved paths in discovery', async () => {
-    const res = await req('/auth', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(res.status).toBe(404)
-  })
-})
-
-// ─── Documentation Routes (content-negotiated) ──────────────────────────────
-
-describe('Documentation Routes', () => {
-  beforeEach(async () => {
-    await seedService()
-    await upsertDocPage(
-      db,
-      'api.github.com',
-      'sitemap/index.json',
-      JSON.stringify({
-        level: 0,
-        service: 'GitHub',
-        hostname: 'api.github.com',
-        api_type: 'rest',
-        base_url: '/api.github.com',
-        description: 'REST API for GitHub',
-        auth: [{ type: 'oauth', setup_url: '/auth/api.github.com/oauth' }],
-      }),
-      'enriched',
-    )
-    await upsertDocPage(
-      db,
-      'api.github.com',
-      'sitemap/resources.json',
-      JSON.stringify({
-        level: 1,
-        resources: [
-          {
-            name: 'Repositories',
-            slug: 'repositories',
-            description: 'Repository operations',
-            common_operations: [{ method: 'GET', path: '/repos', summary: 'List repos' }],
-          },
-        ],
-      }),
-      'enriched',
-    )
-  })
-
-  it('returns JSON docs for agents', async () => {
-    const res = await req('/api.github.com/sitemap/', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('application/json')
-    const body = (await res.json()) as any
-    expect(body.level).toBe(0)
-    expect(body.hostname).toBe('api.github.com')
-  })
-
-  it('returns HTML docs for humans', async () => {
-    const res = await req('/api.github.com/sitemap/', {
-      headers: { Accept: 'text/html' },
-    })
-    expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/html')
-    const text = await res.text()
-    expect(text).toContain('Documentation')
-    expect(text).toContain('sitemap/index.json')
-    expect(text).toContain('Raw JSON')
-  })
-
-  it('renders nested docs page as HTML when requested by browser', async () => {
-    const res = await req('/api.github.com/sitemap/resources.json', {
-      headers: { Accept: 'text/html' },
-    })
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('sitemap/resources.json')
-    expect(text).toContain('Repositories')
-  })
-})
-
 // ─── Proxy ───────────────────────────────────────────────────────────────────
 
 describe('Proxy', () => {
   it('rejects requests without auth', async () => {
     await seedService()
-    const res = await req('/api.github.com/user')
+    const res = await req('/proxy/api.github.com/user')
     expect(res.status).toBe(401)
   })
 
   it('rejects requests with invalid token', async () => {
     await seedService()
-    const res = await req('/api.github.com/user', {
+    const res = await req('/proxy/api.github.com/user', {
       headers: { Authorization: 'Bearer invalid_token' },
     })
     expect(res.status).toBe(401)
@@ -901,7 +639,7 @@ describe('Proxy', () => {
 
   it('returns 404 for unknown service in proxy', async () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, [{ services: 'unknown.api.com' }])
-    const res = await req('/unknown.api.com/path', {
+    const res = await req('/proxy/unknown.api.com/path', {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(404)
@@ -913,7 +651,7 @@ describe('Proxy', () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
       { services: 'api.github.com', methods: 'GET' },
     ])
-    const res = await req('/api.github.com/repos', {
+    const res = await req('/proxy/api.github.com/repos', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -927,7 +665,7 @@ describe('Proxy', () => {
     const revIds = getRevocationIds(token, publicKey)
     await revokeToken(db, revIds[0], 'test')
 
-    const res = await req('/api.github.com/user', {
+    const res = await req('/proxy/api.github.com/user', {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(403)
@@ -938,7 +676,7 @@ describe('Proxy', () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, [
       { services: 'api.github.com', vault: TEST_ORG_ID },
     ])
-    const res = await req('/api.github.com/user', {
+    const res = await req('/proxy/api.github.com/user', {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(res.status).toBe(404)
@@ -962,7 +700,7 @@ describe('Proxy', () => {
     )
 
     try {
-      const res = await req('/api.github.com/user', {
+      const res = await req('/proxy/api.github.com/user', {
         headers: { Authorization: `Bearer ${token}` },
       })
       expect(res.status).toBe(200)
@@ -990,7 +728,7 @@ describe('Proxy', () => {
         authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-API-Key' }],
       }),
     })
-    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.example.com`, {
+    await mgmtReq(`/credentials/api.example.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'sk_test_key' }),
@@ -1006,7 +744,7 @@ describe('Proxy', () => {
     )
 
     try {
-      const res = await req('/api.example.com/data', {
+      const res = await req('/proxy/api.example.com/data', {
         headers: { Authorization: `Bearer ${token}` },
       })
       expect(res.status).toBe(200)
@@ -1030,7 +768,7 @@ describe('Proxy', () => {
         authSchemes: [{ type: 'http', scheme: 'basic' }],
       }),
     })
-    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/api.basic.com`, {
+    await mgmtReq(`/credentials/api.basic.com?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'user:pass' }),
@@ -1046,7 +784,7 @@ describe('Proxy', () => {
     )
 
     try {
-      const res = await req('/api.basic.com/data', {
+      const res = await req('/proxy/api.basic.com/data', {
         headers: { Authorization: `Bearer ${token}` },
       })
       expect(res.status).toBe(200)
@@ -1073,7 +811,7 @@ describe('Proxy', () => {
     )
 
     try {
-      const res = await req('/api.github.com/repos', {
+      const res = await req('/proxy/api.github.com/repos', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -1102,7 +840,7 @@ describe('Proxy', () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
     try {
-      const res = await req('/api.github.com/user', {
+      const res = await req('/proxy/api.github.com/user', {
         headers: { Authorization: `Bearer ${token}` },
       })
       expect(res.status).toBe(502)
@@ -1125,7 +863,7 @@ describe('Proxy', () => {
       new Error('connect ECONNREFUSED 1.2.3.4:443'),
     )
     try {
-      const res = await req('/api.github.com/user', {
+      const res = await req('/proxy/api.github.com/user', {
         headers: { Authorization: `Bearer ${token}` },
       })
       expect(res.status).toBe(502)
@@ -1149,36 +887,36 @@ describe('Proxy', () => {
 // ─── Legacy Redirect ────────────────────────────────────────────────────────
 
 describe('Legacy Redirect', () => {
-  it('redirects /proxy/:service/* to /:service/*', async () => {
-    const res = await req('/proxy/api.github.com/user', { redirect: 'manual' })
+  it('redirects /:service/* to /proxy/:service/*', async () => {
+    const res = await req('/api.github.com/user', { redirect: 'manual' })
     expect(res.status).toBe(301)
-    expect(res.headers.get('Location')).toBe('/api.github.com/user')
+    expect(res.headers.get('Location')).toBe('/proxy/api.github.com/user')
   })
 })
 
 describe('Protocol prefix redirect', () => {
-  it('redirects /https://hostname/path to /hostname/path', async () => {
+  it('redirects /https://hostname/path to /proxy/hostname/path', async () => {
     const res = await req('/https://api.linear.app/graphql', { redirect: 'manual' })
     expect(res.status).toBe(301)
-    expect(res.headers.get('Location')).toBe('/api.linear.app/graphql')
+    expect(res.headers.get('Location')).toBe('/proxy/api.linear.app/graphql')
   })
 
-  it('redirects /http://hostname/path to /hostname/path', async () => {
+  it('redirects /http://hostname/path to /proxy/hostname/path', async () => {
     const res = await req('/http://api.linear.app/graphql', { redirect: 'manual' })
     expect(res.status).toBe(301)
-    expect(res.headers.get('Location')).toBe('/api.linear.app/graphql')
+    expect(res.headers.get('Location')).toBe('/proxy/api.linear.app/graphql')
   })
 
   it('preserves query string on redirect', async () => {
     const res = await req('/https://api.linear.app/graphql?foo=bar', { redirect: 'manual' })
     expect(res.status).toBe(301)
-    expect(res.headers.get('Location')).toBe('/api.linear.app/graphql?foo=bar')
+    expect(res.headers.get('Location')).toBe('/proxy/api.linear.app/graphql?foo=bar')
   })
 
   it('redirects bare hostname without trailing path', async () => {
     const res = await req('/https://api.linear.app', { redirect: 'manual' })
     expect(res.status).toBe(301)
-    expect(res.headers.get('Location')).toBe('/api.linear.app')
+    expect(res.headers.get('Location')).toBe('/proxy/api.linear.app')
   })
 })
 
@@ -1191,7 +929,7 @@ describe('Auth Flow Polling', () => {
   })
 
   it('returns pending status for active flow', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'test-flow-1',
       service: 'api.github.com',
       method: 'api_key',
@@ -1205,13 +943,13 @@ describe('Auth Flow Polling', () => {
   })
 
   it('returns completed status with token', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'test-flow-2',
       service: 'api.github.com',
       method: 'api_key',
       expiresAt: new Date(Date.now() + 600000),
     })
-    await completeAuthFlow(redis, 'test-flow-2', {
+    await completeAuthFlow(db, 'test-flow-2', {
       wardenToken: 'wdn_test',
       identity: 'alice',
       orgId: TEST_ORG_ID,
@@ -1226,7 +964,7 @@ describe('Auth Flow Polling', () => {
   })
 
   it('returns 404 for expired flow', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'test-flow-expired',
       service: 'api.github.com',
       method: 'api_key',
@@ -1638,26 +1376,7 @@ describe('API Key Flow', () => {
 // ─── E2E: Agent with Invalid API ────────────────────────────────────────────
 
 describe('E2E: agent with invalid API', () => {
-  it('discovery returns no auth_url for pending service', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 404 }))
-    try {
-      const discovery = await req('/telemetry.betterstack.com', {
-        headers: { Accept: 'application/json' },
-      })
-      expect(discovery.status).toBe(401)
-      const body = (await discovery.json()) as any
-      expect(body.canonical).toBe('telemetry.betterstack.com')
-      // No auth_url — service is pending discovery
-      expect(body.auth_url).toBeUndefined()
-      expect(body.discovery.crawl_state).toBe('pending')
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
   it('rejects API key when upstream returns 401', async () => {
-    // Register a service with auth schemes (simulating discovery completion)
     await mgmtReq('/services/telemetry.betterstack.com', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1688,19 +1407,15 @@ describe('E2E: agent with invalid API', () => {
   })
 
   it('returns 502 with DNS hint when proxying to unreachable upstream', async () => {
-    // Register a service with a credential, then simulate DNS failure on proxy
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
-    try {
-      await req('/fake-api.nonexistent.test', {
-        headers: { Accept: 'application/json' },
-      })
-    } finally {
-      globalThis.fetch = originalFetch
-    }
+    // Register a service, then simulate DNS failure on proxy
+    await mgmtReq('/services/fake-api.nonexistent.test', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'https://fake-api.nonexistent.test' }),
+    })
 
     // Store a credential for this service
-    await mgmtReq(`/vaults/${TEST_ORG_ID}/credentials/fake-api.nonexistent.test`, {
+    await mgmtReq(`/credentials/fake-api.nonexistent.test?org=${TEST_ORG_ID}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'test_token' }),
@@ -1711,9 +1426,10 @@ describe('E2E: agent with invalid API', () => {
     ])
 
     // Simulate DNS failure when proxying
+    const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
     try {
-      const res = await req('/fake-api.nonexistent.test/api/v1/data', {
+      const res = await req('/proxy/fake-api.nonexistent.test/api/v1/data', {
         headers: { Authorization: `Bearer ${token}` },
       })
       expect(res.status).toBe(502)
@@ -1725,23 +1441,6 @@ describe('E2E: agent with invalid API', () => {
     }
   })
 
-  it('blocks auto-registration for NXDOMAIN and returns 404', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = vi.fn().mockRejectedValue(
-      new Error('getaddrinfo ENOTFOUND api.nonexistent.fake'),
-    )
-    try {
-      const res = await req('/api.nonexistent.fake', {
-        headers: { Accept: 'application/json' },
-      })
-      expect(res.status).toBe(404)
-      const body = (await res.json()) as any
-      expect(body.error).toContain('Domain does not exist')
-      expect(body.hint).toContain('DNS')
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
 })
 
 // ─── OAuth Flow ─────────────────────────────────────────────────────────────
@@ -1809,7 +1508,7 @@ describe('OAuth Flow', () => {
   })
 
   it('rejects callback for expired flow', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'expired-flow',
       service: 'github-oauth.com',
       method: 'oauth',
@@ -1824,14 +1523,14 @@ describe('OAuth Flow', () => {
   })
 
   it('rejects callback for already completed flow', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'completed-flow',
       service: 'github-oauth.com',
       method: 'oauth',
       codeVerifier: 'test',
       expiresAt: new Date(Date.now() + 600000),
     })
-    await completeAuthFlow(redis, 'completed-flow', {
+    await completeAuthFlow(db, 'completed-flow', {
       wardenToken: 'wdn_old',
       identity: 'alice',
       orgId: TEST_ORG_ID,
@@ -1844,7 +1543,7 @@ describe('OAuth Flow', () => {
   })
 
   it('handles failed token exchange', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'token-fail-flow',
       service: 'github-oauth.com',
       method: 'oauth',
@@ -1869,7 +1568,7 @@ describe('OAuth Flow', () => {
   })
 
   it('handles missing access token in response', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'no-token-flow',
       service: 'github-oauth.com',
       method: 'oauth',
@@ -1894,7 +1593,7 @@ describe('OAuth Flow', () => {
   })
 
   it('completes successful OAuth flow', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'success-flow',
       service: 'github-oauth.com',
       method: 'oauth',
@@ -1918,7 +1617,7 @@ describe('OAuth Flow', () => {
       expect(text).toContain('wdn_')
 
       // Verify flow was completed
-      const flow = await getAuthFlow(redis, 'success-flow')
+      const flow = await getAuthFlow(db, 'success-flow')
       expect(flow?.status).toBe('completed')
       expect(flow?.wardenToken).toMatch(/^wdn_/)
     } finally {
@@ -1945,7 +1644,7 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'id-flow',
       service: 'id-oauth.com',
       method: 'oauth',
@@ -1974,7 +1673,7 @@ describe('OAuth Flow', () => {
       const res = await req('/auth/id-oauth.com/oauth/callback?code=abc&state=id-flow')
       expect(res.status).toBe(200)
 
-      const flow = await getAuthFlow(redis, 'id-flow')
+      const flow = await getAuthFlow(db, 'id-flow')
       expect(flow?.identity).toBe('carol@example.com')
     } finally {
       globalThis.fetch = originalFetch
@@ -2000,7 +1699,7 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'post-id-flow',
       service: 'post-oauth.com',
       method: 'oauth',
@@ -2026,7 +1725,7 @@ describe('OAuth Flow', () => {
     try {
       const res = await req('/auth/post-oauth.com/oauth/callback?code=abc&state=post-id-flow')
       expect(res.status).toBe(200)
-      const flow = await getAuthFlow(redis, 'post-id-flow')
+      const flow = await getAuthFlow(db, 'post-id-flow')
       expect(flow?.identity).toBe('frank')
     } finally {
       globalThis.fetch = originalFetch
@@ -2049,7 +1748,7 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'fail-id-flow',
       service: 'fail-oauth.com',
       method: 'oauth',
@@ -2073,7 +1772,7 @@ describe('OAuth Flow', () => {
     try {
       const res = await req('/auth/fail-oauth.com/oauth/callback?code=abc&state=fail-id-flow')
       expect(res.status).toBe(200)
-      const flow = await getAuthFlow(redis, 'fail-id-flow')
+      const flow = await getAuthFlow(db, 'fail-id-flow')
       expect(flow?.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
@@ -2098,7 +1797,7 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'nopath-flow',
       service: 'nopath-oauth.com',
       method: 'oauth',
@@ -2125,7 +1824,7 @@ describe('OAuth Flow', () => {
     try {
       const res = await req('/auth/nopath-oauth.com/oauth/callback?code=abc&state=nopath-flow')
       expect(res.status).toBe(200)
-      const flow = await getAuthFlow(redis, 'nopath-flow')
+      const flow = await getAuthFlow(db, 'nopath-flow')
       expect(flow?.identity).toBe('default')
     } finally {
       globalThis.fetch = originalFetch
@@ -2150,7 +1849,7 @@ describe('OAuth Flow', () => {
         },
       }),
     })
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'custom-token-flow',
       service: 'custom-oauth.com',
       method: 'oauth',
@@ -2173,7 +1872,7 @@ describe('OAuth Flow', () => {
   })
 
   it('uses session orgId when flow has no orgId', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'no-org-flow',
       service: 'github-oauth.com',
       method: 'oauth',
@@ -2206,7 +1905,7 @@ describe('OAuth Flow', () => {
         // Note: no oauth2 scheme
       }),
     })
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'no-token-url-flow',
       service: 'no-token-url.com',
       method: 'oauth',
@@ -2438,122 +2137,6 @@ describe('isDnsError', () => {
   })
 })
 
-// ─── Discovery Functions ────────────────────────────────────────────────────
-
-describe('Discovery Functions', () => {
-  it('wantsJson returns false for undefined', () => {
-    expect(wantsJson(undefined)).toBe(false)
-  })
-
-  it('wantsJson returns true for application/json', () => {
-    expect(wantsJson('application/json')).toBe(true)
-  })
-
-  it('wantsJson returns false for text/html', () => {
-    expect(wantsJson('text/html')).toBe(false)
-  })
-
-  it('wantsJson returns true for */* (curl default)', () => {
-    expect(wantsJson('*/*')).toBe(true)
-  })
-
-  it('wantsJson returns false for browser Accept with */*', () => {
-    expect(wantsJson('text/html,application/xhtml+xml,*/*;q=0.8')).toBe(false)
-  })
-
-  it('buildUnauthDiscovery includes auth_url when schemes exist', () => {
-    const svc = {
-      service: 'api.github.com',
-      baseUrl: 'https://api.github.com',
-      displayName: 'GitHub',
-      description: 'GitHub REST API',
-      authSchemes: JSON.stringify([{ type: 'http', scheme: 'bearer' }]),
-      oauthClientId: null,
-      encryptedOauthClientSecret: null,
-      apiType: null,
-      docsUrl: 'https://docs.github.com',
-      preview: null,
-      authConfig: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-    const result = buildUnauthDiscovery(svc, 'http://localhost:3000') as any
-    expect(result.service).toBe('GitHub')
-    expect(result.description).toBe('GitHub REST API')
-    expect(result.docs_url).toBe('https://docs.github.com')
-    expect(result.proxy).toBe('http://localhost:3000/api.github.com')
-    expect(result.auth_url).toBe('http://localhost:3000/auth/api.github.com')
-    expect(result.auth_methods).toEqual([{ type: 'api_key' }])
-  })
-
-  it('buildUnauthDiscovery omits auth_url when no schemes', () => {
-    const svc = {
-      service: 'api.unknown.com',
-      baseUrl: 'https://api.unknown.com',
-      displayName: 'Unknown',
-      description: null,
-      authSchemes: null,
-      oauthClientId: null,
-      encryptedOauthClientSecret: null,
-      apiType: null,
-      docsUrl: null,
-      preview: null,
-      authConfig: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-    const result = buildUnauthDiscovery(svc, 'http://localhost:3000') as any
-    expect(result.canonical).toBe('api.unknown.com')
-    expect(result.auth_url).toBeUndefined()
-    expect(result.auth_methods).toBeUndefined()
-    expect(result.proxy).toBe('http://localhost:3000/api.unknown.com')
-  })
-
-  it('buildUnauthDiscovery includes preview when set', () => {
-    const svc = {
-      service: 'test.api',
-      baseUrl: 'https://test.api',
-      displayName: null,
-      description: null,
-      authSchemes: null,
-      oauthClientId: null,
-      encryptedOauthClientSecret: null,
-      apiType: null,
-      docsUrl: null,
-      preview: JSON.stringify({ example: true }),
-      authConfig: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-    const result = buildUnauthDiscovery(svc, 'http://localhost:3000') as any
-    expect(result.service).toBe('test.api')
-    expect(result.preview).toEqual({ example: true })
-  })
-
-  it('buildAuthDiscovery includes api_type and proxy', () => {
-    const svc = {
-      service: 'api.github.com',
-      baseUrl: 'https://api.github.com',
-      displayName: 'GitHub',
-      description: null,
-      authSchemes: null,
-      oauthClientId: null,
-      encryptedOauthClientSecret: null,
-      apiType: 'rest',
-      docsUrl: 'https://docs.github.com',
-      preview: null,
-      authConfig: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-    const result = buildAuthDiscovery(svc, 'http://localhost:3000') as any
-    expect(result.authenticated).toBe(true)
-    expect(result.api_type).toBe('rest')
-    expect(result.proxy).toBe('http://localhost:3000/api.github.com')
-    expect(result.docs_url).toBe('https://docs.github.com')
-  })
-})
-
 // ─── Query Functions ────────────────────────────────────────────────────────
 
 describe('Query Functions', () => {
@@ -2611,18 +2194,6 @@ describe('Query Functions', () => {
     expect(serviceTwo?.credentialCount).toBe(0)
   })
 
-  it('countCredentialsForService returns zero and non-zero counts', async () => {
-    expect(await countCredentialsForService(db, 'api.none.test')).toBe(0)
-
-    await upsertService(db, 'api.counted.test', { baseUrl: 'https://api.counted.test' })
-    const encrypted = await encryptCredentials(TEST_ENCRYPTION_KEY, {
-      headers: { Authorization: 'Bearer counted' },
-    })
-    await upsertCredential(db, 'personal', 'api.counted.test', 'alice', encrypted)
-
-    expect(await countCredentialsForService(db, 'api.counted.test')).toBe(1)
-  })
-
   it('upsertOAuthApp stores and updates a BYO oauth app', async () => {
     const secret1 = Buffer.from('secret-1')
     const secret2 = Buffer.from('secret-2')
@@ -2667,7 +2238,7 @@ describe('Query Functions', () => {
   })
 
   it('createAuthFlow with oauthSource stores source on Redis flow', async () => {
-    await createAuthFlow(redis, {
+    await createAuthFlow(db, {
       id: 'oauth-flow',
       service: 'api.github.com',
       method: 'oauth',
@@ -2677,84 +2248,12 @@ describe('Query Functions', () => {
       expiresAt: new Date(Date.now() + 60_000),
     })
 
-    const flow = await getAuthFlow(redis, 'oauth-flow')
+    const flow = await getAuthFlow(db, 'oauth-flow')
     expect(flow).not.toBeNull()
     expect(flow!.method).toBe('oauth')
     expect(flow!.oauthSource).toBe('byo')
     expect(flow!.codeVerifier).toBe('pkce-verifier')
     expect(flow!.orgId).toBe(TEST_ORG_ID)
-  })
-})
-
-// ─── Doc Page Queries ───────────────────────────────────────────────────────
-
-describe('Doc Page Queries', () => {
-  it('getDocPage returns null when not found', async () => {
-    const page = await getDocPage(db, 'unknown.api', 'index.json')
-    expect(page).toBeNull()
-  })
-
-  it('upsertDocPage creates and retrieves a page', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"level":0}', 'skeleton')
-    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
-    expect(page).not.toBeNull()
-    expect(page?.content).toBe('{"level":0}')
-    expect(page?.status).toBe('skeleton')
-  })
-
-  it('upsertDocPage updates existing page', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"v":1}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{"v":2}', 'enriched')
-    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
-    expect(page?.content).toBe('{"v":2}')
-    expect(page?.status).toBe('enriched')
-  })
-
-  it('listDocPages returns all pages for a hostname', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
-    await upsertDocPage(db, 'other.api', 'sitemap/index.json', '{}', 'skeleton')
-    const pages = await listDocPages(db, 'api.github.com')
-    expect(pages).toHaveLength(2)
-  })
-
-  it('listSkeletonPages returns only skeleton pages', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
-    const pages = await listSkeletonPages(db, 'api.github.com')
-    expect(pages).toHaveLength(1)
-    expect(pages[0].path).toBe('sitemap/index.json')
-  })
-
-  it('deleteDocPages removes all pages for a hostname', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton')
-    await upsertDocPage(db, 'api.github.com', 'sitemap/repos.json', '{}', 'enriched')
-    await deleteDocPages(db, 'api.github.com')
-    const pages = await listDocPages(db, 'api.github.com')
-    expect(pages).toHaveLength(0)
-  })
-
-  it('upsertDocPage with custom ttlDays', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'skeleton', 30)
-    const page = await getDocPage(db, 'api.github.com', 'sitemap/index.json')
-    expect(page?.ttlDays).toBe(30)
-  })
-
-  it('listStaleDocPages returns pages past their TTL', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'enriched', 1)
-    // Make the page stale by backdating generated_at
-    await db.execute(
-      sql`UPDATE warden.doc_pages SET generated_at = now() - interval '30 days' WHERE hostname = 'api.github.com'`,
-    )
-    const stale = await listStaleDocPages(db, 'api.github.com')
-    expect(stale).toHaveLength(1)
-    expect(stale[0].path).toBe('sitemap/index.json')
-  })
-
-  it('listStaleDocPages excludes fresh pages', async () => {
-    await upsertDocPage(db, 'api.github.com', 'sitemap/index.json', '{}', 'enriched', 7)
-    const stale = await listStaleDocPages(db, 'api.github.com')
-    expect(stale).toHaveLength(0)
   })
 })
 
@@ -2798,96 +2297,3 @@ describe('Credentials Crypto', () => {
   })
 })
 
-// ─── Deterministic Discovery ────────────────────────────────────────────────
-
-describe('Deterministic Discovery', () => {
-  it('groups versioned paths by resource, not version prefix', async () => {
-    const spec = {
-      openapi: '3.0.0',
-      info: { title: 'Test API', version: '1.0' },
-      paths: {
-        '/v1/customers': { get: { summary: 'List customers' } },
-        '/v1/customers/{id}': { get: { summary: 'Get customer' } },
-        '/v1/invoices': { get: { summary: 'List invoices' } },
-        '/v1/invoices/{id}': { get: { summary: 'Get invoice' } },
-      },
-    }
-
-    const service = {
-      service: 'api.test.com',
-      baseUrl: 'https://api.test.com',
-      displayName: 'Test',
-      description: null,
-      authSchemes: '[]',
-      oauthClientId: null,
-      encryptedOauthClientSecret: null,
-      apiType: 'rest',
-      docsUrl: null,
-      preview: null,
-      authConfig: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-
-    const probe: ProbeResult = {
-      apiType: 'rest',
-      specContent: JSON.stringify(spec),
-      specUrl: null,
-      graphqlSchema: null,
-      docsUrl: null,
-      oauthMeta: null,
-      externalDocsUrls: [],
-    }
-
-    const result = await runDeterministicDiscovery(
-      { db, hostname: 'api.test.com', service, baseUrl: 'http://localhost' },
-      probe,
-    )
-
-    // Should find 2 resources (customers, invoices), not 1 (v1)
-    expect(result.resourcesFound.length).toBe(2)
-    expect(result.resourcesFound).toContain('customers')
-    expect(result.resourcesFound).toContain('invoices')
-
-    // Should have resource detail pages for each
-    const customersPage = await getDocPage(db, 'api.test.com', 'sitemap/customers.json')
-    const invoicesPage = await getDocPage(db, 'api.test.com', 'sitemap/invoices.json')
-    expect(customersPage).toBeTruthy()
-    expect(invoicesPage).toBeTruthy()
-  })
-
-  it('updates service record with apiType and description from spec', async () => {
-    const spec = {
-      openapi: '3.0.0',
-      info: { title: 'Acme API', version: '1.0', description: 'The Acme platform API' },
-      paths: {
-        '/widgets': { get: { summary: 'List widgets' } },
-      },
-    }
-
-    // Pre-register with no apiType or description
-    await upsertService(db, 'api.acme.com', { baseUrl: 'https://api.acme.com' })
-
-    const service = (await getService(db, 'api.acme.com'))!
-    expect(service.apiType).toBeNull()
-    expect(service.description).toBeNull()
-
-    await runDeterministicDiscovery(
-      { db, hostname: 'api.acme.com', service, baseUrl: 'http://localhost' },
-      {
-        apiType: 'rest',
-        specContent: JSON.stringify(spec),
-        specUrl: null,
-        graphqlSchema: null,
-        docsUrl: 'https://docs.acme.com',
-        oauthMeta: null,
-        externalDocsUrls: [],
-      },
-    )
-
-    const updated = await getService(db, 'api.acme.com')
-    expect(updated?.apiType).toBe('rest')
-    expect(updated?.description).toBe('The Acme platform API')
-    expect(updated?.docsUrl).toBe('https://docs.acme.com')
-  })
-})

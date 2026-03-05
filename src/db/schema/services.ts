@@ -11,11 +11,7 @@ export const services = wardenSchema.table('services', {
   // Managed OAuth (operational — not part of auth scheme definition)
   oauthClientId: text('oauth_client_id'),
   encryptedOauthClientSecret: bytea('encrypted_oauth_client_secret'),
-  // Discovery
-  apiType: text('api_type'), // rest | graphql
   docsUrl: text('docs_url'),
-  crawlState: text('crawl_state').default('pending'), // pending | crawling | ready | failed
-  preview: text('preview'), // JSON
   authConfig: text('auth_config'), // JSON: provider-specific overrides
   // Webhooks
   webhookConfig: text('webhook_config'), // JSON: WebhookConfig for signature verification

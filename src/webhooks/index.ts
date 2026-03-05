@@ -6,8 +6,8 @@
  */
 
 import { Hono } from 'hono'
-import type { HonoEnv } from '../types'
-import { requireToken } from '../middleware'
+import type { CoreHonoEnv } from '../core/types'
+import { requireToken } from '../core/middleware'
 import { extractVaultFromToken, getPublicKeyHex, extractFirstVault } from '../biscuit'
 import {
   getWebhookRegistration,
@@ -28,7 +28,7 @@ import {
 } from './envelope'
 
 export function webhookRoutes() {
-  const hooks = new Hono<HonoEnv>()
+  const hooks = new Hono<CoreHonoEnv>()
 
   // ─── JWKS endpoint ────────────────────────────────────────────────────────
 
