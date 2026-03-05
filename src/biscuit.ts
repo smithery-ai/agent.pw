@@ -405,6 +405,7 @@ export function mintManagementToken(
   privateKeyHex: string,
   rights: string[],
   vaultAdminSlugs: string[],
+  grants?: ProxyConstraint[],
 ): string {
   const lines: string[] = []
   for (const r of rights) {
@@ -412,6 +413,9 @@ export function mintManagementToken(
   }
   for (const slug of vaultAdminSlugs) {
     lines.push(`vault_admin("${escapeDatalog(slug)}");`)
+  }
+  if (grants && grants.length > 0) {
+    lines.push(buildAuthorityCode(grants))
   }
   const code = lines.join('\n')
   const privateKey = PrivateKey.fromString(privateKeyHex)

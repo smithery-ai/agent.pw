@@ -128,6 +128,26 @@ describe('Management Auth', () => {
     expect(res.status).toBe(401)
   })
 
+  it('rejects invalid token on GET /services', async () => {
+    const res = await req('/services', {
+      headers: { Authorization: 'Bearer invalid_token' },
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('rejects revoked token on GET /services', async () => {
+    const token = mintRootToken()
+    const publicKey = getPublicKeyHex(BISCUIT_PRIVATE_KEY)
+    const revIds = getRevocationIds(token, publicKey)
+    await revokeToken(db, revIds[0], 'test revocation')
+    const res = await req('/services', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(res.status).toBe(403)
+    const body = (await res.json()) as any
+    expect(body.error).toContain('revoked')
+  })
+
   it('accepts requests with valid management token', async () => {
     const res = await mgmtReq('/services', {
       headers: { Accept: 'application/json' },

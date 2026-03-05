@@ -23,11 +23,12 @@ export async function setup() {
   const db = await createLocalDb(dataDir)
   await migrateLocal(db)
 
-  // Mint root management token
+  // Mint root token: management rights + wildcard proxy grant
   const masterToken = mintManagementToken(
     keypair.privateKey,
     ['manage_services', 'manage_vaults'],
     ['*'],
+    [{ services: '*', vault: 'local' }],
   )
 
   const port = 9315

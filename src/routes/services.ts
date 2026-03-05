@@ -2,10 +2,8 @@ import { Hono } from 'hono'
 import type { CoreHonoEnv } from '../core/types'
 import type { AuthScheme } from '../auth-schemes'
 import { requireToken, requireRight } from '../core/middleware'
-import { extractBearerToken } from '../proxy'
 import {
   extractGrants,
-  extractManagementRights,
   getPublicKeyHex,
 } from '../biscuit'
 import {
@@ -19,15 +17,11 @@ import { RESERVED_PATHS, deriveDisplayName } from '../lib/utils'
 
 export const serviceRoutes = new Hono<CoreHonoEnv>()
 
-serviceRoutes.get('/', async c => {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
-
+serviceRoutes.get('/', requireToken, async c => {
   const db = c.get('db')
-  const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
   const allServices = await listServices(db)
 
-  const mgmt = extractManagementRights(token, publicKeyHex)
+  const mgmt = c.get('managementRights')!
   if (mgmt.rights.includes('manage_services')) {
     return c.json(
       allServices.map(s => ({
@@ -39,6 +33,8 @@ serviceRoutes.get('/', async c => {
     )
   }
 
+  const token = c.get('token')!
+  const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
   const grants = extractGrants(token, publicKeyHex)
   const allowedServices = new Set<string>()
   for (const grant of grants) {
@@ -63,19 +59,17 @@ serviceRoutes.get('/', async c => {
   )
 })
 
-serviceRoutes.get('/:service', async c => {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
-
+serviceRoutes.get('/:service', requireToken, async c => {
   const serviceName = c.req.param('service')
   const db = c.get('db')
-  const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
 
   // Check authorization: manage_services right or a grant for this service
-  const mgmt = extractManagementRights(token, publicKeyHex)
+  const mgmt = c.get('managementRights')!
   let authorized = mgmt.rights.includes('manage_services')
 
   if (!authorized) {
+    const token = c.get('token')!
+    const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
     const grants = extractGrants(token, publicKeyHex)
     for (const grant of grants) {
       if (grant.services.includes('*') || grant.services.includes(serviceName)) {
