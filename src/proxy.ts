@@ -2,7 +2,7 @@ import type { Context } from 'hono'
 import type { CoreHonoEnv } from './core/types'
 import {
   authorizeRequest,
-  extractUserId,
+  extractTokenFacts,
   getPublicKeyHex,
   getRevocationIds,
 } from './biscuit'
@@ -114,8 +114,15 @@ export async function handleProxy(
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  // Extract userId from token identity
-  const userId = extractUserId(token, publicKeyHex)
+  // Resolve userId: admin tokens can use ?user= to act as another user
+  const facts = extractTokenFacts(token, publicKeyHex)
+  const userParam = c.req.query('user')
+  let userId: string | null
+  if (facts.rights.includes('admin') && userParam) {
+    userId = userParam
+  } else {
+    userId = facts.userId
+  }
   if (!userId) {
     return c.json({ error: 'No identity in token' }, 403)
   }
@@ -126,9 +133,11 @@ export async function handleProxy(
     return c.json({ error: `No credential found for ${service}` }, 404)
   }
 
-  // Build upstream request
+  // Build upstream request — strip internal "user" param before forwarding
   const url = new URL(c.req.url)
-  const upstreamUrl = `${svc.baseUrl.replace(/\/$/, '')}${upstreamPath}${url.search}`
+  url.searchParams.delete('user')
+  const upstreamSearch = url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''
+  const upstreamUrl = `${svc.baseUrl.replace(/\/$/, '')}${upstreamPath}${upstreamSearch}`
 
   const headers = new Headers()
   c.req.raw.headers.forEach((value, key) => {

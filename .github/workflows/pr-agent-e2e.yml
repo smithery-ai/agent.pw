@@ -32,6 +32,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           github-token: ${{ github.token }}
+          retries: 3
           script: |
             const PRODUCTION_URL = 'https://warden.run'
 
@@ -53,12 +54,23 @@ jobs:
             let matchedCheckRun = null
 
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-              const { data } = await github.rest.checks.listForRef({
-                owner,
-                repo,
-                ref: headSha,
-                per_page: 100,
-              })
+              let data
+              try {
+                const res = await github.rest.checks.listForRef({
+                  owner,
+                  repo,
+                  ref: headSha,
+                  per_page: 100,
+                })
+                data = res.data
+              } catch (err) {
+                core.warning(`Attempt ${attempt}/${maxAttempts}: GitHub API error: ${err.message}`)
+                if (attempt < maxAttempts) {
+                  await new Promise(resolve => setTimeout(resolve, delayMs))
+                  continue
+                }
+                throw err
+              }
 
               matchedCheckRun = data.check_runs.find(cr =>
                 cr.app?.slug === 'cloudflare-workers-and-pages' &&
@@ -133,7 +145,7 @@ jobs:
             exit 1
           fi
 
-      - name: Provision test credentials and mint proxy token
+      - name: Provision test credentials
         id: provision
         env:
           PREVIEW_URL: ${{ steps.cloudflare.outputs.preview_url }}
@@ -143,10 +155,10 @@ jobs:
           set -euo pipefail
           BASE="${PREVIEW_URL%/}"
 
-          # Store Linear credential in e2e-test org
-          echo "Storing credential for api.linear.app in e2e-test org..."
+          # Store Linear credential for e2e-test user
+          echo "Storing credential for api.linear.app (user=e2e-test)..."
           cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
-            -X PUT "${BASE}/credentials/api.linear.app?org=e2e-test" \
+            -X PUT "${BASE}/credentials/api.linear.app?user=e2e-test" \
             -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"token\": \"${LINEAR_TEST_KEY}\"}")
@@ -157,23 +169,9 @@ jobs:
             exit 1
           fi
 
-          # Mint a proxy token scoped to the e2e-test org
-          echo "Minting proxy token..."
-          mint_status=$(curl -sS -o /tmp/e2e-mint.json -w '%{http_code}' \
-            -X POST "${BASE}/tokens/mint" \
-            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d '{"bindings": {"api.linear.app": {"vault": "e2e-test"}}}')
-          echo "Mint status: ${mint_status}"
-          if [ "${mint_status}" != "200" ]; then
-            cat /tmp/e2e-mint.json
-            echo "Failed to mint proxy token"
-            exit 1
-          fi
-
-          WARDEN_TOKEN=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/e2e-mint.json','utf8')).token)")
-          echo "::add-mask::${WARDEN_TOKEN}"
-          echo "warden_token=${WARDEN_TOKEN}" >> "$GITHUB_OUTPUT"
+          # Admin token can proxy as any user via ?user= param — no separate mint needed
+          echo "::add-mask::${E2E_MANAGEMENT_TOKEN}"
+          echo "warden_token=${E2E_MANAGEMENT_TOKEN}" >> "$GITHUB_OUTPUT"
 
       - name: Build e2e agent prompt
         id: prompt
@@ -184,13 +182,13 @@ jobs:
           PROMPT_FILE="$RUNNER_TEMP/e2e-agent-prompt.txt"
 
           cat > "$PROMPT_FILE" <<EOF
-          You are a CI end-to-end test agent for the Warden API (agent.pw).
+          You are a CI end-to-end test agent for the agent.pw API.
 
           Target preview URL:
           ${PREVIEW_URL}
 
-          A proxy token has already been provisioned (WARDEN_TOKEN env var).
-          This token is scoped to the "e2e-test" org which has Linear API credentials stored.
+          An admin token is available in the WARDEN_TOKEN env var.
+          Linear API credentials are stored for user "e2e-test".
 
           Your task:
           1. Use terminal commands (curl) to perform real HTTP requests against that preview.
@@ -207,7 +205,7 @@ jobs:
                - JSON includes "service" field
 
              B. Authenticated query through proxy:
-               POST {base}/proxy/api.linear.app/graphql with:
+               POST {base}/proxy/api.linear.app/graphql?user=e2e-test with:
                  Authorization: Bearer \$WARDEN_TOKEN
                  Content-Type: application/json
                Body:
@@ -356,7 +354,7 @@ jobs:
               // B. GraphQL proxy
               const gqlQuery =
                 'query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }'
-              const gql = await fetchJson(`${base}/proxy/api.linear.app/graphql`, {
+              const gql = await fetchJson(`${base}/proxy/api.linear.app/graphql?user=e2e-test`, {
                 method: 'POST',
                 headers: {
                   Accept: 'application/json',
