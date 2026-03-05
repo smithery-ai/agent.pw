@@ -1,33 +1,32 @@
 #!/usr/bin/env bun
 
-import { setup } from './commands/setup'
-import { start } from './commands/start'
-import { stop } from './commands/stop'
-import { login } from './commands/login'
-import { logout } from './commands/logout'
-import { listCreds, addCred } from './commands/cred'
-import { listServices, getServiceCmd, addService, removeService } from './commands/service'
-import { curl } from './commands/curl'
-import { resolve } from './resolve'
-
 const args = process.argv.slice(2)
 const command = args[0]
 
 async function main() {
   switch (command) {
-    case 'setup':
+    case 'setup': {
+      const { setup } = await import('./commands/setup')
       return setup()
-    case 'start':
+    }
+    case 'start': {
+      const { start } = await import('./commands/start')
       return start()
-    case 'stop':
+    }
+    case 'stop': {
+      const { stop } = await import('./commands/stop')
       return stop()
+    }
     case 'login': {
       const hostIndex = args.indexOf('--host')
       const host = hostIndex !== -1 ? args[hostIndex + 1] : undefined
+      const { login } = await import('./commands/login')
       return login(host)
     }
-    case 'logout':
+    case 'logout': {
+      const { logout } = await import('./commands/logout')
       return logout()
+    }
     case 'cred':
     case 'credential':
     case 'creds': {
@@ -40,14 +39,17 @@ async function main() {
           console.error('Usage: agent.pw cred add <service> [--value <key>]')
           process.exit(1)
         }
+        const { addCred } = await import('./commands/cred')
         return addCred(service, value)
       }
+      const { listCreds } = await import('./commands/cred')
       return listCreds()
     }
     case 'service':
     case 'services': {
       const subcommand = args[1]
       if (subcommand === 'list' || !subcommand) {
+        const { listServices } = await import('./commands/service')
         return listServices()
       } else if (subcommand === 'get') {
         const svc = args[2]
@@ -55,6 +57,7 @@ async function main() {
           console.error('Usage: agent.pw service get <hostname>')
           process.exit(1)
         }
+        const { getServiceCmd } = await import('./commands/service')
         return getServiceCmd(svc)
       } else if (subcommand === 'add') {
         const svc = args[2]
@@ -64,6 +67,7 @@ async function main() {
         }
         const fileIndex = args.indexOf('--file')
         const filePath = fileIndex !== -1 ? args[fileIndex + 1] : undefined
+        const { addService } = await import('./commands/service')
         return addService(svc, filePath)
       } else if (subcommand === 'remove' || subcommand === 'rm') {
         const svc = args[2]
@@ -71,6 +75,7 @@ async function main() {
           console.error('Usage: agent.pw service remove <hostname>')
           process.exit(1)
         }
+        const { removeService } = await import('./commands/service')
         return removeService(svc)
       }
       console.error(`Unknown service subcommand: ${subcommand}`)
@@ -78,10 +83,13 @@ async function main() {
       process.exit(1)
       return
     }
-    case 'curl':
+    case 'curl': {
+      const { curl } = await import('./commands/curl')
       return curl(args.slice(1))
+    }
     case 'status': {
       try {
+        const { resolve } = await import('./resolve')
         const { url } = await resolve()
         console.log(`agent.pw available at ${url}`)
       } catch {

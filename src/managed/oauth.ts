@@ -558,12 +558,12 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
 
   // Mint master biscuit — covers all services in user's org
   const workosUserId = session?.workosUserId ?? identity
-  const wardenToken = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
+  const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
     { vault: orgId, metadata: { userId: workosUserId } },
   ])
 
   // Complete the flow in DB
-  await completeAuthFlow(db, state, { wardenToken, identity, orgId })
+  await completeAuthFlow(db, state, { token, identity, orgId })
 
-  return c.html(SuccessPage({ token: wardenToken, service: svc }))
+  return c.html(SuccessPage({ token, service: svc }))
 })

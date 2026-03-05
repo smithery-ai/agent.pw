@@ -307,7 +307,7 @@ export interface CreateFlowData {
 }
 
 export interface CompleteFlowData {
-  wardenToken: string
+  token: string
   identity: string
   orgId: string
 }
@@ -340,7 +340,7 @@ export async function completeAuthFlow(db: Database, id: string, data: CompleteF
     .update(authFlows)
     .set({
       status: 'completed',
-      wardenToken: data.wardenToken,
+      token: data.token,
       identity: data.identity,
       orgId: data.orgId,
     })

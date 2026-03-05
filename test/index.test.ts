@@ -406,7 +406,7 @@ describe('Credential Management', () => {
     const body = (await res.json()) as any[]
     expect(body).toHaveLength(1)
     expect(body[0].service).toBe('api.github.com')
-    expect(body[0].hasCredentials).toBe(true)
+    expect(body[0].createdAt).toBeDefined()
   })
 
   it('rejects credential for non-existent service', async () => {
@@ -970,7 +970,7 @@ describe('Auth Flow Polling', () => {
       expiresAt: new Date(Date.now() + 600000),
     })
     await completeAuthFlow(db, 'test-flow-2', {
-      wardenToken: 'wdn_test',
+      token: 'wdn_test',
       identity: 'alice',
       orgId: TEST_ORG_ID,
     })
@@ -1551,7 +1551,7 @@ describe('OAuth Flow', () => {
       expiresAt: new Date(Date.now() + 600000),
     })
     await completeAuthFlow(db, 'completed-flow', {
-      wardenToken: 'wdn_old',
+      token: 'wdn_old',
       identity: 'alice',
       orgId: TEST_ORG_ID,
     })
@@ -1639,7 +1639,7 @@ describe('OAuth Flow', () => {
       // Verify flow was completed
       const flow = await getAuthFlow(db, 'success-flow')
       expect(flow?.status).toBe('completed')
-      expect(flow?.wardenToken).toMatch(/^wdn_/)
+      expect(flow?.token).toMatch(/^wdn_/)
     } finally {
       globalThis.fetch = originalFetch
     }

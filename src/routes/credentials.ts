@@ -21,8 +21,7 @@ credentialRoutes.get('/', requireToken, resolveOrgId, async c => {
     creds.map(cr => ({
       service: cr.service,
       slug: cr.slug,
-      hasCredentials: !!cr.encryptedCredentials,
-      expiresAt: cr.expiresAt,
+      createdAt: cr.createdAt,
     })),
   )
 })

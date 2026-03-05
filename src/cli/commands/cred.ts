@@ -1,6 +1,18 @@
 import { createInterface } from 'node:readline'
 import { api } from '../http'
 
+function relativeTime(date: string) {
+  const diff = Date.now() - new Date(date).getTime()
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
 export async function listCreds() {
   const res = await api('/credentials')
   if (!res.ok) {
@@ -11,8 +23,6 @@ export async function listCreds() {
   const creds = (await res.json()) as Array<{
     service: string
     slug: string
-    hasCredentials: boolean
-    expiresAt?: string
     createdAt?: string
   }>
 
@@ -21,10 +31,10 @@ export async function listCreds() {
     return
   }
 
-  console.log(`${'SERVICE'.padEnd(30)}${'SLUG'.padEnd(12)}STATUS`)
+  console.log(`${'SERVICE'.padEnd(30)}ADDED`)
   for (const cr of creds) {
-    const status = cr.hasCredentials ? 'stored' : 'empty'
-    console.log(`${cr.service.padEnd(30)}${cr.slug.padEnd(12)}${status}`)
+    const added = cr.createdAt ? relativeTime(cr.createdAt) : ''
+    console.log(`${cr.service.padEnd(30)}${added}`)
   }
 }
 

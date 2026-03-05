@@ -7,25 +7,15 @@ Agent ──▶ agent.pw/proxy/api.github.com/user ──▶ api.github.com/user
        (bearer token)                           (real API key injected)
 ```
 
-## Getting Started
-
-### Local
-
-```bash
-npx agent.pw setup
-```
-
-Generates Biscuit signing keys (Ed25519), creates a local database, and starts the proxy at `local.agent.pw`. Everything runs on your machine — no external dependencies.
-
-### Managed
+## Getting Started (Cloud)
 
 ```bash
 npx agent.pw login
 ```
 
-Connects the CLI to `https://agent.pw` (or a self-hosted instance with `--host`).
+Authenticates with the agent.pw Cloud backend. Services are pre-configured — no setup needed.
 
-### Add a credential
+Add a credential:
 
 ```
 npx agent.pw cred add api.linear.app
@@ -33,109 +23,123 @@ npx agent.pw cred add api.linear.app
 → Stored.
 ```
 
-Or non-interactively:
+Use the proxy — `npx agent.pw curl` works like `curl` but injects the bearer token automatically:
 
 ```bash
-npx agent.pw cred add api.linear.app --value "lin_api_abc123"
-```
-
-Now use the proxy. `npx agent.pw curl` works exactly like `curl` — same flags, same syntax — but injects the bearer token automatically:
-
-```bash
-npx agent.pw curl local.agent.pw/proxy/api.linear.app/graphql \
+npx agent.pw curl agent.pw/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
-agent.pw looks up `api.linear.app`, injects the stored credential, and proxies the request. The agent never sees the Linear API key.
+agent.pw looks up `api.linear.app`, injects the stored credential, and proxies the request. The agent never sees the API key.
 
 View stored credentials:
 
-```bash
+```
 npx agent.pw cred
+
+SERVICE                       ADDED
+api.linear.app                2d ago
+api.github.com                5d ago
 ```
 
-Credentials are write-only. Agents who use the CLI cannot exfiltrate credentials.
+Credentials are write-only. Agents cannot exfiltrate them.
 
-### Adding Services
+## Getting Started (Self-Hosted)
 
-Register a service via CLI:
+```bash
+npx agent.pw setup
+```
+
+Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token. Run `npx agent.pw start` to start the proxy. Everything runs on your machine — no external dependencies.
+
+You start with an empty service table. Add services using the skill in Claude Code or Codex:
+
+```
+/add-service api.linear.app
+```
+
+The agent reads the API docs, figures out the auth method and headers, and writes the service entry. You approve the result.
+
+Or add manually:
 
 ```bash
 npx agent.pw service add api.linear.app --file service.json
 ```
 
-Or use the skill in Claude Code or Codex:
+Then add credentials and use the proxy the same way as Cloud — just pointed at your local instance.
 
-```
-/agentpw-add-service api.linear.app
-```
-
-The agent reads the API docs, figures out the auth method and headers, and writes the service entry. You approve the result.
+The CLI auto-detects which mode you're in. If a local instance is running, commands go there. Otherwise they go to the managed backend. `npx agent.pw status` shows which backend you're connected to.
 
 ## Concepts
 
 **Services.** A service defines how a particular API is authenticated. Each entry maps a hostname to its auth configuration: what kind of credentials are accepted (API key, OAuth), which headers to inject, and an OAuth app (client ID + secret) if applicable.
 
-**Credentials.** A credential is the specific secret used to connect to a service — the actual API key or OAuth token. Credentials are stored encrypted and never exposed to agents. When an agent makes a proxied request, agent.pw looks up the credential for that service and injects it into the upstream request according to the service's header config.
+**Credentials.** A credential is the specific secret used to connect to a service — the actual API key or OAuth token. Credentials are stored encrypted and never exposed to agents. When an agent makes a proxied request, agent.pw looks up the credential for that service and injects it into the upstream request.
 
 **Tokens.** On setup, agent.pw mints a bearer token (`wdn_` prefix). The master token has full access to the service table and credential store. Tokens given to agents can be attenuated — scoped to specific services, methods, and TTLs. A restricted token can never gain more power than its parent. Tokens can be revoked instantly. Backed by [Biscuit](https://www.biscuitsec.org/) for cryptographic attenuation.
 
-## CLI Reference
+## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `agent.pw login [--host <url>]` | Log in to agent.pw (default: https://agent.pw) |
-| `agent.pw logout` | Log out from agent.pw |
-| `agent.pw setup` | Set up a local instance (keys, database) |
-| `agent.pw start` | Start the local proxy server |
-| `agent.pw stop` | Stop the local proxy server |
-| `agent.pw status` | Show connection status |
-| `agent.pw service` | List registered services |
-| `agent.pw service get <host>` | Show service details |
-| `agent.pw service add <host> [--file f]` | Register a service |
-| `agent.pw service remove <host>` | Remove a service |
-| `agent.pw cred` | List stored credentials |
-| `agent.pw cred add <service> [--value <key>]` | Add a credential |
-| `agent.pw curl <url> [args...]` | Proxy-aware curl wrapper |
+```
+npx agent.pw login [--host <url>]              authenticate with Cloud (default: https://agent.pw)
+npx agent.pw logout                            log out from agent.pw
+npx agent.pw setup                             self-hosted: generate keys, create DB, mint root token
+npx agent.pw start                             start the local proxy server
+npx agent.pw stop                              stop the local proxy server
+npx agent.pw status                            show connected backend + token info
+
+npx agent.pw service                           list configured services
+npx agent.pw service get <hostname>            show service details
+npx agent.pw service add <hostname> [--file f] register a service
+npx agent.pw service remove <hostname>         remove a service
+
+npx agent.pw cred                              list credentials
+npx agent.pw cred add <service> [--value <key>] add a credential
+npx agent.pw cred remove <service>             remove a credential
+
+npx agent.pw curl <url> [curl flags]           proxy request with auto-injected token
+```
 
 ## API Reference
 
-### Proxy
+```
+Proxy:
+  ALL  /proxy/:service/*             proxy with injected credentials (bearer token required)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `ALL` | `/proxy/:service/*` | Proxy with injected credentials (requires bearer token) |
+Credentials:
+  GET    /credentials                list credentials (org from token)
+  PUT    /credentials/:service       store a credential
+  DELETE /credentials/:service       remove a credential
 
-### Credential Management
+Services:
+  GET    /services                   list services
+  GET    /services/:service          get service details
+  PUT    /services/:service          register/update a service
+  DELETE /services/:service          remove a service
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/credentials` | List credentials (org from token) |
-| `PUT` | `/credentials/:service` | Store a credential |
-| `DELETE` | `/credentials/:service` | Remove a credential |
+Tokens:
+  POST   /tokens/mint               mint a new token
+  POST   /tokens/restrict           attenuate a token (no auth needed)
+  POST   /tokens/revoke             revoke a token
 
-### Service Catalog
+Infrastructure:
+  GET    /.well-known/jwks.json      Ed25519 public key (JWK format)
+```
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/services` | List services |
-| `GET` | `/services/:service` | Get service details |
-| `PUT` | `/services/:service` | Register/update a service |
-| `DELETE` | `/services/:service` | Remove a service |
+## Repo Structure
 
-### Tokens
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/tokens/mint` | Mint a new token |
-| `POST` | `/tokens/restrict` | Attenuate a token (no auth needed) |
-| `POST` | `/tokens/revoke` | Revoke a token |
-
-### Infrastructure
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/.well-known/jwks.json` | Ed25519 public key (JWK format) |
+```
+agent.pw/
+  src/
+    core/           ← proxy, vault, tokens (all OSS)
+    managed/        ← WorkOS auth, managed OAuth, UI
+    routes/         ← API route handlers
+    cli/            ← CLI commands
+    db/             ← Drizzle schema and queries
+    lib/            ← shared utilities, crypto
+  entry.local.ts    ← Bun + PGlite entry point
+  entry.managed.ts  ← Cloudflare Workers entry point
+```
 
 ## Development
 

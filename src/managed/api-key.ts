@@ -125,7 +125,7 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
   await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 
   // Mint master biscuit — covers all services in user's org
-  const wardenToken = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
+  const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
     { vault: orgId, metadata: { userId: session.workosUserId } },
   ])
 
@@ -133,12 +133,12 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
   if (flowId) {
     const flow = await getAuthFlow(db, flowId)
     if (flow && flow.status !== 'completed') {
-      await completeAuthFlow(db, flowId, { wardenToken, identity, orgId })
+      await completeAuthFlow(db, flowId, { token, identity, orgId })
     }
   }
 
-  if (isJson) return c.json({ token: wardenToken, identity })
-  return c.html(SuccessPage({ token: wardenToken, service: svc }))
+  if (isJson) return c.json({ token, identity })
+  return c.html(SuccessPage({ token, service: svc }))
 })
 
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {

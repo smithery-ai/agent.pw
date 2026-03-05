@@ -45,6 +45,6 @@ export async function setup() {
   console.log('Master token:', masterToken)
   console.log('\nNext steps:')
   console.log('  agent.pw start        Start the local proxy server')
-  console.log('  agent.pw creds add    Add API credentials')
+  console.log('  agent.pw cred add     Add API credentials')
   console.log('  agent.pw curl <url>   Make authenticated API calls')
 }

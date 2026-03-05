@@ -19,6 +19,7 @@
     "managed-oauth": "infisical run --path=/apps/warden --env=dev --silent -- tsx scripts/managed-oauth.ts",
     "secrets:login": "infisical login",
     "secrets:export": "infisical export --path=/apps/warden --env=dev --format=dotenv > .env",
+    "compile": "bun build --compile src/cli/index.ts --outfile dist/agent.pw",
     "test": "vitest run --coverage",
     "test:watch": "vitest"
   },

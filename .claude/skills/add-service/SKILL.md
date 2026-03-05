@@ -38,22 +38,8 @@ The user wants to register an API service so agent.pw knows how to authenticate 
 
    Most APIs support multiple schemes. List all of them. Put the simplest scheme first.
 
-3. **Register the service** via CLI or API:
+3. **Write the service JSON** to a temp file:
 
-   Via CLI:
-   ```bash
-   npx agent.pw service add <hostname> --file service.json
-   ```
-
-   Via curl:
-   ```bash
-   npx agent.pw curl local.agent.pw/services/<hostname> \
-     -X PUT \
-     -H "Content-Type: application/json" \
-     -d '<json>'
-   ```
-
-   The JSON body:
    ```json
    {
      "baseUrl": "https://<hostname>",
@@ -69,7 +55,19 @@ The user wants to register an API service so agent.pw knows how to authenticate 
    - `authSchemes`: array from step 2
    - `docsUrl`: link to the API documentation
 
-4. **Tell the user** the service is registered and they can add a credential with `npx agent.pw cred add <hostname>`.
+4. **Register the service** via CLI:
+
+   ```bash
+   npx agent.pw service add <hostname> --file /tmp/service.json
+   ```
+
+5. **Verify** it was registered:
+
+   ```bash
+   npx agent.pw service get <hostname>
+   ```
+
+6. **Tell the user** the service is registered and they can add a credential with `npx agent.pw cred add <hostname>`.
 
 ## Examples
 

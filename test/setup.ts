@@ -125,7 +125,7 @@ export async function createTestDb() {
       code_verifier TEXT,
       org_id TEXT,
       oauth_source TEXT,
-      warden_token TEXT,
+      token TEXT,
       identity TEXT,
       expires_at TIMESTAMP NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now()

@@ -72,7 +72,7 @@ authRoutes.get('/status/:flowId', async c => {
         if (flow.status === 'completed') {
           await stream.writeSSE({
             event: 'complete',
-            data: JSON.stringify({ status: 'completed', token: flow.wardenToken, identity: flow.identity }),
+            data: JSON.stringify({ status: 'completed', token: flow.token, identity: flow.identity }),
           })
           return
         }
@@ -87,7 +87,7 @@ authRoutes.get('/status/:flowId', async c => {
   if (!flow) return c.json({ error: 'Flow not found' }, 404)
 
   if (flow.status === 'completed') {
-    return c.json({ status: 'completed', token: flow.wardenToken, identity: flow.identity })
+    return c.json({ status: 'completed', token: flow.token, identity: flow.identity })
   }
 
   return c.json({ status: 'pending' }, 202)
