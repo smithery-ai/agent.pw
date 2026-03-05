@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { HonoEnv } from './types'
 import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
-import { mintToken } from '../biscuit'
+import { mintManagementToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
 import { ApiKeyFormPage, SuccessPage, ErrorPage } from './ui'
 import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
@@ -24,8 +24,8 @@ apiKeyRoutes.get('/:service/api-key', requireBrowserSession, async c => {
 
   if (!svc) return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
 
-  const session = c.get('session')!
-  const orgId = session.orgId
+  const session = c.get('session')
+  const orgId = session?.orgId ?? 'local'
 
   // Create a flow for SSE/polling
   const flowId = c.req.query('flow_id') ?? randomId()
@@ -116,17 +116,17 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
     // Validation failed (network error, etc.) — don't block, store with default identity
   }
 
-  const session = c.get('session')!
-  const orgId = session.orgId
+  const session = c.get('session')
+  const orgId = session?.orgId ?? 'local'
 
   // Store credential in org
   const credHeaders = buildCredentialHeaders(apiKeyScheme, apiKey)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
   await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 
-  // Mint master biscuit — covers all services in user's org
-  const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
-    { vault: orgId, metadata: { userId: session.workosUserId } },
+  // Mint token with vault_admin + proxy grants so the user can both manage credentials and proxy
+  const token = mintManagementToken(c.env.BISCUIT_PRIVATE_KEY, [], [orgId], [
+    { vault: orgId, metadata: { userId: session?.workosUserId ?? identity } },
   ])
 
   // Complete the flow if one exists

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { HonoEnv } from './types'
 import type { Database } from '../db/index'
 import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
-import { mintToken } from '../biscuit'
+import { mintManagementToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
 import { getSessionFromCookie } from './session'
 import { SuccessPage, ErrorPage } from './ui'
@@ -29,17 +29,6 @@ function randomId() {
   const bytes = new Uint8Array(24)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
-}
-
-export async function encryptSecret(encryptionKey: string, secret: string): Promise<Buffer> {
-  const key = await importAesKey(encryptionKey)
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const plaintext = new TextEncoder().encode(secret)
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext)
-  const result = Buffer.alloc(12 + ciphertext.byteLength)
-  result.set(iv, 0)
-  result.set(new Uint8Array(ciphertext), 12)
-  return result
 }
 
 async function decryptSecret(
@@ -135,73 +124,6 @@ export async function resolveOAuthConfig(
   return null
 }
 
-export async function refreshOAuthToken(params: {
-  tokenUrl: string
-  refreshToken: string
-  clientId: string
-  clientSecret?: string
-  scopes?: string
-  authConfig?: Record<string, string>
-}) {
-  const tokenBody: Record<string, string> = {
-    grant_type: 'refresh_token',
-    refresh_token: params.refreshToken,
-  }
-
-  if (params.scopes) {
-    tokenBody.scope = params.scopes
-  }
-
-  const tokenHeaders: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-  }
-
-  if (params.authConfig?.token_auth === 'basic' && params.clientSecret) {
-    tokenHeaders.Authorization = `Basic ${btoa(`${params.clientId}:${params.clientSecret}`)}`
-  } else {
-    tokenBody.client_id = params.clientId
-    if (params.clientSecret) {
-      tokenBody.client_secret = params.clientSecret
-    }
-  }
-
-  if (params.authConfig?.token_accept) {
-    tokenHeaders.Accept = params.authConfig.token_accept
-  }
-
-  const tokenRes = await fetch(params.tokenUrl, {
-    method: 'POST',
-    headers: tokenHeaders,
-    body: new URLSearchParams(tokenBody).toString(),
-  })
-
-  if (!tokenRes.ok) {
-    const text = await tokenRes.text()
-    throw new Error(`Token refresh failed: ${text}`)
-  }
-
-  const tokenData = await parseTokenPayload(tokenRes)
-  const accessToken =
-    (params.authConfig?.token_path
-      ? getNestedValue(tokenData, params.authConfig.token_path)
-      : tokenData.access_token) as string
-
-  if (!accessToken) {
-    throw new Error('No access token in refresh response')
-  }
-
-  const refreshToken =
-    (params.authConfig?.refresh_token_path
-      ? getNestedValue(tokenData, params.authConfig.refresh_token_path)
-      : tokenData.refresh_token) as string | undefined
-
-  return {
-    accessToken,
-    refreshToken: asString(refreshToken) ?? params.refreshToken,
-    expiresAt: resolveExpiresAt(tokenData),
-  }
-}
-
 // ─── Start OAuth ─────────────────────────────────────────────────────────────
 
 oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
@@ -213,8 +135,8 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
     return c.json({ error: `Unknown service: ${serviceName}` }, 404)
   }
 
-  const session = c.get('session')!
-  const orgId = session.orgId
+  const session = c.get('session')
+  const orgId = session?.orgId ?? 'local'
 
   const oauth = await resolveOAuthConfig(c.env.ENCRYPTION_KEY, svc)
 
@@ -413,9 +335,9 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, storedCredentials)
   await upsertCredential(db, orgId, serviceName, 'default', encrypted)
 
-  // Mint master biscuit — covers all services in user's org
+  // Mint token with vault_admin + proxy grants so the user can both manage credentials and proxy
   const workosUserId = session?.workosUserId ?? identity
-  const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, [
+  const token = mintManagementToken(c.env.BISCUIT_PRIVATE_KEY, [], [orgId], [
     { vault: orgId, metadata: { userId: workosUserId } },
   ])
 

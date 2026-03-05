@@ -25,13 +25,6 @@ export interface ServiceIconPreview {
   fallback: string
 }
 
-type JsonRecord = Record<string, unknown>
-
-function asRecord(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  return value as JsonRecord
-}
-
 function normalizeHostname(hostname: string) {
   return hostname.trim().toLowerCase().replace(/:\d+$/, '')
 }
@@ -70,22 +63,6 @@ function findOverride(hostname: string) {
   return HOST_ICON_OVERRIDES.find(override => override.pattern.test(normalized))
 }
 
-function isHttpUrl(value: unknown): value is string {
-  if (typeof value !== 'string' || value.trim().length === 0) return false
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-function normalizeFallback(value: unknown, fallback: string) {
-  if (typeof value !== 'string') return fallback
-  const cleaned = value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3)
-  return cleaned.length > 0 ? cleaned : fallback
-}
-
 export function inferServiceIconPreview(hostname: string, displayName?: string): ServiceIconPreview {
   const normalized = normalizeHostname(hostname)
   const override = findOverride(normalized)
@@ -97,42 +74,5 @@ export function inferServiceIconPreview(hostname: string, displayName?: string):
     host: iconHost,
     url: `https://icons.duckduckgo.com/ip3/${iconHost}.ico`,
     fallback,
-  }
-}
-
-export function resolveServiceIconPreview(
-  hostname: string,
-  preview: unknown,
-  displayName?: string,
-): ServiceIconPreview {
-  const inferred = inferServiceIconPreview(hostname, displayName)
-  const previewRecord = asRecord(preview)
-  const iconRecord = asRecord(previewRecord?.icon)
-  if (!iconRecord) return inferred
-
-  const url = isHttpUrl(iconRecord.url) ? iconRecord.url : inferred.url
-  const host = typeof iconRecord.host === 'string' ? iconRecord.host : inferred.host
-  const source =
-    iconRecord.source === 'hostname-favicon' || iconRecord.source === 'custom'
-      ? iconRecord.source
-      : inferred.source
-
-  return {
-    source,
-    host,
-    url,
-    fallback: normalizeFallback(iconRecord.fallback, inferred.fallback),
-  }
-}
-
-export function mergeServicePreviewWithInferredIcon(
-  hostname: string,
-  preview?: unknown,
-  displayName?: string,
-) {
-  const base = asRecord(preview) ?? {}
-  return {
-    ...base,
-    icon: resolveServiceIconPreview(hostname, base, displayName),
   }
 }
