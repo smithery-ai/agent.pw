@@ -43,6 +43,13 @@
       "when": 1772880000000,
       "tag": "0005_crawl_state",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772721724330,
+      "tag": "0006_magenta_jubilee",
+      "breakpoints": true
     }
   ]
 }

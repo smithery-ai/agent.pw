@@ -1,6 +1,21 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.5/schema.json",
   "files": {
-    "includes": ["**", "!coverage", "!.context", "!.claude", "!node_modules", "!worker-configuration.d.ts", "!.wrangler"]
-  }
+    "includes": ["**", "!coverage", "!.context", "!.claude", "!node_modules", "!worker-configuration.d.ts", "!.wrangler", "!.workers-biscuit-pr"]
+  },
+  "overrides": [
+    {
+      "includes": ["test/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    }
+  ]
 }

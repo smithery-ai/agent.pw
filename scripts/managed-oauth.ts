@@ -7,11 +7,11 @@
  * Example:
  *   pnpm run managed-oauth api.github.com Iv1.abc123 s3cret "repo read:user"
  *
- * Requires DATABASE_URL and ENCRYPTION_KEY env vars (injected by infisical).
+ * Requires DATABASE_URL and BISCUIT_PRIVATE_KEY env vars (injected by infisical).
  */
 
 import postgres from 'postgres'
-import { importAesKey } from '../src/lib/credentials-crypto'
+import { deriveEncryptionKey, encryptSecret } from '../src/lib/credentials-crypto'
 
 const [service, clientId, clientSecret, scopes] = process.argv.slice(2)
 
@@ -21,30 +21,21 @@ if (!service || !clientId || !clientSecret) {
 }
 
 const databaseUrl = process.env.DATABASE_URL
-const encryptionKey = process.env.ENCRYPTION_KEY
+const biscuitPrivateKey = process.env.BISCUIT_PRIVATE_KEY
 
 if (!databaseUrl) {
   console.error('DATABASE_URL is required')
   process.exit(1)
 }
-if (!encryptionKey) {
-  console.error('ENCRYPTION_KEY is required')
+if (!biscuitPrivateKey) {
+  console.error('BISCUIT_PRIVATE_KEY is required')
   process.exit(1)
 }
 
-async function encrypt(key: string, secret: string): Promise<Buffer> {
-  const cryptoKey = await importAesKey(key)
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const plaintext = new TextEncoder().encode(secret)
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, plaintext)
-  const result = Buffer.alloc(12 + ciphertext.byteLength)
-  result.set(iv, 0)
-  result.set(new Uint8Array(ciphertext), 12)
-  return result
-}
+const encryptionKey = await deriveEncryptionKey(biscuitPrivateKey)
 
 const sql = postgres(databaseUrl)
-const encrypted = await encrypt(encryptionKey, clientSecret)
+const encrypted = await encryptSecret(encryptionKey, clientSecret)
 
 await sql`
   UPDATE warden.services
@@ -68,7 +59,7 @@ if (!row) {
 
 if (scopes && row.auth_schemes) {
   const schemes = JSON.parse(row.auth_schemes)
-  const oauth = schemes.find((s: any) => s.type === 'oauth2')
+  const oauth = schemes.find((s: Record<string, unknown>) => s.type === 'oauth2')
   if (oauth) {
     oauth.scopes = scopes
     await sql`

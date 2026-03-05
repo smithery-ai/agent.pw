@@ -32,6 +32,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           github-token: ${{ github.token }}
+          retries: 3
           script: |
             const PRODUCTION_URL = 'https://warden.run'
 
@@ -53,12 +54,23 @@ jobs:
             let matchedCheckRun = null
 
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-              const { data } = await github.rest.checks.listForRef({
-                owner,
-                repo,
-                ref: headSha,
-                per_page: 100,
-              })
+              let data
+              try {
+                const res = await github.rest.checks.listForRef({
+                  owner,
+                  repo,
+                  ref: headSha,
+                  per_page: 100,
+                })
+                data = res.data
+              } catch (err) {
+                core.warning(`Attempt ${attempt}/${maxAttempts}: GitHub API error: ${err.message}`)
+                if (attempt < maxAttempts) {
+                  await new Promise(resolve => setTimeout(resolve, delayMs))
+                  continue
+                }
+                throw err
+              }
 
               matchedCheckRun = data.check_runs.find(cr =>
                 cr.app?.slug === 'cloudflare-workers-and-pages' &&
@@ -133,7 +145,7 @@ jobs:
             exit 1
           fi
 
-      - name: Provision test credentials and mint proxy token
+      - name: Provision test credentials
         id: provision
         env:
           PREVIEW_URL: ${{ steps.cloudflare.outputs.preview_url }}
@@ -143,11 +155,12 @@ jobs:
           set -euo pipefail
           BASE="${PREVIEW_URL%/}"
 
-          # Store Linear credential in e2e-test org
-          echo "Storing credential for api.linear.app in e2e-test org..."
+          # Store Linear credential for e2e-test user
+          echo "Storing credential for api.linear.app (user=e2e-test)..."
           cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
-            -X PUT "${BASE}/vaults/e2e-test/credentials/api.linear.app" \
+            -X PUT "${BASE}/credentials/api.linear.app" \
             -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
+            -H "Act-As: e2e-test" \
             -H "Content-Type: application/json" \
             -d "{\"token\": \"${LINEAR_TEST_KEY}\"}")
           echo "Credential store status: ${cred_status}"
@@ -157,23 +170,8 @@ jobs:
             exit 1
           fi
 
-          # Mint a proxy token scoped to the e2e-test org
-          echo "Minting proxy token..."
-          mint_status=$(curl -sS -o /tmp/e2e-mint.json -w '%{http_code}' \
-            -X POST "${BASE}/tokens/mint" \
-            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d '{"bindings": {"api.linear.app": {"vault": "e2e-test"}}}')
-          echo "Mint status: ${mint_status}"
-          if [ "${mint_status}" != "200" ]; then
-            cat /tmp/e2e-mint.json
-            echo "Failed to mint proxy token"
-            exit 1
-          fi
-
-          WARDEN_TOKEN=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/e2e-mint.json','utf8')).token)")
-          echo "::add-mask::${WARDEN_TOKEN}"
-          echo "warden_token=${WARDEN_TOKEN}" >> "$GITHUB_OUTPUT"
+          # Admin token can proxy as any user via Act-As header
+          echo "warden_token=${E2E_MANAGEMENT_TOKEN}" >> "$GITHUB_OUTPUT"
 
       - name: Build e2e agent prompt
         id: prompt
@@ -184,13 +182,13 @@ jobs:
           PROMPT_FILE="$RUNNER_TEMP/e2e-agent-prompt.txt"
 
           cat > "$PROMPT_FILE" <<EOF
-          You are a CI end-to-end test agent for the Warden API.
+          You are a CI end-to-end test agent for the agent.pw API.
 
           Target preview URL:
           ${PREVIEW_URL}
 
-          A proxy token has already been provisioned (WARDEN_TOKEN env var).
-          This token is scoped to the "e2e-test" org which has Linear API credentials stored.
+          An admin token is available in the WARDEN_TOKEN env var.
+          Linear API credentials are stored for user "e2e-test".
 
           Your task:
           1. Use terminal commands (curl) to perform real HTTP requests against that preview.
@@ -198,17 +196,18 @@ jobs:
              Do not print the token value, do not include it in files, and do not echo it.
           3. Run these required checks in order:
 
-             A. Authenticated discovery:
-               GET {base}/api.linear.app with headers:
+             A. Service info:
+               GET {base}/services/api.linear.app with headers:
                  Accept: application/json
                  Authorization: Bearer \$WARDEN_TOKEN
                PASS only if:
                - HTTP status is 200
-               - JSON includes service name and proxy info
+               - JSON includes "service" field
 
              B. Authenticated query through proxy:
-               POST {base}/api.linear.app/graphql with:
+               POST {base}/proxy/api.linear.app/graphql with:
                  Authorization: Bearer \$WARDEN_TOKEN
+                 Act-As: e2e-test
                  Content-Type: application/json
                Body:
                {"query":"query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }"}
@@ -216,25 +215,12 @@ jobs:
                - HTTP status is 200
                - JSON includes data.issues.nodes[0]
 
-             C. Unauthenticated discovery (triggers doc generation):
-               GET {base}/api.linear.app with header Accept: application/json (no auth)
+             C. Unauthenticated rejection:
+               GET {base}/proxy/api.linear.app/graphql with header Accept: application/json (no auth)
                PASS only if:
                - HTTP status is 401
-               - JSON includes auth_url and poll_url
-
-             D. Discovery doc generation (poll for generated docs):
-               Wait up to 90 seconds, polling every 10 seconds:
-               GET {base}/api.linear.app/docs/
-               PASS if HTTP status is 200 and JSON includes "level" field.
-               If it doesn't appear within 90s, mark as FAIL but continue.
-
-             E. Discovery meta:
-               GET {base}/api.linear.app/_meta.json
-               PASS if HTTP status is 200 and JSON is valid.
-               If 404, mark as FAIL but continue.
 
           4. Mark overall result as PASS only if checks A-C all pass.
-             Checks D-E are informational (report pass/fail but don't block overall status).
           5. Extract latest ticket from the GraphQL result and include:
              identifier, title, updatedAt, url, state name, assignee name (if present).
           6. Write result JSON to .context/e2e-agent-result.json with this shape:
@@ -351,30 +337,31 @@ jobs:
 
           async function run() {
             try {
-              // A. Authenticated discovery
-              const authDiscovery = await fetchJson(`${base}/api.linear.app`, {
+              // A. Service info
+              const svcInfo = await fetchJson(`${base}/services/api.linear.app`, {
                 headers: {
                   Accept: 'application/json',
                   Authorization: `Bearer ${wardenToken}`,
                 },
               })
               pushCheck(
-                'Authenticated discovery',
-                `GET ${base}/api.linear.app`,
-                authDiscovery.status,
-                authDiscovery.status === 200 && authDiscovery.json?.service != null,
-                `service=${authDiscovery.json?.service ?? 'missing'}`,
+                'Service info',
+                `GET ${base}/services/api.linear.app`,
+                svcInfo.status,
+                svcInfo.status === 200 && svcInfo.json?.service != null,
+                `service=${svcInfo.json?.service ?? 'missing'}`,
               )
 
               // B. GraphQL proxy
               const gqlQuery =
                 'query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }'
-              const gql = await fetchJson(`${base}/api.linear.app/graphql`, {
+              const gql = await fetchJson(`${base}/proxy/api.linear.app/graphql`, {
                 method: 'POST',
                 headers: {
                   Accept: 'application/json',
                   'Content-Type': 'application/json',
                   Authorization: `Bearer ${wardenToken}`,
+                  'Act-As': 'e2e-test',
                 },
                 body: JSON.stringify({ query: gqlQuery }),
               })
@@ -394,71 +381,22 @@ jobs:
                 : `status=${gql.status}, body=${(gql.text || '').slice(0, 200)}`
               pushCheck(
                 'GraphQL proxy',
-                `POST ${base}/api.linear.app/graphql`,
+                `POST ${base}/proxy/api.linear.app/graphql`,
                 gql.status,
                 gql.status === 200 && !!node,
                 gqlDetails,
               )
 
-              // C. Unauthenticated discovery
-              const unauthDiscovery = await fetchJson(`${base}/api.linear.app`, {
+              // C. Unauthenticated rejection
+              const unauthProxy = await fetchJson(`${base}/proxy/api.linear.app/graphql`, {
                 headers: { Accept: 'application/json' },
               })
               pushCheck(
-                'Unauthenticated discovery',
-                `GET ${base}/api.linear.app (no auth)`,
-                unauthDiscovery.status,
-                unauthDiscovery.status === 401 &&
-                  typeof unauthDiscovery.json?.auth_url === 'string' &&
-                  typeof unauthDiscovery.json?.poll_url === 'string',
-                `auth_url=${typeof unauthDiscovery.json?.auth_url === 'string'}, poll_url=${typeof unauthDiscovery.json?.poll_url === 'string'}`,
-              )
-
-              // D. Discovery doc generation (poll) — informational
-              let docsPass = false
-              for (let i = 0; i < 9; i++) {
-                const docs = await fetchJson(`${base}/api.linear.app/docs/`, {
-                  headers: { Accept: 'application/json' },
-                })
-                if (docs.status === 200 && docs.json?.level !== undefined) {
-                  pushCheck(
-                    'Discovery docs',
-                    `GET ${base}/api.linear.app/docs/`,
-                    docs.status,
-                    true,
-                    `Found docs after ${(i + 1) * 10}s`,
-                    true,
-                  )
-                  docsPass = true
-                  break
-                }
-                await new Promise(r => setTimeout(r, 10000))
-              }
-              if (!docsPass) {
-                const docs = await fetchJson(`${base}/api.linear.app/docs/`, {
-                  headers: { Accept: 'application/json' },
-                })
-                pushCheck(
-                  'Discovery docs',
-                  `GET ${base}/api.linear.app/docs/`,
-                  docs.status,
-                  false,
-                  'Docs not generated within 90s (informational)',
-                  true,
-                )
-              }
-
-              // E. Discovery meta — informational
-              const meta = await fetchJson(`${base}/api.linear.app/_meta.json`, {
-                headers: { Accept: 'application/json' },
-              })
-              pushCheck(
-                'Discovery meta',
-                `GET ${base}/api.linear.app/_meta.json`,
-                meta.status,
-                meta.status === 200 && meta.json !== null,
-                meta.status === 200 ? 'Meta available' : 'Meta not yet generated (informational)',
-                true,
+                'Unauthenticated rejection',
+                `GET ${base}/proxy/api.linear.app/graphql (no auth)`,
+                unauthProxy.status,
+                unauthProxy.status === 401,
+                `status=${unauthProxy.status}`,
               )
             } catch (err) {
               pushCheck('Fallback runtime', 'local fallback', 0, false, String(err))

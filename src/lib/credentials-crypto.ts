@@ -1,6 +1,16 @@
 import type { AuthScheme } from '../auth-schemes'
 
 /**
+ * Derive a 32-byte AES-256 encryption key from the biscuit private key.
+ * Uses SHA-256 with a domain separator so one secret covers both signing and encryption.
+ */
+export async function deriveEncryptionKey(biscuitPrivateKey: string) {
+  const input = new TextEncoder().encode(`${biscuitPrivateKey}:credential-encryption`)
+  const hash = await crypto.subtle.digest('SHA-256', input)
+  return Buffer.from(hash).toString('base64')
+}
+
+/**
  * Credentials stored alongside a connection, encrypted at rest in the database.
  * Used by the proxy to inject auth headers when forwarding to upstream APIs.
  */
@@ -76,4 +86,19 @@ export function buildCredentialHeaders(
     case 'oauth2':
       return { Authorization: `Bearer ${token}` }
   }
+}
+
+/**
+ * Encrypt a single secret string (e.g. OAuth client secret) to raw bytes.
+ * Format: [12-byte IV][ciphertext + 16-byte GCM tag]
+ */
+export async function encryptSecret(encryptionKey: string, secret: string): Promise<Buffer> {
+  const key = await importAesKey(encryptionKey)
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const plaintext = new TextEncoder().encode(secret)
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext)
+  const result = Buffer.alloc(12 + ciphertext.byteLength)
+  result.set(iv, 0)
+  result.set(new Uint8Array(ciphertext), 12)
+  return result
 }

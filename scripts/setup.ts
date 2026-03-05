@@ -1,11 +1,11 @@
 /**
- * Bootstrap script: generates a root management token from BISCUIT_PRIVATE_KEY.
+ * Bootstrap script: generates a root token from BISCUIT_PRIVATE_KEY.
  *
  * Usage: BISCUIT_PRIVATE_KEY=... npx tsx scripts/setup.ts
  *   or:  pnpm run setup  (with .env configured)
  */
 
-import { generateKeyPairHex, mintManagementToken } from '../src/biscuit'
+import { generateKeyPairHex, mintToken } from '../src/biscuit'
 
 const privateKey = process.env.BISCUIT_PRIVATE_KEY
 
@@ -18,12 +18,12 @@ if (!privateKey) {
   process.exit(0)
 }
 
-const rootToken = mintManagementToken(
+const rootToken = mintToken(
   privateKey,
-  ['manage_services', 'manage_vaults'],
-  ['*'],
+  'local',
+  ['admin', 'manage_services'],
 )
 
-console.log('Root management token (store securely):\n')
+console.log('Root token (store securely):\n')
 console.log(rootToken)
-console.log('\nThis token can manage all services and vaults.')
+console.log('\nThis token has admin rights and can manage all services.')

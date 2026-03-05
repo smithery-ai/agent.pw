@@ -1,8 +1,8 @@
 import { drizzle } from 'drizzle-orm/pglite'
 import { sql } from 'drizzle-orm'
 import * as schema from '../src/db/schema'
-import { mintManagementToken, mintToken } from '../src/biscuit'
-import { buildSetCookieHeader, SESSION_TTL_SECONDS } from '../src/lib/session'
+import { mintToken } from '../src/biscuit'
+import { buildSetCookieHeader, SESSION_TTL_SECONDS } from '../src/managed/session'
 
 export const BISCUIT_PRIVATE_KEY =
   'ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad'
@@ -23,17 +23,11 @@ export async function buildTestSessionCookie(userId = 'user_test_123', orgId = T
 }
 
 export function mintRootToken() {
-  return mintManagementToken(
+  return mintToken(
     BISCUIT_PRIVATE_KEY,
-    ['manage_services', 'manage_vaults'],
-    ['*'],
+    'local',
+    ['admin', 'manage_services'],
   )
-}
-
-export function mintProxyToken(services: string, orgId: string) {
-  return mintToken(BISCUIT_PRIVATE_KEY, [
-    { services, vault: orgId, metadata: { userId: 'alice' } },
-  ])
 }
 
 export async function createTestDb() {
@@ -61,25 +55,8 @@ export async function createTestDb() {
       auth_schemes TEXT,
       oauth_client_id TEXT,
       encrypted_oauth_client_secret BYTEA,
-      api_type TEXT,
       docs_url TEXT,
-      crawl_state TEXT DEFAULT 'pending',
-      preview TEXT,
       auth_config TEXT,
-      webhook_config TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      updated_at TIMESTAMP NOT NULL DEFAULT now()
-    )
-  `)
-
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS warden.webhook_registrations (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL,
-      service TEXT NOT NULL,
-      callback_url TEXT NOT NULL,
-      encrypted_webhook_secret BYTEA,
-      metadata TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )
@@ -91,8 +68,6 @@ export async function createTestDb() {
       service TEXT NOT NULL,
       slug TEXT NOT NULL DEFAULT 'default',
       encrypted_credentials BYTEA NOT NULL,
-      tags JSONB,
-      expires_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
       PRIMARY KEY (org_id, service, slug)
@@ -108,26 +83,17 @@ export async function createTestDb() {
   `)
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS warden.oauth_apps (
-      org_id TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS warden.auth_flows (
+      id TEXT PRIMARY KEY,
       service TEXT NOT NULL,
-      client_id TEXT NOT NULL,
-      encrypted_client_secret BYTEA,
-      scopes TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      PRIMARY KEY (org_id, service)
-    )
-  `)
-
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS warden.doc_pages (
-      hostname TEXT NOT NULL,
-      path TEXT NOT NULL,
-      content TEXT,
-      status TEXT NOT NULL DEFAULT 'skeleton',
-      generated_at TIMESTAMP NOT NULL DEFAULT now(),
-      ttl_days INT NOT NULL DEFAULT 7,
-      PRIMARY KEY (hostname, path)
+      method TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      code_verifier TEXT,
+      org_id TEXT,
+      token TEXT,
+      identity TEXT,
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
     )
   `)
 
@@ -135,16 +101,3 @@ export async function createTestDb() {
 }
 
 export type TestDb = Awaited<ReturnType<typeof createTestDb>>
-
-/** Map-backed fake that implements the Redis subset used by auth-flow-store. */
-export function createTestRedis() {
-  const store = new Map<string, string>()
-  return {
-    async get(key: string) {
-      return store.get(key) ?? null
-    },
-    async set(key: string, value: string, _opts?: { ex?: number }) {
-      store.set(key, value)
-    },
-  } as import('@upstash/redis').Redis
-}

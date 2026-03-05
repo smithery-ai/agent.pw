@@ -1,342 +1,162 @@
-# Warden
+# agent.pw
 
-An auth proxy where the URL is the interface. Warden sits between your agents and upstream APIs — it holds the real credentials, enforces fine-grained access control via [Biscuit tokens](https://www.biscuitsec.org/), and handles OAuth/API-key flows so agents never touch raw secrets.
-
-```
-Agent ──▶ warden.run/api.github.com/user ──▶ api.github.com/user
-       (Biscuit token)                     (real API key injected)
-```
-
-## Use with your agent
-
-Paste this into your agent to connect to any API:
+Open-source credential vault and API proxy for agents. Keeps secrets out of your prompts.
 
 ```
-Connect to {any API} using https://warden.run
+Agent ──▶ agent.pw/proxy/api.github.com/user ──▶ api.github.com/user
+       (bearer token)                           (real API key injected)
 ```
 
-That's it. The agent will `curl https://warden.run`, read the onboarding guide, and walk you through authenticating in your browser. Your API keys never touch the agent — Warden stores them encrypted and injects them at the proxy layer.
-
-## How it works
-
-The same URL serves both **discovery** and **proxy**:
-- No token + `Accept: application/json` → 401 with auth options (for agents)
-- No token + browser → HTML landing page with setup buttons
-- With token → proxied request to the upstream API
-
-## Self-hosting
-
-### Prerequisites
-
-- Node.js 20+
-- PostgreSQL (any provider — Neon, Supabase, local, etc.)
-
-### Setup
+## Getting Started (Cloud)
 
 ```bash
-git clone <repo-url> && cd warden
-pnpm install
+npx agent.pw login
 ```
 
-#### Secrets (Infisical)
+Authenticates with the agent.pw Cloud backend. Services are pre-configured — no setup needed.
 
-Secrets are managed via [Infisical](https://infisical.com/) under the path `/apps/warden`. Log in once:
+Add a credential:
+
+```
+npx agent.pw cred add api.linear.app
+→ Paste your API key: ****
+→ Stored.
+```
+
+Use the proxy — `npx agent.pw curl` works like `curl` but injects the bearer token automatically:
 
 ```bash
-pnpm run secrets:login
+npx agent.pw curl agent.pw/proxy/api.linear.app/graphql \
+  -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
-Then `pnpm run dev` will automatically inject secrets. To export a `.env` file for tools that need one:
+agent.pw looks up `api.linear.app`, injects the stored credential, and proxies the request. The agent never sees the API key.
+
+View stored credentials:
+
+```
+npx agent.pw cred
+
+SERVICE                       ADDED
+api.linear.app                2d ago
+api.github.com                5d ago
+```
+
+Credentials are write-only. Agents cannot exfiltrate them.
+
+## Getting Started (Self-Hosted)
 
 ```bash
-pnpm run secrets:export
+npx agent.pw setup
 ```
 
-#### Manual `.env`
+Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token. Run `npx agent.pw start` to start the proxy. Everything runs on your machine — no external dependencies.
 
-If you're not using Infisical, create a `.env` file and use the `:env` script variants:
+You start with an empty service table. Add services using the skill in Claude Code or Codex:
+
+```
+/add-service api.linear.app
+```
+
+The agent reads the API docs, figures out the auth method and headers, and writes the service entry. You approve the result.
+
+Or add manually:
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/mydb
-BISCUIT_PRIVATE_KEY=<generated below>
-BASE_URL=http://localhost:3000
+npx agent.pw service add api.linear.app --file service.json
 ```
 
-```bash
-pnpm run dev:env    # uses .env instead of Infisical
-```
+Then add credentials and use the proxy the same way as Cloud — just pointed at your local instance.
 
-### Bootstrap
-
-Generate a Biscuit keypair and mint your first management token:
-
-```bash
-pnpm run setup
-```
-
-This prints a root management token with full access. Save it — this is your admin credential for all management operations.
-
-If you already have a `BISCUIT_PRIVATE_KEY` in `.env`, the setup script mints a root token using that key. If not, it generates a new keypair and prints both.
-
-### Database
-
-Push the schema to your Postgres database:
-
-```bash
-pnpm run db:push
-```
-
-All tables live under a `warden` Postgres schema, so they won't conflict with other tables in the same database.
-
-### Run
-
-```bash
-pnpm run dev    # wrangler dev with Infisical secrets
-pnpm run dev:env  # wrangler dev with .dev.vars / .env
-```
-
-Verify it's running:
-
-```bash
-curl http://localhost:3000
-# Returns the Warden onboarding guide
-```
+The CLI auto-detects which mode you're in. If a local instance is running, commands go there. Otherwise they go to the managed backend. `npx agent.pw status` shows which backend you're connected to.
 
 ## Concepts
 
-### Vaults
+**Services.** A service defines how a particular API is authenticated. Each entry maps a hostname to its auth configuration: what kind of credentials are accepted (API key, OAuth), which headers to inject, and an OAuth app (client ID + secret) if applicable.
 
-A **vault** is a collection of credentials. Credentials are stored in vaults, keyed by `(vault, service)`. Vaults let you isolate credentials per team, project, or user.
+**Credentials.** A credential is the specific secret used to connect to a service — the actual API key or OAuth token. Credentials are stored encrypted and never exposed to agents. When an agent makes a proxied request, agent.pw looks up the credential for that service and injects it into the upstream request.
 
-```bash
-# Create a vault
-curl -X POST http://localhost:3000/vaults \
-  -H "Authorization: Bearer $MGMT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"slug": "team-alpha", "displayName": "Team Alpha"}'
+**Tokens.** On setup, agent.pw mints a bearer token (`apw_` prefix). The master token has full access to the service table and credential store. Tokens given to agents can be attenuated — scoped to specific services, methods, and TTLs. A restricted token can never gain more power than its parent. Tokens can be revoked instantly. Backed by [Biscuit](https://www.biscuitsec.org/) for cryptographic attenuation.
+
+## CLI Commands
+
 ```
+npx agent.pw login [--host <url>]              authenticate with Cloud (default: https://agent.pw)
+npx agent.pw logout                            log out from agent.pw
+npx agent.pw setup                             self-hosted: generate keys, create DB, mint root token
+npx agent.pw start                             start the local proxy server
+npx agent.pw stop                              stop the local proxy server
+npx agent.pw status                            show connected backend + token info
 
-### Biscuit Tokens
+npx agent.pw service                           list configured services
+npx agent.pw service get <hostname>            show service details
+npx agent.pw service add <hostname> [--file f] register a service
+npx agent.pw service remove <hostname>         remove a service
 
-All access control is via Biscuit tokens. There are two kinds:
+npx agent.pw cred                              list credentials
+npx agent.pw cred add <service> [--value <key>] add a credential
+npx agent.pw cred remove <service>             remove a credential
 
-**Management tokens** carry rights like `manage_services`, `manage_vaults`, and `vault_admin("slug")`. These replace the old admin key concept — there's no shared secret, just attenuable tokens.
+npx agent.pw token restrict <token> [opts]     attenuate a token (--service, --method, --ttl)
+npx agent.pw token revoke <token>              revoke a token
 
-**Proxy tokens** carry grant facts that scope which services, methods, and paths an agent can access, and which vault to pull credentials from.
-
-Biscuit tokens can only be **narrowed**, never broadened. Anyone with a token can restrict it further without needing the server's private key.
-
-## How It Works
-
-### 1. Register a service
-
-Tell Warden about an upstream API. The service name is its hostname.
-
-```bash
-curl -X PUT http://localhost:3000/services/api.github.com \
-  -H "Authorization: Bearer $MGMT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "baseUrl": "https://api.github.com",
-    "displayName": "GitHub",
-    "supportedAuthMethods": ["oauth", "api_key"],
-    "apiType": "rest",
-    "docsUrl": "https://docs.github.com/en/rest"
-  }'
-```
-
-### 2. Create a vault and store a credential
-
-```bash
-# Create a vault
-curl -X POST http://localhost:3000/vaults \
-  -H "Authorization: Bearer $MGMT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"slug": "personal"}'
-
-# Store a credential in the vault
-curl -X PUT http://localhost:3000/vaults/personal/credentials/api.github.com \
-  -H "Authorization: Bearer $MGMT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"token": "ghp_your_github_token", "identity": "alice"}'
-```
-
-### 3. Mint a proxy token
-
-Create a scoped token for an agent, bound to a vault:
-
-```bash
-curl -X POST http://localhost:3000/tokens/mint \
-  -H "Authorization: Bearer $MGMT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bindings": {
-      "api.github.com": {"vault": "personal"}
-    }
-  }'
-# {"token":"wdn_...","publicKey":"..."}
-```
-
-Or use the grants format for more control:
-
-```bash
-curl -X POST http://localhost:3000/tokens/mint \
-  -H "Authorization: Bearer $MGMT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "grants": [{
-      "services": "api.github.com",
-      "methods": ["GET"],
-      "paths": "/user",
-      "vault": "personal",
-      "ttl": "1h"
-    }]
-  }'
-```
-
-### 4. Proxy requests
-
-Agents use their token to call upstream APIs through Warden:
-
-```bash
-curl http://localhost:3000/api.github.com/user \
-  -H "Authorization: Bearer wdn_..."
-# → proxied to https://api.github.com/user with the real token injected
-```
-
-## Discovery
-
-When an agent hits a service URL without a token, Warden returns discovery info instead of proxying:
-
-```bash
-curl http://localhost:3000/api.github.com \
-  -H "Accept: application/json"
-```
-
-```json
-{
-  "service": "GitHub",
-  "canonical": "api.github.com",
-  "description": "REST API for GitHub.",
-  "auth_options": [
-    {"type": "oauth", "setup_url": "/auth/api.github.com/oauth"},
-    {"type": "api_key", "setup_url": "/auth/api.github.com/api-key"}
-  ],
-  "docs_url": "https://docs.github.com/en/rest"
-}
-```
-
-The same URL in a browser shows an HTML landing page with buttons to connect.
-
-## Auth Flows
-
-Warden supports a polling-based auth flow so agents can get tokens without copy-paste:
-
-1. Agent discovers a service needs auth → gets `setup_url` from discovery
-2. Agent presents the URL to the user (e.g., opens a browser)
-3. User completes OAuth or enters an API key in the browser
-4. Agent polls `GET /auth/status/{flow_id}` until the token is ready
-
-```bash
-# Agent polls for completion
-curl http://localhost:3000/auth/status/{flow_id}
-# Pending: 202 {"status":"pending"}
-# Done:    200 {"status":"completed","token":"wdn_...","identity":"alice"}
-```
-
-Auth flows accept a `?vault=` query parameter to control which vault the credential is stored in (defaults to `personal`).
-
-## Token Attenuation
-
-Anyone with a token can restrict it further without needing the server's private key:
-
-```bash
-curl -X POST http://localhost:3000/tokens/restrict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "token": "wdn_...",
-    "constraints": [{"methods": "GET", "paths": "/user"}]
-  }'
+npx agent.pw curl <url> [curl flags]           proxy request with auto-injected token
 ```
 
 ## API Reference
 
-### Vault Management (requires management token)
+```
+Proxy:
+  ALL  /proxy/:service/*             proxy with injected credentials (bearer token required)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/vaults` | Create a vault |
-| `GET` | `/vaults` | List vaults (scoped by token) |
-| `DELETE` | `/vaults/:slug` | Delete a vault |
+Credentials:
+  GET    /credentials                list credentials (org from token)
+  PUT    /credentials/:service       store a credential
+  DELETE /credentials/:service       remove a credential
 
-### Credential Management (requires vault_admin)
+Services:
+  GET    /services                   list services
+  GET    /services/:service          get service details
+  PUT    /services/:service          register/update a service
+  DELETE /services/:service          remove a service
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/vaults/:slug/credentials` | List credentials in vault |
-| `PUT` | `/vaults/:slug/credentials/:service` | Store a credential |
-| `DELETE` | `/vaults/:slug/credentials/:service` | Remove a credential |
+Tokens:
+  POST   /tokens/revoke             revoke the caller's token
 
-### Service Catalog (requires manage_services)
+Infrastructure:
+  GET    /.well-known/jwks.json      Ed25519 public key (JWK format)
+```
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/services` | List services visible to caller |
-| `PUT` | `/services/:service` | Register/update a service |
-| `DELETE` | `/services/:service` | Remove a service |
+## Repo Structure
 
-### Tokens
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/tokens/mint` | Mint a token (management required) |
-| `POST` | `/tokens/restrict` | Attenuate a token (public) |
-| `POST` | `/tokens/revoke` | Revoke a token |
-| `POST` | `/keys/generate` | Generate an Ed25519 keypair |
-
-### Discovery & Proxy
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/` | Health check |
-| `GET` | `/:service` | Discovery (content-negotiated) |
-| `ALL` | `/:service/*` | Proxy (requires Biscuit token) |
-
-### Auth Flows
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/auth/:service/oauth` | Start OAuth flow |
-| `GET` | `/auth/:service/oauth/callback` | OAuth callback |
-| `GET` | `/auth/:service/api-key` | API key entry form |
-| `POST` | `/auth/:service/api-key` | Submit API key |
-| `GET` | `/auth/status/:flowId` | Poll auth flow status |
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `BISCUIT_PRIVATE_KEY` | Yes | Ed25519 private key for minting tokens |
-| `BASE_URL` | No | Public URL (defaults to `http://localhost:$PORT`) |
-| `PORT` | No | Server port (defaults to `3000`) |
+```
+agent.pw/
+  src/
+    core/           ← proxy, vault, tokens (all OSS)
+    managed/        ← WorkOS auth, managed OAuth, UI
+    routes/         ← API route handlers
+    cli/            ← CLI commands
+    db/             ← Drizzle schema and queries
+    lib/            ← shared utilities, crypto
+  entry.local.ts    ← Bun + PGlite entry point
+  entry.managed.ts  ← Cloudflare Workers entry point
+```
 
 ## Development
 
 ```bash
-pnpm test          # run tests
+pnpm install
+pnpm test          # run tests (uses in-memory PGlite — no database needed)
 pnpm test:watch    # watch mode
-pnpm run dev       # dev server with hot reload
+pnpm run build     # typecheck
+pnpm run lint      # lint
 ```
 
-Tests use [PGlite](https://github.com/electric-sql/pglite) for in-memory Postgres — no database setup needed.
-
-### Database Commands
+### Database
 
 ```bash
+pnpm run db:generate   # generate migrations from schema changes
 pnpm run db:push       # push schema to database (dev)
-pnpm run db:generate   # generate migration files
-pnpm run db:migrate    # run migrations (production)
 ```
 
 ## License
