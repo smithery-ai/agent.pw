@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://agent.pw"
+      "url": "https://api.agent.pw"
     }
   ],
   "components": {
