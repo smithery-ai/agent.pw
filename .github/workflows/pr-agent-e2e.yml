@@ -155,6 +155,20 @@ jobs:
           set -euo pipefail
           BASE="${PREVIEW_URL%/}"
 
+          # Register (or update) the Linear service with slug-based format
+          echo "Registering service 'linear'..."
+          svc_status=$(curl -sS -o /tmp/e2e-svc.json -w '%{http_code}' \
+            -X PUT "${BASE}/services/linear" \
+            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"allowedHosts": ["api.linear.app"]}')
+          echo "Service register status: ${svc_status}"
+          cat /tmp/e2e-svc.json
+          if [ "${svc_status}" != "200" ]; then
+            echo "Failed to register service"
+            exit 1
+          fi
+
           # Store Linear credential for e2e-test user
           echo "Storing credential for linear (user=e2e-test)..."
           cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
