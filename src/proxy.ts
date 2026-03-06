@@ -75,7 +75,7 @@ function normalizePolicy(policy: string) {
     return `check if ${trimmed};`
   }
   const escaped = escapeDatalog(trimmed)
-  return `check if user("${escaped}") or apw.user_id("${escaped}") or apw.org_id("${escaped}");`
+  return `check if user("${escaped}") or user_id("${escaped}") or org_id("${escaped}") or apw_user_id("${escaped}") or apw_org_id("${escaped}");`
 }
 
 function tokenSatisfiesPolicy(
