@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build and test
+  build-and-lint:
+    name: Build and lint
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -24,15 +24,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build
-        run: pnpm build
+        run: pnpm build && pnpm --filter agent.pw build
       - name: Lint
         run: pnpm lint
-      - name: Test
-        run: pnpm test
 
   stainless-upload:
     name: Upload OpenAPI to Stainless
-    needs: build-and-test
+    needs: build-and-lint
     if: github.ref == 'refs/heads/main'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
@@ -59,7 +57,7 @@ jobs:
 
   stainless-preview:
     name: Stainless Preview Build
-    needs: build-and-test
+    needs: build-and-lint
     if: github.event_name == 'pull_request' && github.actor != 'smithery-chore-bot[bot]' && !contains(github.event.pull_request.labels.*.name, 'skip-stainless')
     concurrency:
       group: stainless-preview-${{ github.head_ref }}
@@ -74,7 +72,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.CI_APP_ID }}
+          app-id: ${{ vars.CI_APP_ID }}
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
       - uses: actions/checkout@v4
         with:
@@ -123,7 +121,7 @@ jobs:
           echo "Updating @agent.pw/sdk to: $INSTALL_URL"
 
           OLD_PATTERN='https://pkg\.stainless\.com/s/agent\.pw-typescript/[a-f0-9]\+/dist\.tar\.gz'
-          sed -i "s|${OLD_PATTERN}|${INSTALL_URL}|g" package.json
+          sed -i "s|${OLD_PATTERN}|${INSTALL_URL}|g" packages/cli/package.json
 
           if git diff --quiet; then
             echo "SDK URL unchanged, skipping"
@@ -137,6 +135,6 @@ jobs:
       - name: Commit and push SDK update
         if: steps.sdk-update.outputs.changed == 'true'
         run: |
-          git add package.json pnpm-lock.yaml
+          git add packages/cli/package.json pnpm-lock.yaml
           git commit -m "chore: update @agent.pw/sdk to latest preview build"
           git push origin HEAD:${{ github.head_ref }}

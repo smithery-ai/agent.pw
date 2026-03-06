@@ -28,7 +28,7 @@ async function browserLogin(targetHost: string) {
   const { promise, resolve, reject } = Promise.withResolvers<string>()
 
   const server = createServer((req, res) => {
-    const url = new URL(req.url!, `http://localhost`)
+    const url = new URL(req.url ?? '/', `http://localhost`)
     const token = url.searchParams.get('token')
 
     if (token) {

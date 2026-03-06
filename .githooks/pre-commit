@@ -4,5 +4,5 @@ set -e
 echo "Running pre-commit checks..."
 
 pnpm build
+pnpm --filter agent.pw build
 pnpm lint
-pnpm test

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
-import { generateKeyPairHex, mintToken } from '../../biscuit'
-import { createLocalDb } from '../../db/index'
-import { migrateLocal } from '../../db/migrate-local'
+import { generateKeyPairHex, mintToken } from '@agent.pw/server/biscuit'
+import { createLocalDb } from '@agent.pw/server/db'
+import { migrateLocal } from '@agent.pw/server/db/migrate-local'
 import { configExists, writeConfig, getConfigDir, getDataDir } from '../config'
 
 export async function setup() {

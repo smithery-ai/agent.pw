@@ -11,10 +11,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "packages"]
+  "include": ["src/**/*.ts", "entry.local.ts"],
+  "exclude": ["node_modules"]
 }
