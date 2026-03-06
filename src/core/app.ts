@@ -5,11 +5,11 @@ import { describeRoute, resolver } from 'hono-openapi'
 import { z } from 'zod'
 import type { CoreHonoEnv } from './types'
 import type { Database } from '../db/index'
-import { listServicesWithCredentialCounts } from '../db/queries'
+import { listCredProfilesWithCredentialCounts } from '../db/queries'
 import { createLogger } from '../lib/logger'
 import { deriveEncryptionKey } from '../lib/credentials-crypto'
 import { credentialRoutes } from '../routes/credentials'
-import { serviceRoutes } from '../routes/services'
+import { credProfileRoutes } from '../routes/cred-profiles'
 import { tokenRoutes } from '../routes/tokens'
 import { proxyRoutes } from '../routes/proxy'
 import { buildJwks } from '../webhooks/envelope'
@@ -22,12 +22,12 @@ export interface CoreAppDeps {
 }
 
 /**
- * Mounts the core route modules (vault, services, tokens, webhooks, proxy)
+ * Mounts the core route modules (credentials, cred_profiles, tokens, proxy)
  * onto any Hono app. Used by both core and managed entry points.
  */
 export function mountCoreRoutes(app: Hono<CoreHonoEnv>) {
   app.route('/credentials', credentialRoutes)
-  app.route('/services', serviceRoutes)
+  app.route('/cred_profiles', credProfileRoutes)
   app.route('/tokens', tokenRoutes)
 
   // JWKS endpoint
@@ -69,7 +69,7 @@ export function requestLoggingMiddleware(c: Context<CoreHonoEnv>, next: Next) {
 }
 
 /**
- * Creates the core Warden app — credential vault, proxy, tokens, webhooks.
+ * Creates the core app — credential vault, proxy, tokens.
  * No WorkOS, no browser sessions. Runs locally or embedded.
  */
 export function createCoreApp(deps: CoreAppDeps = {}) {
@@ -101,7 +101,7 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
       c.set('db', deps.db)
     }
 
-    const { logger } = createLogger('warden')
+    const { logger } = createLogger('agentpw')
     c.set('logger', logger)
     return next()
   })
@@ -110,27 +110,27 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
 
   // ─── Health ────────────────────────────────────────────────────────────────
 
-  const HealthServiceSchema = z.object({
+  const HealthProfileSchema = z.object({
     slug: z.string(),
     credentialCount: z.number(),
   })
   const HealthResponseSchema = z.object({
-    services: z.array(HealthServiceSchema),
+    profiles: z.array(HealthProfileSchema),
   }).meta({ id: 'HealthResponse' })
 
   app.get('/',
     describeRoute({
       tags: ['health'],
       summary: 'Health check',
-      description: 'Returns a list of configured services with credential counts.',
+      description: 'Returns a list of configured credential profiles with credential counts.',
       responses: {
-        200: { description: 'Service health', content: { 'application/json': { schema: resolver(HealthResponseSchema) } } },
+        200: { description: 'Health status', content: { 'application/json': { schema: resolver(HealthResponseSchema) } } },
       },
     }),
     async c => {
       const db = c.get('db')
-      const recentServices = await listServicesWithCredentialCounts(db)
-      return c.json({ services: recentServices.map(s => ({ slug: s.slug, credentialCount: s.credentialCount })) })
+      const profiles = await listCredProfilesWithCredentialCounts(db)
+      return c.json({ profiles: profiles.map(p => ({ slug: p.slug, credentialCount: p.credentialCount })) })
     },
   )
 

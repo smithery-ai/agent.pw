@@ -6,7 +6,7 @@ import {
   getPublicKeyHex,
   getRevocationIds,
 } from './biscuit'
-import { getCredential, getService, isRevoked, upsertCredential } from './db/queries'
+import { getCredProfile, getCredentialsByHost, isRevoked, upsertCredential } from './db/queries'
 import {
   decryptCredentials,
   encryptCredentials,
@@ -40,21 +40,15 @@ function shouldRefresh(expiresAt: string | undefined): boolean {
 
 async function refreshCredentialIfNeeded(
   c: Context<CoreHonoEnv>,
-  service: Awaited<ReturnType<typeof getService>>,
-  userId: string,
-  cred: Awaited<ReturnType<typeof getCredential>>,
+  cred: { id: string; host: string; slug: string; auth: string; secret: Buffer },
   stored: StoredCredentials,
 ): Promise<StoredCredentials> {
-  if (!service || !cred || !stored.oauth?.refreshToken) {
+  if (!stored.oauth?.refreshToken) {
     return stored
   }
   if (!shouldRefresh(stored.oauth.expiresAt)) {
     return stored
   }
-
-  const authConfig: Record<string, string> = service.authConfig
-    ? JSON.parse(service.authConfig)
-    : {}
 
   const refreshed = await refreshOAuthToken({
     tokenUrl: stored.oauth.tokenUrl,
@@ -62,7 +56,6 @@ async function refreshCredentialIfNeeded(
     clientId: stored.oauth.clientId,
     clientSecret: stored.oauth.clientSecret,
     scopes: stored.oauth.scopes,
-    authConfig,
   })
 
   const nextStored: StoredCredentials = {
@@ -77,7 +70,13 @@ async function refreshCredentialIfNeeded(
   }
 
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, nextStored)
-  await upsertCredential(c.get('db'), userId, service.slug, 'default', encrypted)
+  await upsertCredential(c.get('db'), {
+    id: cred.id,
+    host: cred.host,
+    slug: cred.slug,
+    auth: cred.auth,
+    secret: encrypted,
+  })
 
   return nextStored
 }
@@ -92,11 +91,11 @@ export async function handleProxy(
   if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
 
   const db = c.get('db')
-  const svc = await getService(db, slug)
-  if (!svc) return c.json({ error: `Unknown service: ${slug}` }, 404)
+  const profile = await getCredProfile(db, slug)
+  if (!profile) return c.json({ error: `Unknown service: ${slug}` }, 404)
 
-  // Validate hostname against allowed_hosts (SSRF prevention)
-  const allowedHosts: string[] = JSON.parse(svc.allowedHosts)
+  // Validate hostname against cred_profile hosts (SSRF prevention)
+  const allowedHosts: string[] = JSON.parse(profile.host)
   if (!allowedHosts.includes(hostname)) {
     return c.json({ error: `Host '${hostname}' is not allowed for service '${slug}'` }, 403)
   }
@@ -121,23 +120,11 @@ export async function handleProxy(
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  // Resolve userId: admin tokens can use Act-As header to act as another user
-  const facts = extractTokenFacts(token, publicKeyHex)
-  const actAs = c.req.header('Act-As')
-  let userId: string | null
-  if (facts.rights.includes('admin') && actAs) {
-    userId = actAs
-  } else {
-    userId = facts.userId
-  }
-  if (!userId) {
-    return c.json({ error: 'No identity in token' }, 403)
-  }
-
-  // Look up credential by (userId, slug)
-  const cred = await getCredential(db, userId, slug)
+  // Look up credential by hostname
+  const creds = await getCredentialsByHost(db, hostname)
+  const cred = creds[0]
   if (!cred) {
-    return c.json({ error: `No credential found for ${slug}` }, 404)
+    return c.json({ error: `No credential found for ${hostname}` }, 404)
   }
 
   // Build upstream request — hostname comes from the URL, always HTTPS
@@ -153,12 +140,12 @@ export async function handleProxy(
   })
 
   const log = c.get('logger')
-  log.info({ slug, hostname, userId, method: c.req.method, upstreamUrl }, 'proxy request')
+  log.info({ slug, hostname, method: c.req.method, upstreamUrl }, 'proxy request')
 
   // Inject credential headers (after logging to avoid leaking secrets)
-  let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.encryptedCredentials)
+  let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.secret)
   try {
-    stored = await refreshCredentialIfNeeded(c, svc, userId, cred, stored)
+    stored = await refreshCredentialIfNeeded(c, cred, stored)
   } catch (e) {
     return c.json({ error: `OAuth token refresh failed: ${errorMessage(e)}` }, 401)
   }
@@ -197,7 +184,6 @@ export async function handleProxy(
   log.info({
     slug,
     hostname,
-    userId,
     method: c.req.method,
     upstreamUrl,
     status: upstream.status,
