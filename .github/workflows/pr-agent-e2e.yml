@@ -120,7 +120,7 @@ jobs:
           for i in $(seq 1 12); do
             code="$(curl -sS -o /tmp/e2e-ready-body.txt -w '%{http_code}' "${PREVIEW_URL}/" || true)"
             echo "Attempt ${i}/12: ${code}"
-            if [ "${code}" = "200" ] || [ "${code}" = "401" ] || [ "${code}" = "404" ]; then
+            if [ "${code}" = "200" ] || [ "${code}" = "302" ] || [ "${code}" = "401" ] || [ "${code}" = "404" ]; then
               echo "Preview is reachable."
               exit 0
             fi
