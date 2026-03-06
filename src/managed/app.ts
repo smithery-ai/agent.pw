@@ -54,9 +54,8 @@ export function createApp(deps: AppDeps = {}) {
       c.set('db', createDb(c.env.HYPERDRIVE.connectionString))
     }
 
-    const { logger, flush } = createLogger('warden', c.env.BETTERSTACK_ERRORS_DSN)
+    const { logger } = createLogger('warden')
     c.set('logger', logger)
-    c.set('flushLogger', flush)
     return next()
   })
 

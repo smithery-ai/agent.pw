@@ -1,4 +1,5 @@
-import { Logtail } from '@logtail/edge'
+import { logs, SeverityNumber } from '@opentelemetry/api-logs'
+import { context, trace } from '@opentelemetry/api'
 
 type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 
@@ -14,14 +15,34 @@ export interface Logger {
   child(bindings: Record<string, unknown>): Logger
 }
 
+const SEVERITY: Record<LogLevel, SeverityNumber> = {
+  debug: SeverityNumber.DEBUG,
+  info: SeverityNumber.INFO,
+  warn: SeverityNumber.WARN,
+  error: SeverityNumber.ERROR,
+}
+
+function serializeValue(val: unknown): unknown {
+  if (val instanceof Error) {
+    return { message: val.message, stack: val.stack, name: val.name }
+  }
+  return val
+}
+
+function serializeObject(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, val] of Object.entries(obj)) {
+    result[key] = serializeValue(val)
+  }
+  return result
+}
+
 class WardenLogger implements Logger {
   private service: string
   private bindings: Record<string, unknown>
-  private logtail: Logtail | null
 
-  constructor(service: string, logtail: Logtail | null, bindings: Record<string, unknown> = {}) {
+  constructor(service: string, bindings: Record<string, unknown> = {}) {
     this.service = service
-    this.logtail = logtail
     this.bindings = bindings
   }
 
@@ -42,20 +63,20 @@ class WardenLogger implements Logger {
   }
 
   child(bindings: Record<string, unknown>): Logger {
-    return new WardenLogger(this.service, this.logtail, { ...this.bindings, ...bindings })
+    return new WardenLogger(this.service, { ...this.bindings, ...bindings })
   }
 
   private _log(level: LogLevel, objOrMsg: Record<string, unknown> | string, msg?: string) {
-    let message: string
-    let attrs: Record<string, unknown>
+    const [message, attrs] =
+      typeof objOrMsg === 'string'
+        ? [objOrMsg, {} as Record<string, unknown>]
+        : [msg ?? '', objOrMsg]
 
-    if (typeof objOrMsg === 'string') {
-      message = objOrMsg
-      attrs = {}
-    } else {
-      message = msg ?? ''
-      attrs = objOrMsg
-    }
+    const serialized = serializeObject(attrs)
+
+    const spanContext = trace.getSpan(context.active())?.spanContext()
+    const traceSampled =
+      spanContext !== undefined ? (spanContext.traceFlags & 1) === 1 : undefined
 
     const entry = {
       level,
@@ -63,23 +84,29 @@ class WardenLogger implements Logger {
       service: this.service,
       msg: message,
       ...this.bindings,
-      ...attrs,
+      ...serialized,
+      ...(traceSampled !== undefined && { 'trace.sampled': traceSampled }),
     }
 
-    // Always write structured JSON to stdout
+    // 1. Stdout — captured by Logpush and wrangler dev
     console.log(JSON.stringify(entry))
 
-    // Send to BetterStack if configured
-    if (this.logtail) {
-      const logtailLevel = level === 'debug' ? 'info' : level
-      this.logtail[logtailLevel](message, { ...this.bindings, ...attrs })
-    }
+    // 2. OTLP log export — auto-correlates traceId/spanId from active context
+    const otelLogger = logs.getLogger(this.service)
+    otelLogger.emit({
+      severityNumber: SEVERITY[level],
+      severityText: level.toUpperCase(),
+      body: message,
+      attributes: {
+        service: this.service,
+        ...this.bindings,
+        ...serialized,
+      },
+    })
   }
 }
 
-export function createLogger(service: string, token?: string) {
-  const logtail = token ? new Logtail(token) : null
-  const logger: Logger = new WardenLogger(service, logtail)
-  const flush = logtail ? () => logtail.flush() : () => Promise.resolve()
-  return { logger, flush }
+export function createLogger(service: string) {
+  const logger: Logger = new WardenLogger(service)
+  return { logger }
 }

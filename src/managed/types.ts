@@ -13,7 +13,8 @@ export interface Env {
   WORKOS_CLIENT_ID?: string
   WORKOS_API_KEY?: string
   WORKOS_COOKIE_PASSWORD?: string
-  BETTERSTACK_ERRORS_DSN?: string
+  OTEL_EXPORTER_OTLP_ENDPOINT?: string
+  OTEL_EXPORTER_OTLP_HEADERS?: string
   HYPERDRIVE?: Hyperdrive
 }
 
@@ -26,6 +27,5 @@ export interface HonoEnv {
     userId?: string
     session?: import('./session').Session
     logger: Logger
-    flushLogger: () => Promise<void>
   }
 }

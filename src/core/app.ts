@@ -64,7 +64,7 @@ export function requestLoggingMiddleware(c: Context<CoreHonoEnv>, next: Next) {
     if (path !== '/' && !path.startsWith('/favicon')) {
       c.get('logger').info({ method: c.req.method, path, status: c.res.status, duration_ms: duration }, 'request')
     }
-    try { c.executionCtx?.waitUntil?.(c.get('flushLogger')()) } catch { /* no ExecutionContext in tests */ }
+    // Log flushing is handled by the OTel instrumented worker (entry.managed.ts)
   })
 }
 
@@ -101,9 +101,8 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
       c.set('db', deps.db)
     }
 
-    const { logger, flush } = createLogger('warden')
+    const { logger } = createLogger('warden')
     c.set('logger', logger)
-    c.set('flushLogger', flush)
     return next()
   })
 

@@ -22,7 +22,6 @@ export interface CoreHonoEnv {
     token?: string
     userId?: string
     logger: Logger
-    flushLogger: () => Promise<void>
   }
 }
 
