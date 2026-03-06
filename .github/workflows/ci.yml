@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-lint:
-    name: Build and lint
+  build-and-test:
+    name: Build and test
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
 
   stainless-upload:
     name: Upload OpenAPI to Stainless
-    needs: build-and-lint
+    needs: build-and-test
     if: github.ref == 'refs/heads/main'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
@@ -57,7 +57,7 @@ jobs:
 
   stainless-preview:
     name: Stainless Preview Build
-    needs: build-and-lint
+    needs: build-and-test
     if: github.event_name == 'pull_request' && github.actor != 'smithery-chore-bot[bot]' && !contains(github.event.pull_request.labels.*.name, 'skip-stainless')
     concurrency:
       group: stainless-preview-${{ github.head_ref }}
