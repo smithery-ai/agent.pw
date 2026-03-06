@@ -37,12 +37,14 @@ function createOtelConfig(serviceName: string): ResolveConfigFn {
       url: endpoint ? `${endpoint}/v1/traces` : '',
       headers,
     })
+    const endpointHost = endpoint ? new URL(endpoint).hostname : ''
     return {
       spanProcessors: [new BatchTraceSpanProcessor(exporter)],
       service: { name: serviceName, namespace: 'smithery' },
       handlers: { fetch: { acceptTraceContext: true } },
       fetch: {
-        includeTraceContext: (request: Request) => !request.url.includes('betterstackdata.com'),
+        includeTraceContext: (request: Request) =>
+          !endpointHost || !request.url.includes(endpointHost),
       },
     }
   }
@@ -66,7 +68,7 @@ interface WorkerOptions<E> {
 
 export function createInstrumentedWorker<E = unknown>(options: WorkerOptions<E>) {
   const otelConfig = createOtelConfig(options.serviceName)
-  let loggerProvider: LoggerProvider | undefined
+  let loggerProvider: LoggerProvider | null | undefined
 
   const rawHandler: ExportedHandler<E> = {
     async fetch(request, env, ctx) {
@@ -86,13 +88,17 @@ export function createInstrumentedWorker<E = unknown>(options: WorkerOptions<E>)
             processors: [processor],
           })
           logs.setGlobalLoggerProvider(loggerProvider)
+        } else {
+          loggerProvider = null
         }
       }
 
       const response = await options.fetch(request, env, ctx)
 
       if (loggerProvider) {
-        const flush = loggerProvider.forceFlush().catch(() => {})
+        const flush = loggerProvider.forceFlush().catch((e) => {
+          console.warn('[otel] log flush failed', e)
+        })
         const timeout = new Promise<void>(r => setTimeout(r, 5000))
         ctx.waitUntil(Promise.race([flush, timeout]))
       }
