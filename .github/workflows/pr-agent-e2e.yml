@@ -156,9 +156,9 @@ jobs:
           BASE="${PREVIEW_URL%/}"
 
           # Store Linear credential for e2e-test user
-          echo "Storing credential for api.linear.app (user=e2e-test)..."
+          echo "Storing credential for linear (user=e2e-test)..."
           cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
-            -X PUT "${BASE}/credentials/api.linear.app" \
+            -X PUT "${BASE}/credentials/linear" \
             -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
             -H "Act-As: e2e-test" \
             -H "Content-Type: application/json" \
@@ -197,15 +197,15 @@ jobs:
           3. Run these required checks in order:
 
              A. Service info:
-               GET {base}/services/api.linear.app with headers:
+               GET {base}/services/linear with headers:
                  Accept: application/json
                  Authorization: Bearer \$WARDEN_TOKEN
                PASS only if:
                - HTTP status is 200
-               - JSON includes "service" field
+               - JSON includes "slug" field
 
              B. Authenticated query through proxy:
-               POST {base}/proxy/api.linear.app/graphql with:
+               POST {base}/proxy/linear/api.linear.app/graphql with:
                  Authorization: Bearer \$WARDEN_TOKEN
                  Act-As: e2e-test
                  Content-Type: application/json
@@ -216,7 +216,7 @@ jobs:
                - JSON includes data.issues.nodes[0]
 
              C. Unauthenticated rejection:
-               GET {base}/proxy/api.linear.app/graphql with header Accept: application/json (no auth)
+               GET {base}/proxy/linear/api.linear.app/graphql with header Accept: application/json (no auth)
                PASS only if:
                - HTTP status is 401
 
@@ -338,7 +338,7 @@ jobs:
           async function run() {
             try {
               // A. Service info
-              const svcInfo = await fetchJson(`${base}/services/api.linear.app`, {
+              const svcInfo = await fetchJson(`${base}/services/linear`, {
                 headers: {
                   Accept: 'application/json',
                   Authorization: `Bearer ${wardenToken}`,
@@ -346,16 +346,16 @@ jobs:
               })
               pushCheck(
                 'Service info',
-                `GET ${base}/services/api.linear.app`,
+                `GET ${base}/services/linear`,
                 svcInfo.status,
-                svcInfo.status === 200 && svcInfo.json?.service != null,
-                `service=${svcInfo.json?.service ?? 'missing'}`,
+                svcInfo.status === 200 && svcInfo.json?.slug != null,
+                `slug=${svcInfo.json?.slug ?? 'missing'}`,
               )
 
               // B. GraphQL proxy
               const gqlQuery =
                 'query LastEditedIssue { issues(first: 1, orderBy: updatedAt) { nodes { identifier title updatedAt url state { name } assignee { name } } } }'
-              const gql = await fetchJson(`${base}/proxy/api.linear.app/graphql`, {
+              const gql = await fetchJson(`${base}/proxy/linear/api.linear.app/graphql`, {
                 method: 'POST',
                 headers: {
                   Accept: 'application/json',
@@ -381,19 +381,19 @@ jobs:
                 : `status=${gql.status}, body=${(gql.text || '').slice(0, 200)}`
               pushCheck(
                 'GraphQL proxy',
-                `POST ${base}/proxy/api.linear.app/graphql`,
+                `POST ${base}/proxy/linear/api.linear.app/graphql`,
                 gql.status,
                 gql.status === 200 && !!node,
                 gqlDetails,
               )
 
               // C. Unauthenticated rejection
-              const unauthProxy = await fetchJson(`${base}/proxy/api.linear.app/graphql`, {
+              const unauthProxy = await fetchJson(`${base}/proxy/linear/api.linear.app/graphql`, {
                 headers: { Accept: 'application/json' },
               })
               pushCheck(
                 'Unauthenticated rejection',
-                `GET ${base}/proxy/api.linear.app/graphql (no auth)`,
+                `GET ${base}/proxy/linear/api.linear.app/graphql (no auth)`,
                 unauthProxy.status,
                 unauthProxy.status === 401,
                 `status=${unauthProxy.status}`,

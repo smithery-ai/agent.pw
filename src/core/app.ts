@@ -5,7 +5,6 @@ import type { CoreHonoEnv } from './types'
 import type { Database } from '../db/index'
 import { listServicesWithCredentialCounts } from '../db/queries'
 import { createLogger } from '../lib/logger'
-// looksLikeHostname no longer needed — services are identified by slug
 import { deriveEncryptionKey } from '../lib/credentials-crypto'
 import { credentialRoutes } from '../routes/credentials'
 import { serviceRoutes } from '../routes/services'
@@ -40,7 +39,7 @@ export function mountCoreRoutes(app: Hono<CoreHonoEnv>) {
 }
 
 /** No-op middleware — URL prefix redirects removed (slug-based routing). */
-export async function urlRedirectMiddleware(c: Context<CoreHonoEnv>, next: Next) {
+export async function urlRedirectMiddleware(_c: Context<CoreHonoEnv>, next: Next) {
   return next()
 }
 
