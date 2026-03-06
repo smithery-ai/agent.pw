@@ -161,7 +161,7 @@ jobs:
             -X PUT "${BASE}/services/linear" \
             -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d '{"allowedHosts": ["api.linear.app"]}')
+            -d '{"allowedHosts": ["api.linear.app"], "authSchemes": [{"type":"apiKey","in":"header","name":"Authorization"}]}')
           echo "Service register status: ${svc_status}"
           cat /tmp/e2e-svc.json
           if [ "${svc_status}" != "200" ]; then
