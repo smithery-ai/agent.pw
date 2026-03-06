@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent.pw API",
-    "description": "API for managing services, credentials, tokens, and proxying authenticated requests.",
+    "description": "API for managing credential profiles, credentials, tokens, and proxying authenticated requests.",
     "version": "1.0.0"
   },
   "servers": [
@@ -108,20 +108,20 @@
           }
         ]
       },
-      "Service": {
+      "CredProfile": {
         "type": "object",
         "properties": {
           "slug": {
             "type": "string",
-            "description": "Unique service identifier",
+            "description": "Unique profile identifier",
             "example": "linear"
           },
-          "allowedHosts": {
+          "host": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Hostnames the proxy may forward to",
+            "description": "Hostnames this profile applies to",
             "example": [
               "api.linear.app"
             ]
@@ -146,43 +146,31 @@
                 "type": "null"
               }
             ],
-            "description": "Service description"
-          },
-          "docsUrl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Link to API documentation"
+            "description": "Profile description"
           }
         },
         "required": [
           "slug",
-          "allowedHosts",
+          "host",
           "displayName",
-          "description",
-          "docsUrl"
+          "description"
         ],
         "additionalProperties": false
       },
-      "ServiceDetail": {
+      "CredProfileDetail": {
         "type": "object",
         "properties": {
           "slug": {
             "type": "string",
-            "description": "Unique service identifier",
+            "description": "Unique profile identifier",
             "example": "linear"
           },
-          "allowedHosts": {
+          "host": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Hostnames the proxy may forward to",
+            "description": "Hostnames this profile applies to",
             "example": [
               "api.linear.app"
             ]
@@ -207,93 +195,65 @@
                 "type": "null"
               }
             ],
-            "description": "Service description"
+            "description": "Profile description"
           },
-          "docsUrl": {
+          "auth": {
             "anyOf": [
-              {
-                "type": "string"
-              },
+              {},
               {
                 "type": "null"
               }
             ],
-            "description": "Link to API documentation"
-          },
-          "authSchemes": {
-            "anyOf": [
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/AuthScheme"
-                }
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Supported authentication schemes"
+            "description": "Auth configuration (OAuth or headers)"
           }
         },
         "required": [
           "slug",
-          "allowedHosts",
+          "host",
           "displayName",
           "description",
-          "docsUrl",
-          "authSchemes"
+          "auth"
         ],
         "additionalProperties": false
       },
-      "CreateServiceRequest": {
+      "CreateCredProfileRequest": {
         "type": "object",
         "properties": {
-          "allowedHosts": {
+          "host": {
             "minItems": 1,
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Hostnames the proxy may forward to"
+            "description": "Hostnames this profile applies to"
           },
-          "authSchemes": {
-            "description": "Supported authentication schemes",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AuthScheme"
-            }
+          "auth": {
+            "description": "Auth configuration",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "managedOauth": {
+            "description": "Managed OAuth config",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
           },
           "displayName": {
             "description": "Human-readable display name",
             "type": "string"
           },
           "description": {
-            "description": "Service description",
+            "description": "Profile description",
             "type": "string"
-          },
-          "oauthClientId": {
-            "description": "OAuth2 client ID",
-            "type": "string"
-          },
-          "oauthClientSecret": {
-            "description": "OAuth2 client secret (stored encrypted)",
-            "type": "string"
-          },
-          "docsUrl": {
-            "description": "Link to API documentation",
-            "type": "string"
-          },
-          "authConfig": {
-            "description": "Additional auth configuration",
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {}
           }
         },
         "required": [
-          "allowedHosts"
+          "host"
         ],
         "additionalProperties": false
       },
@@ -302,7 +262,7 @@
         "properties": {
           "error": {
             "type": "string",
-            "example": "Service not found"
+            "example": "Profile not found"
           }
         },
         "required": [
@@ -345,13 +305,13 @@
         "properties": {
           "slug": {
             "type": "string",
-            "description": "Service slug",
+            "description": "Credential slug",
             "example": "linear"
           },
-          "label": {
+          "host": {
             "type": "string",
-            "description": "Credential label",
-            "example": "default"
+            "description": "Target hostname",
+            "example": "api.linear.app"
           },
           "createdAt": {
             "type": "string",
@@ -360,7 +320,7 @@
         },
         "required": [
           "slug",
-          "label",
+          "host",
           "createdAt"
         ],
         "additionalProperties": false
@@ -381,11 +341,6 @@
             "additionalProperties": {
               "type": "string"
             }
-          },
-          "label": {
-            "description": "Credential label (defaults to \"default\")",
-            "example": "default",
-            "type": "string"
           }
         },
         "additionalProperties": false
@@ -434,8 +389,8 @@
       "description": "Health check"
     },
     {
-      "name": "services",
-      "description": "Service registration and management"
+      "name": "cred_profiles",
+      "description": "Credential profile management"
     },
     {
       "name": "credentials",
@@ -462,16 +417,16 @@
           "health"
         ],
         "summary": "Health check",
-        "description": "Returns a list of configured services with credential counts.",
+        "description": "Returns a list of configured credential profiles with credential counts.",
         "responses": {
           "200": {
-            "description": "Service health",
+            "description": "Health status",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "services": {
+                    "profiles": {
                       "type": "array",
                       "items": {
                         "type": "object",
@@ -491,7 +446,7 @@
                     }
                   },
                   "required": [
-                    "services"
+                    "profiles"
                   ],
                   "id": "HealthResponse"
                 }
@@ -508,7 +463,7 @@
           "credentials"
         ],
         "summary": "List credentials",
-        "description": "List all credentials for the authenticated user.",
+        "description": "List all credentials.",
         "responses": {
           "200": {
             "description": "List of credentials",
@@ -551,16 +506,12 @@
                       "type": "boolean",
                       "const": true
                     },
-                    "user": {
-                      "type": "string"
-                    },
                     "slug": {
                       "type": "string"
                     }
                   },
                   "required": [
                     "ok",
-                    "user",
                     "slug"
                   ],
                   "id": "CredentialStored"
@@ -588,7 +539,7 @@
             }
           },
           "404": {
-            "description": "Service not found",
+            "description": "Profile not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -633,7 +584,7 @@
           "credentials"
         ],
         "summary": "Delete credential",
-        "description": "Delete a credential by service slug and optional label.",
+        "description": "Delete a credential by slug.",
         "responses": {
           "200": {
             "description": "Credential deleted",
@@ -685,27 +636,27 @@
         ]
       }
     },
-    "/services": {
+    "/cred_profiles": {
       "get": {
-        "operationId": "getServices",
+        "operationId": "getCredProfiles",
         "tags": [
-          "services"
+          "cred_profiles"
         ],
-        "summary": "List services",
-        "description": "List all configured services with their allowed hosts.",
+        "summary": "List credential profiles",
+        "description": "List all configured credential profiles.",
         "responses": {
           "200": {
-            "description": "List of services",
+            "description": "List of profiles",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Service"
+                    "$ref": "#/components/schemas/CredProfile"
                   },
                   "$defs": {
-                    "Service": {
-                      "$ref": "#/components/schemas/Service"
+                    "CredProfile": {
+                      "$ref": "#/components/schemas/CredProfile"
                     }
                   }
                 }
@@ -715,27 +666,27 @@
         }
       }
     },
-    "/services/{slug}": {
+    "/cred_profiles/{slug}": {
       "get": {
-        "operationId": "getServicesBySlug",
+        "operationId": "getCredProfilesBySlug",
         "tags": [
-          "services"
+          "cred_profiles"
         ],
-        "summary": "Get service",
-        "description": "Get a service by slug, including its auth schemes.",
+        "summary": "Get credential profile",
+        "description": "Get a credential profile by slug.",
         "responses": {
           "200": {
-            "description": "Service details",
+            "description": "Profile details",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ServiceDetail"
+                  "$ref": "#/components/schemas/CredProfileDetail"
                 }
               }
             }
           },
           "404": {
-            "description": "Service not found",
+            "description": "Profile not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -757,15 +708,15 @@
         ]
       },
       "put": {
-        "operationId": "putServicesBySlug",
+        "operationId": "putCredProfilesBySlug",
         "tags": [
-          "services"
+          "cred_profiles"
         ],
-        "summary": "Create or update service",
-        "description": "Register a new service or update an existing one by slug.",
+        "summary": "Create or update credential profile",
+        "description": "Register a new credential profile or update an existing one by slug.",
         "responses": {
           "200": {
-            "description": "Service created or updated",
+            "description": "Profile created or updated",
             "content": {
               "application/json": {
                 "schema": {
@@ -790,7 +741,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateServiceRequest"
+                "$ref": "#/components/schemas/CreateCredProfileRequest"
               }
             }
           }
@@ -807,15 +758,15 @@
         ]
       },
       "delete": {
-        "operationId": "deleteServicesBySlug",
+        "operationId": "deleteCredProfilesBySlug",
         "tags": [
-          "services"
+          "cred_profiles"
         ],
-        "summary": "Delete service",
-        "description": "Remove a service by slug.",
+        "summary": "Delete credential profile",
+        "description": "Remove a credential profile by slug.",
         "responses": {
           "200": {
-            "description": "Service deleted",
+            "description": "Profile deleted",
             "content": {
               "application/json": {
                 "schema": {
@@ -825,7 +776,7 @@
             }
           },
           "404": {
-            "description": "Service not found",
+            "description": "Profile not found",
             "content": {
               "application/json": {
                 "schema": {
