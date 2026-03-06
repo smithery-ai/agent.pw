@@ -4,25 +4,25 @@ const ApiKeyScheme = z.object({
   type: z.literal('apiKey'),
   in: z.enum(['header', 'query', 'cookie']).default('header'),
   name: z.string().default('Authorization'),
-})
+}).meta({ id: 'ApiKeyScheme' })
 
 const HttpScheme = z.object({
   type: z.literal('http'),
   scheme: z.enum(['bearer', 'basic']),
-})
+}).meta({ id: 'HttpScheme' })
 
 const OAuth2Scheme = z.object({
   type: z.literal('oauth2'),
   authorizeUrl: z.string(),
   tokenUrl: z.string(),
   scopes: z.string().optional(),
-})
+}).meta({ id: 'OAuth2Scheme' })
 
 export const AuthScheme = z.discriminatedUnion('type', [
   ApiKeyScheme,
   HttpScheme,
   OAuth2Scheme,
-])
+]).meta({ id: 'AuthScheme' })
 export type AuthScheme = z.infer<typeof AuthScheme>
 
 export const DEFAULT_API_KEY_SCHEME: AuthScheme = { type: 'http', scheme: 'bearer' }

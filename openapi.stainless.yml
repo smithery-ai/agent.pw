@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=https://app.stainless.com/config.schema.json
+
+edition: 2025-10-10
+
+organization:
+  name: agent-pw
+  docs: 'https://agent.pw/docs'
+  contact: 'contact@smithery.ai'
+
+targets:
+  typescript:
+    edition: typescript.2025-10-10
+    package_name: '@agent.pw/sdk'
+    production_repo: 'smithery-ai/agent.pw-sdk'
+    publish:
+      npm:
+        auth_method: oidc
+
+environments:
+  production: https://api.agent.pw
+
+resources:
+  health:
+    methods:
+      check: get /
+
+  services:
+    methods:
+      list: get /services
+      get: get /services/{slug}
+      create: put /services/{slug}
+      delete: delete /services/{slug}
+
+  credentials:
+    methods:
+      list: get /credentials
+      store: put /credentials/{slug}
+      delete: delete /credentials/{slug}
+
+  tokens:
+    methods:
+      revoke: post /tokens/revoke
+
+settings:
+  disable_mock_tests: true
+  license: Apache-2.0
+
+client_settings:
+  opts:
+    api_key:
+      type: string
+      nullable: false
+      auth:
+        security_scheme: bearerAuth
+      description: agent.pw API key as Bearer token
+      read_env: AGENT_PW_API_KEY
+
+readme:
+  example_requests:
+    default:
+      type: request
+      endpoint: get /
+      params: {}
+    headline:
+      type: request
+      endpoint: get /services
+      params: {}
