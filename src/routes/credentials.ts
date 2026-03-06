@@ -76,7 +76,7 @@ credentialRoutes.put('/:slug', requireToken,
     if (!host) return c.json({ error: 'Profile has no hosts configured' }, 400)
 
     const authConfig = profile.auth ? JSON.parse(profile.auth) : null
-    const schemes = authConfig?.kind === 'oauth' ? [] : parseAuthSchemes(authConfig ? JSON.stringify([authConfig]) : null)
+    const schemes = authConfig?.kind === 'oauth' ? [] : parseAuthSchemes(authConfig?.authSchemes ? JSON.stringify(authConfig.authSchemes) : null)
     const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
     const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
     const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
