@@ -60,7 +60,7 @@ jobs:
   stainless-preview:
     name: Stainless Preview Build
     needs: build-and-test
-    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-stainless')
+    if: github.event_name == 'pull_request' && github.actor != 'smithery-chore-bot[bot]' && !contains(github.event.pull_request.labels.*.name, 'skip-stainless')
     concurrency:
       group: stainless-preview-${{ github.head_ref }}
       cancel-in-progress: true
