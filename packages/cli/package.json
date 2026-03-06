@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@agent.pw/server": "workspace:*",
-    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/df4b6bbbe69c13c6350b5c58d3ca0724a4e621c6/dist.tar.gz"
+    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/c995297e5d75b7fab5b0e82c2791c08a277db15c/dist.tar.gz"
   },
   "devDependencies": {
     "@types/bun": "^1.3.10",
