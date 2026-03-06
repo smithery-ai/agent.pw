@@ -26,6 +26,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/8d621242b12afb4496150481c18e6a80ed58eb91/dist.tar.gz",
     "@electric-sql/pglite": "^0.2.17",
     "@hono/standard-validator": "^0.2.2",
     "@logtail/edge": "^0.5.7",

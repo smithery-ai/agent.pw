@@ -1,18 +1,10 @@
 import { readFileSync } from 'node:fs'
-import { api } from '../http'
+import { getClient } from '../http'
+import type { ServiceCreateParams } from '@agent.pw/sdk/resources/services'
 
 export async function listServices() {
-  const res = await api('/services')
-  if (!res.ok) {
-    console.error(`Failed to list services (${res.status})`)
-    process.exit(1)
-  }
-
-  const services = (await res.json()) as Array<{
-    slug: string
-    allowedHosts: string[]
-    description?: string
-  }>
+  const client = await getClient()
+  const services = await client.services.list()
 
   if (services.length === 0) {
     console.log('No services registered.')
@@ -28,22 +20,21 @@ export async function listServices() {
 }
 
 export async function getServiceCmd(slug: string) {
-  const res = await api(`/services/${slug}`)
-  if (res.status === 404) {
-    console.error(`Service '${slug}' not found.`)
-    process.exit(1)
+  const client = await getClient()
+  try {
+    const service = await client.services.get(slug)
+    console.log(JSON.stringify(service, null, 2))
+  } catch (e: unknown) {
+    if (isNotFound(e)) {
+      console.error(`Service '${slug}' not found.`)
+      process.exit(1)
+    }
+    throw e
   }
-  if (!res.ok) {
-    console.error(`Failed to get service (${res.status})`)
-    process.exit(1)
-  }
-
-  const body = await res.json()
-  console.log(JSON.stringify(body, null, 2))
 }
 
 export async function addService(slug: string, hosts: string[], filePath?: string) {
-  let body: Record<string, unknown>
+  let body: ServiceCreateParams
 
   if (filePath) {
     const content = readFileSync(filePath, 'utf-8')
@@ -59,31 +50,25 @@ export async function addService(slug: string, hosts: string[], filePath?: strin
     body = { allowedHosts: hosts }
   }
 
-  const res = await api(`/services/${slug}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as Record<string, string>
-    console.error(`Failed to add service: ${err.error ?? res.statusText}`)
-    process.exit(1)
-  }
-
+  const client = await getClient()
+  await client.services.create(slug, body)
   console.log(`Service '${slug}' registered.`)
 }
 
 export async function removeService(slug: string) {
-  const res = await api(`/services/${slug}`, { method: 'DELETE' })
-  if (res.status === 404) {
-    console.error(`Service '${slug}' not found.`)
-    process.exit(1)
+  const client = await getClient()
+  try {
+    await client.services.delete(slug)
+    console.log(`Service '${slug}' removed.`)
+  } catch (e: unknown) {
+    if (isNotFound(e)) {
+      console.error(`Service '${slug}' not found.`)
+      process.exit(1)
+    }
+    throw e
   }
-  if (!res.ok) {
-    console.error(`Failed to remove service (${res.status})`)
-    process.exit(1)
-  }
+}
 
-  console.log(`Service '${slug}' removed.`)
+function isNotFound(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && 'status' in e && (e as { status: number }).status === 404
 }

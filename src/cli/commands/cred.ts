@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline'
-import { api } from '../http'
+import { getClient } from '../http'
 
 function relativeTime(date: string) {
   const diff = Date.now() - new Date(date).getTime()
@@ -14,17 +14,8 @@ function relativeTime(date: string) {
 }
 
 export async function listCreds() {
-  const res = await api('/credentials')
-  if (!res.ok) {
-    console.error(`Failed to list credentials (${res.status})`)
-    process.exit(1)
-  }
-
-  const creds = (await res.json()) as Array<{
-    slug: string
-    label: string
-    createdAt?: string
-  }>
+  const client = await getClient()
+  const creds = await client.credentials.list()
 
   if (creds.length === 0) {
     console.log('No credentials stored. Add one with `agent.pw cred add <slug>`.')
@@ -39,14 +30,17 @@ export async function listCreds() {
 }
 
 export async function addCred(slug: string, value?: string) {
+  const client = await getClient()
+
   // Ensure the service exists
-  const svcRes = await api(`/services/${slug}`)
-  if (svcRes.status === 404) {
-    console.error(`Service '${slug}' not found. Register it first with: agent.pw service add ${slug} --host <hostname>`)
-    process.exit(1)
-  } else if (!svcRes.ok) {
-    console.error(`Failed to check service '${slug}' (${svcRes.status})`)
-    process.exit(1)
+  try {
+    await client.services.get(slug)
+  } catch (e: unknown) {
+    if (isNotFound(e)) {
+      console.error(`Service '${slug}' not found. Register it first with: agent.pw service add ${slug} --host <hostname>`)
+      process.exit(1)
+    }
+    throw e
   }
 
   // Prompt for value if not provided via --value
@@ -64,30 +58,24 @@ export async function addCred(slug: string, value?: string) {
     }
   }
 
-  const res = await api(`/credentials/${slug}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: value }),
-  })
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as Record<string, string>
-    console.error(`Failed to store credential: ${body.error ?? res.statusText}`)
-    process.exit(1)
-  }
-
+  await client.credentials.store(slug, { token: value })
   console.log('Stored.')
 }
 
 export async function removeCred(slug: string) {
-  const res = await api(`/credentials/${slug}`, { method: 'DELETE' })
-  if (res.status === 404) {
-    console.error(`No credential found for '${slug}'.`)
-    process.exit(1)
+  const client = await getClient()
+  try {
+    await client.credentials.delete(slug)
+    console.log(`Removed credential for ${slug}.`)
+  } catch (e: unknown) {
+    if (isNotFound(e)) {
+      console.error(`No credential found for '${slug}'.`)
+      process.exit(1)
+    }
+    throw e
   }
-  if (!res.ok) {
-    console.error(`Failed to remove credential (${res.status})`)
-    process.exit(1)
-  }
-  console.log(`Removed credential for ${slug}.`)
+}
+
+function isNotFound(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && 'status' in e && (e as { status: number }).status === 404
 }
