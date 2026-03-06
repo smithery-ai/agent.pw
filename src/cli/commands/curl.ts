@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { resolve } from '../resolve'
-import { api } from '../http'
+import { getClient } from '../http'
 
 export async function curl(args: string[]) {
   if (args.length === 0) {
@@ -29,12 +29,8 @@ export async function curl(args: string[]) {
   const path = targetUrl.pathname + targetUrl.search
 
   // Resolve hostname → slug by checking service list
-  const svcRes = await api('/services')
-  if (!svcRes.ok) {
-    console.error(`Failed to list services (${svcRes.status})`)
-    process.exit(1)
-  }
-  const services = (await svcRes.json()) as Array<{ slug: string; allowedHosts: string[] }>
+  const client = await getClient()
+  const services = await client.services.list()
   const match = services.find(s => s.allowedHosts.includes(hostname))
   if (!match) {
     console.error(`No service found for hostname '${hostname}'. Register it first with: agent.pw service add <slug> --host ${hostname}`)

@@ -1,17 +1,7 @@
-import { api } from '../http'
+import { getClient } from '../http'
 
 export async function revokeTokenCmd() {
-  const res = await api('/tokens/revoke', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  })
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as Record<string, string>
-    console.error(`Failed to revoke token: ${body.error ?? res.statusText}`)
-    process.exit(1)
-  }
-
+  const client = await getClient()
+  await client.tokens.revoke({})
   console.log('Token revoked.')
 }

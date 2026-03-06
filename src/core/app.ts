@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import type { Context, Next } from 'hono'
 import { cors } from 'hono/cors'
+import { describeRoute, resolver } from 'hono-openapi'
+import { z } from 'zod'
 import type { CoreHonoEnv } from './types'
 import type { Database } from '../db/index'
 import { listServicesWithCredentialCounts } from '../db/queries'
@@ -29,10 +31,20 @@ export function mountCoreRoutes(app: Hono<CoreHonoEnv>) {
   app.route('/tokens', tokenRoutes)
 
   // JWKS endpoint
-  app.get('/.well-known/jwks.json', c => {
-    const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
-    return c.json(buildJwks(publicKeyHex))
-  })
+  app.get('/.well-known/jwks.json',
+    describeRoute({
+      tags: ['auth'],
+      summary: 'JWKS',
+      description: 'Returns the JSON Web Key Set for Biscuit token verification.',
+      responses: {
+        200: { description: 'JWKS document' },
+      },
+    }),
+    c => {
+      const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+      return c.json(buildJwks(publicKeyHex))
+    },
+  )
 
   // Proxy catch-all (must be last)
   app.route('/', proxyRoutes)
@@ -99,11 +111,29 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
 
   // ─── Health ────────────────────────────────────────────────────────────────
 
-  app.get('/', async c => {
-    const db = c.get('db')
-    const recentServices = await listServicesWithCredentialCounts(db)
-    return c.json({ services: recentServices.map(s => ({ slug: s.slug, credentialCount: s.credentialCount })) })
+  const HealthServiceSchema = z.object({
+    slug: z.string(),
+    credentialCount: z.number(),
   })
+  const HealthResponseSchema = z.object({
+    services: z.array(HealthServiceSchema),
+  }).meta({ id: 'HealthResponse' })
+
+  app.get('/',
+    describeRoute({
+      tags: ['health'],
+      summary: 'Health check',
+      description: 'Returns a list of configured services with credential counts.',
+      responses: {
+        200: { description: 'Service health', content: { 'application/json': { schema: resolver(HealthResponseSchema) } } },
+      },
+    }),
+    async c => {
+      const db = c.get('db')
+      const recentServices = await listServicesWithCredentialCounts(db)
+      return c.json({ services: recentServices.map(s => ({ slug: s.slug, credentialCount: s.credentialCount })) })
+    },
+  )
 
   mountCoreRoutes(app)
 

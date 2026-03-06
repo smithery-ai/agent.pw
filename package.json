@@ -14,24 +14,30 @@
     "lint": "biome lint .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "infisical run --path=/apps/warden --env=dev --silent -- drizzle-kit migrate",
+    "db:studio": "infisical run --path=/apps/warden --env=dev --silent -- drizzle-kit studio",
     "db:push": "infisical run --path=/apps/warden --env=dev --silent -- drizzle-kit push",
     "setup": "infisical run --path=/apps/warden --env=dev --silent -- tsx scripts/setup.ts",
     "managed-oauth": "infisical run --path=/apps/warden --env=dev --silent -- tsx scripts/managed-oauth.ts",
     "secrets:login": "infisical login",
     "secrets:export": "infisical export --path=/apps/warden --env=dev --format=dotenv > .env",
+    "openapi:generate": "tsx scripts/generate-openapi.ts",
     "compile": "bun build --compile src/cli/index.ts --outfile dist/agent.pw",
     "test": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz",
     "@electric-sql/pglite": "^0.2.17",
+    "@hono/standard-validator": "^0.2.2",
     "@logtail/edge": "^0.5.7",
     "@smithery/biscuit": "^1.0.0",
     "@workos-inc/node": "^8.8.0",
     "drizzle-orm": "^0.44.1",
     "hono": "^4.12.0",
+    "hono-openapi": "^1.3.0",
     "postgres": "^3.4.5",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "zod-openapi": "^5.4.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.5",
