@@ -25,12 +25,12 @@ resources:
     methods:
       check: get /
 
-  services:
+  profiles:
     methods:
-      list: get /services
-      get: get /services/{slug}
-      create: put /services/{slug}
-      delete: delete /services/{slug}
+      list: get /cred_profiles
+      get: get /cred_profiles/{slug}
+      create: put /cred_profiles/{slug}
+      delete: delete /cred_profiles/{slug}
 
   credentials:
     methods:
@@ -53,7 +53,7 @@ client_settings:
       nullable: false
       auth:
         security_scheme: bearerAuth
-      description: agent.pw API key as Bearer token
+      description: agent.pw Biscuit token sent in the agentpw-token header
       read_env: AGENT_PW_API_KEY
 
 readme:
@@ -64,5 +64,5 @@ readme:
       params: {}
     headline:
       type: request
-      endpoint: get /services
+      endpoint: get /cred_profiles
       params: {}
