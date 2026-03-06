@@ -155,29 +155,47 @@ jobs:
           set -euo pipefail
           BASE="${PREVIEW_URL%/}"
 
-          # Register (or update) the Linear service with slug-based format
+          # Register (or update) the Linear service with slug-based format (with retries)
           echo "Registering service 'linear'..."
-          svc_status=$(curl -sS -o /tmp/e2e-svc.json -w '%{http_code}' \
-            -X PUT "${BASE}/services/linear" \
-            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d '{"allowedHosts": ["api.linear.app"], "authSchemes": [{"type":"apiKey","in":"header","name":"Authorization"}]}')
-          echo "Service register status: ${svc_status}"
+          for attempt in $(seq 1 6); do
+            svc_status=$(curl -sS -o /tmp/e2e-svc.json -w '%{http_code}' \
+              -X PUT "${BASE}/services/linear" \
+              -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d '{"allowedHosts": ["api.linear.app"], "authSchemes": [{"type":"apiKey","in":"header","name":"Authorization"}]}')
+            echo "Attempt ${attempt}/6 — service register status: ${svc_status}"
+            if [ "${svc_status}" = "200" ]; then
+              break
+            fi
+            if [ "${attempt}" -lt 6 ]; then
+              echo "Retrying in 10s..."
+              sleep 10
+            fi
+          done
           cat /tmp/e2e-svc.json
           if [ "${svc_status}" != "200" ]; then
-            echo "Failed to register service"
+            echo "Failed to register service after 6 attempts"
             exit 1
           fi
 
-          # Store Linear credential for e2e-test user
+          # Store Linear credential for e2e-test user (with retries)
           echo "Storing credential for linear (user=e2e-test)..."
-          cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
-            -X PUT "${BASE}/credentials/linear" \
-            -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
-            -H "Act-As: e2e-test" \
-            -H "Content-Type: application/json" \
-            -d "{\"token\": \"${LINEAR_TEST_KEY}\"}")
-          echo "Credential store status: ${cred_status}"
+          for attempt in $(seq 1 6); do
+            cred_status=$(curl -sS -o /tmp/e2e-cred.json -w '%{http_code}' \
+              -X PUT "${BASE}/credentials/linear" \
+              -H "Authorization: Bearer ${E2E_MANAGEMENT_TOKEN}" \
+              -H "Act-As: e2e-test" \
+              -H "Content-Type: application/json" \
+              -d "{\"token\": \"${LINEAR_TEST_KEY}\"}")
+            echo "Attempt ${attempt}/6 — credential store status: ${cred_status}"
+            if [ "${cred_status}" = "200" ]; then
+              break
+            fi
+            if [ "${attempt}" -lt 6 ]; then
+              echo "Retrying in 10s..."
+              sleep 10
+            fi
+          done
           cat /tmp/e2e-cred.json
           if [ "${cred_status}" != "200" ]; then
             echo "Failed to store credential"
