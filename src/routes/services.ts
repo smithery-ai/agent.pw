@@ -130,8 +130,8 @@ serviceRoutes.put('/:slug', requireToken, requireRight('manage_services'),
     const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
 
     await upsertService(db, slug, {
-      allowedHosts: JSON.stringify(body.allowedHosts),
-      authSchemes: body.authSchemes ? JSON.stringify(body.authSchemes) : undefined,
+      allowedHosts: body.allowedHosts,
+      authSchemes: body.authSchemes,
       displayName,
       description: body.description,
       oauthClientId: body.oauthClientId,
@@ -139,7 +139,7 @@ serviceRoutes.put('/:slug', requireToken, requireRight('manage_services'),
         ? await encryptSecret(c.env.ENCRYPTION_KEY, body.oauthClientSecret)
         : undefined,
       docsUrl: body.docsUrl,
-      authConfig: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
+      authConfig: body.authConfig,
     })
 
     return c.json({ ok: true as const, slug })

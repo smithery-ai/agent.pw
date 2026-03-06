@@ -64,28 +64,28 @@ export async function upsertService(
   db: Database,
   slug: string,
   data: {
-    allowedHosts: string
-    authSchemes?: string
+    allowedHosts: string[]
+    authSchemes?: unknown
     displayName?: string
     description?: string
     oauthClientId?: string
     encryptedOauthClientSecret?: Buffer | null
     docsUrl?: string
-    authConfig?: string
+    authConfig?: unknown
   },
 ) {
   await db
     .insert(services)
     .values({
       slug,
-      allowedHosts: data.allowedHosts,
-      authSchemes: data.authSchemes,
+      allowedHosts: JSON.stringify(data.allowedHosts),
+      authSchemes: data.authSchemes ? JSON.stringify(data.authSchemes) : undefined,
       displayName: data.displayName,
       description: data.description,
       oauthClientId: data.oauthClientId,
       encryptedOauthClientSecret: data.encryptedOauthClientSecret ?? null,
       docsUrl: data.docsUrl,
-      authConfig: data.authConfig,
+      authConfig: data.authConfig ? JSON.stringify(data.authConfig) : undefined,
     })
     .onConflictDoUpdate({
       target: services.slug,
