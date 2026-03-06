@@ -18,28 +18,28 @@ credentialRoutes.get('/', requireToken, resolveUserId, async c => {
   const creds = await listCredentials(db, userId)
   return c.json(
     creds.map(cr => ({
-      service: cr.service,
       slug: cr.slug,
+      label: cr.label,
       createdAt: cr.createdAt,
     })),
   )
 })
 
-credentialRoutes.put('/:service', requireToken, resolveUserId, async c => {
+credentialRoutes.put('/:slug', requireToken, resolveUserId, async c => {
   const userId = c.get('userId') as string
-  const service = c.req.param('service')
+  const slug = c.req.param('slug')
   const body = await c.req.json<{
     token?: string
     headers?: Record<string, string>
-    slug?: string
+    label?: string
   }>()
   if (!body.token && !body.headers) {
     return c.json({ error: 'Either token or headers is required' }, 400)
   }
 
   const db = c.get('db')
-  const svc = await getService(db, service)
-  if (!svc) return c.json({ error: `Service '${service}' not configured` }, 404)
+  const svc = await getService(db, slug)
+  if (!svc) return c.json({ error: `Service '${slug}' not configured` }, 404)
 
   // Build headers: use explicit map or derive from token + service auth config
   const schemes = parseAuthSchemes(svc.authSchemes)
@@ -47,15 +47,15 @@ credentialRoutes.put('/:service', requireToken, resolveUserId, async c => {
   const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
-  await upsertCredential(db, userId, service, body.slug ?? 'default', encrypted)
-  return c.json({ ok: true, user: userId, service })
+  await upsertCredential(db, userId, slug, body.label ?? 'default', encrypted)
+  return c.json({ ok: true, user: userId, slug })
 })
 
-credentialRoutes.delete('/:service', requireToken, resolveUserId, async c => {
+credentialRoutes.delete('/:slug', requireToken, resolveUserId, async c => {
   const db = c.get('db')
   const userId = c.get('userId') as string
-  const credSlug = c.req.query('slug') ?? 'default'
-  const deleted = await deleteCredential(db, userId, c.req.param('service'), credSlug)
+  const label = c.req.query('label') ?? 'default'
+  const deleted = await deleteCredential(db, userId, c.req.param('slug'), label)
   if (!deleted) return c.json({ error: 'Credential not found' }, 404)
   return c.json({ ok: true })
 })

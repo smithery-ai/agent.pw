@@ -11,11 +11,11 @@ export const credentials = wardenSchema.table(
   'credentials',
   {
     orgId: text('org_id').notNull(),
-    service: text('service').notNull(),
-    slug: text('slug').notNull().default('default'),
+    slug: text('slug').notNull(), // service slug (references services.slug)
+    label: text('label').notNull().default('default'), // multiple credentials per service
     encryptedCredentials: bytea('encrypted_credentials').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
-  t => [primaryKey({ columns: [t.orgId, t.service, t.slug] })],
+  t => [primaryKey({ columns: [t.orgId, t.slug, t.label] })],
 )

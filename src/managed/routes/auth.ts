@@ -42,14 +42,14 @@ authRoutes.get('/cli-token', requireBrowserSession, async c => {
 })
 
 // Tabbed auth page — requires browser session
-authRoutes.get('/:service', requireBrowserSession, async c => {
-  const serviceName = c.req.param('service')
+authRoutes.get('/:slug', requireBrowserSession, async c => {
+  const slug = c.req.param('slug')
   const db = c.get('db')
-  const svc = await getService(db, serviceName)
+  const svc = await getService(db, slug)
   const session = c.get('session')
 
   if (!svc) {
-    return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
+    return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 404)
   }
 
   const flowId = validateFlowId(c.req.query('flow_id')) ?? randomId()
@@ -59,14 +59,14 @@ authRoutes.get('/:service', requireBrowserSession, async c => {
   if (!existingFlow) {
     await createAuthFlow(c.get('db'), {
       id: flowId,
-      service: serviceName,
+      slug,
       method: 'api_key',
       orgId: session?.orgId,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     })
   }
 
-  const callbackUrl = `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`
+  const callbackUrl = `${new URL(c.req.url).origin}/auth/${slug}/oauth/callback`
   return c.html(AuthPage({ service: svc, flowId, callbackUrl }))
 })
 

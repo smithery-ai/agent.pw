@@ -9,8 +9,8 @@ export async function listServices() {
   }
 
   const services = (await res.json()) as Array<{
-    service: string
-    baseUrl: string
+    slug: string
+    allowedHosts: string[]
     description?: string
   }>
 
@@ -19,17 +19,18 @@ export async function listServices() {
     return
   }
 
-  console.log(`${'SERVICE'.padEnd(35)}${'BASE URL'.padEnd(35)}DESCRIPTION`)
+  console.log(`${'SLUG'.padEnd(20)}${'HOSTS'.padEnd(40)}DESCRIPTION`)
   for (const s of services) {
+    const hosts = s.allowedHosts.join(', ')
     const desc = s.description ? s.description.slice(0, 40) : ''
-    console.log(`${s.service.padEnd(35)}${s.baseUrl.padEnd(35)}${desc}`)
+    console.log(`${s.slug.padEnd(20)}${hosts.padEnd(40)}${desc}`)
   }
 }
 
-export async function getServiceCmd(service: string) {
-  const res = await api(`/services/${service}`)
+export async function getServiceCmd(slug: string) {
+  const res = await api(`/services/${slug}`)
   if (res.status === 404) {
-    console.error(`Service '${service}' not found.`)
+    console.error(`Service '${slug}' not found.`)
     process.exit(1)
   }
   if (!res.ok) {
@@ -41,20 +42,24 @@ export async function getServiceCmd(service: string) {
   console.log(JSON.stringify(body, null, 2))
 }
 
-export async function addService(service: string, filePath?: string) {
+export async function addService(slug: string, hosts: string[], filePath?: string) {
   let body: Record<string, unknown>
 
   if (filePath) {
     const content = readFileSync(filePath, 'utf-8')
     body = JSON.parse(content)
-    if (!body.baseUrl) {
-      body.baseUrl = `https://${service}`
+    if (!body.allowedHosts && hosts.length > 0) {
+      body.allowedHosts = hosts
     }
   } else {
-    body = { baseUrl: `https://${service}` }
+    if (hosts.length === 0) {
+      console.error('At least one --host is required.')
+      process.exit(1)
+    }
+    body = { allowedHosts: hosts }
   }
 
-  const res = await api(`/services/${service}`, {
+  const res = await api(`/services/${slug}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -66,13 +71,13 @@ export async function addService(service: string, filePath?: string) {
     process.exit(1)
   }
 
-  console.log(`Service '${service}' registered.`)
+  console.log(`Service '${slug}' registered.`)
 }
 
-export async function removeService(service: string) {
-  const res = await api(`/services/${service}`, { method: 'DELETE' })
+export async function removeService(slug: string) {
+  const res = await api(`/services/${slug}`, { method: 'DELETE' })
   if (res.status === 404) {
-    console.error(`Service '${service}' not found.`)
+    console.error(`Service '${slug}' not found.`)
     process.exit(1)
   }
   if (!res.ok) {
@@ -80,5 +85,5 @@ export async function removeService(service: string) {
     process.exit(1)
   }
 
-  console.log(`Service '${service}' removed.`)
+  console.log(`Service '${slug}' removed.`)
 }

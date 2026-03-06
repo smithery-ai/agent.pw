@@ -21,39 +21,31 @@ export async function listCreds() {
   }
 
   const creds = (await res.json()) as Array<{
-    service: string
     slug: string
+    label: string
     createdAt?: string
   }>
 
   if (creds.length === 0) {
-    console.log('No credentials stored. Add one with `agent.pw cred add <service>`.')
+    console.log('No credentials stored. Add one with `agent.pw cred add <slug>`.')
     return
   }
 
-  console.log(`${'SERVICE'.padEnd(30)}ADDED`)
+  console.log(`${'SLUG'.padEnd(20)}${'LABEL'.padEnd(15)}ADDED`)
   for (const cr of creds) {
     const added = cr.createdAt ? relativeTime(cr.createdAt) : ''
-    console.log(`${cr.service.padEnd(30)}${added}`)
+    console.log(`${cr.slug.padEnd(20)}${cr.label.padEnd(15)}${added}`)
   }
 }
 
-export async function addCred(service: string, value?: string) {
+export async function addCred(slug: string, value?: string) {
   // Ensure the service exists
-  const svcRes = await api(`/services/${service}`)
+  const svcRes = await api(`/services/${slug}`)
   if (svcRes.status === 404) {
-    // Auto-register the service with defaults
-    const putRes = await api(`/services/${service}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseUrl: `https://${service}` }),
-    })
-    if (!putRes.ok) {
-      console.error(`Failed to register service '${service}' (${putRes.status})`)
-      process.exit(1)
-    }
+    console.error(`Service '${slug}' not found. Register it first with: agent.pw service add ${slug} --host <hostname>`)
+    process.exit(1)
   } else if (!svcRes.ok) {
-    console.error(`Failed to check service '${service}' (${svcRes.status})`)
+    console.error(`Failed to check service '${slug}' (${svcRes.status})`)
     process.exit(1)
   }
 
@@ -72,7 +64,7 @@ export async function addCred(service: string, value?: string) {
     }
   }
 
-  const res = await api(`/credentials/${service}`, {
+  const res = await api(`/credentials/${slug}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: value }),
@@ -87,15 +79,15 @@ export async function addCred(service: string, value?: string) {
   console.log('Stored.')
 }
 
-export async function removeCred(service: string) {
-  const res = await api(`/credentials/${service}`, { method: 'DELETE' })
+export async function removeCred(slug: string) {
+  const res = await api(`/credentials/${slug}`, { method: 'DELETE' })
   if (res.status === 404) {
-    console.error(`No credential found for '${service}'.`)
+    console.error(`No credential found for '${slug}'.`)
     process.exit(1)
   }
   if (!res.ok) {
     console.error(`Failed to remove credential (${res.status})`)
     process.exit(1)
   }
-  console.log(`Removed credential for ${service}.`)
+  console.log(`Removed credential for ${slug}.`)
 }

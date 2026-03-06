@@ -3,8 +3,8 @@ import { wardenSchema } from './warden-schema'
 import { bytea } from './types'
 
 export const services = wardenSchema.table('services', {
-  service: text('service').primaryKey(), // hostname: api.github.com
-  baseUrl: text('base_url').notNull(),
+  slug: text('slug').primaryKey(), // unique short ID: github, linear, slack
+  allowedHosts: text('allowed_hosts').notNull(), // JSON: string[] of hostnames for SSRF prevention
   displayName: text('display_name'),
   description: text('description'),
   authSchemes: text('auth_schemes'), // JSON: AuthScheme[]

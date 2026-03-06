@@ -32,24 +32,24 @@ async function main() {
     case 'creds': {
       const subcommand = args[1]
       if (subcommand === 'add') {
-        const service = args[2]
+        const slug = args[2]
         const valueIndex = args.indexOf('--value')
         const value = valueIndex !== -1 ? args[valueIndex + 1] : undefined
-        if (!service) {
-          console.error('Usage: agent.pw cred add <service> [--value <key>]')
+        if (!slug) {
+          console.error('Usage: agent.pw cred add <slug> [--value <key>]')
           process.exit(1)
         }
         const { addCred } = await import('./commands/cred')
-        return addCred(service, value)
+        return addCred(slug, value)
       }
       if (subcommand === 'remove' || subcommand === 'rm') {
-        const service = args[2]
-        if (!service) {
-          console.error('Usage: agent.pw cred remove <service>')
+        const slug = args[2]
+        if (!slug) {
+          console.error('Usage: agent.pw cred remove <slug>')
           process.exit(1)
         }
         const { removeCred } = await import('./commands/cred')
-        return removeCred(service)
+        return removeCred(slug)
       }
       const { listCreds } = await import('./commands/cred')
       return listCreds()
@@ -73,7 +73,7 @@ async function main() {
       } else if (subcommand === 'get') {
         const svc = args[2]
         if (!svc) {
-          console.error('Usage: agent.pw service get <hostname>')
+          console.error('Usage: agent.pw service get <slug>')
           process.exit(1)
         }
         const { getServiceCmd } = await import('./commands/service')
@@ -81,17 +81,25 @@ async function main() {
       } else if (subcommand === 'add') {
         const svc = args[2]
         if (!svc) {
-          console.error('Usage: agent.pw service add <hostname> [--file <path>]')
+          console.error('Usage: agent.pw service add <slug> --host <hostname> [--file <path>]')
           process.exit(1)
+        }
+        // Collect all --host values
+        const hosts: string[] = []
+        for (let i = 3; i < args.length; i++) {
+          if (args[i] === '--host' && args[i + 1]) {
+            hosts.push(args[i + 1])
+            i++ // skip the value
+          }
         }
         const fileIndex = args.indexOf('--file')
         const filePath = fileIndex !== -1 ? args[fileIndex + 1] : undefined
         const { addService } = await import('./commands/service')
-        return addService(svc, filePath)
+        return addService(svc, hosts, filePath)
       } else if (subcommand === 'remove' || subcommand === 'rm') {
         const svc = args[2]
         if (!svc) {
-          console.error('Usage: agent.pw service remove <hostname>')
+          console.error('Usage: agent.pw service remove <slug>')
           process.exit(1)
         }
         const { removeService } = await import('./commands/service')
@@ -127,12 +135,12 @@ async function main() {
       console.log('  stop                            Stop the local proxy server')
       console.log('  status                          Show connection status')
       console.log('  service                         List registered services')
-      console.log('  service get <host>              Show service details')
-      console.log('  service add <host> [--file f]   Register a service')
-      console.log('  service remove <host>           Remove a service')
+      console.log('  service get <slug>              Show service details')
+      console.log('  service add <slug> --host <h>   Register a service')
+      console.log('  service remove <slug>           Remove a service')
       console.log('  cred                            List stored credentials')
-      console.log('  cred add <svc> [--value <k>]    Add a credential')
-      console.log('  cred remove <svc>               Remove a credential')
+      console.log('  cred add <slug> [--value <k>]   Add a credential')
+      console.log('  cred remove <slug>              Remove a credential')
       console.log('  token revoke                     Revoke the current token')
       console.log('  curl <url> [args...]             Proxy-aware curl wrapper')
       if (command && command !== 'help' && command !== '--help' && command !== '-h') {

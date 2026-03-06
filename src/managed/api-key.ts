@@ -12,12 +12,12 @@ export const apiKeyRoutes = new Hono<HonoEnv>()
 
 // ─── API Key Form ────────────────────────────────────────────────────────────
 
-apiKeyRoutes.get('/:service/api-key', requireBrowserSession, async c => {
-  const serviceName = c.req.param('service')
+apiKeyRoutes.get('/:slug/api-key', requireBrowserSession, async c => {
+  const slug = c.req.param('slug')
   const db = c.get('db')
-  const svc = await getService(db, serviceName)
+  const svc = await getService(db, slug)
 
-  if (!svc) return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
+  if (!svc) return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 404)
 
   const session = c.get('session')
   const orgId = session?.orgId ?? 'local'
@@ -29,7 +29,7 @@ apiKeyRoutes.get('/:service/api-key', requireBrowserSession, async c => {
   if (!existingFlow) {
     await createAuthFlow(db, {
       id: flowId,
-      service: serviceName,
+      slug,
       method: 'api_key',
       orgId,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
@@ -41,15 +41,15 @@ apiKeyRoutes.get('/:service/api-key', requireBrowserSession, async c => {
 
 // ─── API Key Submit ──────────────────────────────────────────────────────────
 
-apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
-  const serviceName = c.req.param('service')
+apiKeyRoutes.post('/:slug/api-key', requireBrowserSession, async c => {
+  const slug = c.req.param('slug')
   const db = c.get('db')
-  const svc = await getService(db, serviceName)
+  const svc = await getService(db, slug)
   const isJson = c.req.header('Content-Type')?.includes('application/json')
 
   if (!svc) {
-    if (isJson) return c.json({ error: `Unknown service: ${serviceName}` }, 404)
-    return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 404)
+    if (isJson) return c.json({ error: `Unknown service: ${slug}` }, 404)
+    return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 404)
   }
 
   // Parse input based on content type
@@ -70,45 +70,48 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
     return c.html(ErrorPage({ message: 'API key is required' }), 400)
   }
 
-  // Validate the key via a "whoami" call (or fallback to base URL probe)
+  // Validate the key via a "whoami" call (or fallback to first allowed host)
   const authConfig: Record<string, string> = svc.authConfig ? JSON.parse(svc.authConfig) : {}
   const apiKeyScheme = getApiKeyScheme(parseAuthSchemes(svc.authSchemes)) ?? DEFAULT_API_KEY_SCHEME
   let identity = 'default'
 
-  const validationUrl = authConfig.identity_url ?? svc.baseUrl
-  try {
-    const headers: Record<string, string> = buildCredentialHeaders(apiKeyScheme, apiKey)
+  const allowedHosts: string[] = JSON.parse(svc.allowedHosts)
+  const validationUrl = authConfig.identity_url ?? (allowedHosts[0] ? `https://${allowedHosts[0]}` : undefined)
+  if (validationUrl) {
+    try {
+      const headers: Record<string, string> = buildCredentialHeaders(apiKeyScheme, apiKey)
 
-    let identityRes: Response
+      let identityRes: Response
 
-    if (authConfig.identity_url && authConfig.identity_method === 'POST') {
-      headers['Content-Type'] = 'application/json'
-      identityRes = await fetch(authConfig.identity_url, {
-        method: 'POST',
-        headers,
-        body: authConfig.identity_body || undefined,
-      })
-    } else {
-      identityRes = await fetch(validationUrl, { headers })
-    }
+      if (authConfig.identity_url && authConfig.identity_method === 'POST') {
+        headers['Content-Type'] = 'application/json'
+        identityRes = await fetch(authConfig.identity_url, {
+          method: 'POST',
+          headers,
+          body: authConfig.identity_body || undefined,
+        })
+      } else {
+        identityRes = await fetch(validationUrl, { headers })
+      }
 
-    if (identityRes.status === 401) {
-      const msg = 'Invalid API key. The upstream service rejected it.'
-      if (isJson) return c.json({ error: msg, hint: `${validationUrl} returned 401 Unauthorized.` }, 400)
-      return c.html(ErrorPage({ message: msg }), 400)
-    }
+      if (identityRes.status === 401) {
+        const msg = 'Invalid API key. The upstream service rejected it.'
+        if (isJson) return c.json({ error: msg, hint: `${validationUrl} returned 401 Unauthorized.` }, 400)
+        return c.html(ErrorPage({ message: msg }), 400)
+      }
 
-    if (authConfig.identity_url && identityRes.ok) {
-      const data = (await identityRes.json()) as Record<string, unknown>
-      if (authConfig.identity_path) {
-        const resolved = getNestedValue(data, authConfig.identity_path)
-        if (typeof resolved === 'string') {
-          identity = resolved
+      if (authConfig.identity_url && identityRes.ok) {
+        const data = (await identityRes.json()) as Record<string, unknown>
+        if (authConfig.identity_path) {
+          const resolved = getNestedValue(data, authConfig.identity_path)
+          if (typeof resolved === 'string') {
+            identity = resolved
+          }
         }
       }
+    } catch {
+      // Validation failed (network error, etc.) — don't block, store with default identity
     }
-  } catch {
-    // Validation failed (network error, etc.) — don't block, store with default identity
   }
 
   const session = c.get('session')
@@ -117,7 +120,7 @@ apiKeyRoutes.post('/:service/api-key', requireBrowserSession, async c => {
   // Store credential in org
   const credHeaders = buildCredentialHeaders(apiKeyScheme, apiKey)
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
-  await upsertCredential(db, orgId, serviceName, 'default', encrypted)
+  await upsertCredential(db, orgId, slug, 'default', encrypted)
 
   // Mint token with user identity
   const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, orgId)
