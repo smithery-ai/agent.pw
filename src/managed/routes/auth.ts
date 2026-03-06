@@ -7,6 +7,7 @@ import { AuthPage, ErrorPage } from '../ui'
 import { oauthRoutes } from '../oauth'
 import { apiKeyRoutes } from '../api-key'
 import { workosRoutes } from '../workos'
+import { mintToken } from '../../biscuit'
 import { randomId, validateFlowId } from '../../lib/utils'
 
 export const authRoutes = new Hono<HonoEnv>()
@@ -21,6 +22,24 @@ authRoutes.use('/callback', async (c, next) => {
   return next()
 })
 authRoutes.route('/', workosRoutes)
+
+// CLI token exchange — mints a Biscuit token from a browser session
+authRoutes.get('/cli-token', requireBrowserSession, async c => {
+  const callbackUrl = c.req.query('callback_url')
+  if (!callbackUrl) return c.json({ error: 'Missing callback_url' }, 400)
+
+  // Only allow redirects to localhost
+  const parsed = new URL(callbackUrl)
+  if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+    return c.json({ error: 'callback_url must be localhost' }, 400)
+  }
+
+  const session = c.get('session')!
+  const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, session.workosUserId, ['admin'])
+  const target = new URL(callbackUrl)
+  target.searchParams.set('token', token)
+  return c.redirect(target.toString())
+})
 
 // Tabbed auth page — requires browser session
 authRoutes.get('/:service', requireBrowserSession, async c => {
