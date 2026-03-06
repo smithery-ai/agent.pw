@@ -808,6 +808,155 @@
         ]
       }
     },
+    "/tokens/restrict": {
+      "post": {
+        "operationId": "postTokensRestrict",
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Restrict token",
+        "description": "Create an attenuated child token from the current bearer token.",
+        "responses": {
+          "200": {
+            "description": "Restricted token minted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "token": {
+                      "type": "string",
+                      "description": "Restricted child token"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "token"
+                  ],
+                  "id": "RestrictTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restriction failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "id": "TokenRestrictError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "constraints": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "services": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          ]
+                        },
+                        "methods": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "GET",
+                                "POST",
+                                "PUT",
+                                "DELETE",
+                                "PATCH",
+                                "HEAD",
+                                "OPTIONS"
+                              ]
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "GET",
+                                  "POST",
+                                  "PUT",
+                                  "DELETE",
+                                  "PATCH",
+                                  "HEAD",
+                                  "OPTIONS"
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        "paths": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          ]
+                        },
+                        "ttl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "description": "Attenuation constraints to append to the current token"
+                  }
+                },
+                "required": [
+                  "constraints"
+                ],
+                "id": "RestrictTokenRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/tokens/revoke": {
       "post": {
         "operationId": "postTokensRevoke",
