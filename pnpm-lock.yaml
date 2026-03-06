@@ -14,8 +14,8 @@ importers:
   .:
     dependencies:
       '@agent.pw/sdk':
-        specifier: https://pkg.stainless.com/s/agent.pw-typescript/8d621242b12afb4496150481c18e6a80ed58eb91/dist.tar.gz
-        version: https://pkg.stainless.com/s/agent.pw-typescript/8d621242b12afb4496150481c18e6a80ed58eb91/dist.tar.gz
+        specifier: https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz
+        version: https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz
       '@electric-sql/pglite':
         specifier: ^0.2.17
         version: 0.2.17
@@ -80,8 +80,8 @@ importers:
 
 packages:
 
-  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/8d621242b12afb4496150481c18e6a80ed58eb91/dist.tar.gz':
-    resolution: {tarball: https://pkg.stainless.com/s/agent.pw-typescript/8d621242b12afb4496150481c18e6a80ed58eb91/dist.tar.gz}
+  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz':
+    resolution: {tarball: https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz}
     version: 0.0.1
 
   '@ampproject/remapping@2.3.0':
@@ -1834,7 +1834,7 @@ packages:
 
 snapshots:
 
-  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/8d621242b12afb4496150481c18e6a80ed58eb91/dist.tar.gz': {}
+  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz': {}
 
   '@ampproject/remapping@2.3.0':
     dependencies:
