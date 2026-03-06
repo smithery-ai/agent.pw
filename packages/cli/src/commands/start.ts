@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs'
-import { createApp } from '../../managed/app'
-import { createLocalDb } from '../../db/index'
-import { migrateLocal } from '../../db/migrate-local'
+import { createCoreApp } from '@agent.pw/server'
+import { createLocalDb } from '@agent.pw/server/db'
+import { migrateLocal } from '@agent.pw/server/db/migrate-local'
 import { readConfig, getPidFile } from '../config'
 
 export async function start() {
@@ -28,7 +28,7 @@ export async function start() {
   const db = await createLocalDb(config.dataDir)
   await migrateLocal(db)
 
-  const app = createApp({
+  const app = createCoreApp({
     db,
     biscuitPrivateKey: config.biscuitPrivateKey,
     baseUrl: `http://local.agent.pw:${config.port}`,

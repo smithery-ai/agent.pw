@@ -1,7 +1,7 @@
-import { createApp } from './src/managed/app'
-import { createLocalDb } from './src/db/index'
-import { migrateLocal } from './src/db/migrate-local'
-import { readConfig } from './src/cli/config'
+import { createCoreApp } from '@agent.pw/server'
+import { createLocalDb } from '@agent.pw/server/db'
+import { migrateLocal } from '@agent.pw/server/db/migrate-local'
+import { readConfig } from './src/config'
 
 const config = readConfig()
 if (!config) {
@@ -12,7 +12,7 @@ if (!config) {
 const db = await createLocalDb(config.dataDir)
 await migrateLocal(db)
 
-const app = createApp({
+const app = createCoreApp({
   db,
   biscuitPrivateKey: config.biscuitPrivateKey,
   baseUrl: `http://local.agent.pw:${config.port}`,
