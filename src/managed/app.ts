@@ -2,8 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { HonoEnv } from './types'
 import { createDb, type Database } from '../db/index'
-import { listServicesWithCredentialCounts } from '../db/queries'
-import { WardenLandingPage } from './ui'
+import { listServicesWithCredentialCounts, getService } from '../db/queries'
 import { createLogger } from '../lib/logger'
 import { deriveEncryptionKey } from '../lib/credentials-crypto'
 import { mountCoreRoutes, urlRedirectMiddleware, requestLoggingMiddleware } from '../core/app'
@@ -62,12 +61,36 @@ export function createApp(deps: AppDeps = {}) {
 
   app.use('*', requestLoggingMiddleware)
 
-  // ─── Managed root ───────────────────────────────────────────────────────────
+  // ─── Public catalog API (no auth required) ──────────────────────────────────
 
-  app.get('/', async c => {
+  app.get('/api/catalog', async c => {
     const db = c.get('db')
-    const recentServices = await listServicesWithCredentialCounts(db)
-    return c.html(WardenLandingPage({ services: recentServices }))
+    const allServices = await listServicesWithCredentialCounts(db)
+    return c.json({ services: allServices })
+  })
+
+  app.get('/api/catalog/:slug', async c => {
+    const db = c.get('db')
+    const svc = await getService(db, c.req.param('slug'))
+    if (!svc) return c.json({ error: 'Service not found' }, 404)
+    return c.json({
+      slug: svc.slug,
+      displayName: svc.displayName,
+      description: svc.description,
+      allowedHosts: svc.allowedHosts,
+      docsUrl: svc.docsUrl,
+      authSchemes: svc.authSchemes,
+      hasOAuth: !!svc.oauthClientId,
+    })
+  })
+
+  // ─── Managed root (redirect to frontend) ──────────────────────────────────
+
+  app.get('/', c => {
+    const frontendUrl = c.env.FRONTEND_URL
+    if (frontendUrl) return c.redirect(frontendUrl)
+    // Fallback: return catalog JSON
+    return c.redirect('/api/catalog')
   })
 
   // ─── Auth routes ────────────────────────────────────────────────────────────

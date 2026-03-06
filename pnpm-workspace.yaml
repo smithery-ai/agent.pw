@@ -1,2 +1,5 @@
+packages:
+  - 'web'
+
 patchedDependencies:
   '@biscuit-auth/biscuit-wasm': patches/@biscuit-auth__biscuit-wasm.patch

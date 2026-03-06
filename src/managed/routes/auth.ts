@@ -3,7 +3,7 @@ import { streamSSE } from 'hono/streaming'
 import type { HonoEnv } from '../types'
 import { requireBrowserSession } from '../middleware'
 import { getService, createAuthFlow, getAuthFlow } from '../../db/queries'
-import { AuthPage, ErrorPage } from '../ui'
+import { redirectToError } from '../frontend'
 import { oauthRoutes } from '../oauth'
 import { apiKeyRoutes } from '../api-key'
 import { workosRoutes } from '../workos'
@@ -49,7 +49,7 @@ authRoutes.get('/:slug', requireBrowserSession, async c => {
   const session = c.get('session')
 
   if (!svc) {
-    return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 404)
+    return redirectToError(c, `Unknown service: ${slug}`)
   }
 
   const flowId = validateFlowId(c.req.query('flow_id')) ?? randomId()
@@ -66,8 +66,9 @@ authRoutes.get('/:slug', requireBrowserSession, async c => {
     })
   }
 
-  const callbackUrl = `${new URL(c.req.url).origin}/auth/${slug}/oauth/callback`
-  return c.html(AuthPage({ service: svc, flowId, callbackUrl }))
+  // Redirect to Next.js connect page
+  const base = c.env.FRONTEND_URL ?? c.env.BASE_URL
+  return c.redirect(`${base}/connect?service=${encodeURIComponent(slug)}&flow_id=${flowId}`)
 })
 
 // OAuth and API key flows

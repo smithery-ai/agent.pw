@@ -4,7 +4,7 @@ import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuth
 import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
 import { getSessionFromCookie } from './session'
-import { SuccessPage, ErrorPage } from './ui'
+import { redirectToSuccess, redirectToError } from './frontend'
 import { encryptCredentials, buildCredentialHeaders, importAesKey } from '../lib/credentials-crypto'
 import { parseAuthSchemes, getOAuthScheme } from '../auth-schemes'
 import { randomId, validateFlowId } from '../lib/utils'
@@ -176,45 +176,45 @@ oauthRoutes.get('/:slug/oauth/callback', async c => {
   const error = c.req.query('error')
 
   if (error) {
-    return c.html(ErrorPage({ message: `OAuth error: ${error}` }), 400)
+    return redirectToError(c, `OAuth error: ${error}`)
   }
   if (!code || !state) {
-    return c.html(ErrorPage({ message: 'Missing code or state parameter' }), 400)
+    return redirectToError(c, 'Missing code or state parameter')
   }
 
   const db = c.get('db')
   const flow = await getAuthFlow(db, state)
 
   if (!flow) {
-    return c.html(ErrorPage({ message: 'Unknown or expired auth flow' }), 400)
+    return redirectToError(c, 'Unknown or expired auth flow')
   }
   if (flow.slug !== slug) {
-    return c.html(ErrorPage({ message: 'Auth flow service mismatch' }), 400)
+    return redirectToError(c, 'Auth flow service mismatch')
   }
   if (flow.status === 'completed') {
-    return c.html(ErrorPage({ message: 'Auth flow already completed' }), 400)
+    return redirectToError(c, 'Auth flow already completed')
   }
 
   const svc = await getService(db, slug)
   if (!svc) {
-    return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 500)
+    return redirectToError(c, `Unknown service: ${slug}`)
   }
 
   // Resolve orgId from session (survives redirect via SameSite=Lax) or flow
   const session = await getSessionFromCookie(c.req.header('Cookie'), c.env.WORKOS_COOKIE_PASSWORD as string)
   const orgId = session?.orgId ?? flow.orgId
   if (!orgId) {
-    return c.html(ErrorPage({ message: 'Session expired. Please try again.' }), 400)
+    return redirectToError(c, 'Session expired. Please try again.')
   }
 
   const oauth = await resolveOAuthConfig(c.env.ENCRYPTION_KEY, svc)
 
   if (!oauth) {
-    return c.html(ErrorPage({ message: `OAuth not configured for ${slug}` }), 500)
+    return redirectToError(c, `OAuth not configured for ${slug}`)
   }
 
   if (!flow.codeVerifier) {
-    return c.html(ErrorPage({ message: 'Missing OAuth PKCE verifier on auth flow' }), 500)
+    return redirectToError(c, 'Missing OAuth PKCE verifier on auth flow')
   }
 
   const authConfig: Record<string, string> = svc.authConfig ? JSON.parse(svc.authConfig) : {}
@@ -251,7 +251,7 @@ oauthRoutes.get('/:slug/oauth/callback', async c => {
 
   if (!tokenRes.ok) {
     const text = await tokenRes.text()
-    return c.html(ErrorPage({ message: `Token exchange failed: ${text}` }), 500)
+    return redirectToError(c, `Token exchange failed: ${text}`)
   }
 
   const tokenData = await parseTokenPayload(tokenRes)
@@ -261,7 +261,7 @@ oauthRoutes.get('/:slug/oauth/callback', async c => {
       : tokenData.access_token) as string
 
   if (!accessToken) {
-    return c.html(ErrorPage({ message: 'No access token in response' }), 500)
+    return redirectToError(c, 'No access token in response')
   }
 
   const refreshToken =
@@ -335,5 +335,5 @@ oauthRoutes.get('/:slug/oauth/callback', async c => {
   // Complete the flow in DB
   await completeAuthFlow(db, state, { token, identity, orgId })
 
-  return c.html(SuccessPage({ token, service: svc }))
+  return redirectToSuccess(c, token, slug)
 })

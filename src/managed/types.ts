@@ -13,6 +13,7 @@ export interface Env {
   WORKOS_CLIENT_ID?: string
   WORKOS_API_KEY?: string
   WORKOS_COOKIE_PASSWORD?: string
+  FRONTEND_URL?: string
   BETTERSTACK_ERRORS_DSN?: string
   HYPERDRIVE?: Hyperdrive
 }

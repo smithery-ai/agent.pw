@@ -3,7 +3,7 @@ import type { HonoEnv } from './types'
 import { getService, upsertCredential, createAuthFlow, getAuthFlow, completeAuthFlow } from '../db/queries'
 import { mintToken } from '../biscuit'
 import { requireBrowserSession } from './middleware'
-import { ApiKeyFormPage, SuccessPage, ErrorPage } from './ui'
+import { redirectToSuccess, redirectToError } from './frontend'
 import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
 import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from '../auth-schemes'
 import { randomId, validateFlowId } from '../lib/utils'
@@ -17,7 +17,7 @@ apiKeyRoutes.get('/:slug/api-key', requireBrowserSession, async c => {
   const db = c.get('db')
   const svc = await getService(db, slug)
 
-  if (!svc) return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 404)
+  if (!svc) return redirectToError(c, `Unknown service: ${slug}`)
 
   const session = c.get('session')
   const orgId = session?.orgId ?? 'local'
@@ -36,7 +36,8 @@ apiKeyRoutes.get('/:slug/api-key', requireBrowserSession, async c => {
     })
   }
 
-  return c.html(ApiKeyFormPage({ service: svc, flowId }))
+  const base = c.env.FRONTEND_URL ?? c.env.BASE_URL
+  return c.redirect(`${base}/api-key?service=${encodeURIComponent(slug)}&flow_id=${flowId}`)
 })
 
 // ─── API Key Submit ──────────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ apiKeyRoutes.post('/:slug/api-key', requireBrowserSession, async c => {
 
   if (!svc) {
     if (isJson) return c.json({ error: `Unknown service: ${slug}` }, 404)
-    return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 404)
+    return redirectToError(c, `Unknown service: ${slug}`)
   }
 
   // Parse input based on content type
@@ -67,7 +68,7 @@ apiKeyRoutes.post('/:slug/api-key', requireBrowserSession, async c => {
 
   if (!apiKey) {
     if (isJson) return c.json({ error: 'api_key is required' }, 400)
-    return c.html(ErrorPage({ message: 'API key is required' }), 400)
+    return redirectToError(c, 'API key is required')
   }
 
   // Validate the key via a "whoami" call (or fallback to first allowed host)
@@ -97,7 +98,7 @@ apiKeyRoutes.post('/:slug/api-key', requireBrowserSession, async c => {
       if (identityRes.status === 401) {
         const msg = 'Invalid API key. The upstream service rejected it.'
         if (isJson) return c.json({ error: msg, hint: `${validationUrl} returned 401 Unauthorized.` }, 400)
-        return c.html(ErrorPage({ message: msg }), 400)
+        return redirectToError(c, msg)
       }
 
       if (authConfig.identity_url && identityRes.ok) {
@@ -134,7 +135,7 @@ apiKeyRoutes.post('/:slug/api-key', requireBrowserSession, async c => {
   }
 
   if (isJson) return c.json({ token, identity })
-  return c.html(SuccessPage({ token, service: svc }))
+  return redirectToSuccess(c, token, slug)
 })
 
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {

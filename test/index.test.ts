@@ -100,12 +100,10 @@ async function seedServiceWithCred(userId = TEST_ORG_ID) {
 // ─── Root Landing Page ───────────────────────────────────────────────────────
 
 describe('Root Landing Page', () => {
-  it('returns HTML landing page for browsers', async () => {
-    const res = await req('/')
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('Warden')
-    expect(text).toContain('The vault between your agents and every API')
+  it('redirects to catalog when no FRONTEND_URL is set', async () => {
+    const res = await req('/', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toContain('/api/catalog')
   })
 
 })
@@ -851,22 +849,24 @@ describe('API Key Flow', () => {
     await seedService()
   })
 
-  it('shows API key form', async () => {
-    const res = await sessionReq('/auth/github/api-key')
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('api_key')
+  it('redirects to frontend API key form', async () => {
+    const res = await sessionReq('/auth/github/api-key', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    const location = res.headers.get('Location')!
+    expect(location).toContain('/api-key?service=github')
+    expect(location).toContain('flow_id=')
   })
 
-  it('returns 404 for unknown service on form', async () => {
-    const res = await sessionReq('/auth/unknown/api-key')
-    expect(res.status).toBe(404)
+  it('redirects to error for unknown service on form', async () => {
+    const res = await sessionReq('/auth/unknown/api-key', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toContain('/error?message=')
   })
 
   it('submits API key and stores credential', async () => {
     // First get the form to create a flow
-    const formRes = await sessionReq('/auth/github/api-key?flow_id=ak-flow-1-padding-to-32-chars-xx')
-    expect(formRes.status).toBe(200)
+    const formRes = await sessionReq('/auth/github/api-key?flow_id=ak-flow-1-padding-to-32-chars-xx', { redirect: 'manual' })
+    expect(formRes.status).toBe(302)
 
     // Mock fetch so the base URL validation passes
     const originalFetch = globalThis.fetch
@@ -877,39 +877,46 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=ghp_testkey&flow_id=ak-flow-1-padding-to-32-chars-xx',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(200)
-      const text = await res.text()
-      expect(text).toContain('apw_') // Should show the minted token
+      expect(res.status).toBe(302)
+      const location = res.headers.get('Location')!
+      expect(location).toContain('/success?token=')
+      expect(location).toContain('apw_')
     } finally {
       globalThis.fetch = originalFetch
     }
   })
 
-  it('rejects empty API key', async () => {
+  it('redirects to error for empty API key', async () => {
     const res = await sessionReq('/auth/github/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'api_key=&flow_id=ak-flow-2-padding-to-32-chars-xx',
+      redirect: 'manual',
     })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toContain('/error?message=')
   })
 
-  it('returns 404 for unknown service on submit', async () => {
+  it('redirects to error for unknown service on submit', async () => {
     const res = await sessionReq('/auth/unknown/api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'api_key=test123',
+      redirect: 'manual',
     })
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toContain('/error?message=')
   })
 
   it('uses existing flow and does not re-create it', async () => {
     // Create a flow via form visit
-    await sessionReq('/auth/github/api-key?flow_id=ak-existing-pad-to-32-chars-xxxx')
+    await sessionReq('/auth/github/api-key?flow_id=ak-existing-pad-to-32-chars-xxxx', { redirect: 'manual' })
     // Visit again with same flow_id
-    const res = await sessionReq('/auth/github/api-key?flow_id=ak-existing-pad-to-32-chars-xxxx')
-    expect(res.status).toBe(200)
+    const res = await sessionReq('/auth/github/api-key?flow_id=ak-existing-pad-to-32-chars-xxxx', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toContain('/api-key?service=github')
   })
 
   it('submits API key without flow_id', async () => {
@@ -920,8 +927,10 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=ghp_noflow',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/success?token=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -955,16 +964,18 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=test_key_123',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(200)
-      const text = await res.text()
-      expect(text).toContain('apw_')
+      expect(res.status).toBe(302)
+      const location = res.headers.get('Location')!
+      expect(location).toContain('/success?token=')
+      expect(location).toContain('apw_')
     } finally {
       globalThis.fetch = originalFetch
     }
   })
 
-  it('rejects API key when identity_url returns error', async () => {
+  it('redirects to error when identity_url returns error', async () => {
     await mgmtReq('/services/rejected', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -987,10 +998,10 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=bad_key',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(400)
-      const text = await res.text()
-      expect(text).toContain('rejected')
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/error?message=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1023,8 +1034,10 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=sk_test',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/success?token=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1053,8 +1066,10 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=user:pass',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/success?token=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1086,8 +1101,10 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=test123',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/success?token=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1115,8 +1132,10 @@ describe('API Key Flow', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'api_key=test123',
+        redirect: 'manual',
       })
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/success?token=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1353,24 +1372,21 @@ describe('OAuth Flow', () => {
   })
 
   it('handles OAuth callback error param', async () => {
-    const res = await req('/auth/github-oauth/oauth/callback?error=access_denied')
-    expect(res.status).toBe(400)
-    const text = await res.text()
-    expect(text).toContain('access_denied')
+    const res = await req('/auth/github-oauth/oauth/callback?error=access_denied', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(decodeURIComponent(res.headers.get('Location')!)).toContain('access_denied')
   })
 
   it('rejects callback without code or state', async () => {
-    const res = await req('/auth/github-oauth/oauth/callback')
-    expect(res.status).toBe(400)
-    const text = await res.text()
-    expect(text).toContain('Missing code or state')
+    const res = await req('/auth/github-oauth/oauth/callback', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(decodeURIComponent(res.headers.get('Location')!)).toContain('Missing code or state')
   })
 
   it('rejects callback with unknown flow state', async () => {
-    const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=unknown')
-    expect(res.status).toBe(400)
-    const text = await res.text()
-    expect(text).toContain('Unknown or expired')
+    const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=unknown', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(decodeURIComponent(res.headers.get('Location')!)).toContain('Unknown or expired')
   })
 
   it('rejects callback for expired flow', async () => {
@@ -1382,10 +1398,9 @@ describe('OAuth Flow', () => {
       expiresAt: new Date(Date.now() - 1000),
     })
 
-    const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=expired-flow')
-    expect(res.status).toBe(400)
-    const text = await res.text()
-    expect(text).toContain('expired')
+    const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=expired-flow', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(decodeURIComponent(res.headers.get('Location')!)).toContain('expired')
   })
 
   it('rejects callback for already completed flow', async () => {
@@ -1402,10 +1417,9 @@ describe('OAuth Flow', () => {
       orgId: TEST_ORG_ID,
     })
 
-    const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=completed-flow')
-    expect(res.status).toBe(400)
-    const text = await res.text()
-    expect(text).toContain('already completed')
+    const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=completed-flow', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(decodeURIComponent(res.headers.get('Location')!)).toContain('already completed')
   })
 
   it('handles failed token exchange', async () => {
@@ -1424,10 +1438,9 @@ describe('OAuth Flow', () => {
     )
 
     try {
-      const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=token-fail-flow')
-      expect(res.status).toBe(500)
-      const text = await res.text()
-      expect(text).toContain('Token exchange failed')
+      const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=token-fail-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
+      expect(decodeURIComponent(res.headers.get('Location')!)).toContain('Token exchange failed')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1449,10 +1462,9 @@ describe('OAuth Flow', () => {
     )
 
     try {
-      const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=no-token-flow')
-      expect(res.status).toBe(500)
-      const text = await res.text()
-      expect(text).toContain('No access token')
+      const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=no-token-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
+      expect(decodeURIComponent(res.headers.get('Location')!)).toContain('No access token')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1477,10 +1489,11 @@ describe('OAuth Flow', () => {
     )
 
     try {
-      const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=success-flow')
-      expect(res.status).toBe(200)
-      const text = await res.text()
-      expect(text).toContain('apw_')
+      const res = await req('/auth/github-oauth/oauth/callback?code=abc&state=success-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
+      const location = res.headers.get('Location')!
+      expect(location).toContain('/success?token=')
+      expect(location).toContain('apw_')
 
       // Verify flow was completed
       const flow = await getAuthFlow(db, 'success-flow')
@@ -1536,8 +1549,8 @@ describe('OAuth Flow', () => {
     })
 
     try {
-      const res = await req('/auth/id-oauth/oauth/callback?code=abc&state=id-flow')
-      expect(res.status).toBe(200)
+      const res = await req('/auth/id-oauth/oauth/callback?code=abc&state=id-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
 
       const flow = await getAuthFlow(db, 'id-flow')
       expect(flow?.identity).toBe('carol@example.com')
@@ -1589,8 +1602,8 @@ describe('OAuth Flow', () => {
     })
 
     try {
-      const res = await req('/auth/post-oauth/oauth/callback?code=abc&state=post-id-flow')
-      expect(res.status).toBe(200)
+      const res = await req('/auth/post-oauth/oauth/callback?code=abc&state=post-id-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
       const flow = await getAuthFlow(db, 'post-id-flow')
       expect(flow?.identity).toBe('frank')
     } finally {
@@ -1636,8 +1649,8 @@ describe('OAuth Flow', () => {
     })
 
     try {
-      const res = await req('/auth/fail-oauth/oauth/callback?code=abc&state=fail-id-flow')
-      expect(res.status).toBe(200)
+      const res = await req('/auth/fail-oauth/oauth/callback?code=abc&state=fail-id-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
       const flow = await getAuthFlow(db, 'fail-id-flow')
       expect(flow?.identity).toBe('default')
     } finally {
@@ -1688,8 +1701,8 @@ describe('OAuth Flow', () => {
     })
 
     try {
-      const res = await req('/auth/nopath-oauth/oauth/callback?code=abc&state=nopath-flow')
-      expect(res.status).toBe(200)
+      const res = await req('/auth/nopath-oauth/oauth/callback?code=abc&state=nopath-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
       const flow = await getAuthFlow(db, 'nopath-flow')
       expect(flow?.identity).toBe('default')
     } finally {
@@ -1730,8 +1743,9 @@ describe('OAuth Flow', () => {
     )
 
     try {
-      const res = await req('/auth/custom-oauth/oauth/callback?code=abc&state=custom-token-flow')
-      expect(res.status).toBe(200)
+      const res = await req('/auth/custom-oauth/oauth/callback?code=abc&state=custom-token-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/success?token=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1752,8 +1766,9 @@ describe('OAuth Flow', () => {
     )
 
     try {
-      const res = await sessionReq('/auth/github-oauth/oauth/callback?code=abc&state=no-org-flow')
-      expect(res.status).toBe(200)
+      const res = await sessionReq('/auth/github-oauth/oauth/callback?code=abc&state=no-org-flow', { redirect: 'manual' })
+      expect(res.status).toBe(302)
+      expect(res.headers.get('Location')).toContain('/success?token=')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1780,10 +1795,9 @@ describe('OAuth Flow', () => {
       expiresAt: new Date(Date.now() + 600000),
     })
 
-    const res = await req('/auth/no-token-url/oauth/callback?code=abc&state=no-token-url-flow')
-    expect(res.status).toBe(500)
-    const text = await res.text()
-    expect(text).toContain('OAuth not configured')
+    const res = await req('/auth/no-token-url/oauth/callback?code=abc&state=no-token-url-flow', { redirect: 'manual' })
+    expect(res.status).toBe(302)
+    expect(decodeURIComponent(res.headers.get('Location')!)).toContain('OAuth not configured')
   })
 })
 
