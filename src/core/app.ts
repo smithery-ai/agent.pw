@@ -64,7 +64,7 @@ export function requestLoggingMiddleware(c: Context<CoreHonoEnv>, next: Next) {
     if (path !== '/' && !path.startsWith('/favicon')) {
       c.get('logger').info({ method: c.req.method, path, status: c.res.status, duration_ms: duration }, 'request')
     }
-    // Log flushing is handled by the OTel instrumented worker (entry.managed.ts)
+    // Log flushing (if any) is handled by the deployment layer
   })
 }
 

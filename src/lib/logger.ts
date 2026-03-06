@@ -1,6 +1,3 @@
-import { logs, SeverityNumber } from '@opentelemetry/api-logs'
-import { context, trace } from '@opentelemetry/api'
-
 type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 
 export interface Logger {
@@ -13,13 +10,6 @@ export interface Logger {
   debug(obj: Record<string, unknown>, msg?: string): void
   debug(msg: string): void
   child(bindings: Record<string, unknown>): Logger
-}
-
-const SEVERITY: Record<LogLevel, SeverityNumber> = {
-  debug: SeverityNumber.DEBUG,
-  info: SeverityNumber.INFO,
-  warn: SeverityNumber.WARN,
-  error: SeverityNumber.ERROR,
 }
 
 function serializeValue(val: unknown): unknown {
@@ -40,7 +30,6 @@ function serializeObject(obj: Record<string, unknown>): Record<string, unknown> 
 class WardenLogger implements Logger {
   private service: string
   private bindings: Record<string, unknown>
-  private otelLogger: ReturnType<typeof logs.getLogger> | undefined
 
   constructor(service: string, bindings: Record<string, unknown> = {}) {
     this.service = service
@@ -75,10 +64,6 @@ class WardenLogger implements Logger {
 
     const serialized = serializeObject(attrs)
 
-    const spanContext = trace.getSpan(context.active())?.spanContext()
-    const traceSampled =
-      spanContext !== undefined ? (spanContext.traceFlags & 1) === 1 : undefined
-
     const entry = {
       level,
       time: new Date().toISOString(),
@@ -86,25 +71,9 @@ class WardenLogger implements Logger {
       msg: message,
       ...this.bindings,
       ...serialized,
-      ...(traceSampled !== undefined && { 'trace.sampled': traceSampled }),
     }
 
-    // 1. Stdout — captured by Logpush and wrangler dev
     console.log(JSON.stringify(entry))
-
-    // 2. OTLP log export — auto-correlates traceId/spanId from active context
-    if (!this.otelLogger) this.otelLogger = logs.getLogger(this.service)
-    const otelLogger = this.otelLogger
-    otelLogger.emit({
-      severityNumber: SEVERITY[level],
-      severityText: level.toUpperCase(),
-      body: message,
-      attributes: {
-        service: this.service,
-        ...this.bindings,
-        ...serialized,
-      },
-    })
   }
 }
 
