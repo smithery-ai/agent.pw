@@ -66,12 +66,16 @@ function escapeDatalog(s: string) {
 }
 
 function normalizePolicy(policy: string) {
-  const trimmed = policy.trim()
+  const trimmed = policy.trim().replace(/;$/, '')
   if (!trimmed) return ''
   if (trimmed.includes('check if') || trimmed.includes('allow if') || trimmed.includes('deny if')) {
-    return trimmed
+    return trimmed.endsWith(';') ? trimmed : `${trimmed};`
   }
-  return `check if user("${escapeDatalog(trimmed)}");`
+  if (trimmed.includes('(') || trimmed.includes('$') || trimmed.includes(' and ') || trimmed.includes(' or ')) {
+    return `check if ${trimmed};`
+  }
+  const escaped = escapeDatalog(trimmed)
+  return `check if user("${escaped}") or apw.user_id("${escaped}") or apw.org_id("${escaped}");`
 }
 
 function tokenSatisfiesPolicy(

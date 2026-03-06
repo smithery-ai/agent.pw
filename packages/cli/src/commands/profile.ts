@@ -17,6 +17,54 @@ interface CreateCredProfileRequest {
   description?: string
 }
 
+interface AddProfileOptions {
+  filePath?: string
+  auth?: string
+  headers?: string[]
+}
+
+interface HeaderFieldTemplate {
+  header: string
+  prefix?: string
+  name: string
+  description: string
+}
+
+function parseHeaderFieldTemplate(spec: string): HeaderFieldTemplate {
+  const idx = spec.indexOf(':')
+  if (idx === -1) {
+    throw new Error(`Invalid header template: ${spec}. Use "Header: Prefix {field:Description}".`)
+  }
+
+  const header = spec.slice(0, idx).trim()
+  const value = spec.slice(idx + 1).trim()
+  const open = value.indexOf('{')
+  const close = value.lastIndexOf('}')
+  if (!header || open === -1 || close <= open) {
+    throw new Error(`Invalid header template: ${spec}. Use "Header: Prefix {field:Description}".`)
+  }
+
+  const fieldSpec = value.slice(open + 1, close)
+  const fieldIdx = fieldSpec.indexOf(':')
+  if (fieldIdx === -1) {
+    throw new Error(`Invalid header field: ${spec}. Use "{field:Description}".`)
+  }
+
+  const name = fieldSpec.slice(0, fieldIdx).trim()
+  const description = fieldSpec.slice(fieldIdx + 1).trim()
+  if (!name || !description) {
+    throw new Error(`Invalid header field: ${spec}. Use "{field:Description}".`)
+  }
+
+  const prefix = value.slice(0, open)
+  return {
+    header,
+    prefix: prefix.length > 0 ? prefix : undefined,
+    name,
+    description,
+  }
+}
+
 export async function listProfiles() {
   const profiles = await requestJson<CredProfile[]>('/cred_profiles')
 
@@ -46,14 +94,31 @@ export async function getProfileCmd(slug: string) {
   }
 }
 
-export async function addProfile(slug: string, hosts: string[], filePath?: string) {
+export async function addProfile(slug: string, hosts: string[], options: AddProfileOptions = {}) {
   let body: CreateCredProfileRequest
 
-  if (filePath) {
-    const content = readFileSync(filePath, 'utf-8')
+  if (options.filePath) {
+    const content = readFileSync(options.filePath, 'utf-8')
     body = JSON.parse(content) as CreateCredProfileRequest
     if ((!body.host || body.host.length === 0) && hosts.length > 0) {
       body.host = hosts
+    }
+  } else if (options.auth === 'headers') {
+    if (hosts.length === 0) {
+      console.error('At least one --host is required.')
+      process.exit(1)
+    }
+    const fields = (options.headers ?? []).map(parseHeaderFieldTemplate)
+    if (fields.length === 0) {
+      console.error('At least one -H/--header template is required for --auth headers.')
+      process.exit(1)
+    }
+    body = {
+      host: hosts,
+      auth: {
+        kind: 'headers',
+        fields,
+      },
     }
   } else {
     if (hosts.length === 0) {

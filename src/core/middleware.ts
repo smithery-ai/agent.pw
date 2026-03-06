@@ -70,14 +70,15 @@ export async function resolveUserId(c: Context<CoreHonoEnv>, next: Next) {
   if (!facts) return c.json({ error: 'Forbidden' }, 403)
 
   const actAs = c.req.header('Act-As')
+  const resolvedIdentity = facts.userId ?? facts.orgId
 
   if (facts.rights.includes('admin')) {
-    c.set('userId', actAs ?? facts.userId ?? 'local')
-  } else if (facts.userId) {
-    if (actAs && actAs !== facts.userId) {
+    c.set('userId', actAs ?? resolvedIdentity ?? 'local')
+  } else if (resolvedIdentity) {
+    if (actAs && actAs !== resolvedIdentity) {
       return c.json({ error: 'Forbidden' }, 403)
     }
-    c.set('userId', facts.userId)
+    c.set('userId', resolvedIdentity)
   } else {
     return c.json({ error: 'No identity in token' }, 403)
   }
