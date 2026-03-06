@@ -1,7 +1,7 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
-import { wardenSchema } from './warden-schema'
+import { agentpwSchema } from './agentpw-schema'
 
-export const revocations = wardenSchema.table('revocations', {
+export const revocations = agentpwSchema.table('revocations', {
   revocationId: text('revocation_id').primaryKey(),
   revokedAt: timestamp('revoked_at').defaultNow().notNull(),
   reason: text('reason'),
