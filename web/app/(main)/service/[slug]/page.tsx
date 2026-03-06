@@ -1,4 +1,4 @@
-import { fetchService, getApiUrl } from '@/lib/api'
+import { fetchService, firstHost, getApiUrl } from '@/lib/api'
 import { ServiceIcon } from '@/components/service/service-icon'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const service = await fetchService(slug)
   if (!service) return { title: 'Service Not Found' }
-  const name = service.displayName ?? service.service
+  const name = service.displayName ?? service.slug
   return {
     title: `${name} — Warden`,
     description: service.description ?? `Connect to ${name} through Warden`,
@@ -27,8 +27,9 @@ export default async function ServicePage({ params }: Props) {
   const service = await fetchService(slug)
   if (!service) notFound()
 
-  const name = service.displayName ?? service.service
+  const name = service.displayName ?? service.slug
   const apiUrl = getApiUrl()
+  const hostname = firstHost(service.allowedHosts)
 
   const authSchemes = service.authSchemes
     ? JSON.parse(service.authSchemes)
@@ -42,13 +43,13 @@ export default async function ServicePage({ params }: Props) {
     <main>
       {/* Service header */}
       <section className="mt-2 mb-6 flex items-center gap-4 animate-fade-up">
-        <ServiceIcon hostname={service.service} displayName={name} size="lg" />
+        <ServiceIcon hostname={hostname ?? service.slug} displayName={name} size="lg" />
         <div>
           <h1 className="text-[clamp(1.8rem,4vw,2.8rem)] font-medium leading-[0.95] tracking-[-0.025em]">
             {name}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground font-mono">
-            {service.service}
+            {service.slug}
           </p>
         </div>
       </section>
@@ -88,7 +89,7 @@ export default async function ServicePage({ params }: Props) {
             </p>
             <pre className="p-3.5 rounded-lg border border-[rgba(50,44,36,0.2)] bg-[#2a2520] text-[#e8e2d0] overflow-x-auto text-[0.77rem] leading-relaxed">
               <code>{`curl -H "Authorization: Bearer apw_..." \\
-  ${apiUrl}/proxy/${service.service}/${service.service}/...`}</code>
+  ${apiUrl}/proxy/${service.slug}/${hostname ?? '{hostname}'}/...`}</code>
             </pre>
           </div>
         </div>
@@ -100,14 +101,14 @@ export default async function ServicePage({ params }: Props) {
             <div className="grid gap-2">
               {hasOAuth && (
                 <Button asChild className="w-full">
-                  <Link href={`/connect?service=${encodeURIComponent(service.service)}`}>
+                  <Link href={`/connect?service=${encodeURIComponent(service.slug)}`}>
                     <Shield className="w-4 h-4" />
                     Connect with OAuth
                   </Link>
                 </Button>
               )}
               <Button asChild variant="outline" className="w-full">
-                <Link href={`/api-key?service=${encodeURIComponent(service.service)}`}>
+                <Link href={`/api-key?service=${encodeURIComponent(service.slug)}`}>
                   <Key className="w-4 h-4" />
                   Connect with API Key
                 </Link>

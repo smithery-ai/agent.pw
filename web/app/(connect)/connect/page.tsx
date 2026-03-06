@@ -1,4 +1,4 @@
-import { fetchService, getApiUrl } from '@/lib/api'
+import { fetchService, firstHost, getApiUrl } from '@/lib/api'
 import { ServiceIcon } from '@/components/service/service-icon'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -27,21 +27,22 @@ export default async function ConnectPage({ searchParams }: Props) {
   const service = await fetchService(slug)
   if (!service) notFound()
 
-  const name = service.displayName ?? service.service
+  const name = service.displayName ?? service.slug
   const apiUrl = getApiUrl()
+  const hostname = firstHost(service.allowedHosts)
   const hasOAuth = service.hasOAuth
 
   return (
     <main className="animate-fade-up">
       {/* Service header */}
       <section className="mt-2 mb-6 flex items-center gap-4">
-        <ServiceIcon hostname={service.service} displayName={name} size="lg" />
+        <ServiceIcon hostname={hostname ?? service.slug} displayName={name} size="lg" />
         <div>
           <h1 className="text-2xl font-medium tracking-[-0.015em]">
             Connect {name}
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground font-mono">
-            {service.service}
+            {service.slug}
           </p>
         </div>
       </section>
@@ -53,7 +54,7 @@ export default async function ConnectPage({ searchParams }: Props) {
             <>
               <Button asChild className="w-full" size="lg">
                 <a
-                  href={`${apiUrl}/auth/${service.service}/oauth${flowId ? `?flow_id=${flowId}&source=managed` : '?source=managed'}`}
+                  href={`${apiUrl}/auth/${service.slug}/oauth${flowId ? `?flow_id=${flowId}&source=managed` : '?source=managed'}`}
                 >
                   <Shield className="w-4 h-4" />
                   Connect with OAuth
@@ -72,7 +73,7 @@ export default async function ConnectPage({ searchParams }: Props) {
                   Set this <strong>callback URL</strong> in your OAuth app:
                 </p>
                 <code className="block bg-muted border border-border rounded px-2.5 py-2 text-xs break-all select-all">
-                  {apiUrl}/auth/{service.service}/oauth/callback
+                  {apiUrl}/auth/{service.slug}/oauth/callback
                 </code>
               </div>
             </>
@@ -81,7 +82,7 @@ export default async function ConnectPage({ searchParams }: Props) {
           {/* API Key option */}
           <Button asChild variant={hasOAuth ? 'outline' : 'default'} className="w-full" size="lg">
             <Link
-              href={`/api-key?service=${encodeURIComponent(service.service)}${flowId ? `&flow_id=${flowId}` : ''}`}
+              href={`/api-key?service=${encodeURIComponent(service.slug)}${flowId ? `&flow_id=${flowId}` : ''}`}
             >
               <Key className="w-4 h-4" />
               Connect with API Key

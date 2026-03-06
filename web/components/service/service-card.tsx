@@ -3,34 +3,36 @@ import { ServiceIcon } from './service-icon'
 import { Users } from 'lucide-react'
 
 interface ServiceCardProps {
-  service: string
+  slug: string
+  hostname?: string
   displayName: string | null
   description: string | null
   credentialCount: number
 }
 
 export function ServiceCard({
-  service,
+  slug,
+  hostname,
   displayName,
   description,
   credentialCount,
 }: ServiceCardProps) {
-  const name = displayName ?? service
+  const name = displayName ?? slug
 
   return (
     <Link
-      href={`/service/${encodeURIComponent(service)}`}
+      href={`/service/${encodeURIComponent(slug)}`}
       className="block border border-border bg-card rounded-lg p-4 shadow-[0_1px_3px_rgba(35,35,35,0.04)] no-underline text-inherit transition-all hover:border-primary/30 hover:shadow-[0_4px_20px_rgba(255,86,1,0.07),0_1px_3px_rgba(35,35,35,0.06)] hover:-translate-y-0.5"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <ServiceIcon hostname={service} displayName={displayName} />
+          <ServiceIcon hostname={hostname ?? slug} displayName={displayName} />
           <div className="min-w-0">
             <h3 className="m-0 text-base font-semibold tracking-[-0.005em]">
               {name}
             </h3>
             <div className="mt-1 text-xs text-muted-foreground font-mono break-all">
-              {service}
+              {slug}
             </div>
           </div>
         </div>

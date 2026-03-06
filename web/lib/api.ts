@@ -1,8 +1,8 @@
-const API_URL = process.env.WARDEN_API_URL ?? 'https://agent.pw'
+const API_URL = process.env.WARDEN_API_URL ?? 'https://api.agent.pw'
 
 export interface CatalogService {
-  service: string
-  baseUrl: string
+  slug: string
+  allowedHosts: string
   displayName: string | null
   description: string | null
   docsUrl: string | null
@@ -12,30 +12,48 @@ export interface CatalogService {
 }
 
 export interface ServiceDetail {
-  service: string
+  slug: string
   displayName: string | null
   description: string | null
-  baseUrl: string
+  allowedHosts: string
   docsUrl: string | null
   authSchemes: string | null
   hasOAuth: boolean
 }
 
+/** Parse the first hostname from the allowedHosts JSON array. */
+export function firstHost(allowedHosts: string) {
+  try {
+    const hosts: string[] = JSON.parse(allowedHosts)
+    return hosts[0]
+  } catch {
+    return undefined
+  }
+}
+
 export async function fetchCatalog() {
-  const res = await fetch(`${API_URL}/api/catalog`, {
-    next: { revalidate: 60 },
-  })
-  if (!res.ok) return []
-  const data = await res.json()
-  return data.services as CatalogService[]
+  try {
+    const res = await fetch(`${API_URL}/api/catalog`, {
+      next: { revalidate: 60 },
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.services as CatalogService[]
+  } catch {
+    return []
+  }
 }
 
 export async function fetchService(slug: string) {
-  const res = await fetch(`${API_URL}/api/catalog/${encodeURIComponent(slug)}`, {
-    next: { revalidate: 60 },
-  })
-  if (!res.ok) return null
-  return (await res.json()) as ServiceDetail
+  try {
+    const res = await fetch(`${API_URL}/api/catalog/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 60 },
+    })
+    if (!res.ok) return null
+    return (await res.json()) as ServiceDetail
+  } catch {
+    return null
+  }
 }
 
 export function getApiUrl() {

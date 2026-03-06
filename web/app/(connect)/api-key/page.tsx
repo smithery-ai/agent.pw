@@ -19,7 +19,7 @@ function ApiKeyForm() {
   const [error, setError] = useState<string | null>(null)
 
   const apiUrl =
-    process.env.NEXT_PUBLIC_WARDEN_API_URL ?? 'https://agent.pw'
+    process.env.NEXT_PUBLIC_WARDEN_API_URL ?? 'https://api.agent.pw'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

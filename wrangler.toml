@@ -4,11 +4,11 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
-routes = [{ pattern = "agent.pw", custom_domain = true }]
+routes = [{ pattern = "api.agent.pw", custom_domain = true }]
 
 [vars]
 WORKOS_CLIENT_ID = "client_01KD3FTW7R2QD0NW6QB7QP6Q0B"
-# FRONTEND_URL = "https://warden.vercel.app"  # Set when deploying Next.js frontend
+FRONTEND_URL = "https://agent.pw"
 
 [[hyperdrive]]
 binding = "HYPERDRIVE"

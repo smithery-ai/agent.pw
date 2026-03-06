@@ -1,9 +1,9 @@
-import { fetchCatalog, type CatalogService } from '@/lib/api'
+import { fetchCatalog, firstHost, type CatalogService } from '@/lib/api'
 import { ServiceCard } from '@/components/service/service-card'
 import { CopyBlock } from './copy-block'
 
 function serviceName(s: CatalogService) {
-  return s.displayName ?? s.service
+  return s.displayName ?? s.slug
 }
 
 export default async function LandingPage() {
@@ -47,8 +47,9 @@ export default async function LandingPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-5">
             {ranked.map((s) => (
               <ServiceCard
-                key={s.service}
-                service={s.service}
+                key={s.slug}
+                slug={s.slug}
+                hostname={firstHost(s.allowedHosts)}
                 displayName={s.displayName}
                 description={s.description}
                 credentialCount={s.credentialCount}
@@ -87,14 +88,13 @@ rotate + secure every key separately`}</code>
               With Warden
             </span>
             <pre className="mt-3 mb-0 p-3.5 rounded-lg border border-[rgba(50,44,36,0.2)] bg-[#2a2520] text-[#e8e2d0] overflow-x-auto text-[0.77rem] leading-relaxed">
-              <code>{`GET /api.linear.app -> { auth_url, docs }
-user authenticates in browser
-GET /auth/status/{flow_id} -> token
+              <code>{`npx agent.pw cred add linear
+npx agent.pw cred add github
 
-POST /api.linear.app/graphql
-  Authorization: Bearer apw_...
-GET  /api.github.com/repos
-  Authorization: Bearer apw_...`}</code>
+curl -H "Authorization: Bearer apw_..." \\
+  api.agent.pw/proxy/linear/api.linear.app/graphql
+curl -H "Authorization: Bearer apw_..." \\
+  api.agent.pw/proxy/github/api.github.com/repos`}</code>
             </pre>
           </div>
         </div>
