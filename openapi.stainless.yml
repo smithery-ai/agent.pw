@@ -3,7 +3,7 @@
 edition: 2025-10-10
 
 organization:
-  name: agent-pw
+  name: agent.pw
   docs: 'https://agent.pw/docs'
   contact: 'contact@smithery.ai'
 
@@ -11,7 +11,8 @@ targets:
   typescript:
     edition: typescript.2025-10-10
     package_name: '@agent.pw/sdk'
-    production_repo: 'smithery-ai/agent.pw-sdk'
+    production_repo: null
+    staging_repo: 'stainless-sdks/agent.pw-typescript'
     publish:
       npm:
         auth_method: oidc

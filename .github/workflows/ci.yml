@@ -11,9 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: build
-    runs-on: ubuntu-latest
+  build-and-test:
+    name: Build and test
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -25,42 +25,16 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build
-
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Lint (Biome)
+      - name: Lint
         run: pnpm lint
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
       - name: Test
         run: pnpm test
 
   stainless-upload:
     name: Upload OpenAPI to Stainless
-    needs: [build, lint, test]
+    needs: build-and-test
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
       id-token: write
@@ -80,17 +54,17 @@ jobs:
         with:
           input_path: openapi.json
           config_path: openapi.stainless.yml
-          project_name: agent-pw
+          project_name: agent.pw
           commit_message: "${{ github.event.head_commit.message }}"
 
   stainless-preview:
     name: Stainless Preview Build
-    needs: [build, lint, test]
+    needs: build-and-test
     if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-stainless')
     concurrency:
       group: stainless-preview-${{ github.head_ref }}
       cancel-in-progress: true
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: write
       pull-requests: write
@@ -124,8 +98,7 @@ jobs:
         id: stainless-build
         uses: stainless-api/upload-openapi-spec-action/preview@v1
         with:
-          org: agent-pw
-          project: agent-pw
+          org: agent.pw
+          project: agent.pw
           oas_path: openapi.json
           config_path: openapi.stainless.yml
-
