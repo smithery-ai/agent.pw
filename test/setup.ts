@@ -48,8 +48,8 @@ export async function createTestDb() {
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS warden.services (
-      service TEXT PRIMARY KEY,
-      base_url TEXT NOT NULL,
+      slug TEXT PRIMARY KEY,
+      allowed_hosts TEXT NOT NULL,
       display_name TEXT,
       description TEXT,
       auth_schemes TEXT,
@@ -65,12 +65,12 @@ export async function createTestDb() {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS warden.credentials (
       org_id TEXT NOT NULL,
-      service TEXT NOT NULL,
-      slug TEXT NOT NULL DEFAULT 'default',
+      slug TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT 'default',
       encrypted_credentials BYTEA NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
-      PRIMARY KEY (org_id, service, slug)
+      PRIMARY KEY (org_id, slug, label)
     )
   `)
 
@@ -85,7 +85,7 @@ export async function createTestDb() {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS warden.auth_flows (
       id TEXT PRIMARY KEY,
-      service TEXT NOT NULL,
+      slug TEXT NOT NULL,
       method TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       code_verifier TEXT,

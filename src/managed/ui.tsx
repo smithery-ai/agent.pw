@@ -977,7 +977,16 @@ const STYLES = `
 `
 
 function serviceName(service: ServiceRow) {
-  return service.displayName ?? service.service
+  return service.displayName ?? service.slug
+}
+
+function firstAllowedHost(service: ServiceRow): string | undefined {
+  try {
+    const hosts: string[] = JSON.parse(service.allowedHosts)
+    return hosts[0]
+  } catch {
+    return undefined
+  }
 }
 
 function ServiceHeader({ service }: { service: ServiceRow }) {
@@ -986,18 +995,21 @@ function ServiceHeader({ service }: { service: ServiceRow }) {
       <ServiceIcon service={service} />
       <div>
         <h1 style="font-size: 1.6rem">{serviceName(service)}</h1>
-        <p class="subtitle mono">{service.service}</p>
+        <p class="subtitle mono">{service.slug}</p>
       </div>
     </section>
   )
 }
 
 function ServiceIcon({ service }: { service: ServiceRow }) {
-  const icon = inferServiceIconPreview(service.service, serviceName(service))
+  const host = firstAllowedHost(service)
+  const icon = host
+    ? inferServiceIconPreview(host, serviceName(service))
+    : { url: undefined, fallback: serviceName(service).slice(0, 2).toUpperCase() }
   const alt = `${serviceName(service)} icon`
 
   return (
-    <div class="service-icon" title={service.service}>
+    <div class="service-icon" title={service.slug}>
       {icon.url ? (
         <>
           <img
@@ -1107,13 +1119,13 @@ export function WardenLandingPage({ services = [] }: { services?: ServiceWithPop
         ) : (
           <div class="registry-grid">
             {ranked.map(service => (
-              <a href={`/${service.service}`} class="card service-link">
+              <a href={`/${service.slug}`} class="card service-link">
                 <div class="service-row">
                   <div class="service-main">
                     <ServiceIcon service={service} />
                     <div>
                       <h3>{serviceName(service)}</h3>
-                      <div class="service-host mono">{service.service}</div>
+                      <div class="service-host mono">{service.slug}</div>
                     </div>
                   </div>
                   {(service.credentialCount ?? 0) > 0 ? (
@@ -1196,7 +1208,7 @@ export function AuthPage({
   const hasManagedOAuth = !!service.oauthClientId
   const hasOAuth = !!oauthScheme
   const defaultTab = hasOAuth ? 'oauth' : 'api'
-  const name = service.displayName ?? service.service
+  const name = service.displayName ?? service.slug
 
   return (
     <Layout title={`Connect ${name} — Warden`}>
@@ -1234,7 +1246,7 @@ export function AuthPage({
               {hasManagedOAuth && (
                 <>
                   <a
-                    href={`/auth/${service.service}/oauth?flow_id=${flowId}&source=managed`}
+                    href={`/auth/${service.slug}/oauth?flow_id=${flowId}&source=managed`}
                     class="btn btn-primary"
                     style="width: 100%"
                   >
@@ -1247,7 +1259,7 @@ export function AuthPage({
                 <p>Set this <strong>callback URL</strong> in your OAuth app:</p>
                 <code class="callback-url">{callbackUrl}</code>
               </div>
-              <form method="post" action={`/auth/${service.service}/oauth/byo`}>
+              <form method="post" action={`/auth/${service.slug}/oauth/byo`}>
                 <input type="hidden" name="flow_id" value={flowId} />
                 <div class="form-group">
                   <label for="client_id">Client ID</label>
@@ -1291,7 +1303,7 @@ export function AuthPage({
           )}
 
           <div class="tab-panel panel-api">
-            <form method="post" action={`/auth/${service.service}/api-key`}>
+            <form method="post" action={`/auth/${service.slug}/api-key`}>
               <input type="hidden" name="flow_id" value={flowId} />
               <div class="form-group">
                 <label for="api_key_inline">API Key</label>
@@ -1348,7 +1360,7 @@ export function ApiKeyFormPage({
         <div class="card">
           <h3>Enter API Key</h3>
           <p>Warden encrypts this value and injects it at proxy time.</p>
-          <form method="post" action={`/auth/${service.service}/api-key`} style="margin-top: 0.7rem">
+          <form method="post" action={`/auth/${service.slug}/api-key`} style="margin-top: 0.7rem">
             <input type="hidden" name="flow_id" value={flowId} />
             <div class="form-group">
               <label for="api_key">API Key</label>
@@ -1415,7 +1427,7 @@ export function SuccessPage({
           >
             Copy token
           </button>
-          <a href={`/${service.service}`} class="btn btn-secondary">Return to service page</a>
+          <a href={`/${service.slug}`} class="btn btn-secondary">Return to service page</a>
         </div>
       </div>
     </Layout>

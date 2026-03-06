@@ -9,7 +9,7 @@ import {
   deleteService,
 } from '../db/queries'
 import { encryptSecret } from '../lib/credentials-crypto'
-import { RESERVED_PATHS, deriveDisplayName } from '../lib/utils'
+import { RESERVED_PATHS } from '../lib/utils'
 
 export const serviceRoutes = new Hono<CoreHonoEnv>()
 
@@ -19,24 +19,25 @@ serviceRoutes.get('/', requireToken, async c => {
 
   return c.json(
     allServices.map(s => ({
-      service: s.service,
-      baseUrl: s.baseUrl,
+      slug: s.slug,
+      allowedHosts: JSON.parse(s.allowedHosts) as string[],
+      displayName: s.displayName,
       description: s.description,
       docsUrl: s.docsUrl,
     })),
   )
 })
 
-serviceRoutes.get('/:service', requireToken, async c => {
-  const serviceName = c.req.param('service')
+serviceRoutes.get('/:slug', requireToken, async c => {
+  const slug = c.req.param('slug')
   const db = c.get('db')
 
-  const service = await getService(db, serviceName)
+  const service = await getService(db, slug)
   if (!service) return c.json({ error: 'Service not found' }, 404)
 
   return c.json({
-    service: service.service,
-    baseUrl: service.baseUrl,
+    slug: service.slug,
+    allowedHosts: JSON.parse(service.allowedHosts) as string[],
     displayName: service.displayName,
     description: service.description,
     docsUrl: service.docsUrl,
@@ -44,14 +45,14 @@ serviceRoutes.get('/:service', requireToken, async c => {
   })
 })
 
-serviceRoutes.put('/:service', requireToken, requireRight('manage_services'), async c => {
-  const service = c.req.param('service')
-  if (RESERVED_PATHS.has(service)) {
-    return c.json({ error: `'${service}' is a reserved name` }, 400)
+serviceRoutes.put('/:slug', requireToken, requireRight('manage_services'), async c => {
+  const slug = c.req.param('slug')
+  if (RESERVED_PATHS.has(slug)) {
+    return c.json({ error: `'${slug}' is a reserved name` }, 400)
   }
 
   const body = await c.req.json<{
-    baseUrl: string
+    allowedHosts: string[]
     authSchemes?: AuthScheme[]
     displayName?: string
     description?: string
@@ -61,13 +62,15 @@ serviceRoutes.put('/:service', requireToken, requireRight('manage_services'), as
     authConfig?: Record<string, unknown>
   }>()
 
-  if (!body.baseUrl) return c.json({ error: 'baseUrl is required' }, 400)
+  if (!body.allowedHosts || body.allowedHosts.length === 0) {
+    return c.json({ error: 'allowedHosts is required' }, 400)
+  }
 
   const db = c.get('db')
-  const displayName = body.displayName ?? deriveDisplayName(service)
+  const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
 
-  await upsertService(db, service, {
-    baseUrl: body.baseUrl,
+  await upsertService(db, slug, {
+    allowedHosts: JSON.stringify(body.allowedHosts),
     authSchemes: body.authSchemes ? JSON.stringify(body.authSchemes) : undefined,
     displayName,
     description: body.description,
@@ -79,12 +82,12 @@ serviceRoutes.put('/:service', requireToken, requireRight('manage_services'), as
     authConfig: body.authConfig ? JSON.stringify(body.authConfig) : undefined,
   })
 
-  return c.json({ ok: true, service })
+  return c.json({ ok: true, slug })
 })
 
-serviceRoutes.delete('/:service', requireToken, requireRight('manage_services'), async c => {
+serviceRoutes.delete('/:slug', requireToken, requireRight('manage_services'), async c => {
   const db = c.get('db')
-  const deleted = await deleteService(db, c.req.param('service'))
+  const deleted = await deleteService(db, c.req.param('slug'))
   if (!deleted) return c.json({ error: 'Service not found' }, 404)
   return c.json({ ok: true })
 })

@@ -77,22 +77,29 @@ async function refreshCredentialIfNeeded(
   }
 
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, nextStored)
-  await upsertCredential(c.get('db'), userId, service.service, 'default', encrypted)
+  await upsertCredential(c.get('db'), userId, service.slug, 'default', encrypted)
 
   return nextStored
 }
 
 export async function handleProxy(
   c: Context<CoreHonoEnv>,
-  service: string,
+  slug: string,
+  hostname: string,
   upstreamPath: string,
 ) {
   const token = extractBearerToken(c.req.header('Authorization'))
   if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
 
   const db = c.get('db')
-  const svc = await getService(db, service)
-  if (!svc) return c.json({ error: `Unknown service: ${service}` }, 404)
+  const svc = await getService(db, slug)
+  if (!svc) return c.json({ error: `Unknown service: ${slug}` }, 404)
+
+  // Validate hostname against allowed_hosts (SSRF prevention)
+  const allowedHosts: string[] = JSON.parse(svc.allowedHosts)
+  if (!allowedHosts.includes(hostname)) {
+    return c.json({ error: `Host '${hostname}' is not allowed for service '${slug}'` }, 403)
+  }
 
   const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
 
@@ -108,8 +115,8 @@ export async function handleProxy(
     return c.json({ error: `Invalid token: ${errorMessage(e)}` }, 401)
   }
 
-  // Authorize
-  const result = authorizeRequest(token, publicKeyHex, service, c.req.method, upstreamPath)
+  // Authorize (Biscuit resource is the slug)
+  const result = authorizeRequest(token, publicKeyHex, slug, c.req.method, upstreamPath)
   if (!result.authorized) {
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
@@ -127,15 +134,15 @@ export async function handleProxy(
     return c.json({ error: 'No identity in token' }, 403)
   }
 
-  // Look up credential by (userId, service)
-  const cred = await getCredential(db, userId, service)
+  // Look up credential by (userId, slug)
+  const cred = await getCredential(db, userId, slug)
   if (!cred) {
-    return c.json({ error: `No credential found for ${service}` }, 404)
+    return c.json({ error: `No credential found for ${slug}` }, 404)
   }
 
-  // Build upstream request
+  // Build upstream request — hostname comes from the URL, always HTTPS
   const url = new URL(c.req.url)
-  const upstreamUrl = `${svc.baseUrl.replace(/\/$/, '')}${upstreamPath}${url.search}`
+  const upstreamUrl = `https://${hostname}${upstreamPath}${url.search}`
 
   const headers = new Headers()
   c.req.raw.headers.forEach((value, key) => {
@@ -146,7 +153,7 @@ export async function handleProxy(
   })
 
   const log = c.get('logger')
-  log.info({ service, userId, method: c.req.method, upstreamUrl }, 'proxy request')
+  log.info({ slug, hostname, userId, method: c.req.method, upstreamUrl }, 'proxy request')
 
   // Inject credential headers (after logging to avoid leaking secrets)
   let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.encryptedCredentials)
@@ -175,7 +182,6 @@ export async function handleProxy(
       body,
     })
   } catch (error) {
-    const hostname = new URL(upstreamUrl).hostname
     if (isDnsError(error)) {
       return c.json({
         error: `DNS resolution failed for ${hostname}`,
@@ -189,7 +195,8 @@ export async function handleProxy(
   }
 
   log.info({
-    service,
+    slug,
+    hostname,
     userId,
     method: c.req.method,
     upstreamUrl,

@@ -5,7 +5,7 @@ import type { CoreHonoEnv } from './types'
 import type { Database } from '../db/index'
 import { listServicesWithCredentialCounts } from '../db/queries'
 import { createLogger } from '../lib/logger'
-import { looksLikeHostname } from '../lib/utils'
+// looksLikeHostname no longer needed — services are identified by slug
 import { deriveEncryptionKey } from '../lib/credentials-crypto'
 import { credentialRoutes } from '../routes/credentials'
 import { serviceRoutes } from '../routes/services'
@@ -39,13 +39,8 @@ export function mountCoreRoutes(app: Hono<CoreHonoEnv>) {
   app.route('/', proxyRoutes)
 }
 
-/** Redirect /https://... → /proxy/... */
+/** No-op middleware — URL prefix redirects removed (slug-based routing). */
 export async function urlRedirectMiddleware(c: Context<CoreHonoEnv>, next: Next) {
-  const url = new URL(c.req.url)
-  const match = url.pathname.match(/^\/https?:\/\/?(.+)/)
-  if (match) {
-    return c.redirect(`/proxy/${match[1]}${url.search}`, 301)
-  }
   return next()
 }
 
@@ -108,8 +103,7 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
   app.get('/', async c => {
     const db = c.get('db')
     const recentServices = await listServicesWithCredentialCounts(db)
-    const filtered = recentServices.filter(s => looksLikeHostname(s.service))
-    return c.json({ services: filtered.map(s => ({ service: s.service, credentialCount: s.credentialCount })) })
+    return c.json({ services: recentServices.map(s => ({ slug: s.slug, credentialCount: s.credentialCount })) })
   })
 
   mountCoreRoutes(app)

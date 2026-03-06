@@ -5,7 +5,7 @@ import { createDb, type Database } from '../db/index'
 import { listServicesWithCredentialCounts } from '../db/queries'
 import { WardenLandingPage } from './ui'
 import { createLogger } from '../lib/logger'
-import { looksLikeHostname } from '../lib/utils'
+// looksLikeHostname no longer needed — services are identified by slug
 import { deriveEncryptionKey } from '../lib/credentials-crypto'
 import { mountCoreRoutes, urlRedirectMiddleware, requestLoggingMiddleware } from '../core/app'
 import { authRoutes } from './routes/auth'
@@ -68,8 +68,7 @@ export function createApp(deps: AppDeps = {}) {
   app.get('/', async c => {
     const db = c.get('db')
     const recentServices = await listServicesWithCredentialCounts(db)
-    const filtered = recentServices.filter(s => looksLikeHostname(s.service))
-    return c.html(WardenLandingPage({ services: filtered }))
+    return c.html(WardenLandingPage({ services: recentServices }))
   })
 
   // ─── Auth routes ────────────────────────────────────────────────────────────

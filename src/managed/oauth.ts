@@ -120,13 +120,13 @@ export async function resolveOAuthConfig(
 
 // ─── Start OAuth ─────────────────────────────────────────────────────────────
 
-oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
-  const serviceName = c.req.param('service')
+oauthRoutes.get('/:slug/oauth', requireBrowserSession, async c => {
+  const slug = c.req.param('slug')
   const db = c.get('db')
-  const svc = await getService(db, serviceName)
+  const svc = await getService(db, slug)
 
   if (!svc) {
-    return c.json({ error: `Unknown service: ${serviceName}` }, 404)
+    return c.json({ error: `Unknown service: ${slug}` }, 404)
   }
 
   const session = c.get('session')
@@ -135,7 +135,7 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
   const oauth = await resolveOAuthConfig(c.env.ENCRYPTION_KEY, svc)
 
   if (!oauth) {
-    return c.json({ error: `OAuth not configured for ${serviceName}` }, 400)
+    return c.json({ error: `OAuth not configured for ${slug}` }, 400)
   }
 
   const flowId = validateFlowId(c.req.query('flow_id')) ?? randomId()
@@ -144,7 +144,7 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
 
   await createAuthFlow(c.get('db'), {
     id: flowId,
-    service: serviceName,
+    slug,
     method: 'oauth',
     codeVerifier,
     orgId,
@@ -153,7 +153,7 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
 
   const params = new URLSearchParams({
     client_id: oauth.clientId,
-    redirect_uri: `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`,
+    redirect_uri: `${new URL(c.req.url).origin}/auth/${slug}/oauth/callback`,
     state: flowId,
     response_type: 'code',
     code_challenge: codeChallenge,
@@ -169,8 +169,8 @@ oauthRoutes.get('/:service/oauth', requireBrowserSession, async c => {
 
 // ─── OAuth Callback ──────────────────────────────────────────────────────────
 
-oauthRoutes.get('/:service/oauth/callback', async c => {
-  const serviceName = c.req.param('service')
+oauthRoutes.get('/:slug/oauth/callback', async c => {
+  const slug = c.req.param('slug')
   const code = c.req.query('code')
   const state = c.req.query('state')
   const error = c.req.query('error')
@@ -188,16 +188,16 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   if (!flow) {
     return c.html(ErrorPage({ message: 'Unknown or expired auth flow' }), 400)
   }
-  if (flow.service !== serviceName) {
+  if (flow.slug !== slug) {
     return c.html(ErrorPage({ message: 'Auth flow service mismatch' }), 400)
   }
   if (flow.status === 'completed') {
     return c.html(ErrorPage({ message: 'Auth flow already completed' }), 400)
   }
 
-  const svc = await getService(db, serviceName)
+  const svc = await getService(db, slug)
   if (!svc) {
-    return c.html(ErrorPage({ message: `Unknown service: ${serviceName}` }), 500)
+    return c.html(ErrorPage({ message: `Unknown service: ${slug}` }), 500)
   }
 
   // Resolve orgId from session (survives redirect via SameSite=Lax) or flow
@@ -210,7 +210,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   const oauth = await resolveOAuthConfig(c.env.ENCRYPTION_KEY, svc)
 
   if (!oauth) {
-    return c.html(ErrorPage({ message: `OAuth not configured for ${serviceName}` }), 500)
+    return c.html(ErrorPage({ message: `OAuth not configured for ${slug}` }), 500)
   }
 
   if (!flow.codeVerifier) {
@@ -222,7 +222,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   const tokenBody: Record<string, string> = {
     grant_type: 'authorization_code',
     code,
-    redirect_uri: `${new URL(c.req.url).origin}/auth/${serviceName}/oauth/callback`,
+    redirect_uri: `${new URL(c.req.url).origin}/auth/${slug}/oauth/callback`,
     code_verifier: flow.codeVerifier,
   }
 
@@ -327,7 +327,7 @@ oauthRoutes.get('/:service/oauth/callback', async c => {
   }
 
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, storedCredentials)
-  await upsertCredential(db, orgId, serviceName, 'default', encrypted)
+  await upsertCredential(db, orgId, slug, 'default', encrypted)
 
   // Mint token with user identity
   const token = mintToken(c.env.BISCUIT_PRIVATE_KEY, orgId)

@@ -28,8 +28,8 @@ export async function upsertUser(
 
 // ─── Services ────────────────────────────────────────────────────────────────
 
-export async function getService(db: Database, service: string) {
-  const rows = await db.select().from(services).where(eq(services.service, service))
+export async function getService(db: Database, slug: string) {
+  const rows = await db.select().from(services).where(eq(services.slug, slug))
   return rows[0] ?? null
 }
 
@@ -42,29 +42,29 @@ export async function listServicesWithCredentialCounts(db: Database) {
     listServices(db),
     db
       .select({
-        service: credentials.service,
+        slug: credentials.slug,
         count: sql<number>`count(*)::int`,
       })
       .from(credentials)
-      .groupBy(credentials.service),
+      .groupBy(credentials.slug),
   ])
 
   const countMap = new Map<string, number>()
   for (const row of counts) {
-    countMap.set(row.service, Number(row.count))
+    countMap.set(row.slug, Number(row.count))
   }
 
   return allServices.map(service => ({
     ...service,
-    credentialCount: countMap.get(service.service) ?? 0,
+    credentialCount: countMap.get(service.slug) ?? 0,
   }))
 }
 
 export async function upsertService(
   db: Database,
-  service: string,
+  slug: string,
   data: {
-    baseUrl: string
+    allowedHosts: string
     authSchemes?: string
     displayName?: string
     description?: string
@@ -77,8 +77,8 @@ export async function upsertService(
   await db
     .insert(services)
     .values({
-      service,
-      baseUrl: data.baseUrl,
+      slug,
+      allowedHosts: data.allowedHosts,
       authSchemes: data.authSchemes,
       displayName: data.displayName,
       description: data.description,
@@ -88,9 +88,9 @@ export async function upsertService(
       authConfig: data.authConfig,
     })
     .onConflictDoUpdate({
-      target: services.service,
+      target: services.slug,
       set: {
-        baseUrl: sql`excluded.base_url`,
+        allowedHosts: sql`excluded.allowed_hosts`,
         authSchemes: sql`coalesce(excluded.auth_schemes, ${services.authSchemes})`,
         displayName: sql`coalesce(excluded.display_name, ${services.displayName})`,
         description: sql`coalesce(excluded.description, ${services.description})`,
@@ -103,18 +103,18 @@ export async function upsertService(
     })
 }
 
-export async function deleteService(db: Database, service: string) {
-  const result = await db.delete(services).where(eq(services.service, service)).returning()
+export async function deleteService(db: Database, slug: string) {
+  const result = await db.delete(services).where(eq(services.slug, slug)).returning()
   return result.length > 0
 }
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
 
-export async function getCredential(db: Database, orgId: string, service: string, slug = 'default') {
+export async function getCredential(db: Database, orgId: string, slug: string, label = 'default') {
   const rows = await db
     .select()
     .from(credentials)
-    .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
+    .where(and(eq(credentials.orgId, orgId), eq(credentials.slug, slug), eq(credentials.label, label)))
   return rows[0] ?? null
 }
 
@@ -125,20 +125,20 @@ export async function listCredentials(db: Database, orgId: string) {
 export async function upsertCredential(
   db: Database,
   orgId: string,
-  service: string,
   slug: string,
+  label: string,
   encryptedCredentials: Buffer,
 ) {
   await db
     .insert(credentials)
     .values({
       orgId,
-      service,
       slug,
+      label,
       encryptedCredentials,
     })
     .onConflictDoUpdate({
-      target: [credentials.orgId, credentials.service, credentials.slug],
+      target: [credentials.orgId, credentials.slug, credentials.label],
       set: {
         encryptedCredentials: sql`excluded.encrypted_credentials`,
         updatedAt: sql`now()`,
@@ -146,10 +146,10 @@ export async function upsertCredential(
     })
 }
 
-export async function deleteCredential(db: Database, orgId: string, service: string, slug: string) {
+export async function deleteCredential(db: Database, orgId: string, slug: string, label: string) {
   const result = await db
     .delete(credentials)
-    .where(and(eq(credentials.orgId, orgId), eq(credentials.service, service), eq(credentials.slug, slug)))
+    .where(and(eq(credentials.orgId, orgId), eq(credentials.slug, slug), eq(credentials.label, label)))
     .returning()
   return result.length > 0
 }
@@ -175,7 +175,7 @@ export async function revokeToken(db: Database, revocationId: string, reason?: s
 
 export interface CreateFlowData {
   id: string
-  service: string
+  slug: string
   method: string
   codeVerifier?: string
   orgId?: string
@@ -191,7 +191,7 @@ export interface CompleteFlowData {
 export async function createAuthFlow(db: Database, data: CreateFlowData) {
   await db.insert(authFlows).values({
     id: data.id,
-    service: data.service,
+    slug: data.slug,
     method: data.method,
     codeVerifier: data.codeVerifier,
     orgId: data.orgId,

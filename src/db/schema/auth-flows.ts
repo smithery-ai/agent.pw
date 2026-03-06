@@ -3,7 +3,7 @@ import { wardenSchema } from './warden-schema'
 
 export const authFlows = wardenSchema.table('auth_flows', {
   id: text('id').primaryKey(),
-  service: text('service').notNull(),
+  slug: text('slug').notNull(), // service slug
   method: text('method').notNull(),
   status: text('status').notNull().default('pending'),
   codeVerifier: text('code_verifier'),
