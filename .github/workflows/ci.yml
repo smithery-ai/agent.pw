@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build-and-test:
     name: Build and test
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -32,7 +32,7 @@ jobs:
     name: Upload OpenAPI to Stainless
     needs: build-and-test
     if: github.ref == 'refs/heads/main'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
@@ -62,7 +62,7 @@ jobs:
     concurrency:
       group: stainless-preview-${{ github.head_ref }}
       cancel-in-progress: true
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
