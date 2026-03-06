@@ -22,6 +22,8 @@ export const CredentialSchema = z.object({
 export const CreateCredentialRequestSchema = z.object({
   token: z.string().optional().meta({ description: 'API token or secret' }),
   headers: z.record(z.string(), z.string()).optional().meta({ description: 'Explicit header map to send on proxied requests' }),
+  host: z.string().optional().meta({ description: 'Target hostname for this credential', example: 'api.linear.app' }),
+  profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
 }).meta({ id: 'CreateCredentialRequest' })
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
@@ -68,14 +70,19 @@ credentialRoutes.put('/:slug', requireToken,
     }
 
     const db = c.get('db')
-    const profile = await getCredProfile(db, slug)
-    if (!profile) return c.json({ error: `Profile '${slug}' not configured` }, 404)
+    const profileSlug = body.profile ?? slug
+    const profile = body.host ? null : await getCredProfile(db, profileSlug)
+    if (!body.host && !profile) {
+      return c.json({ error: `Profile '${profileSlug}' not configured` }, 404)
+    }
 
-    const hosts: string[] = JSON.parse(profile.host)
-    const host = hosts[0]
-    if (!host) return c.json({ error: 'Profile has no hosts configured' }, 400)
+    const host = body.host ?? (() => {
+      const hosts: string[] = profile ? JSON.parse(profile.host) : []
+      return hosts[0]
+    })()
+    if (!host) return c.json({ error: 'host is required when no profile host can be resolved' }, 400)
 
-    const authConfig = profile.auth ? JSON.parse(profile.auth) : null
+    const authConfig = profile?.auth ? JSON.parse(profile.auth) : null
     const schemes = authConfig?.kind === 'oauth' ? [] : parseAuthSchemes(authConfig?.authSchemes ? JSON.stringify(authConfig.authSchemes) : null)
     const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
     const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)

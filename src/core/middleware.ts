@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono'
 import type { CoreHonoEnv } from './types'
-import { extractBearerToken } from '../proxy'
+import { extractProxyToken, PROXY_TOKEN_HEADER } from '../proxy'
 import {
   authorizeRequest,
   extractTokenFacts,
@@ -10,8 +10,16 @@ import {
 import { isRevoked } from '../db/queries'
 
 export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
+  const token = extractProxyToken(
+    c.req.header(PROXY_TOKEN_HEADER),
+    c.req.header('Authorization'),
+  )
+  if (!token) {
+    return c.json({
+      error: `Missing ${PROXY_TOKEN_HEADER} header`,
+      hint: `Send your Biscuit token in the ${PROXY_TOKEN_HEADER} header.`,
+    }, 401)
+  }
 
   const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
 

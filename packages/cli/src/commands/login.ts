@@ -1,5 +1,4 @@
 import { createServer } from 'node:http'
-import AgentPw from '@agent.pw/sdk'
 import { writeManagedSession } from '../config'
 
 const DEFAULT_HOST = 'https://agent.pw'
@@ -9,10 +8,11 @@ export async function login(host?: string) {
 
   const { token, cleanup } = await browserLogin(targetHost)
 
-  // Validate the token by calling /services
-  const client = new AgentPw({ baseURL: targetHost, apiKey: token })
   try {
-    await client.services.list()
+    const res = await fetch(`${targetHost.replace(/\/$/, '')}/cred_profiles`, {
+      headers: { 'agentpw-token': token },
+    })
+    if (!res.ok) throw new Error(`unexpected status ${res.status}`)
   } catch {
     cleanup()
     console.error('Authentication failed. Check your token.')

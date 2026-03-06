@@ -9,6 +9,18 @@ export async function getCredProfile(db: Database, slug: string) {
   return rows[0] ?? null
 }
 
+export async function getCredProfileByHost(db: Database, host: string) {
+  const profiles = await listCredProfiles(db)
+  return profiles.find(profile => {
+    try {
+      const hosts: string[] = JSON.parse(profile.host)
+      return hosts.includes(host)
+    } catch {
+      return false
+    }
+  }) ?? null
+}
+
 export async function listCredProfiles(db: Database) {
   return db.select().from(credProfiles)
 }

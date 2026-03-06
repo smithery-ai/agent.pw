@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { resolve } from '../resolve'
-import { getClient } from '../http'
 
 export async function curl(args: string[]) {
   if (args.length === 0) {
@@ -28,22 +27,13 @@ export async function curl(args: string[]) {
   const hostname = targetUrl.hostname
   const path = targetUrl.pathname + targetUrl.search
 
-  // Resolve hostname → slug by checking service list
-  const client = await getClient()
-  const services = await client.services.list()
-  const match = services.find(s => s.allowedHosts.includes(hostname))
-  if (!match) {
-    console.error(`No service found for hostname '${hostname}'. Register it first with: agent.pw service add <slug> --host ${hostname}`)
-    process.exit(1)
-  }
-
-  // Rewrite URL through the proxy: /proxy/{slug}/{hostname}/{path}
-  const proxyUrl = `${proxyBase}/proxy/${match.slug}/${hostname}${path}`
+  // Rewrite URL through the proxy: /proxy/{hostname}/{path}
+  const proxyUrl = `${proxyBase}/proxy/${hostname}${path}`
   const curlArgs = [...args]
   curlArgs[urlIndex] = proxyUrl
 
-  // Inject the authorization header
-  curlArgs.push('-H', `Authorization: Bearer ${token}`)
+  // Inject the proxy auth header without taking over upstream Authorization.
+  curlArgs.push('-H', `agentpw-token: ${token}`)
 
   // Spawn curl
   const child = spawn('curl', curlArgs, { stdio: 'inherit' })

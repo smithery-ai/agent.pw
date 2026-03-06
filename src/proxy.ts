@@ -1,12 +1,24 @@
 import type { Context } from 'hono'
 import type { CoreHonoEnv } from './core/types'
 import {
+  AuthorizerBuilder,
+  Biscuit,
+  PublicKey,
+  SignatureAlgorithm,
+} from '@smithery/biscuit'
+import {
   authorizeRequest,
-  extractTokenFacts,
   getPublicKeyHex,
   getRevocationIds,
 } from './biscuit'
-import { getCredProfile, getCredentialsByHost, isRevoked, upsertCredential } from './db/queries'
+import {
+  getCredProfile,
+  getCredProfileByHost,
+  getCredentialBySlug,
+  getCredentialsByHost,
+  isRevoked,
+  upsertCredential,
+} from './db/queries'
 import {
   decryptCredentials,
   encryptCredentials,
@@ -26,9 +38,64 @@ function errorMessage(e: unknown): string {
   } /* v8 ignore stop */
 }
 
+export const PROXY_TOKEN_HEADER = 'agentpw-token'
+export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
+
 export function extractBearerToken(header: string | undefined): string | null {
   if (!header) return null
   return header.startsWith('Bearer ') ? header.slice(7) : header
+}
+
+export function extractProxyToken(
+  agentPwTokenHeader: string | undefined,
+  authorizationHeader?: string | undefined,
+): string | null {
+  return extractBearerToken(agentPwTokenHeader) ?? extractBearerToken(authorizationHeader)
+}
+
+function stripKeyPrefix(key: string) {
+  return key.replace(/^ed25519\//, '')
+}
+
+function parsePublicKey(publicKeyHex: string) {
+  return PublicKey.fromString(stripKeyPrefix(publicKeyHex), SignatureAlgorithm.Ed25519)
+}
+
+function escapeDatalog(s: string) {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function normalizePolicy(policy: string) {
+  const trimmed = policy.trim()
+  if (!trimmed) return ''
+  if (trimmed.includes('check if') || trimmed.includes('allow if') || trimmed.includes('deny if')) {
+    return trimmed
+  }
+  return `check if user("${escapeDatalog(trimmed)}");`
+}
+
+function tokenSatisfiesPolicy(
+  tokenBase64: string,
+  publicKeyHex: string,
+  policy: string | null | undefined,
+): boolean {
+  if (!policy) return true
+
+  try {
+    const publicKey = parsePublicKey(publicKeyHex)
+    const token = Biscuit.fromBase64(tokenBase64.replace(/^apw_/, ''), publicKey)
+    const ab = new AuthorizerBuilder()
+    ab.addCode([
+      `time(${new Date().toISOString()});`,
+      normalizePolicy(policy),
+      'allow if true;',
+    ].join('\n'))
+    const auth = ab.buildAuthenticated(token)
+    auth.authorize()
+    return true
+  } catch {
+    return false
+  }
 }
 
 function shouldRefresh(expiresAt: string | undefined): boolean {
@@ -81,23 +148,97 @@ async function refreshCredentialIfNeeded(
   return nextStored
 }
 
+function isIpLiteral(hostname: string) {
+  const v4 = /^(\d{1,3}\.){3}\d{1,3}$/
+  const v6 = /^\[?[0-9a-f:]+\]?$/i
+  return v4.test(hostname) || v6.test(hostname)
+}
+
+function isPrivateOrLocalAddress(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1')
+  if (normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1') {
+    return true
+  }
+  if (!isIpLiteral(normalized)) {
+    return false
+  }
+
+  const parts = normalized.split('.').map(part => Number.parseInt(part, 10))
+  if (parts.length === 4 && parts.every(Number.isFinite)) {
+    const [a, b] = parts
+    if (a === 10 || a === 127 || a === 0) return true
+    if (a === 169 && b === 254) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+  }
+
+  return normalized.startsWith('fe80:') || normalized.startsWith('fc') || normalized.startsWith('fd')
+}
+
+function buildUpstreamHeaders(c: Context<CoreHonoEnv>) {
+  const headers = new Headers()
+  c.req.raw.headers.forEach((value, key) => {
+    const lower = key.toLowerCase()
+    if (lower === 'host' || lower === 'act-as') return
+    if (lower === PROXY_TOKEN_HEADER || lower === CREDENTIAL_SELECTOR_HEADER) return
+    headers.set(key, value)
+  })
+  return headers
+}
+
+async function readRequestBody(c: Context<CoreHonoEnv>) {
+  if (['GET', 'HEAD'].includes(c.req.method)) {
+    return undefined
+  }
+  return c.req.raw.arrayBuffer()
+}
+
+async function forwardUpstream(
+  upstreamUrl: string,
+  method: string,
+  headers: Headers,
+  body: ArrayBuffer | undefined,
+) {
+  return fetch(upstreamUrl, {
+    method,
+    headers,
+    body,
+    redirect: 'manual',
+  })
+}
+
 export async function handleProxy(
   c: Context<CoreHonoEnv>,
-  slug: string,
+  slug: string | undefined,
   hostname: string,
   upstreamPath: string,
 ) {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
+  const token = extractProxyToken(
+    c.req.header(PROXY_TOKEN_HEADER),
+    c.req.header('Authorization'),
+  )
+  if (!token) {
+    return c.json({
+      error: `Missing ${PROXY_TOKEN_HEADER} header`,
+      hint: `Send your Biscuit token in the ${PROXY_TOKEN_HEADER} header.`,
+    }, 401)
+  }
+
+  if (isPrivateOrLocalAddress(hostname)) {
+    return c.json({ error: `Refusing to proxy local or private target '${hostname}'` }, 403)
+  }
 
   const db = c.get('db')
-  const profile = await getCredProfile(db, slug)
-  if (!profile) return c.json({ error: `Unknown service: ${slug}` }, 404)
+  const profile = slug ? await getCredProfile(db, slug) : await getCredProfileByHost(db, hostname)
+  if (slug && !profile) {
+    return c.json({ error: `Unknown credential profile: ${slug}` }, 404)
+  }
 
-  // Validate hostname against cred_profile hosts (SSRF prevention)
-  const allowedHosts: string[] = JSON.parse(profile.host)
-  if (!allowedHosts.includes(hostname)) {
-    return c.json({ error: `Host '${hostname}' is not allowed for service '${slug}'` }, 403)
+  if (profile) {
+    const allowedHosts: string[] = JSON.parse(profile.host)
+    if (!allowedHosts.includes(hostname)) {
+      return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.slug}'` }, 403)
+    }
   }
 
   const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
@@ -114,60 +255,60 @@ export async function handleProxy(
     return c.json({ error: `Invalid token: ${errorMessage(e)}` }, 401)
   }
 
-  // Authorize (Biscuit resource is the slug)
-  const result = authorizeRequest(token, publicKeyHex, slug, c.req.method, upstreamPath)
+  const resource = slug ?? hostname
+  const result = authorizeRequest(token, publicKeyHex, resource, c.req.method, upstreamPath)
   if (!result.authorized) {
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  // Look up credential by hostname
-  const creds = await getCredentialsByHost(db, hostname)
-  const cred = creds[0]
-  if (!cred) {
-    return c.json({ error: `No credential found for ${hostname}` }, 404)
+  const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
+
+  let cred = null as Awaited<ReturnType<typeof getCredentialBySlug>> | Awaited<ReturnType<typeof getCredentialsByHost>>[number] | null
+  if (selector) {
+    const selected = await getCredentialBySlug(db, selector)
+    if (!selected) {
+      return c.json({ error: `Unknown credential: ${selector}` }, 404)
+    }
+    if (selected.host !== hostname) {
+      return c.json({ error: `Credential '${selector}' does not match host '${hostname}'` }, 403)
+    }
+    if (!tokenSatisfiesPolicy(token, publicKeyHex, selected.execPolicy)) {
+      return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
+    }
+    cred = selected
+  } else {
+    const creds = await getCredentialsByHost(db, hostname)
+    cred = creds.find(candidate => tokenSatisfiesPolicy(token, publicKeyHex, candidate.execPolicy)) ?? null
   }
 
   // Build upstream request — hostname comes from the URL, always HTTPS
   const url = new URL(c.req.url)
   const upstreamUrl = `https://${hostname}${upstreamPath}${url.search}`
 
-  const headers = new Headers()
-  c.req.raw.headers.forEach((value, key) => {
-    if (key.toLowerCase() === 'authorization') return
-    if (key.toLowerCase() === 'host') return
-    if (key.toLowerCase() === 'act-as') return
-    headers.set(key, value)
-  })
+  const headers = buildUpstreamHeaders(c)
+  const body = await readRequestBody(c)
+  const explicitAuthorization = headers.has('Authorization')
 
   const log = c.get('logger')
-  log.info({ slug, hostname, method: c.req.method, upstreamUrl }, 'proxy request')
+  log.info({ slug: profile?.slug ?? slug, hostname, method: c.req.method, upstreamUrl, credential: cred?.slug ?? null }, 'proxy request')
 
-  // Inject credential headers (after logging to avoid leaking secrets)
-  let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.secret)
-  try {
-    stored = await refreshCredentialIfNeeded(c, cred, stored)
-  } catch (e) {
-    return c.json({ error: `OAuth token refresh failed: ${errorMessage(e)}` }, 401)
-  }
-  for (const [name, value] of Object.entries(stored.headers)) {
-    headers.set(name, value)
-  }
-
-  // Forward request
-  let body: ArrayBuffer | undefined
-  if (['GET', 'HEAD'].includes(c.req.method)) {
-    body = undefined
-  } else {
-    body = await c.req.raw.arrayBuffer()
+  if (cred) {
+    let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.secret)
+    try {
+      stored = await refreshCredentialIfNeeded(c, cred, stored)
+    } catch (e) {
+      return c.json({ error: `OAuth token refresh failed: ${errorMessage(e)}` }, 401)
+    }
+    for (const [name, value] of Object.entries(stored.headers)) {
+      if (!headers.has(name)) {
+        headers.set(name, value)
+      }
+    }
   }
 
   let upstream: Response
   try {
-    upstream = await fetch(upstreamUrl, {
-      method: c.req.method,
-      headers,
-      body,
-    })
+    upstream = await forwardUpstream(upstreamUrl, c.req.method, headers, body)
   } catch (error) {
     if (isDnsError(error)) {
       return c.json({
@@ -181,8 +322,24 @@ export async function handleProxy(
     }, 502)
   }
 
+  if (upstream.status === 401 && !cred && !explicitAuthorization) {
+    const responseHeaders = new Headers(upstream.headers)
+    if (profile) {
+      responseHeaders.set('agentpw-profile', profile.slug)
+      responseHeaders.set('agentpw-auth-url', `${c.env.BASE_URL}/auth/${profile.slug}`)
+    } else {
+      responseHeaders.set('agentpw-manual', `agent.pw cred add ${hostname} --auth headers -H "Authorization: Bearer {token:Access token}"`)
+    }
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: responseHeaders,
+    })
+  }
+
   log.info({
-    slug,
+    slug: profile?.slug ?? slug,
     hostname,
     method: c.req.method,
     upstreamUrl,
