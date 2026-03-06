@@ -341,6 +341,16 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "host": {
+            "description": "Target hostname for this credential",
+            "example": "api.linear.app",
+            "type": "string"
+          },
+          "profile": {
+            "description": "Credential profile slug to derive the target host from",
+            "example": "linear",
+            "type": "string"
           }
         },
         "additionalProperties": false
