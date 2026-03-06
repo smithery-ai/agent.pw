@@ -63,8 +63,8 @@ importers:
   packages/cli:
     dependencies:
       '@agent.pw/sdk':
-        specifier: https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz
-        version: https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz
+        specifier: https://pkg.stainless.com/s/agent.pw-typescript/df4b6bbbe69c13c6350b5c58d3ca0724a4e621c6/dist.tar.gz
+        version: https://pkg.stainless.com/s/agent.pw-typescript/df4b6bbbe69c13c6350b5c58d3ca0724a4e621c6/dist.tar.gz
       '@agent.pw/server':
         specifier: workspace:*
         version: link:../..
@@ -81,8 +81,8 @@ importers:
 
 packages:
 
-  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz':
-    resolution: {tarball: https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz}
+  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/df4b6bbbe69c13c6350b5c58d3ca0724a4e621c6/dist.tar.gz':
+    resolution: {tarball: https://pkg.stainless.com/s/agent.pw-typescript/df4b6bbbe69c13c6350b5c58d3ca0724a4e621c6/dist.tar.gz}
     version: 0.0.1
 
   '@biomejs/biome@2.4.5':
@@ -912,7 +912,7 @@ packages:
 
 snapshots:
 
-  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/21469dcb85991abe7cfdec96dfb4d5786ad0bc12/dist.tar.gz': {}
+  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/df4b6bbbe69c13c6350b5c58d3ca0724a4e621c6/dist.tar.gz': {}
 
   '@biomejs/biome@2.4.5':
     optionalDependencies:
