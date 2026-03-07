@@ -5,7 +5,7 @@
  *   or:  pnpm run setup  (with .env configured)
  */
 
-import { generateKeyPairHex, mintToken } from '../src/biscuit'
+import { generateKeyPairHex, mintToken } from '../packages/server/src/biscuit'
 
 const privateKey = process.env.BISCUIT_PRIVATE_KEY
 

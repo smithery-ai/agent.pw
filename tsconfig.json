@@ -15,6 +15,6 @@
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "packages"]
+  "include": ["packages/server/src/**/*.ts", "packages/server/src/**/*.tsx"],
+  "exclude": ["node_modules", "packages/cli"]
 }

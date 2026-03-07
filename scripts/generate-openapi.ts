@@ -11,9 +11,9 @@ import { writeFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generateSpecs } from 'hono-openapi'
-import { injectSchemas } from '../src/lib/openapi-utils'
-import { createCoreApp } from '../src/core/app'
-import { openAPIDocumentation, allSchemas } from '../src/openapi'
+import { injectSchemas } from '../packages/server/src/lib/openapi-utils'
+import { createCoreApp } from '../packages/server/src/core/app'
+import { openAPIDocumentation, allSchemas } from '../packages/server/src/openapi'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
