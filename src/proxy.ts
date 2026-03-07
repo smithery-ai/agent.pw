@@ -111,7 +111,7 @@ function shouldRefresh(expiresAt: string | undefined): boolean {
 
 async function refreshCredentialIfNeeded(
   c: Context<CoreHonoEnv>,
-  cred: { id: string; host: string; slug: string; auth: string; secret: Buffer },
+  cred: { id: string; host: string; slug: string; auth: Record<string, unknown>; secret: Buffer },
   stored: StoredCredentials,
 ): Promise<StoredCredentials> {
   if (!stored.oauth?.refreshToken) {
@@ -238,11 +238,8 @@ export async function handleProxy(
     return c.json({ error: `Unknown credential profile: ${slug}` }, 404)
   }
 
-  if (profile) {
-    const allowedHosts: string[] = JSON.parse(profile.host)
-    if (!allowedHosts.includes(hostname)) {
-      return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.slug}'` }, 403)
-    }
+  if (profile && !profile.host.includes(hostname)) {
+    return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.slug}'` }, 403)
   }
 
   const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)

@@ -1,15 +1,18 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
 import { agentpwSchema } from './agentpw-schema'
 
+export const authFlowMethodEnum = agentpwSchema.enum('auth_flow_method', ['oauth', 'api_key'])
+export const authFlowStatusEnum = agentpwSchema.enum('auth_flow_status', ['pending', 'completed'])
+
 export const authFlows = agentpwSchema.table('auth_flows', {
   id: text('id').primaryKey(),
-  slug: text('slug').notNull(), // cred_profile slug or host
-  method: text('method').notNull(), // "oauth", "headers"
-  status: text('status').notNull().default('pending'),
-  codeVerifier: text('code_verifier'), // PKCE verifier for OAuth
-  execPolicy: text('exec_policy'), // Biscuit policy to set on the resulting credential
-  token: text('token'), // minted Biscuit token (set on completion)
-  identity: text('identity'), // user identity from provider (set on completion)
+  slug: text('slug').notNull(),
+  method: authFlowMethodEnum('method').notNull(),
+  status: authFlowStatusEnum('status').notNull().default('pending'),
+  codeVerifier: text('code_verifier'),
+  execPolicy: text('exec_policy'),
+  token: text('token'),
+  identity: text('identity'),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })

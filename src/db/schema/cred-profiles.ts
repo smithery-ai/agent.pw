@@ -1,11 +1,12 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
 import { agentpwSchema } from './agentpw-schema'
+import { jsonb } from './types'
 
 export const credProfiles = agentpwSchema.table('cred_profiles', {
   slug: text('slug').primaryKey(),
-  host: text('host').notNull(), // JSON: string[] of hostnames this profile applies to
-  auth: text('auth'), // JSON: { kind: "oauth", authorizeUrl, tokenUrl, scopes, ... } or { kind: "headers", fields: [...] }
-  managedOauth: text('managed_oauth'), // JSON: { clientId, encryptedClientSecret } — managed only
+  host: jsonb<string[]>()('host').notNull(),
+  auth: jsonb<Record<string, unknown>>()('auth'),
+  managedOauth: jsonb<Record<string, unknown>>()('managed_oauth'),
   displayName: text('display_name'),
   description: text('description'),
   createdAt: timestamp('created_at').defaultNow().notNull(),

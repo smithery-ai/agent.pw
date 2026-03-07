@@ -76,13 +76,10 @@ credentialRoutes.put('/:slug', requireToken,
       return c.json({ error: `Profile '${profileSlug}' not configured` }, 404)
     }
 
-    const host = body.host ?? (() => {
-      const hosts: string[] = profile ? JSON.parse(profile.host) : []
-      return hosts[0]
-    })()
+    const host = body.host ?? profile?.host[0]
     if (!host) return c.json({ error: 'host is required when no profile host can be resolved' }, 400)
 
-    const authConfig = profile?.auth ? JSON.parse(profile.auth) : null
+    const authConfig = profile?.auth ?? null
     const schemes = authConfig?.kind === 'oauth' ? [] : parseAuthSchemes(authConfig?.authSchemes ? JSON.stringify(authConfig.authSchemes) : null)
     const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
     const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
@@ -92,7 +89,7 @@ credentialRoutes.put('/:slug', requireToken,
       id: randomId(),
       host,
       slug,
-      auth: JSON.stringify({ kind: 'headers' }),
+      auth: { kind: 'headers' },
       secret: encrypted,
     })
     return c.json({ ok: true as const, slug })

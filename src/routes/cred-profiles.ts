@@ -60,7 +60,7 @@ credProfileRoutes.get('/', requireToken,
     return c.json(
       allProfiles.map(p => ({
         slug: p.slug,
-        host: JSON.parse(p.host) as string[],
+        host: p.host,
         displayName: p.displayName,
         description: p.description,
       })),
@@ -87,10 +87,10 @@ credProfileRoutes.get('/:slug', requireToken,
 
     return c.json({
       slug: profile.slug,
-      host: JSON.parse(profile.host) as string[],
+      host: profile.host,
       displayName: profile.displayName,
       description: profile.description,
-      auth: profile.auth ? JSON.parse(profile.auth) : null,
+      auth: profile.auth ?? null,
     })
   },
 )
@@ -122,9 +122,9 @@ credProfileRoutes.put('/:slug', requireToken, requireRight('manage_services'),
     const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
 
     await upsertCredProfile(db, slug, {
-      host: JSON.stringify(body.host),
-      auth: body.auth ? JSON.stringify(body.auth) : undefined,
-      managedOauth: body.managedOauth ? JSON.stringify(body.managedOauth) : undefined,
+      host: body.host,
+      auth: body.auth,
+      managedOauth: body.managedOauth,
       displayName,
       description: body.description,
     })

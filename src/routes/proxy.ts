@@ -41,7 +41,7 @@ proxyRoutes.all('/proxy/*',
     if (segments.length >= 2) {
       const explicitProfile = await getCredProfile(c.get('db'), segments[0])
       if (explicitProfile) {
-        const allowedHosts: string[] = JSON.parse(explicitProfile.host)
+        const allowedHosts = explicitProfile.host
         if (allowedHosts.includes(segments[1])) {
           slug = segments[0]
           hostname = segments[1]

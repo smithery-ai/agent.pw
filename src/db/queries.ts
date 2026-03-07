@@ -16,18 +16,6 @@ interface LegacyServiceRecord {
   updatedAt: Date
 }
 
-function parseJsonRecord(value: string | null | undefined): Record<string, unknown> | null {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
 function parseJsonArray(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null
 }
@@ -38,14 +26,14 @@ function decodeClientSecret(value: unknown): Buffer | null {
 }
 
 function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): LegacyServiceRecord {
-  const auth = parseJsonRecord(profile.auth)
-  const managedOauth = parseJsonRecord(profile.managedOauth)
+  const auth = profile.auth ?? null
+  const managedOauth = profile.managedOauth ?? null
   const authSchemes = parseJsonArray(auth?.authSchemes)
   const authConfig = auth?.authConfig
 
   return {
     slug: profile.slug,
-    allowedHosts: profile.host,
+    allowedHosts: JSON.stringify(profile.host),
     authSchemes: authSchemes ? JSON.stringify(authSchemes) : null,
     displayName: profile.displayName,
     description: profile.description,
@@ -70,14 +58,7 @@ export async function getCredProfile(db: Database, slug: string) {
 
 export async function getCredProfileByHost(db: Database, host: string) {
   const profiles = await listCredProfiles(db)
-  return profiles.find(profile => {
-    try {
-      const hosts: string[] = JSON.parse(profile.host)
-      return hosts.includes(host)
-    } catch {
-      return false
-    }
-  }) ?? null
+  return profiles.find(profile => profile.host.includes(host)) ?? null
 }
 
 export async function listCredProfiles(db: Database) {
@@ -102,8 +83,7 @@ export async function listCredProfilesWithCredentialCounts(db: Database) {
   }
 
   return allProfiles.map(profile => {
-    const hosts: string[] = JSON.parse(profile.host)
-    const credentialCount = hosts.reduce((sum, h) => sum + (countMap.get(h) ?? 0), 0)
+    const credentialCount = profile.host.reduce((sum, h) => sum + (countMap.get(h) ?? 0), 0)
     return { ...profile, credentialCount }
   })
 }
@@ -112,9 +92,9 @@ export async function upsertCredProfile(
   db: Database,
   slug: string,
   data: {
-    host: string
-    auth?: string
-    managedOauth?: string
+    host: string[]
+    auth?: Record<string, unknown>
+    managedOauth?: Record<string, unknown>
     displayName?: string
     description?: string
   },
@@ -195,10 +175,10 @@ export async function upsertService(
   }
 
   await upsertCredProfile(db, slug, {
-    host: JSON.stringify(data.allowedHosts),
-    auth: Object.keys(auth).length > 0 ? JSON.stringify(auth) : undefined,
+    host: data.allowedHosts,
+    auth: Object.keys(auth).length > 0 ? auth : undefined,
     managedOauth:
-      Object.keys(managedOauth).length > 0 ? JSON.stringify(managedOauth) : undefined,
+      Object.keys(managedOauth).length > 0 ? managedOauth : undefined,
     displayName: data.displayName,
     description: data.description,
   })
@@ -234,7 +214,7 @@ export async function upsertCredential(
     id: string
     host: string
     slug: string
-    auth: string
+    auth: Record<string, unknown>
     secret: Buffer
     execPolicy?: string
     adminPolicy?: string
@@ -284,7 +264,7 @@ export async function revokeToken(db: Database, revocationId: string, reason?: s
 export interface CreateFlowData {
   id: string
   slug: string
-  method: string
+  method: 'oauth' | 'api_key'
   codeVerifier?: string
   execPolicy?: string
   expiresAt: Date
