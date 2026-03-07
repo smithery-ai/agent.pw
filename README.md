@@ -1,22 +1,77 @@
 # agent.pw
 
-Open-source credential vault and API proxy for agents. Keeps secrets out of your prompts.
+Authenticated proxy for APIs. Stores credentials, injects them on matching requests, and bootstraps new credentials through standards-based discovery or profile-backed fallback.
 
 ```
-Agent ──▶ agent.pw/proxy/api.github.com/user ──▶ api.github.com/user
-       (agentpw-token)                         (real API key injected)
+Agent ──▶ proxy.agent.pw/api.github.com/user ──▶ api.github.com/user
+       (agentpw-token)                         (credential injected)
 ```
 
+## The Proxy
 
-## Development CLI setup
+agent.pw is an HTTP proxy. Give it a target URL, it handles auth.
+
+```
+proxy.agent.pw/api.linear.app/graphql
+proxy.agent.pw/api.github.com/repos/owner/repo
+proxy.agent.pw/uploads.github.com/repos/owner/repo/releases/1/assets
+```
+
+`proxy.agent.pw` is an alias for `api.agent.pw/proxy`. The proxy preserves the native HTTP request shape. Agents make normal GET and POST requests. Unauthenticated endpoints pass through transparently — the proxy only intervenes when it has a stored credential for the target host, or when the upstream returns 401.
+
+### Request Flow
+
+```
+1. Agent sends a normal HTTP request through the proxy
+2. agent.pw checks for a matching stored credential
+3. If a credential exists, inject auth headers and forward
+4. If no credential exists, forward the request as-is
+5. If the upstream returns 200, return it (unauthenticated endpoint)
+6. If the upstream returns 401:
+   a. Try standards-based OAuth discovery
+   b. If discovery fails, check credential profile registry
+   c. If a profile exists, use its bootstrap config
+   d. Store the resulting credential
+   e. Retry the request
+7. If nothing works, return the 401 with instructions
+```
+
+### Proxy Authentication
+
+Requests to the proxy carry a Biscuit token (`apw_` prefix) in the `agentpw-token` header. The proxy strips it before forwarding upstream. If the agent includes explicit HTTP headers (e.g. `Authorization`), they take precedence over credential injection.
+
+### Credential Store
+
+Credentials are matched by target host and injected automatically.
+
+```
+CREDENTIALS TABLE
+host            target hostname this credential authenticates against
+slug            unique ID (auto-generated or user-specified via --slug)
+auth            auth config object (kind: oauth → Bearer header, kind: headers → custom header map)
+secret          encrypted token / key material
+exec_policy     Biscuit policy: who can use this credential through the proxy
+admin_policy    Biscuit policy: who can create, replace, share, or revoke it
+```
+
+Each credential is self-describing: it knows how to inject itself. Multiple credentials per host are supported — the proxy selects the one whose `exec_policy` the request token satisfies. The agent can also specify a credential explicitly via the `agentpw-credential` header (passing the slug).
+
+### Auth Bootstrap
+
+When a proxied request returns 401, agent.pw tries to bootstrap a credential:
+
+**Standards-based discovery.** When the target follows OAuth discovery conventions, agent.pw handles it directly: reads `WWW-Authenticate` headers, fetches Protected Resource Metadata (RFC 9728), runs OAuth 2.1 with PKCE, and scopes tokens with Resource Indicators (RFC 8707).
+
+**Credential profile fallback.** When discovery is incomplete, agent.pw checks the credential profile registry for a matching host entry. See [Credential Profiles](#credential-profiles).
+
+**Manual fallback.** Users can always add credentials for any host, with or without a profile:
 
 ```bash
-pnpm i
-pnpm build
-npm link
+agent.pw cred add api.custom-corp.com --auth headers \
+  -H "Authorization: Bearer {key:Your API key from the dashboard}"
 ```
 
-Then run the CLI directly as `agent.pw`.
+Profiles guide credential setup when available. They never gate it.
 
 ## Getting Started (Cloud)
 
@@ -24,48 +79,43 @@ Then run the CLI directly as `agent.pw`.
 agent.pw login
 ```
 
-Authenticates with the agent.pw Cloud backend. Services are pre-configured — no setup needed.
-
-List the hosted profile catalog:
+Authenticates with agent.pw Cloud. Services are pre-configured — no setup needed.
 
 ```bash
-agent.pw profile list
-```
-
-Add a credential:
-
-```bash
-agent.pw cred add api.linear.app --slug linear
-```
-
-Or add a manual header credential for a host that does not have a profile yet:
-
-```bash
-agent.pw cred add api.linear.app --auth headers \
-  -H "Authorization: Bearer {token:Access token}"
-```
-
-The `{token:...}` placeholder is expanded interactively and stored encrypted.
-
-Profile-driven browser auth starts from the proxy itself: the first unauthenticated `401` returns bootstrap headers such as `agentpw-profile` and `agentpw-auth-url`.
-
-Use the proxy. `agent.pw curl` sends your agent token in `agentpw-token` and targets the host-first route:
-
-```
-agent.pw curl https://agent.pw/proxy/api.linear.app/graphql \
+agent.pw curl proxy.agent.pw/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
+→ no credential found
+→ forward raw → 401
+→ check cred profiles → managed profile found
+→ browser opens → credential stored
+→ request retried → works
 ```
 
-agent.pw matches `api.linear.app`, injects the stored credential, and proxies the request. The agent never sees the API key.
+Manual credential flows:
+
+```bash
+agent.pw cred add linear
+→ Profile found: Linear (api.linear.app)
+→ Auth: headers
+→ Authorization: Bearer ____
+→ Paste your API key: ****
+→ Stored as linear/k7x
+
+agent.pw cred add github
+→ Profile found: GitHub (api.github.com)
+→ Auth: oauth
+→ Opening browser... (→ GitHub consent screen → redirect back)
+→ Stored as github/m3p
+```
 
 View stored credentials:
 
 ```
 agent.pw cred
 
-HOST             SLUG        ADDED
-api.linear.app   linear      2d ago
-api.github.com   github      5d ago
+HOST             SLUG        AUTH       ADDED
+api.linear.app   linear/k7x  headers    2d ago
+api.github.com   github/m3p  oauth      5d ago
 ```
 
 Credentials are write-only. Agents cannot exfiltrate them.
@@ -76,62 +126,99 @@ Credentials are write-only. Agents cannot exfiltrate them.
 agent.pw setup
 ```
 
-Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token. Run `agent.pw start` to start the proxy. Everything runs on your machine — no external dependencies.
+Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token. Run `agent.pw start` to start the proxy. Everything runs on your machine.
 
-You start with an empty credential profile table. Add profiles using the skill in Claude Code or Codex:
+Self-hosted starts with an empty credential store and no credential profiles. Standards-based discovery works for compatible APIs. For everything else, add profiles via skill:
 
 ```
 /add-profile api.linear.app
 ```
 
-The agent reads the API docs, figures out the auth method and headers, and writes the profile entry. You approve the result.
-
-Or add manually:
+Or manually:
 
 ```bash
-agent.pw profile add linear --host api.linear.app --file profile.json
+agent.pw profile add linear --host api.linear.app \
+  --auth headers \
+  -H "Authorization: Bearer {api_key:Your Linear API key from Settings > API}"
 ```
 
-Then add credentials and use the same host-first proxy path locally:
+The `-H` flag follows curl conventions. `{name:description}` syntax defines form fields: `name` is the field ID, `description` is the label shown in CLI prompts.
+
+Then use the proxy locally:
 
 ```bash
-agent.pw cred add api.linear.app --slug linear
 agent.pw curl http://localhost:3000/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
-The CLI auto-detects which mode you're in. If a local instance is running, commands go there. Otherwise they go to the managed backend. `agent.pw status` shows which backend you're connected to.
+The CLI auto-detects the active backend. `agent.pw status` shows which one.
 
 ## Concepts
 
-**Credential profiles.** A profile defines how an API is authenticated. It maps one or more hostnames to auth schemes, injected headers, and optional OAuth app metadata. Requests can be routed purely by hostname or with an explicit `/proxy/{profile}/{hostname}/...` override.
+### Credential Profiles
 
-**Credentials.** A credential is the specific secret used to connect to a profile or host: an API key, OAuth token, or arbitrary header set. Credentials are stored encrypted and never exposed to agents. When an agent makes a proxied request, agent.pw selects a matching credential for that host and injects it into the upstream request unless the caller already supplied `Authorization`.
+Credential profiles are templates for setting up credentials. They match a target host and supply the auth metadata that discovery would have returned — OAuth endpoints, or a header form definition.
 
-**Tokens.** On setup, agent.pw mints a Biscuit token (`apw_` prefix). Send it in the `agentpw-token` header. The root token can manage profiles and credentials. Tokens given to agents can be attenuated by profile or host, method, and TTL. A restricted token can never gain more power than its parent. Tokens can be revoked instantly. Backed by [Biscuit](https://www.biscuitsec.org/) for cryptographic attenuation.
+**OAuth config** — for services with OAuth that lack standard discovery:
+
+```yaml
+slug: github
+host: [api.github.com, uploads.github.com]
+auth:
+  kind: oauth
+  authorize_url: https://github.com/login/oauth/authorize
+  token_url: https://github.com/login/oauth/access_token
+  scopes: [repo, read:user]
+  client_id: <user_provided>
+```
+
+**Headers form** — for services that use API keys or custom headers:
+
+```yaml
+slug: linear
+host: api.linear.app
+auth:
+  kind: headers
+  fields:
+    - header: "Authorization"
+      prefix: "Bearer "
+      name: api_key
+      description: "Your Linear API key from Settings > API"
+```
+
+The proxy checks credential profiles only when standards-based discovery fails. Profiles are helpful defaults, never gates.
+
+### Tokens (Biscuit)
+
+Biscuit tokens (`apw_` prefix) determine which requests may be made through the proxy and which credentials are accessible.
+
+The root token (generated during setup) has full authority. Restricted tokens are attenuated by target host, method, TTL, or additional Biscuit checks. A restricted token can never gain more authority than its parent.
+
+Credentials carry object-level Biscuit policies: `exec_policy` governs proxy use, `admin_policy` governs management operations. Deployers define their own fact vocabulary — agent.pw imposes no required facts like `user_id` or `org_id`. See [docs/token-design.md](docs/token-design.md) for full details.
 
 ## CLI Commands
 
 ```
-agent.pw login [--host <url>]              authenticate with Cloud (default: https://agent.pw)
-agent.pw logout                            log out from agent.pw
-agent.pw setup                             self-hosted: generate keys, create DB, mint root token
-agent.pw start                             start the local proxy server
-agent.pw stop                              stop the local proxy server
-agent.pw status                            show connected backend + token info
+agent.pw login                                authenticate with Cloud
+agent.pw logout                               log out
+agent.pw setup                                self-hosted: generate keys, create DB, mint root token
+agent.pw start                                start the local proxy server
+agent.pw stop                                 stop the local proxy server
+agent.pw status                               show connected backend + token info
 
-agent.pw profile                           list credential profiles
-agent.pw profile get <slug>                show profile details
-agent.pw profile add <slug> --host <h>     register a profile
-agent.pw profile remove <slug>             remove a profile
+agent.pw profile                              list credential profiles
+agent.pw profile get <slug>                   show profile details
+agent.pw profile add <slug> --host <h>        register a profile
+agent.pw profile remove <slug>                remove a profile
 
-agent.pw cred                              list credentials
-agent.pw cred add <slug-or-host>           add a credential
-agent.pw cred remove <slug>                remove a credential
+agent.pw cred                                 list credentials
+agent.pw cred add <slug-or-host>              add a credential
+agent.pw cred remove <slug>                   remove a credential
 
-agent.pw token revoke <token>              revoke a token
+agent.pw token restrict                       create restricted child token
+agent.pw token revoke                         revoke a token
 
-agent.pw curl <url> [curl flags]           proxy request with auto-injected token
+agent.pw curl <url> [curl flags]              proxy request with auto-injected token
 ```
 
 ## API Reference
@@ -145,7 +232,7 @@ Proxy:
   Optional credential selector: agentpw-credential
 
 Credentials:
-  GET    /credentials                list credentials (org from token)
+  GET    /credentials                list credentials
   PUT    /credentials/{slug_or_host} store a credential
   DELETE /credentials/{slug}         remove a credential
 
@@ -166,32 +253,34 @@ Infrastructure:
 
 ```
 agent.pw/
-  src/
-    core/           ← proxy, vault, tokens (all OSS)
-    managed/        ← WorkOS auth, managed OAuth, UI
-    routes/         ← API route handlers
-    cli/            ← CLI commands
-    db/             ← Drizzle schema and queries
-    lib/            ← shared utilities, crypto
-  entry.local.ts    ← Bun + PGlite entry point
-  entry.managed.ts  ← Cloudflare Workers entry point
+  src/                    ← @agent.pw/server (core library)
+    core/                 ← proxy, vault, tokens
+    routes/               ← API route handlers
+    db/                   ← Drizzle schema and queries
+    lib/                  ← shared utilities, crypto
+  packages/
+    cli/                  ← agent.pw CLI (depends on server + SDK)
 ```
 
 ## Development
 
 ```bash
 pnpm install
-pnpm test          # run tests (uses in-memory PGlite — no database needed)
-pnpm test:watch    # watch mode
-pnpm run build     # typecheck
-pnpm run lint      # lint
+pnpm build              # build CLI
+npm link                # link CLI globally
+```
+
+```bash
+pnpm test               # run tests (uses in-memory PGlite)
+pnpm test:watch         # watch mode
+pnpm run build          # typecheck
+pnpm run lint           # lint
 ```
 
 ### Database
 
 ```bash
-pnpm run db:generate   # generate migrations from schema changes
-pnpm run db:push       # push schema to database (dev)
+pnpm run db:generate    # generate migrations from schema changes
 ```
 
 ## License
