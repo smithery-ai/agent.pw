@@ -40,6 +40,7 @@ function errorMessage(e: unknown): string {
 
 export const PROXY_TOKEN_HEADER = 'agentpw-token'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
+const MAX_POLICY_AUTHORIZE_RETRIES = 2
 
 export function extractBearerToken(header: string | undefined): string | null {
   if (!header) return null
@@ -88,18 +89,30 @@ function tokenSatisfiesPolicy(
   try {
     const publicKey = parsePublicKey(publicKeyHex)
     const token = Biscuit.fromBase64(tokenBase64.replace(/^apw_/, ''), publicKey)
-    const ab = new AuthorizerBuilder()
-    ab.addCode([
+    const code = [
       `time(${new Date().toISOString()});`,
       normalizePolicy(policy),
       'allow if true;',
-    ].join('\n'))
-    const auth = ab.buildAuthenticated(token)
-    auth.authorize()
-    return true
+    ].join('\n')
+
+    // Mirror authorizeRequest(): the first WASM authorizer call on a cold runner
+    // can time out, which makes policy-gated credentials look unavailable.
+    for (let attempt = 0; attempt < MAX_POLICY_AUTHORIZE_RETRIES; attempt++) {
+      try {
+        const ab = new AuthorizerBuilder()
+        ab.addCode(code)
+        const auth = ab.buildAuthenticated(token)
+        auth.authorize()
+        return true
+      } catch {
+        if (attempt === MAX_POLICY_AUTHORIZE_RETRIES - 1) return false
+      }
+    }
   } catch {
     return false
   }
+
+  return false
 }
 
 function shouldRefresh(expiresAt: string | undefined): boolean {
