@@ -1,12 +1,12 @@
 import { AuthScheme } from './auth-schemes'
 import {
-  ServiceSchema,
-  ServiceDetailSchema,
-  CreateServiceRequestSchema,
+  CredProfileSchema,
+  CredProfileDetailSchema,
+  CreateCredProfileRequestSchema,
   ErrorSchema,
   OkSchema,
   OkWithSlugSchema,
-} from './routes/services'
+} from './routes/cred-profiles'
 import {
   CredentialSchema,
   CreateCredentialRequestSchema,
@@ -21,7 +21,7 @@ export const openAPIDocumentation = {
   info: {
     title: 'agent.pw API',
     version: '1.0.0',
-    description: 'API for managing services, credentials, tokens, and proxying authenticated requests.',
+    description: 'API for managing credential profiles, credentials, tokens, and proxying authenticated requests.',
   },
   servers: [{ url: 'https://api.agent.pw' }],
   components: {
@@ -36,7 +36,7 @@ export const openAPIDocumentation = {
   security: [{ bearerAuth: [] }],
   tags: [
     { name: 'health', description: 'Health check' },
-    { name: 'services', description: 'Service registration and management' },
+    { name: 'cred_profiles', description: 'Credential profile management' },
     { name: 'credentials', description: 'Credential storage and retrieval' },
     { name: 'tokens', description: 'Token management' },
     { name: 'proxy', description: 'Authenticated proxy' },
@@ -47,9 +47,9 @@ export const openAPIDocumentation = {
 /** All Zod schemas with .meta({ id }) for injection into components.schemas. */
 export const allSchemas = [
   AuthScheme,
-  ServiceSchema,
-  ServiceDetailSchema,
-  CreateServiceRequestSchema,
+  CredProfileSchema,
+  CredProfileDetailSchema,
+  CreateCredProfileRequestSchema,
   ErrorSchema,
   OkSchema,
   OkWithSlugSchema,

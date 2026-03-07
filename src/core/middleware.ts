@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono'
 import type { CoreHonoEnv } from './types'
-import { extractBearerToken } from '../proxy'
+import { extractProxyToken, PROXY_TOKEN_HEADER } from '../proxy'
 import {
   authorizeRequest,
   extractTokenFacts,
@@ -10,8 +10,16 @@ import {
 import { isRevoked } from '../db/queries'
 
 export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
-  const token = extractBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ error: 'Missing Authorization header' }, 401)
+  const token = extractProxyToken(
+    c.req.header(PROXY_TOKEN_HEADER),
+    c.req.header('Authorization'),
+  )
+  if (!token) {
+    return c.json({
+      error: `Missing ${PROXY_TOKEN_HEADER} header`,
+      hint: `Send your Biscuit token in the ${PROXY_TOKEN_HEADER} header.`,
+    }, 401)
+  }
 
   const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
 
@@ -62,14 +70,15 @@ export async function resolveUserId(c: Context<CoreHonoEnv>, next: Next) {
   if (!facts) return c.json({ error: 'Forbidden' }, 403)
 
   const actAs = c.req.header('Act-As')
+  const resolvedIdentity = facts.userId ?? facts.orgId
 
   if (facts.rights.includes('admin')) {
-    c.set('userId', actAs ?? facts.userId ?? 'local')
-  } else if (facts.userId) {
-    if (actAs && actAs !== facts.userId) {
+    c.set('userId', actAs ?? resolvedIdentity ?? 'local')
+  } else if (resolvedIdentity) {
+    if (actAs && actAs !== resolvedIdentity) {
       return c.json({ error: 'Forbidden' }, 403)
     }
-    c.set('userId', facts.userId)
+    c.set('userId', resolvedIdentity)
   } else {
     return c.json({ error: 'No identity in token' }, 403)
   }

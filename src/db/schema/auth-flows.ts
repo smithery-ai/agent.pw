@@ -1,13 +1,16 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
-import { wardenSchema } from './warden-schema'
+import { agentpwSchema } from './agentpw-schema'
 
-export const authFlows = wardenSchema.table('auth_flows', {
+export const authFlowMethodEnum = agentpwSchema.enum('auth_flow_method', ['oauth', 'api_key'])
+export const authFlowStatusEnum = agentpwSchema.enum('auth_flow_status', ['pending', 'completed'])
+
+export const authFlows = agentpwSchema.table('auth_flows', {
   id: text('id').primaryKey(),
-  slug: text('slug').notNull(), // service slug
-  method: text('method').notNull(),
-  status: text('status').notNull().default('pending'),
+  slug: text('slug').notNull(),
+  method: authFlowMethodEnum('method').notNull(),
+  status: authFlowStatusEnum('status').notNull().default('pending'),
   codeVerifier: text('code_verifier'),
-  orgId: text('org_id'),
+  execPolicy: text('exec_policy'),
   token: text('token'),
   identity: text('identity'),
   expiresAt: timestamp('expires_at').notNull(),

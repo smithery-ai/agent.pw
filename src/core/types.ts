@@ -12,6 +12,7 @@ export interface CoreEnv {
 export interface TokenFacts {
   rights: string[]
   userId: string | null
+  orgId: string | null
 }
 
 export interface CoreHonoEnv {

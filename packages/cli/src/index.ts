@@ -32,15 +32,26 @@ async function main() {
     case 'creds': {
       const subcommand = args[1]
       if (subcommand === 'add') {
-        const slug = args[2]
+        const target = args[2]
         const valueIndex = args.indexOf('--value')
         const value = valueIndex !== -1 ? args[valueIndex + 1] : undefined
-        if (!slug) {
-          console.error('Usage: agent.pw cred add <slug> [--value <key>]')
+        const slugIndex = args.indexOf('--slug')
+        const credentialSlug = slugIndex !== -1 ? args[slugIndex + 1] : undefined
+        const authIndex = args.indexOf('--auth')
+        const auth = authIndex !== -1 ? args[authIndex + 1] : undefined
+        const headers: string[] = []
+        for (let i = 3; i < args.length; i++) {
+          if ((args[i] === '-H' || args[i] === '--header') && args[i + 1]) {
+            headers.push(args[i + 1])
+            i++
+          }
+        }
+        if (!target) {
+          console.error('Usage: agent.pw cred add <slug-or-host> [--value <key>] [--slug <credential-id>] [--auth headers] [-H "Header: value"]')
           process.exit(1)
         }
         const { addCred } = await import('./commands/cred')
-        return addCred(slug, value)
+        return addCred(target, value, { auth, credentialSlug, headers })
       }
       if (subcommand === 'remove' || subcommand === 'rm') {
         const slug = args[2]
@@ -56,57 +67,69 @@ async function main() {
     }
     case 'token': {
       const subcommand = args[1]
+      if (subcommand === 'restrict') {
+        const { restrictTokenCmd } = await import('./commands/token')
+        return restrictTokenCmd(args.slice(2))
+      }
       if (subcommand === 'revoke') {
         const { revokeTokenCmd } = await import('./commands/token')
         return revokeTokenCmd()
       }
-      console.error('Usage: agent.pw token revoke')
+      console.error('Usage: agent.pw token <restrict|revoke>')
       process.exit(1)
       return
     }
+    case 'profile':
+    case 'profiles':
     case 'service':
     case 'services': {
       const subcommand = args[1]
       if (subcommand === 'list' || !subcommand) {
-        const { listServices } = await import('./commands/service')
-        return listServices()
+        const { listProfiles } = await import('./commands/profile')
+        return listProfiles()
       } else if (subcommand === 'get') {
-        const svc = args[2]
-        if (!svc) {
-          console.error('Usage: agent.pw service get <slug>')
+        const slug = args[2]
+        if (!slug) {
+          console.error('Usage: agent.pw profile get <slug>')
           process.exit(1)
         }
-        const { getServiceCmd } = await import('./commands/service')
-        return getServiceCmd(svc)
+        const { getProfileCmd } = await import('./commands/profile')
+        return getProfileCmd(slug)
       } else if (subcommand === 'add') {
-        const svc = args[2]
-        if (!svc) {
-          console.error('Usage: agent.pw service add <slug> --host <hostname> [--file <path>]')
+        const slug = args[2]
+        if (!slug) {
+          console.error('Usage: agent.pw profile add <slug> --host <hostname> [--file <path>] [--auth headers -H "Header: Prefix {field:Description}"]')
           process.exit(1)
         }
         // Collect all --host values
         const hosts: string[] = []
+        const headers: string[] = []
         for (let i = 3; i < args.length; i++) {
           if (args[i] === '--host' && args[i + 1]) {
             hosts.push(args[i + 1])
             i++ // skip the value
+          } else if ((args[i] === '-H' || args[i] === '--header') && args[i + 1]) {
+            headers.push(args[i + 1])
+            i++
           }
         }
         const fileIndex = args.indexOf('--file')
         const filePath = fileIndex !== -1 ? args[fileIndex + 1] : undefined
-        const { addService } = await import('./commands/service')
-        return addService(svc, hosts, filePath)
+        const authIndex = args.indexOf('--auth')
+        const auth = authIndex !== -1 ? args[authIndex + 1] : undefined
+        const { addProfile } = await import('./commands/profile')
+        return addProfile(slug, hosts, { filePath, auth, headers })
       } else if (subcommand === 'remove' || subcommand === 'rm') {
-        const svc = args[2]
-        if (!svc) {
-          console.error('Usage: agent.pw service remove <slug>')
+        const slug = args[2]
+        if (!slug) {
+          console.error('Usage: agent.pw profile remove <slug>')
           process.exit(1)
         }
-        const { removeService } = await import('./commands/service')
-        return removeService(svc)
+        const { removeProfile } = await import('./commands/profile')
+        return removeProfile(slug)
       }
-      console.error(`Unknown service subcommand: ${subcommand}`)
-      console.error('Usage: agent.pw service [list|get|add|remove] ...')
+      console.error(`Unknown profile subcommand: ${subcommand}`)
+      console.error('Usage: agent.pw profile [list|get|add|remove] ...')
       process.exit(1)
       return
     }
@@ -134,14 +157,17 @@ async function main() {
       console.log('  start                           Start the local proxy server')
       console.log('  stop                            Stop the local proxy server')
       console.log('  status                          Show connection status')
-      console.log('  service                         List registered services')
-      console.log('  service get <slug>              Show service details')
-      console.log('  service add <slug> --host <h>   Register a service')
-      console.log('  service remove <slug>           Remove a service')
+      console.log('  profile                         List credential profiles')
+      console.log('  profile get <slug>              Show credential profile details')
+      console.log('  profile add <slug> --host <h>   Register a credential profile')
+      console.log('    Use --auth headers -H "Authorization: Bearer {api_key:Your API key}" for header forms')
+      console.log('  profile remove <slug>           Remove a credential profile')
       console.log('  cred                            List stored credentials')
-      console.log('  cred add <slug> [--value <k>]   Add a credential')
+      console.log('  cred add <slug-or-host>         Add a credential')
       console.log('  cred remove <slug>              Remove a credential')
-      console.log('  token revoke                     Revoke the current token')
+      console.log('  token restrict                  Create a restricted child token')
+      console.log('    Use --service/--host, --method, --path, and --ttl to attenuate scope')
+      console.log('  token revoke                    Revoke the current token')
       console.log('  curl <url> [args...]             Proxy-aware curl wrapper')
       if (command && command !== 'help' && command !== '--help' && command !== '-h') {
         console.error(`\nUnknown command: ${command}`)
