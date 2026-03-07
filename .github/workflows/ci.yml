@@ -27,6 +27,8 @@ jobs:
         run: pnpm build && pnpm --filter agent.pw build
       - name: Lint
         run: pnpm lint
+      - name: Test
+        run: pnpm test
 
   stainless-upload:
     name: Upload OpenAPI to Stainless
