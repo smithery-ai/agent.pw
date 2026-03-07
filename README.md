@@ -253,12 +253,13 @@ Infrastructure:
 
 ```
 agent.pw/
-  src/                    ← @agent.pw/server (core library)
-    core/                 ← proxy, vault, tokens
-    routes/               ← API route handlers
-    db/                   ← Drizzle schema and queries
-    lib/                  ← shared utilities, crypto
   packages/
+    server/
+      src/                ← @agent.pw/server (core library)
+        core/             ← proxy, vault, tokens
+        routes/           ← API route handlers
+        db/               ← Drizzle schema and queries
+        lib/              ← shared utilities, crypto
     cli/                  ← agent.pw CLI (depends on server + SDK)
 ```
 

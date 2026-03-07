@@ -9,7 +9,7 @@
  */
 
 import postgres from 'postgres'
-import { importAesKey, deriveEncryptionKey } from '../src/lib/credentials-crypto'
+import { importAesKey, deriveEncryptionKey } from '../packages/server/src/lib/credentials-crypto'
 
 const databaseUrl = process.env.DATABASE_URL
 const oldKey = process.env.ENCRYPTION_KEY

@@ -1,4 +1,4 @@
-import { generateKeyPairHex } from '../src/biscuit'
+import { generateKeyPairHex } from '../packages/server/src/biscuit'
 
 const { privateKey, publicKey } = generateKeyPairHex()
 console.log(`BISCUIT_PRIVATE_KEY=${privateKey}`)
