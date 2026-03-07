@@ -10,11 +10,13 @@ Tokens are base64-encoded Biscuit tokens with an `apw_` prefix:
 apw_En0KEwoRCAASDAoBdBIHCAQSAxiACBIkCAASIKo...
 ```
 
-## Design Principle
+## Design Principles
 
-**Token = proof of identity. Credentials DB = access control. Attenuation = client-side narrowing.**
+**Token = identity. Credential policies = access control. Attenuation = client-side narrowing.**
 
-The token carries *who you are* (`user()` fact), not *what you can access*. The credentials table determines what services a userId can reach. Attenuation can narrow further (service, method, path, TTL).
+The token carries *who you are* (via facts). Credentials carry their own policies that determine who can use them. Attenuation narrows further (host, method, path, TTL). All facts are namespaced to `apw` so deployers may extend with additional facts.
+
+**Deployer-defined vocabulary.** agent.pw imposes no required facts like `user_id` or `org_id`. A single-user self-hosted install might use no custom facts at all — the root token has full access. A team gateway might define `team("backend")`. A white-label deployment might define `end_user("customer_1")`. agent.pw is identity-neutral at the core.
 
 ## Architecture
 
@@ -23,7 +25,7 @@ A Biscuit token has three layers:
 ```
 ┌─────────────────────────────────┐
 │  Authority Block (signed)       │  ← Created by the server (private key)
-│  - user() identity              │
+│  - identity facts               │
 │  - optional right() capabilities│
 ├─────────────────────────────────┤
 │  Attenuation Block 1 (appended) │  ← Created by anyone (no key needed)
@@ -33,55 +35,28 @@ A Biscuit token has three layers:
 └─────────────────────────────────┘
 ```
 
-- **Authority block**: Written by the server using the Ed25519 private key. Contains the user's identity and optional rights.
+- **Authority block**: Written by the server using the Ed25519 private key. Contains identity facts and optional rights.
 - **Attenuation blocks**: Appended by anyone holding the token. Can only add checks that *narrow* permissions — never expand them.
 - **Verification**: Anyone with the public key (available at `/.well-known/jwks.json`) can verify the signature and evaluate the Datalog.
 
-## Token Types
+## Credential-Level Policies
 
-### User Token
+Each credential carries its own Biscuit policies:
 
-Identifies who the user is. The credentials DB determines what they can access:
+| Policy | Purpose |
+|--------|---------|
+| `exec_policy` | Who can use this credential through the proxy |
+| `admin_policy` | Who can create, replace, share, or revoke it |
 
-```datalog
-user("org_abc123");
-```
+The proxy is the Biscuit authorizer — it loads the credential's policies as checks and verifies the request token against them.
 
-### Admin Token
+### Policy Inheritance
 
-Has elevated privileges — can act as any user and manage services:
+Credentials inherit the policy context of the token used to create them unless explicitly overridden. If a token carries `org_id("acme")`, credentials created with that token get `exec_policy: check if org_id("acme")` by default.
 
-```datalog
-user("local");
-right("admin");
-right("manage_services");
-```
+### Multiple Credentials Per Host
 
-### Root Token
-
-Created during `agent.pw setup`. Admin identity with full management rights:
-
-```datalog
-user("local");
-right("admin");
-right("manage_services");
-```
-
-## Rights
-
-| Right | Purpose |
-|-------|---------|
-| `right("admin")` | Can act as any user via `Act-As` header, bypasses credential ownership |
-| `right("manage_services")` | Can register/update/delete services |
-
-## Authorization Layers
-
-| Layer | What it controls |
-|-------|-----------------|
-| Authority block | Identity (who) |
-| Credentials DB | What services userId can access (which credentials exist) |
-| Attenuation | Client-side narrowing (service, method, path, TTL) |
-| Authorizer | Validates token + evaluates attenuation checks |
+When multiple credentials match a target host, the proxy selects the one whose `exec_policy` the request's Biscuit token satisfies. The agent can also specify a credential explicitly via the `agentpw-credential` header (passing the slug).
 
 ## Authorization Flow
 
@@ -100,9 +75,7 @@ allow if user($u);
 deny if true;
 ```
 
-The `allow if user($u)` policy passes for any valid token with a user fact. **Actual service authorization happens in the proxy handler** — it checks if the userId has a credential for the requested service. No credential = 404.
-
-Attenuation checks (from appended blocks) are evaluated *before* policies. So an attenuated token with `check if resource($r), ["api.github.com"].contains($r)` will reject requests to other services even though the `allow if user($u)` policy would match.
+The credential's `exec_policy` checks are loaded into the authorizer alongside the token's attenuation blocks. Both must pass for the request to proceed.
 
 ## Attenuation (Client-Side)
 
@@ -125,13 +98,21 @@ const narrowed = restrictToken(originalToken, publicKeyHex, [
 ])
 ```
 
-A user with credentials for github+linear can delegate a token attenuated to github-GET-only. The recipient can't access linear or do POST requests, even though the underlying userId has those credentials.
+A user with credentials for github+linear can delegate a token attenuated to github-GET-only. The recipient can't access linear or do POST requests, even though the underlying user has those credentials.
+
+### White-Labeling
+
+Product teams can white-label agent.pw for their end users. Create credentials with `exec_policy: check if end_user("customer_1")`, then mint attenuated tokens carrying the matching fact. Each end-user's agent only accesses their credentials. Biscuit attenuation enforces this cryptographically.
+
+## Provenance
+
+Tokens carry provenance metadata for audit and revocation: `created_by`, `issued_by`, `parent_token_id`. This is separate from access scoping.
 
 ## Revocation
 
 Each block in a Biscuit has a unique revocation ID. The server stores revoked IDs in the `revocations` table. On every request, the middleware checks all block IDs against this table.
 
-`POST /tokens/revoke` revokes the caller's own token (the one in the Authorization header).
+`POST /tokens/revoke` revokes the caller's own token (the one in the `agentpw-token` header).
 
 ## Key Management
 
