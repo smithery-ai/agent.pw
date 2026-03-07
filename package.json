@@ -20,7 +20,7 @@
     "./service-preview": "./src/service-preview.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit",
+    "build": "drizzle-kit generate && tsc -p tsconfig.json --noEmit",
     "lint": "biome lint .",
     "db:generate": "drizzle-kit generate",
     "openapi:generate": "tsx scripts/generate-openapi.ts"
