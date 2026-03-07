@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1772608561698,
+      "tag": "0000_tranquil_morlun",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772646000000,
+      "tag": "0001_oauth_apps",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772650000000,
+      "tag": "0002_encrypt_oauth_secret",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772740000000,
+      "tag": "0003_auth_schemes",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772870000000,
+      "tag": "0004_webhook_registrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772880000000,
+      "tag": "0005_crawl_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772721724330,
+      "tag": "0006_magenta_jubilee",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772773815155,
+      "tag": "0007_service-slugs",
+      "breakpoints": true
+    }
+  ]
+}
