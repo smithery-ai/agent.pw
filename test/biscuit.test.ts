@@ -5,7 +5,7 @@ import {
   parseTtlSeconds,
   restrictToken,
   stripPrefix,
-} from '../src/biscuit'
+} from '@agent.pw/server/biscuit'
 import { ORG_TOKEN, PUBLIC_KEY_HEX, TEST_ORG_ID } from './setup'
 
 describe('Biscuit Helpers', () => {

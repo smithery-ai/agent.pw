@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createCoreApp } from '../src/core/app'
+import { createCoreApp } from '@agent.pw/server'
 import {
   encryptCredentials,
   buildCredentialHeaders,
   deriveEncryptionKey,
-} from '../src/lib/credentials-crypto'
-import { upsertCredential } from '../src/db/queries'
-import { randomId } from '../src/lib/utils'
+} from '@agent.pw/server/crypto'
+import { upsertCredential } from '@agent.pw/server/db/queries'
+import { randomId } from '@agent.pw/server/utils'
 import {
   BISCUIT_PRIVATE_KEY,
   ORG_TOKEN,

@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/pglite'
 import { sql } from 'drizzle-orm'
-import * as schema from '../src/db/schema'
+import * as schema from '@agent.pw/server/db/schema'
 
 export const BISCUIT_PRIVATE_KEY =
   'ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad'
