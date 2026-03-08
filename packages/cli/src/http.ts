@@ -14,8 +14,8 @@ export async function getClient() {
 export async function request(path: string, init: RequestInit = {}) {
   const { url, token } = await resolve()
   const headers = new Headers(init.headers)
-  if (!headers.has('agentpw-token') && !headers.has('Authorization')) {
-    headers.set('agentpw-token', token)
+  if (!headers.has('Proxy-Authorization')) {
+    headers.set('Proxy-Authorization', `Bearer ${token}`)
   }
   return fetch(`${url.replace(/\/$/, '')}${path}`, {
     ...init,

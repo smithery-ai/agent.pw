@@ -10,7 +10,7 @@ export async function login(host?: string) {
 
   try {
     const res = await fetch(`${targetHost.replace(/\/$/, '')}/cred_profiles`, {
-      headers: { 'agentpw-token': token },
+      headers: { 'Proxy-Authorization': `Bearer ${token}` },
     })
     if (!res.ok) throw new Error(`unexpected status ${res.status}`)
   } catch {

@@ -4,7 +4,7 @@ Authenticated proxy for APIs. Stores credentials, injects them on matching reque
 
 ```
 Agent ──▶ proxy.agent.pw/api.github.com/user ──▶ api.github.com/user
-       (agentpw-token)                         (credential injected)
+       (Proxy-Authorization)                  (credential injected)
 ```
 
 ## The Proxy
@@ -38,7 +38,7 @@ proxy.agent.pw/uploads.github.com/repos/owner/repo/releases/1/assets
 
 ### Proxy Authentication
 
-Requests to the proxy carry a Biscuit token (`apw_` prefix) in the `agentpw-token` header. The proxy strips it before forwarding upstream. If the agent includes explicit HTTP headers (e.g. `Authorization`), they take precedence over credential injection.
+Requests to the proxy carry a Biscuit token (`apw_` prefix) in the `Proxy-Authorization: Bearer ...` header. The proxy strips it before forwarding upstream. If the agent includes explicit HTTP headers (e.g. `Authorization`), they take precedence over credential injection.
 
 ### Credential Store
 
@@ -50,11 +50,11 @@ host            target hostname this credential authenticates against
 slug            unique ID (auto-generated or user-specified via --slug)
 auth            auth config object (kind: oauth → Bearer header, kind: headers → custom header map)
 secret          encrypted token / key material
-exec_policy     Biscuit policy: who can use this credential through the proxy
-admin_policy    Biscuit policy: who can create, replace, share, or revoke it
+exec_selectors  flat selector object required to use this credential through the proxy
+admin_selectors flat selector object required to create, replace, share, or revoke it
 ```
 
-Each credential is self-describing: it knows how to inject itself. Multiple credentials per host are supported — the proxy selects the one whose `exec_policy` the request token satisfies. The agent can also specify a credential explicitly via the `agentpw-credential` header (passing the slug).
+Each credential is self-describing: it knows how to inject itself. Multiple credentials per host are supported. If more than one credential matches a host for the caller's selectors, the proxy returns an ambiguity error and the agent must specify `agentpw-credential`.
 
 ### Auth Bootstrap
 
@@ -194,7 +194,7 @@ Biscuit tokens (`apw_` prefix) determine which requests may be made through the 
 
 The root token (generated during setup) has full authority. Restricted tokens are attenuated by target host, method, TTL, or additional Biscuit checks. A restricted token can never gain more authority than its parent.
 
-Credentials carry object-level Biscuit policies: `exec_policy` governs proxy use, `admin_policy` governs management operations. Deployers define their own fact vocabulary — agent.pw imposes no required facts like `user_id` or `org_id`. See [docs/token-design.md](docs/token-design.md) for full details.
+Credentials carry selector objects: `exec_selectors` governs proxy use, `admin_selectors` governs management operations. Tokens can also carry `selector("key","value")` facts directly, with `org_id` / `user_id` facts remaining as a fallback. See [docs/token-design.md](docs/token-design.md) for full details.
 
 ## CLI Commands
 
@@ -228,7 +228,7 @@ Proxy:
   ALL  /proxy/{hostname}/{path...}             proxy by upstream host
   ALL  /proxy/{profile}/{hostname}/{path...}   proxy with explicit profile override
 
-  Proxy auth header: agentpw-token
+  Proxy auth header: Proxy-Authorization: Bearer <token>
   Optional credential selector: agentpw-credential
 
 Credentials:

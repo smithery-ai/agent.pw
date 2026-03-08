@@ -1,6 +1,8 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { credProfiles, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
+import type { SelectorRecord } from '../selectors'
+import { selectorPairs } from '../selectors'
 
 interface LegacyServiceRecord {
   slug: string
@@ -14,6 +16,11 @@ interface LegacyServiceRecord {
   authConfig: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+function sqlTextArray(values: string[]) {
+  if (values.length === 0) return sql`ARRAY[]::text[]`
+  return sql`ARRAY[${sql.join(values.map(value => sql`${value}`), sql`, `)}]::text[]`
 }
 
 function parseJsonArray(value: unknown): unknown[] | null {
@@ -190,11 +197,6 @@ export async function deleteService(db: Database, slug: string) {
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
 
-export async function getCredentialById(db: Database, id: string) {
-  const rows = await db.select().from(credentials).where(eq(credentials.id, id))
-  return rows[0] ?? null
-}
-
 export async function getCredentialBySlug(db: Database, slug: string) {
   const rows = await db.select().from(credentials).where(eq(credentials.slug, slug))
   return rows[0] ?? null
@@ -208,30 +210,74 @@ export async function listCredentials(db: Database) {
   return db.select().from(credentials)
 }
 
+export async function listCredentialsMatchingAdminSelectors(
+  db: Database,
+  selectors: SelectorRecord,
+) {
+  const pairs = selectorPairs(selectors)
+  return db
+    .select()
+    .from(credentials)
+    .where(sql`${credentials.adminSelectorPairs} <@ ${sqlTextArray(pairs)}`)
+}
+
+export async function getCredentialsByHostMatchingExecSelectors(
+  db: Database,
+  host: string,
+  selectors: SelectorRecord,
+  limit?: number,
+) {
+  let query = db
+    .select()
+    .from(credentials)
+    .where(and(
+      eq(credentials.host, host),
+      sql`${credentials.execSelectorPairs} <@ ${sqlTextArray(selectorPairs(selectors))}`,
+    ))
+
+  if (typeof limit === 'number') {
+    query = query.limit(limit) as typeof query
+  }
+
+  return query
+}
+
 export async function upsertCredential(
   db: Database,
   data: {
-    id: string
     host: string
     slug: string
     auth: Record<string, unknown>
     secret: Buffer
-    execPolicy?: string
-    adminPolicy?: string
+    execSelectors: SelectorRecord
+    adminSelectors: SelectorRecord
   },
 ) {
+  const execSelectorPairs = selectorPairs(data.execSelectors)
+  const adminSelectorPairs = selectorPairs(data.adminSelectors)
+
   await db
     .insert(credentials)
-    .values(data)
+    .values({
+      host: data.host,
+      slug: data.slug,
+      auth: data.auth,
+      secret: data.secret,
+      execSelectors: data.execSelectors,
+      adminSelectors: data.adminSelectors,
+      execSelectorPairs,
+      adminSelectorPairs,
+    })
     .onConflictDoUpdate({
-      target: credentials.id,
+      target: credentials.slug,
       set: {
         host: sql`excluded.host`,
-        slug: sql`excluded.slug`,
         auth: sql`excluded.auth`,
         secret: sql`excluded.secret`,
-        execPolicy: sql`coalesce(excluded.exec_policy, ${credentials.execPolicy})`,
-        adminPolicy: sql`coalesce(excluded.admin_policy, ${credentials.adminPolicy})`,
+        execSelectors: sql`excluded.exec_selectors`,
+        adminSelectors: sql`excluded.admin_selectors`,
+        execSelectorPairs: sql`excluded.exec_selector_pairs`,
+        adminSelectorPairs: sql`excluded.admin_selector_pairs`,
         updatedAt: sql`now()`,
       },
     })
@@ -273,6 +319,7 @@ export interface CreateFlowData {
 export interface CompleteFlowData {
   token: string
   identity: string
+  credentialSlug?: string
 }
 
 export async function createAuthFlow(db: Database, data: CreateFlowData) {
@@ -304,6 +351,7 @@ export async function completeAuthFlow(db: Database, id: string, data: CompleteF
       status: 'completed',
       token: data.token,
       identity: data.identity,
+      credentialSlug: data.credentialSlug,
     })
     .where(eq(authFlows.id, id))
 }

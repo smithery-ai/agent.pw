@@ -59,6 +59,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "credential_slug": {
+          "name": "credential_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp",
@@ -148,12 +154,6 @@
       "name": "credentials",
       "schema": "agentpw",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
         "host": {
           "name": "host",
           "type": "text",
@@ -163,7 +163,7 @@
         "slug": {
           "name": "slug",
           "type": "text",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true
         },
         "auth": {
@@ -178,17 +178,29 @@
           "primaryKey": false,
           "notNull": true
         },
-        "exec_policy": {
-          "name": "exec_policy",
-          "type": "text",
+        "exec_selectors": {
+          "name": "exec_selectors",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "admin_policy": {
-          "name": "admin_policy",
-          "type": "text",
+        "admin_selectors": {
+          "name": "admin_selectors",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
+        },
+        "exec_selector_pairs": {
+          "name": "exec_selector_pairs",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "admin_selector_pairs": {
+          "name": "admin_selector_pairs",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
@@ -205,18 +217,56 @@
           "default": "now()"
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "credentials_slug_unique": {
-          "name": "credentials_slug_unique",
-          "nullsNotDistinct": false,
+      "indexes": {
+        "credentials_host_idx": {
+          "name": "credentials_host_idx",
           "columns": [
-            "slug"
-          ]
+            {
+              "expression": "host",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credentials_exec_selector_pairs_idx": {
+          "name": "credentials_exec_selector_pairs_idx",
+          "columns": [
+            {
+              "expression": "exec_selector_pairs",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "credentials_admin_selector_pairs_idx": {
+          "name": "credentials_admin_selector_pairs_idx",
+          "columns": [
+            {
+              "expression": "admin_selector_pairs",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
         }
       },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

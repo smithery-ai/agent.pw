@@ -33,7 +33,7 @@ export async function curl(args: string[]) {
   curlArgs[urlIndex] = proxyUrl
 
   // Inject the proxy auth header without taking over upstream Authorization.
-  curlArgs.push('-H', `agentpw-token: ${token}`)
+  curlArgs.push('-H', `Proxy-Authorization: Bearer ${token}`)
 
   // Spawn curl
   const child = spawn('curl', curlArgs, { stdio: 'inherit' })

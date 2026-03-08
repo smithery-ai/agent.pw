@@ -1,13 +1,8 @@
 import type { Context } from 'hono'
 import type { CoreHonoEnv } from './core/types'
 import {
-  AuthorizerBuilder,
-  Biscuit,
-  PublicKey,
-  SignatureAlgorithm,
-} from '@smithery/biscuit'
-import {
   authorizeRequest,
+  extractTokenFacts,
   getPublicKeyHex,
   getRevocationIds,
 } from './biscuit'
@@ -15,7 +10,7 @@ import {
   getCredProfile,
   getCredProfileByHost,
   getCredentialBySlug,
-  getCredentialsByHost,
+  getCredentialsByHostMatchingExecSelectors,
   isRevoked,
   upsertCredential,
 } from './db/queries'
@@ -27,6 +22,7 @@ import {
 } from './lib/credentials-crypto'
 import { refreshOAuthToken } from './lib/oauth-refresh'
 import { isDnsError } from './lib/dns'
+import { selectorsFromTokenFacts, selectorsMatch } from './selectors'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -38,9 +34,8 @@ function errorMessage(e: unknown): string {
   } /* v8 ignore stop */
 }
 
-export const PROXY_TOKEN_HEADER = 'agentpw-token'
+export const PROXY_TOKEN_HEADER = 'Proxy-Authorization'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
-const MAX_POLICY_AUTHORIZE_RETRIES = 2
 
 export function extractBearerToken(header: string | undefined): string | null {
   if (!header) return null
@@ -48,71 +43,9 @@ export function extractBearerToken(header: string | undefined): string | null {
 }
 
 export function extractProxyToken(
-  agentPwTokenHeader: string | undefined,
-  authorizationHeader?: string | undefined,
+  proxyAuthorizationHeader: string | undefined,
 ): string | null {
-  return extractBearerToken(agentPwTokenHeader) ?? extractBearerToken(authorizationHeader)
-}
-
-function stripKeyPrefix(key: string) {
-  return key.replace(/^ed25519\//, '')
-}
-
-function parsePublicKey(publicKeyHex: string) {
-  return PublicKey.fromString(stripKeyPrefix(publicKeyHex), SignatureAlgorithm.Ed25519)
-}
-
-function escapeDatalog(s: string) {
-  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
-function normalizePolicy(policy: string) {
-  const trimmed = policy.trim().replace(/;$/, '')
-  if (!trimmed) return ''
-  if (trimmed.includes('check if') || trimmed.includes('allow if') || trimmed.includes('deny if')) {
-    return trimmed.endsWith(';') ? trimmed : `${trimmed};`
-  }
-  if (trimmed.includes('(') || trimmed.includes('$') || trimmed.includes(' and ') || trimmed.includes(' or ')) {
-    return `check if ${trimmed};`
-  }
-  const escaped = escapeDatalog(trimmed)
-  return `check if user("${escaped}") or user_id("${escaped}") or org_id("${escaped}") or apw_user_id("${escaped}") or apw_org_id("${escaped}");`
-}
-
-function tokenSatisfiesPolicy(
-  tokenBase64: string,
-  publicKeyHex: string,
-  policy: string | null | undefined,
-): boolean {
-  if (!policy) return true
-
-  try {
-    const publicKey = parsePublicKey(publicKeyHex)
-    const token = Biscuit.fromBase64(tokenBase64.replace(/^apw_/, ''), publicKey)
-    const code = [
-      `time(${new Date().toISOString()});`,
-      normalizePolicy(policy),
-      'allow if true;',
-    ].join('\n')
-
-    // Mirror authorizeRequest(): the first WASM authorizer call on a cold runner
-    // can time out, which makes policy-gated credentials look unavailable.
-    for (let attempt = 0; attempt < MAX_POLICY_AUTHORIZE_RETRIES; attempt++) {
-      try {
-        const ab = new AuthorizerBuilder()
-        ab.addCode(code)
-        const auth = ab.buildAuthenticated(token)
-        auth.authorize()
-        return true
-      } catch {
-        if (attempt === MAX_POLICY_AUTHORIZE_RETRIES - 1) return false
-      }
-    }
-  } catch {
-    return false
-  }
-
-  return false
+  return extractBearerToken(proxyAuthorizationHeader)
 }
 
 function shouldRefresh(expiresAt: string | undefined): boolean {
@@ -124,7 +57,14 @@ function shouldRefresh(expiresAt: string | undefined): boolean {
 
 async function refreshCredentialIfNeeded(
   c: Context<CoreHonoEnv>,
-  cred: { id: string; host: string; slug: string; auth: Record<string, unknown>; secret: Buffer },
+  cred: {
+    host: string
+    slug: string
+    auth: Record<string, unknown>
+    secret: Buffer
+    execSelectors: Record<string, string>
+    adminSelectors: Record<string, string>
+  },
   stored: StoredCredentials,
 ): Promise<StoredCredentials> {
   if (!stored.oauth?.refreshToken) {
@@ -155,11 +95,12 @@ async function refreshCredentialIfNeeded(
 
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, nextStored)
   await upsertCredential(c.get('db'), {
-    id: cred.id,
     host: cred.host,
     slug: cred.slug,
     auth: cred.auth,
     secret: encrypted,
+    execSelectors: cred.execSelectors,
+    adminSelectors: cred.adminSelectors,
   })
 
   return nextStored
@@ -194,10 +135,11 @@ function isPrivateOrLocalAddress(hostname: string) {
 
 function buildUpstreamHeaders(c: Context<CoreHonoEnv>) {
   const headers = new Headers()
+  const proxyHeader = PROXY_TOKEN_HEADER.toLowerCase()
   c.req.raw.headers.forEach((value, key) => {
     const lower = key.toLowerCase()
     if (lower === 'host' || lower === 'act-as') return
-    if (lower === PROXY_TOKEN_HEADER || lower === CREDENTIAL_SELECTOR_HEADER) return
+    if (lower === proxyHeader || lower === CREDENTIAL_SELECTOR_HEADER) return
     headers.set(key, value)
   })
   return headers
@@ -230,10 +172,7 @@ export async function handleProxy(
   hostname: string,
   upstreamPath: string,
 ) {
-  const token = extractProxyToken(
-    c.req.header(PROXY_TOKEN_HEADER),
-    c.req.header('Authorization'),
-  )
+  const token = extractProxyToken(c.req.header(PROXY_TOKEN_HEADER))
   if (!token) {
     return c.json({
       error: `Missing ${PROXY_TOKEN_HEADER} header`,
@@ -275,9 +214,11 @@ export async function handleProxy(
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
+  const tokenFacts = extractTokenFacts(token, publicKeyHex)
+  const callerSelectors = selectorsFromTokenFacts(tokenFacts)
   const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
 
-  let cred = null as Awaited<ReturnType<typeof getCredentialBySlug>> | Awaited<ReturnType<typeof getCredentialsByHost>>[number] | null
+  let cred: Awaited<ReturnType<typeof getCredentialBySlug>> | null = null
   if (selector) {
     const selected = await getCredentialBySlug(db, selector)
     if (!selected) {
@@ -286,13 +227,20 @@ export async function handleProxy(
     if (selected.host !== hostname) {
       return c.json({ error: `Credential '${selector}' does not match host '${hostname}'` }, 403)
     }
-    if (!tokenSatisfiesPolicy(token, publicKeyHex, selected.execPolicy)) {
+    if (!selectorsMatch(selected.execSelectors, callerSelectors)) {
       return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
     }
     cred = selected
   } else {
-    const creds = await getCredentialsByHost(db, hostname)
-    cred = creds.find(candidate => tokenSatisfiesPolicy(token, publicKeyHex, candidate.execPolicy)) ?? null
+    const matches = await getCredentialsByHostMatchingExecSelectors(db, hostname, callerSelectors, 2)
+    if (matches.length > 1) {
+      return c.json({
+        error: `Multiple credentials match host '${hostname}'`,
+        credentialSlugs: matches.map(match => match.slug),
+        hint: `Send the ${CREDENTIAL_SELECTOR_HEADER} header to choose a credential slug explicitly.`,
+      }, 409)
+    }
+    cred = matches[0] ?? null
   }
 
   // Build upstream request — hostname comes from the URL, always HTTPS
