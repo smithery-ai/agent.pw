@@ -6,7 +6,6 @@ import {
   deriveEncryptionKey,
 } from '@agent.pw/server/crypto'
 import { upsertCredential } from '@agent.pw/server/db/queries'
-import { randomId } from '@agent.pw/server/utils'
 import {
   BISCUIT_PRIVATE_KEY,
   ORG_TOKEN,
@@ -39,13 +38,20 @@ function req(path: string, init?: RequestInit) {
 }
 
 function withAgentPwToken(token: string, headers: Record<string, string> = {}) {
-  return { 'agentpw-token': token, ...headers }
+  return { 'Proxy-Authorization': `Bearer ${token}`, ...headers }
 }
 
 function mgmtReq(path: string, init: RequestInit = {}) {
   return req(path, {
     ...init,
     headers: { ...withAgentPwToken(ROOT_TOKEN), ...init.headers },
+  })
+}
+
+function credReq(path: string, init: RequestInit = {}) {
+  return req(path, {
+    ...init,
+    headers: { ...withAgentPwToken(ORG_TOKEN), ...init.headers },
   })
 }
 
@@ -74,7 +80,7 @@ async function registerProfile(slug: string, body: Record<string, unknown>) {
 }
 
 async function storeCredential(slug: string, body: Record<string, unknown>) {
-  const res = await mgmtReq(`/credentials/${slug}`, {
+  const res = await credReq(`/credentials/${slug}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -82,19 +88,19 @@ async function storeCredential(slug: string, body: Record<string, unknown>) {
   expect(res.status).toBe(200)
 }
 
-async function storePolicyCredential(slug: string, host: string, bearerToken: string, execPolicy: string) {
+async function storeScopedCredential(slug: string, host: string, bearerToken: string) {
   const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
   const encrypted = await encryptCredentials(encryptionKey, {
     headers: buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, bearerToken),
   })
 
   await upsertCredential(db, {
-    id: randomId(),
     host,
     slug,
     auth: { kind: 'headers' },
     secret: encrypted,
-    execPolicy,
+    execSelectors: { org: TEST_ORG_ID },
+    adminSelectors: { org: TEST_ORG_ID },
   })
 }
 
@@ -119,7 +125,7 @@ describe('Core Scenario Flows', () => {
     const profiles = await mgmtReq('/cred_profiles')
     expect((await profiles.json()) as unknown[]).toHaveLength(1)
 
-    const creds = await mgmtReq('/credentials')
+    const creds = await credReq('/credentials')
     expect((await creds.json()) as unknown[]).toHaveLength(1)
   })
 
@@ -193,11 +199,10 @@ describe('Core Scenario Flows', () => {
       },
     })
 
-    await storePolicyCredential(
+    await storeScopedCredential(
       'linear-policy',
       'api.linear.app',
       'lin_api_test',
-      `check if org_id("${TEST_ORG_ID}");`,
     )
 
     mockUpstream(async (_input, init) => {
@@ -243,5 +248,41 @@ describe('Core Scenario Flows', () => {
       headers: withAgentPwToken(ORG_TOKEN),
     })
     expect(revokedProxy.status).toBe(403)
+  })
+
+  it('requires an explicit credential slug when multiple credentials match a host', async () => {
+    await registerProfile('slack', {
+      host: ['slack.com'],
+      displayName: 'Slack',
+      auth: {
+        authSchemes: [{ type: 'http', scheme: 'bearer' }],
+      },
+    })
+
+    await storeScopedCredential('shared-slack', 'slack.com', 'xoxb-shared')
+    await storeScopedCredential('personal-slack', 'slack.com', 'xoxb-personal')
+
+    mockUpstream((_input, init) => {
+      const headers = new Headers(init?.headers)
+      return jsonResponse({
+        authorization: headers.get('Authorization'),
+      })
+    })
+
+    const ambiguous = await req('/proxy/slack.com/api/auth.test', {
+      headers: withAgentPwToken(ORG_TOKEN),
+    })
+    expect(ambiguous.status).toBe(409)
+    expect(await ambiguous.json()).toMatchObject({
+      credentialSlugs: expect.arrayContaining(['shared-slack', 'personal-slack']),
+    })
+
+    const selected = await req('/proxy/slack.com/api/auth.test', {
+      headers: withAgentPwToken(ORG_TOKEN, { 'agentpw-credential': 'personal-slack' }),
+    })
+    expect(selected.status).toBe(200)
+    expect(await selected.json()).toEqual({
+      authorization: 'Bearer xoxb-personal',
+    })
   })
 })

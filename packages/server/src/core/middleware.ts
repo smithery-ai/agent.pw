@@ -10,10 +10,7 @@ import {
 import { isRevoked } from '../db/queries'
 
 export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
-  const token = extractProxyToken(
-    c.req.header(PROXY_TOKEN_HEADER),
-    c.req.header('Authorization'),
-  )
+  const token = extractProxyToken(c.req.header(PROXY_TOKEN_HEADER))
   if (!token) {
     return c.json({
       error: `Missing ${PROXY_TOKEN_HEADER} header`,

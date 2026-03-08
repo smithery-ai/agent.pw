@@ -5,13 +5,14 @@ import type { CoreHonoEnv } from '../core/types'
 import { requireToken } from '../core/middleware'
 import {
   getCredProfile,
-  listCredentials,
+  getCredentialBySlug,
+  listCredentialsMatchingAdminSelectors,
   upsertCredential,
   deleteCredential,
 } from '../db/queries'
 import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from '../auth-schemes'
 import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
-import { randomId } from '../lib/utils'
+import { parseSelectorRecord, selectorsFromTokenFacts, selectorsMatch } from '../selectors'
 
 export const CredentialSchema = z.object({
   slug: z.string().meta({ description: 'Credential slug', example: 'linear' }),
@@ -24,6 +25,8 @@ export const CreateCredentialRequestSchema = z.object({
   headers: z.record(z.string(), z.string()).optional().meta({ description: 'Explicit header map to send on proxied requests' }),
   host: z.string().optional().meta({ description: 'Target hostname for this credential', example: 'api.linear.app' }),
   profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
+  execSelectors: z.record(z.string(), z.string()).optional().meta({ description: 'Execution selector object for this credential' }),
+  adminSelectors: z.record(z.string(), z.string()).optional().meta({ description: 'Admin selector object for this credential' }),
 }).meta({ id: 'CreateCredentialRequest' })
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
@@ -39,7 +42,8 @@ credentialRoutes.get('/', requireToken,
   }),
   async c => {
     const db = c.get('db')
-    const creds = await listCredentials(db)
+    const callerSelectors = selectorsFromTokenFacts(c.get('tokenFacts') ?? {})
+    const creds = await listCredentialsMatchingAdminSelectors(db, callerSelectors)
     return c.json(
       creds.map(cr => ({
         slug: cr.slug,
@@ -69,6 +73,17 @@ credentialRoutes.put('/:slug', requireToken,
       return c.json({ error: 'Either token or headers is required' }, 400)
     }
 
+    const callerSelectors = selectorsFromTokenFacts(c.get('tokenFacts') ?? {})
+    const execSelectors = body.execSelectors === undefined
+      ? callerSelectors
+      : parseSelectorRecord(body.execSelectors)
+    const adminSelectors = body.adminSelectors === undefined
+      ? callerSelectors
+      : parseSelectorRecord(body.adminSelectors)
+    if (!execSelectors || !adminSelectors) {
+      return c.json({ error: 'Selectors must be a flat object of string values' }, 400)
+    }
+
     const db = c.get('db')
     const profileSlug = body.profile ?? slug
     const profile = body.host ? null : await getCredProfile(db, profileSlug)
@@ -85,12 +100,18 @@ credentialRoutes.put('/:slug', requireToken,
     const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
     const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
+    const existing = await getCredentialBySlug(db, slug)
+    if (existing && !selectorsMatch(existing.adminSelectors, callerSelectors)) {
+      return c.json({ error: `Token cannot update credential '${slug}'` }, 403)
+    }
+
     await upsertCredential(db, {
-      id: randomId(),
       host,
       slug,
       auth: { kind: 'headers' },
       secret: encrypted,
+      execSelectors,
+      adminSelectors,
     })
     return c.json({ ok: true as const, slug })
   },
@@ -108,7 +129,16 @@ credentialRoutes.delete('/:slug', requireToken,
   }),
   async c => {
     const db = c.get('db')
-    const deleted = await deleteCredential(db, c.req.param('slug'))
+    const slug = c.req.param('slug')
+    const existing = await getCredentialBySlug(db, slug)
+    if (!existing) return c.json({ error: 'Credential not found' }, 404)
+
+    const callerSelectors = selectorsFromTokenFacts(c.get('tokenFacts') ?? {})
+    if (!selectorsMatch(existing.adminSelectors, callerSelectors)) {
+      return c.json({ error: `Token cannot delete credential '${slug}'` }, 403)
+    }
+
+    const deleted = await deleteCredential(db, slug)
     if (!deleted) return c.json({ error: 'Credential not found' }, 404)
     return c.json({ ok: true as const })
   },

@@ -13,6 +13,7 @@ export const authFlows = agentpwSchema.table('auth_flows', {
   execPolicy: text('exec_policy'),
   token: text('token'),
   identity: text('identity'),
+  credentialSlug: text('credential_slug'),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })

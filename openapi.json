@@ -351,6 +351,26 @@
             "description": "Credential profile slug to derive the target host from",
             "example": "linear",
             "type": "string"
+          },
+          "execSelectors": {
+            "description": "Execution selector object for this credential",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "adminSelectors": {
+            "description": "Admin selector object for this credential",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false

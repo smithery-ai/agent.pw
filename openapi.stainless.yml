@@ -53,7 +53,7 @@ client_settings:
       nullable: false
       auth:
         security_scheme: bearerAuth
-      description: agent.pw Biscuit token sent in the agentpw-token header
+      description: agent.pw Biscuit token sent in the Proxy-Authorization header
       read_env: AGENT_PW_API_KEY
 
 readme:
