@@ -37,10 +37,8 @@ export async function createTestDb() {
       slug TEXT PRIMARY KEY,
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
-      exec_selectors JSONB NOT NULL,
-      admin_selectors JSONB NOT NULL,
-      exec_selector_pairs TEXT[] NOT NULL,
-      admin_selector_pairs TEXT[] NOT NULL,
+      exec_scopes TEXT[] NOT NULL,
+      admin_scopes TEXT[] NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )

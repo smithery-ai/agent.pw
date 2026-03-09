@@ -10,7 +10,7 @@ import {
   getCredProfile,
   getCredProfileByHost,
   getCredentialBySlug,
-  getCredentialsByHostMatchingExecSelectors,
+  getCredentialsByHostMatchingExecScopes,
   isRevoked,
   upsertCredential,
 } from './db/queries'
@@ -22,7 +22,7 @@ import {
 } from './lib/credentials-crypto'
 import { refreshOAuthToken } from './lib/oauth-refresh'
 import { isDnsError } from './lib/dns'
-import { selectorsFromTokenFacts, selectorsMatch } from './selectors'
+import { scopesFromTokenFacts, scopesMatch } from './scopes'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -84,8 +84,8 @@ async function refreshCredentialIfNeeded(
     slug: string
     auth: Record<string, unknown>
     secret: Buffer
-    execSelectors: Record<string, string>
-    adminSelectors: Record<string, string>
+    execScopes: string[]
+    adminScopes: string[]
   },
   stored: StoredCredentials,
 ): Promise<StoredCredentials> {
@@ -121,8 +121,8 @@ async function refreshCredentialIfNeeded(
     slug: cred.slug,
     auth: cred.auth,
     secret: encrypted,
-    execSelectors: cred.execSelectors,
-    adminSelectors: cred.adminSelectors,
+    execScopes: cred.execScopes,
+    adminScopes: cred.adminScopes,
   })
 
   return nextStored
@@ -237,7 +237,7 @@ export async function handleProxy(
   }
 
   const tokenFacts = extractTokenFacts(token, publicKeyHex)
-  const callerSelectors = selectorsFromTokenFacts(tokenFacts)
+  const callerScopes = scopesFromTokenFacts(tokenFacts)
   const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
 
   let cred: Awaited<ReturnType<typeof getCredentialBySlug>> | null = null
@@ -249,12 +249,12 @@ export async function handleProxy(
     if (selected.host !== hostname) {
       return c.json({ error: `Credential '${selector}' does not match host '${hostname}'` }, 403)
     }
-    if (!selectorsMatch(selected.execSelectors, callerSelectors)) {
+    if (!scopesMatch(selected.execScopes, callerScopes)) {
       return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
     }
     cred = selected
   } else {
-    const matches = await getCredentialsByHostMatchingExecSelectors(db, hostname, callerSelectors, 2)
+    const matches = await getCredentialsByHostMatchingExecScopes(db, hostname, callerScopes, 2)
     if (matches.length > 1) {
       return c.json({
         error: `Multiple credentials match host '${hostname}'`,

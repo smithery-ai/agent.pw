@@ -1,8 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { credProfiles, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
-import type { SelectorRecord } from '../selectors'
-import { selectorPairs } from '../selectors'
 
 interface LegacyServiceRecord {
   slug: string
@@ -210,21 +208,20 @@ export async function listCredentials(db: Database) {
   return db.select().from(credentials)
 }
 
-export async function listCredentialsMatchingAdminSelectors(
+export async function listCredentialsMatchingAdminScopes(
   db: Database,
-  selectors: SelectorRecord,
+  scopes: string[],
 ) {
-  const pairs = selectorPairs(selectors)
   return db
     .select()
     .from(credentials)
-    .where(sql`${credentials.adminSelectorPairs} <@ ${sqlTextArray(pairs)}`)
+    .where(sql`${credentials.adminScopes} <@ ${sqlTextArray(scopes)}`)
 }
 
-export async function getCredentialsByHostMatchingExecSelectors(
+export async function getCredentialsByHostMatchingExecScopes(
   db: Database,
   host: string,
-  selectors: SelectorRecord,
+  scopes: string[],
   limit?: number,
 ) {
   let query = db
@@ -232,7 +229,7 @@ export async function getCredentialsByHostMatchingExecSelectors(
     .from(credentials)
     .where(and(
       eq(credentials.host, host),
-      sql`${credentials.execSelectorPairs} <@ ${sqlTextArray(selectorPairs(selectors))}`,
+      sql`${credentials.execScopes} <@ ${sqlTextArray(scopes)}`,
     ))
 
   if (typeof limit === 'number') {
@@ -249,13 +246,10 @@ export async function upsertCredential(
     slug: string
     auth: Record<string, unknown>
     secret: Buffer
-    execSelectors: SelectorRecord
-    adminSelectors: SelectorRecord
+    execScopes: string[]
+    adminScopes: string[]
   },
 ) {
-  const execSelectorPairs = selectorPairs(data.execSelectors)
-  const adminSelectorPairs = selectorPairs(data.adminSelectors)
-
   await db
     .insert(credentials)
     .values({
@@ -263,10 +257,8 @@ export async function upsertCredential(
       slug: data.slug,
       auth: data.auth,
       secret: data.secret,
-      execSelectors: data.execSelectors,
-      adminSelectors: data.adminSelectors,
-      execSelectorPairs,
-      adminSelectorPairs,
+      execScopes: data.execScopes,
+      adminScopes: data.adminScopes,
     })
     .onConflictDoUpdate({
       target: credentials.slug,
@@ -274,10 +266,8 @@ export async function upsertCredential(
         host: sql`excluded.host`,
         auth: sql`excluded.auth`,
         secret: sql`excluded.secret`,
-        execSelectors: sql`excluded.exec_selectors`,
-        adminSelectors: sql`excluded.admin_selectors`,
-        execSelectorPairs: sql`excluded.exec_selector_pairs`,
-        adminSelectorPairs: sql`excluded.admin_selector_pairs`,
+        execScopes: sql`excluded.exec_scopes`,
+        adminScopes: sql`excluded.admin_scopes`,
         updatedAt: sql`now()`,
       },
     })

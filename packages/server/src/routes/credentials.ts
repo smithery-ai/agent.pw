@@ -6,13 +6,13 @@ import { requireToken } from '../core/middleware'
 import {
   getCredProfile,
   getCredentialBySlug,
-  listCredentialsMatchingAdminSelectors,
+  listCredentialsMatchingAdminScopes,
   upsertCredential,
   deleteCredential,
 } from '../db/queries'
 import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from '../auth-schemes'
 import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
-import { parseSelectorRecord, selectorsFromTokenFacts, selectorsMatch } from '../selectors'
+import { parseScopes, scopesFromTokenFacts, scopesMatch } from '../scopes'
 
 export const CredentialSchema = z.object({
   slug: z.string().meta({ description: 'Credential slug', example: 'linear' }),
@@ -25,8 +25,8 @@ export const CreateCredentialRequestSchema = z.object({
   headers: z.record(z.string(), z.string()).optional().meta({ description: 'Explicit header map to send on proxied requests' }),
   host: z.string().optional().meta({ description: 'Target hostname for this credential', example: 'api.linear.app' }),
   profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
-  execSelectors: z.record(z.string(), z.string()).optional().meta({ description: 'Execution selector object for this credential' }),
-  adminSelectors: z.record(z.string(), z.string()).optional().meta({ description: 'Admin selector object for this credential' }),
+  execScopes: z.array(z.string()).optional().meta({ description: 'Execution scopes for this credential' }),
+  adminScopes: z.array(z.string()).optional().meta({ description: 'Admin scopes for this credential' }),
 }).meta({ id: 'CreateCredentialRequest' })
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
@@ -42,8 +42,8 @@ credentialRoutes.get('/', requireToken,
   }),
   async c => {
     const db = c.get('db')
-    const callerSelectors = selectorsFromTokenFacts(c.get('tokenFacts') ?? {})
-    const creds = await listCredentialsMatchingAdminSelectors(db, callerSelectors)
+    const callerScopes = scopesFromTokenFacts(c.get('tokenFacts') ?? {})
+    const creds = await listCredentialsMatchingAdminScopes(db, callerScopes)
     return c.json(
       creds.map(cr => ({
         slug: cr.slug,
@@ -73,15 +73,15 @@ credentialRoutes.put('/:slug', requireToken,
       return c.json({ error: 'Either token or headers is required' }, 400)
     }
 
-    const callerSelectors = selectorsFromTokenFacts(c.get('tokenFacts') ?? {})
-    const execSelectors = body.execSelectors === undefined
-      ? callerSelectors
-      : parseSelectorRecord(body.execSelectors)
-    const adminSelectors = body.adminSelectors === undefined
-      ? callerSelectors
-      : parseSelectorRecord(body.adminSelectors)
-    if (!execSelectors || !adminSelectors) {
-      return c.json({ error: 'Selectors must be a flat object of string values' }, 400)
+    const callerScopes = scopesFromTokenFacts(c.get('tokenFacts') ?? {})
+    const execScopes = body.execScopes === undefined
+      ? callerScopes
+      : parseScopes(body.execScopes)
+    const adminScopes = body.adminScopes === undefined
+      ? callerScopes
+      : parseScopes(body.adminScopes)
+    if (!execScopes || !adminScopes) {
+      return c.json({ error: 'Scopes must be an array of strings' }, 400)
     }
 
     const db = c.get('db')
@@ -101,7 +101,7 @@ credentialRoutes.put('/:slug', requireToken,
     const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
     const existing = await getCredentialBySlug(db, slug)
-    if (existing && !selectorsMatch(existing.adminSelectors, callerSelectors)) {
+    if (existing && !scopesMatch(existing.adminScopes, callerScopes)) {
       return c.json({ error: `Token cannot update credential '${slug}'` }, 403)
     }
 
@@ -110,8 +110,8 @@ credentialRoutes.put('/:slug', requireToken,
       slug,
       auth: { kind: 'headers' },
       secret: encrypted,
-      execSelectors,
-      adminSelectors,
+      execScopes,
+      adminScopes,
     })
     return c.json({ ok: true as const, slug })
   },
@@ -133,8 +133,8 @@ credentialRoutes.delete('/:slug', requireToken,
     const existing = await getCredentialBySlug(db, slug)
     if (!existing) return c.json({ error: 'Credential not found' }, 404)
 
-    const callerSelectors = selectorsFromTokenFacts(c.get('tokenFacts') ?? {})
-    if (!selectorsMatch(existing.adminSelectors, callerSelectors)) {
+    const callerScopes = scopesFromTokenFacts(c.get('tokenFacts') ?? {})
+    if (!scopesMatch(existing.adminScopes, callerScopes)) {
       return c.json({ error: `Token cannot delete credential '${slug}'` }, 403)
     }
 

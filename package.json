@@ -13,7 +13,7 @@
     "./logger": "./packages/server/src/lib/logger.ts",
     "./crypto": "./packages/server/src/lib/credentials-crypto.ts",
     "./utils": "./packages/server/src/lib/utils.ts",
-    "./selectors": "./packages/server/src/selectors.ts",
+    "./scopes": "./packages/server/src/scopes.ts",
     "./dns": "./packages/server/src/lib/dns.ts",
     "./biscuit": "./packages/server/src/biscuit.ts",
     "./proxy": "./packages/server/src/proxy.ts",

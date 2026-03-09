@@ -1,6 +1,5 @@
 import type { Database } from '../db/index'
 import type { Logger } from '../lib/logger'
-import type { SelectorRecord } from '../selectors'
 
 /** Core environment — runs locally without WorkOS or Cloudflare. */
 export interface CoreEnv {
@@ -15,7 +14,7 @@ export interface TokenFacts {
   rights: string[]
   userId: string | null
   orgId: string | null
-  selectors: SelectorRecord
+  scopes: string[]
 }
 
 export interface CoreHonoEnv {
