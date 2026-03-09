@@ -6,17 +6,18 @@ import { requireToken } from '../core/middleware'
 import {
   getCredProfile,
   getCredentialBySlug,
-  listCredentialsMatchingAdminScopes,
+  listCredentialsAdminAccessible,
   upsertCredential,
   deleteCredential,
 } from '../db/queries'
 import { parseAuthSchemes, getApiKeyScheme, DEFAULT_API_KEY_SCHEME } from '../auth-schemes'
 import { encryptCredentials, buildCredentialHeaders } from '../lib/credentials-crypto'
-import { parseScopes, scopesFromTokenFacts, scopesMatch } from '../scopes'
+import { pathFromTokenFacts, isAncestorOrEqual, validatePath } from '../paths'
 
 export const CredentialSchema = z.object({
   slug: z.string().meta({ description: 'Credential slug', example: 'linear' }),
   host: z.string().meta({ description: 'Target hostname', example: 'api.linear.app' }),
+  path: z.string().meta({ description: 'Path in the hierarchy', example: '/orgs/ruzo' }),
   createdAt: z.string().meta({ description: 'ISO 8601 creation timestamp' }),
 }).meta({ id: 'Credential' })
 
@@ -25,8 +26,7 @@ export const CreateCredentialRequestSchema = z.object({
   headers: z.record(z.string(), z.string()).optional().meta({ description: 'Explicit header map to send on proxied requests' }),
   host: z.string().optional().meta({ description: 'Target hostname for this credential', example: 'api.linear.app' }),
   profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
-  execScopes: z.array(z.string()).optional().meta({ description: 'Execution scopes for this credential' }),
-  adminScopes: z.array(z.string()).optional().meta({ description: 'Admin scopes for this credential' }),
+  path: z.string().optional().meta({ description: 'Path for this credential (defaults to token path)', example: '/orgs/ruzo' }),
 }).meta({ id: 'CreateCredentialRequest' })
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
@@ -35,19 +35,20 @@ credentialRoutes.get('/', requireToken,
   describeRoute({
     tags: ['credentials'],
     summary: 'List credentials',
-    description: 'List all credentials.',
+    description: 'List all credentials accessible to this token (admin flows downward).',
     responses: {
       200: { description: 'List of credentials', content: { 'application/json': { schema: resolver(z.array(CredentialSchema)) } } },
     },
   }),
   async c => {
     const db = c.get('db')
-    const callerScopes = scopesFromTokenFacts(c.get('tokenFacts') ?? {})
-    const creds = await listCredentialsMatchingAdminScopes(db, callerScopes)
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    const creds = await listCredentialsAdminAccessible(db, tokenPath)
     return c.json(
       creds.map(cr => ({
         slug: cr.slug,
         host: cr.host,
+        path: cr.path,
         createdAt: cr.createdAt,
       })),
     )
@@ -73,15 +74,16 @@ credentialRoutes.put('/:slug', requireToken,
       return c.json({ error: 'Either token or headers is required' }, 400)
     }
 
-    const callerScopes = scopesFromTokenFacts(c.get('tokenFacts') ?? {})
-    const execScopes = body.execScopes === undefined
-      ? callerScopes
-      : parseScopes(body.execScopes)
-    const adminScopes = body.adminScopes === undefined
-      ? callerScopes
-      : parseScopes(body.adminScopes)
-    if (!execScopes || !adminScopes) {
-      return c.json({ error: 'Scopes must be an array of strings' }, 400)
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    const credPath = body.path ?? tokenPath
+
+    if (!validatePath(credPath)) {
+      return c.json({ error: 'Invalid path' }, 400)
+    }
+
+    // Creation/update: token can only create at its own path or deeper
+    if (!isAncestorOrEqual(tokenPath, credPath)) {
+      return c.json({ error: 'Cannot create credentials above your path' }, 403)
     }
 
     const db = c.get('db')
@@ -100,18 +102,18 @@ credentialRoutes.put('/:slug', requireToken,
     const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
     const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
+    // Admin check for updates: token must be at or above the existing credential's path
     const existing = await getCredentialBySlug(db, slug)
-    if (existing && !scopesMatch(existing.adminScopes, callerScopes)) {
+    if (existing && !isAncestorOrEqual(tokenPath, existing.path)) {
       return c.json({ error: `Token cannot update credential '${slug}'` }, 403)
     }
 
     await upsertCredential(db, {
       host,
       slug,
+      path: credPath,
       auth: { kind: 'headers' },
       secret: encrypted,
-      execScopes,
-      adminScopes,
     })
     return c.json({ ok: true as const, slug })
   },
@@ -133,8 +135,9 @@ credentialRoutes.delete('/:slug', requireToken,
     const existing = await getCredentialBySlug(db, slug)
     if (!existing) return c.json({ error: 'Credential not found' }, 404)
 
-    const callerScopes = scopesFromTokenFacts(c.get('tokenFacts') ?? {})
-    if (!scopesMatch(existing.adminScopes, callerScopes)) {
+    // Admin check: token must be at or above the credential's path
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    if (!isAncestorOrEqual(tokenPath, existing.path)) {
       return c.json({ error: `Token cannot delete credential '${slug}'` }, 403)
     }
 

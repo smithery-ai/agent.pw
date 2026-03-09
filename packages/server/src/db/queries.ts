@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { credProfiles, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
+import { escapeLikePath, isAncestorOrEqual } from '../paths'
 
 interface LegacyServiceRecord {
   slug: string
@@ -14,11 +15,6 @@ interface LegacyServiceRecord {
   authConfig: string | null
   createdAt: Date
   updatedAt: Date
-}
-
-function sqlTextArray(values: string[]) {
-  if (values.length === 0) return sql`ARRAY[]::text[]`
-  return sql`ARRAY[${sql.join(values.map(value => sql`${value}`), sql`, `)}]::text[]`
 }
 
 function parseJsonArray(value: unknown): unknown[] | null {
@@ -66,6 +62,22 @@ export async function getCredProfileByHost(db: Database, host: string) {
   return profiles.find(profile => profile.host.includes(host)) ?? null
 }
 
+/**
+ * Find the best profile for a host at the given token path.
+ * Walks up the tree: picks the nearest ancestor profile.
+ */
+export async function getCredProfileByHostForPath(db: Database, host: string, tokenPath: string) {
+  const profiles = await listCredProfiles(db)
+  const matching = profiles.filter(p => p.host.includes(host))
+  // Find the deepest ancestor of tokenPath among matching profiles
+  let best: (typeof matching)[number] | null = null
+  for (const p of matching) {
+    if (!isAncestorOrEqual(p.path, tokenPath)) continue
+    if (!best || p.path.length > best.path.length) best = p
+  }
+  return best
+}
+
 export async function listCredProfiles(db: Database) {
   return db.select().from(credProfiles)
 }
@@ -98,6 +110,7 @@ export async function upsertCredProfile(
   slug: string,
   data: {
     host: string[]
+    path?: string
     auth?: Record<string, unknown>
     managedOauth?: Record<string, unknown>
     displayName?: string
@@ -109,6 +122,7 @@ export async function upsertCredProfile(
     .values({
       slug,
       host: data.host,
+      path: data.path ?? '/',
       auth: data.auth,
       managedOauth: data.managedOauth,
       displayName: data.displayName,
@@ -118,6 +132,7 @@ export async function upsertCredProfile(
       target: credProfiles.slug,
       set: {
         host: sql`excluded.host`,
+        path: sql`excluded.path`,
         auth: sql`coalesce(excluded.auth, ${credProfiles.auth})`,
         managedOauth: sql`coalesce(excluded.managed_oauth, ${credProfiles.managedOauth})`,
         displayName: sql`coalesce(excluded.display_name, ${credProfiles.displayName})`,
@@ -208,35 +223,43 @@ export async function listCredentials(db: Database) {
   return db.select().from(credentials)
 }
 
-export async function listCredentialsMatchingAdminScopes(
+/**
+ * List credentials the token can manage (admin flows downward).
+ * Returns credentials at the token's path or deeper.
+ */
+export async function listCredentialsAdminAccessible(
   db: Database,
-  scopes: string[],
+  tokenPath: string,
 ) {
+  const escaped = escapeLikePath(tokenPath)
+  if (tokenPath === '/') {
+    return db.select().from(credentials)
+  }
   return db
     .select()
     .from(credentials)
-    .where(sql`${credentials.adminScopes} <@ ${sqlTextArray(scopes)}`)
+    .where(sql`${credentials.path} = ${tokenPath} OR ${credentials.path} LIKE ${escaped + '/%'}`)
 }
 
-export async function getCredentialsByHostMatchingExecScopes(
+/**
+ * Find credentials for a host that the token can use (usage flows upward).
+ * Returns credentials where credential.path is an ancestor of tokenPath,
+ * ordered by path depth descending (deepest ancestor first).
+ */
+export async function getCredentialsByHostForUsage(
   db: Database,
   host: string,
-  scopes: string[],
-  limit?: number,
+  tokenPath: string,
 ) {
-  let query = db
+  const escaped = escapeLikePath(tokenPath)
+  return db
     .select()
     .from(credentials)
     .where(and(
       eq(credentials.host, host),
-      sql`${credentials.execScopes} <@ ${sqlTextArray(scopes)}`,
+      sql`${tokenPath} = ${credentials.path} OR ${credentials.path} = '/' OR ${tokenPath} LIKE ${credentials.path} || '/%'`,
     ))
-
-  if (typeof limit === 'number') {
-    query = query.limit(limit) as typeof query
-  }
-
-  return query
+    .orderBy(sql`length(${credentials.path}) DESC`)
 }
 
 export async function upsertCredential(
@@ -244,10 +267,9 @@ export async function upsertCredential(
   data: {
     host: string
     slug: string
+    path: string
     auth: Record<string, unknown>
     secret: Buffer
-    execScopes: string[]
-    adminScopes: string[]
   },
 ) {
   await db
@@ -255,19 +277,17 @@ export async function upsertCredential(
     .values({
       host: data.host,
       slug: data.slug,
+      path: data.path,
       auth: data.auth,
       secret: data.secret,
-      execScopes: data.execScopes,
-      adminScopes: data.adminScopes,
     })
     .onConflictDoUpdate({
       target: credentials.slug,
       set: {
         host: sql`excluded.host`,
+        path: sql`excluded.path`,
         auth: sql`excluded.auth`,
         secret: sql`excluded.secret`,
-        execScopes: sql`excluded.exec_scopes`,
-        adminScopes: sql`excluded.admin_scopes`,
         updatedAt: sql`now()`,
       },
     })

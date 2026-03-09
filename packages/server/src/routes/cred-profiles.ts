@@ -10,10 +10,12 @@ import {
   deleteCredProfile,
 } from '../db/queries'
 import { RESERVED_PATHS } from '../lib/utils'
+import { pathFromTokenFacts, isAncestorOrEqual, validatePath } from '../paths'
 
 export const CredProfileSchema = z.object({
   slug: z.string().meta({ description: 'Unique profile identifier', example: 'linear' }),
   host: z.array(z.string()).meta({ description: 'Hostnames this profile applies to', example: ['api.linear.app'] }),
+  path: z.string().meta({ description: 'Path in the hierarchy', example: '/' }),
   displayName: z.string().nullable().meta({ description: 'Human-readable display name' }),
   description: z.string().nullable().meta({ description: 'Profile description' }),
 }).meta({ id: 'CredProfile' })
@@ -24,6 +26,7 @@ export const CredProfileDetailSchema = CredProfileSchema.extend({
 
 export const CreateCredProfileRequestSchema = z.object({
   host: z.array(z.string()).min(1).meta({ description: 'Hostnames this profile applies to' }),
+  path: z.string().optional().meta({ description: 'Path for this profile (defaults to token path)', example: '/' }),
   auth: z.record(z.string(), z.unknown()).optional().meta({ description: 'Auth configuration' }),
   managedOauth: z.record(z.string(), z.unknown()).optional().meta({ description: 'Managed OAuth config' }),
   displayName: z.string().optional().meta({ description: 'Human-readable display name' }),
@@ -48,19 +51,26 @@ credProfileRoutes.get('/', requireToken,
   describeRoute({
     tags: ['cred_profiles'],
     summary: 'List credential profiles',
-    description: 'List all configured credential profiles.',
+    description: 'List credential profiles visible to this token (ancestors and descendants).',
     responses: {
       200: { description: 'List of profiles', content: { 'application/json': { schema: resolver(z.array(CredProfileSchema)) } } },
     },
   }),
   async c => {
     const db = c.get('db')
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
     const allProfiles = await listCredProfiles(db)
 
+    // Show profiles at ancestors (usable as config) and descendants (manageable)
+    const visible = allProfiles.filter(p =>
+      isAncestorOrEqual(p.path, tokenPath) || isAncestorOrEqual(tokenPath, p.path),
+    )
+
     return c.json(
-      allProfiles.map(p => ({
+      visible.map(p => ({
         slug: p.slug,
         host: p.host,
+        path: p.path,
         displayName: p.displayName,
         description: p.description,
       })),
@@ -88,6 +98,7 @@ credProfileRoutes.get('/:slug', requireToken,
     return c.json({
       slug: profile.slug,
       host: profile.host,
+      path: profile.path,
       displayName: profile.displayName,
       description: profile.description,
       auth: profile.auth ?? null,
@@ -118,11 +129,30 @@ credProfileRoutes.put('/:slug', requireToken, requireRight('manage_services'),
       return c.json({ error: 'host is required' }, 400)
     }
 
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    const profilePath = body.path ?? tokenPath
+
+    if (!validatePath(profilePath)) {
+      return c.json({ error: 'Invalid path' }, 400)
+    }
+
+    // Creation: token can only create at its own path or deeper
+    if (!isAncestorOrEqual(tokenPath, profilePath)) {
+      return c.json({ error: 'Cannot create profiles above your path' }, 403)
+    }
+
+    // Admin check for updates: must be at or above existing profile's path
     const db = c.get('db')
+    const existing = await getCredProfile(db, slug)
+    if (existing && !isAncestorOrEqual(tokenPath, existing.path)) {
+      return c.json({ error: `Token cannot update profile '${slug}'` }, 403)
+    }
+
     const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
 
     await upsertCredProfile(db, slug, {
       host: body.host,
+      path: profilePath,
       auth: body.auth,
       managedOauth: body.managedOauth,
       displayName,
@@ -145,7 +175,17 @@ credProfileRoutes.delete('/:slug', requireToken, requireRight('manage_services')
   }),
   async c => {
     const db = c.get('db')
-    const deleted = await deleteCredProfile(db, c.req.param('slug'))
+    const slug = c.req.param('slug')
+    const existing = await getCredProfile(db, slug)
+    if (!existing) return c.json({ error: 'Profile not found' }, 404)
+
+    // Admin check: must be at or above the profile's path
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    if (!isAncestorOrEqual(tokenPath, existing.path)) {
+      return c.json({ error: `Token cannot delete profile '${slug}'` }, 403)
+    }
+
+    const deleted = await deleteCredProfile(db, slug)
     if (!deleted) return c.json({ error: 'Profile not found' }, 404)
     return c.json({ ok: true as const })
   },
