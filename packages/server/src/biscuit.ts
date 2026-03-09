@@ -281,7 +281,7 @@ export function extractTokenFacts(
     let userId: string | null = null
     let namespacedUserId: string | null = null
     let orgId: string | null = null
-    const selectors: Record<string, string> = {}
+    const scopes: string[] = []
 
     for (const line of source.split('\n')) {
       const trimmed = line.trim().replace(/;$/, '')
@@ -299,20 +299,20 @@ export function extractTokenFacts(
       if (managedOrgMatch) orgId = managedOrgMatch[1]
       const apwOrgMatch = trimmed.match(/(?:^|[\s,])apw_org_id\("([^"]+)"\)/)
       if (apwOrgMatch) orgId = apwOrgMatch[1]
-      const selectorMatch = trimmed.match(/(?:^|[\s,])selector\("([^"]+)"\s*,\s*"([^"]+)"\)/)
-      if (selectorMatch) selectors[selectorMatch[1]] = selectorMatch[2]
-      const apwSelectorMatch = trimmed.match(/(?:^|[\s,])apw_selector\("([^"]+)"\s*,\s*"([^"]+)"\)/)
-      if (apwSelectorMatch) selectors[apwSelectorMatch[1]] = apwSelectorMatch[2]
+      const scopeMatch = trimmed.match(/(?:^|[\s,])scope\("([^"]+)"\)/)
+      if (scopeMatch) scopes.push(scopeMatch[1])
+      const apwScopeMatch = trimmed.match(/(?:^|[\s,])apw_scope\("([^"]+)"\)/)
+      if (apwScopeMatch) scopes.push(apwScopeMatch[1])
     }
 
     return {
       rights: [...new Set(rights)],
       userId: namespacedUserId ?? userId,
       orgId,
-      selectors,
+      scopes: [...new Set(scopes)],
     }
   } catch {
-    return { rights: [], userId: null, orgId: null, selectors: {} }
+    return { rights: [], userId: null, orgId: null, scopes: [] }
   }
 }
 

@@ -12,9 +12,9 @@ apw_En0KEwoRCAASDAoBdBIHCAQSAxiACBIkCAASIKo...
 
 ## Design Principles
 
-**Token = identity plus selector facts. Credential selectors = access control. Attenuation = client-side narrowing.**
+**Token = identity plus scope facts. Credential scopes = access control. Attenuation = client-side narrowing.**
 
-The token carries *who you are* plus optional selector facts. Credentials carry selector objects that determine who can use or manage them. Attenuation narrows further (host, method, path, TTL). All facts are namespaced to `apw` so deployers may extend with additional facts.
+The token carries *who you are* plus optional scope facts. Credentials carry scope arrays that determine who can use or manage them. Attenuation narrows further (host, method, path, TTL). All facts are namespaced to `apw` so deployers may extend with additional facts.
 
 **Deployer-defined vocabulary.** agent.pw imposes no required facts like `user_id` or `org_id`. A single-user self-hosted install might use no custom facts at all — the root token has full access. A team gateway might define `team("backend")`. A white-label deployment might define `end_user("customer_1")`. agent.pw is identity-neutral at the core.
 
@@ -39,20 +39,20 @@ A Biscuit token has three layers:
 - **Attenuation blocks**: Appended by anyone holding the token. Can only add checks that *narrow* permissions — never expand them.
 - **Verification**: Anyone with the public key (available at `/.well-known/jwks.json`) can verify the signature and evaluate the Datalog.
 
-## Credential-Level Selectors
+## Credential-Level Scopes
 
-Each credential carries its own selector objects:
+Each credential carries its own scope arrays:
 
 | Field | Purpose |
 |--------|---------|
-| `exec_selectors` | Flat key/value selectors required to use this credential through the proxy |
-| `admin_selectors` | Flat key/value selectors required to create, replace, share, or revoke it |
+| `exec_scopes` | Scopes required to use this credential through the proxy |
+| `admin_scopes` | Scopes required to create, replace, share, or revoke it |
 
-The proxy extracts selectors from the Biscuit token facts and matches credentials whose selector pairs are a subset of the caller's selector pairs.
+The proxy extracts scopes from Biscuit token facts and matches credentials whose required scopes are a subset of the caller's scopes.
 
-### Selector Inheritance
+### Scope Inheritance
 
-Credentials inherit the selector context of the token used to create them unless explicitly overridden. If a token carries `selector("org","acme")`, credentials created with that token get `{ "org": "acme" }` by default. For older tokens, `org_id("acme")` and `user_id("alice")` are treated as selector fallbacks.
+Credentials inherit the scope context of the token used to create them unless explicitly overridden. If a token carries `scope("org_id:acme")`, credentials created with that token get `[ "org_id:acme" ]` by default. For older tokens, `org_id("acme")` is treated as a scope fallback.
 
 ### Multiple Credentials Per Host
 
@@ -75,7 +75,7 @@ allow if user($u);
 deny if true;
 ```
 
-Credential selector matching happens alongside the token's attenuation checks. Both must pass for the request to proceed.
+Credential scope matching happens alongside the token's attenuation checks. Both must pass for the request to proceed.
 
 ## Attenuation (Client-Side)
 
@@ -102,7 +102,7 @@ A user with credentials for github+linear can delegate a token attenuated to git
 
 ### White-Labeling
 
-Product teams can white-label agent.pw for their end users. Create credentials with selectors like `{ "end_user": "customer_1" }`, then mint tokens carrying `selector("end_user","customer_1")`. Each end-user's agent only accesses their credentials. Biscuit attenuation still enforces the request-level narrowing cryptographically.
+Product teams can white-label agent.pw for their end users. Create credentials with scopes like `[ "end_user:customer_1" ]`, then mint tokens carrying `scope("end_user:customer_1")`. Each end-user's agent only accesses their credentials. Biscuit attenuation still enforces the request-level narrowing cryptographically.
 
 ## Revocation
 

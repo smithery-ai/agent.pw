@@ -352,23 +352,17 @@
             "example": "linear",
             "type": "string"
           },
-          "execSelectors": {
-            "description": "Execution selector object for this credential",
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {
+          "execScopes": {
+            "description": "Execution scopes for this credential",
+            "type": "array",
+            "items": {
               "type": "string"
             }
           },
-          "adminSelectors": {
-            "description": "Admin selector object for this credential",
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {
+          "adminScopes": {
+            "description": "Admin scopes for this credential",
+            "type": "array",
+            "items": {
               "type": "string"
             }
           }

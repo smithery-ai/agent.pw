@@ -50,11 +50,11 @@ host            target hostname this credential authenticates against
 slug            unique ID (auto-generated or user-specified via --slug)
 auth            auth config object (kind: oauth → Bearer header, kind: headers → custom header map)
 secret          encrypted token / key material
-exec_selectors  flat selector object required to use this credential through the proxy
-admin_selectors flat selector object required to create, replace, share, or revoke it
+exec_scopes     scopes required to use this credential through the proxy
+admin_scopes    scopes required to create, replace, share, or revoke it
 ```
 
-Each credential is self-describing: it knows how to inject itself. Multiple credentials per host are supported. If more than one credential matches a host for the caller's selectors, the proxy returns an ambiguity error and the agent must specify `agentpw-credential`.
+Each credential is self-describing: it knows how to inject itself. Multiple credentials per host are supported. If more than one credential matches a host for the caller's scopes, the proxy returns an ambiguity error and the agent must specify `agentpw-credential`.
 
 ### Auth Bootstrap
 
@@ -194,7 +194,7 @@ Biscuit tokens (`apw_` prefix) determine which requests may be made through the 
 
 The root token (generated during setup) has full authority. Restricted tokens are attenuated by target host, method, TTL, or additional Biscuit checks. A restricted token can never gain more authority than its parent.
 
-Credentials carry selector objects: `exec_selectors` governs proxy use, `admin_selectors` governs management operations. Tokens can also carry `selector("key","value")` facts directly, with `org_id` / `user_id` facts remaining as a fallback. See [docs/token-design.md](docs/token-design.md) for full details.
+Credentials carry scope arrays: `exec_scopes` governs proxy use, `admin_scopes` governs management operations. Tokens can also carry `scope("value")` facts directly, with `org_id` remaining as a fallback for older tokens. See [docs/token-design.md](docs/token-design.md) for full details.
 
 ## CLI Commands
 

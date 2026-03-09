@@ -100,8 +100,8 @@ async function storeScopedCredential(slug: string, host: string, bearerToken: st
     slug,
     auth: { kind: 'headers' },
     secret: encrypted,
-    execSelectors: { org: TEST_ORG_ID },
-    adminSelectors: { org: TEST_ORG_ID },
+    execScopes: [`org_id:${TEST_ORG_ID}`],
+    adminScopes: [`org_id:${TEST_ORG_ID}`],
   })
 }
 
