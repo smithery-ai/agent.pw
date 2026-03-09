@@ -98,10 +98,9 @@ async function storeScopedCredential(slug: string, host: string, bearerToken: st
   await upsertCredential(db, {
     host,
     slug,
+    path: `/orgs/${TEST_ORG_ID}`,
     auth: { kind: 'headers' },
     secret: encrypted,
-    execScopes: [`org_id:${TEST_ORG_ID}`],
-    adminScopes: [`org_id:${TEST_ORG_ID}`],
   })
 }
 

@@ -22,6 +22,7 @@ export async function createTestDb() {
     CREATE TABLE IF NOT EXISTS agentpw.cred_profiles (
       slug TEXT PRIMARY KEY,
       host JSONB NOT NULL,
+      path TEXT NOT NULL DEFAULT '/',
       auth JSONB,
       managed_oauth JSONB,
       display_name TEXT,
@@ -35,10 +36,9 @@ export async function createTestDb() {
     CREATE TABLE IF NOT EXISTS agentpw.credentials (
       host TEXT NOT NULL,
       slug TEXT PRIMARY KEY,
+      path TEXT NOT NULL DEFAULT '/',
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
-      exec_scopes TEXT[] NOT NULL,
-      admin_scopes TEXT[] NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )

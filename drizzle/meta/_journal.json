@@ -8,6 +8,20 @@
       "when": 1772893365869,
       "tag": "0000_freezing_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773043480129,
+      "tag": "0001_messy_miracleman",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773292800000,
+      "tag": "0002_path_based_security",
+      "breakpoints": true
     }
   ]
 }

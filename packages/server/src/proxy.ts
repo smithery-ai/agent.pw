@@ -8,9 +8,9 @@ import {
 } from './biscuit'
 import {
   getCredProfile,
-  getCredProfileByHost,
+  getCredProfileByHostForPath,
   getCredentialBySlug,
-  getCredentialsByHostMatchingExecScopes,
+  getCredentialsByHostForUsage,
   isRevoked,
   upsertCredential,
 } from './db/queries'
@@ -22,7 +22,7 @@ import {
 } from './lib/credentials-crypto'
 import { refreshOAuthToken } from './lib/oauth-refresh'
 import { isDnsError } from './lib/dns'
-import { scopesFromTokenFacts, scopesMatch } from './scopes'
+import { pathFromTokenFacts, isAncestorOrEqual } from './paths'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -82,10 +82,9 @@ async function refreshCredentialIfNeeded(
   cred: {
     host: string
     slug: string
+    path: string
     auth: Record<string, unknown>
     secret: Buffer
-    execScopes: string[]
-    adminScopes: string[]
   },
   stored: StoredCredentials,
 ): Promise<StoredCredentials> {
@@ -119,10 +118,9 @@ async function refreshCredentialIfNeeded(
   await upsertCredential(c.get('db'), {
     host: cred.host,
     slug: cred.slug,
+    path: cred.path,
     auth: cred.auth,
     secret: encrypted,
-    execScopes: cred.execScopes,
-    adminScopes: cred.adminScopes,
   })
 
   return nextStored
@@ -207,15 +205,6 @@ export async function handleProxy(
   }
 
   const db = c.get('db')
-  const profile = slug ? await getCredProfile(db, slug) : await getCredProfileByHost(db, hostname)
-  if (slug && !profile) {
-    return c.json({ error: `Unknown credential profile: ${slug}` }, 404)
-  }
-
-  if (profile && !profile.host.includes(hostname)) {
-    return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.slug}'` }, 403)
-  }
-
   const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
 
   // Check revocation
@@ -237,7 +226,21 @@ export async function handleProxy(
   }
 
   const tokenFacts = extractTokenFacts(token, publicKeyHex)
-  const callerScopes = scopesFromTokenFacts(tokenFacts)
+  const tokenPath = pathFromTokenFacts(tokenFacts)
+
+  // Profile resolution: nearest ancestor profile for this host
+  const profile = slug
+    ? await getCredProfile(db, slug)
+    : await getCredProfileByHostForPath(db, hostname, tokenPath)
+
+  if (slug && !profile) {
+    return c.json({ error: `Unknown credential profile: ${slug}` }, 404)
+  }
+
+  if (profile && !profile.host.includes(hostname)) {
+    return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.slug}'` }, 403)
+  }
+
   const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
 
   let cred: Awaited<ReturnType<typeof getCredentialBySlug>> | null = null
@@ -249,19 +252,27 @@ export async function handleProxy(
     if (selected.host !== hostname) {
       return c.json({ error: `Credential '${selector}' does not match host '${hostname}'` }, 403)
     }
-    if (!scopesMatch(selected.execScopes, callerScopes)) {
+    // Usage check: credential must be at an ancestor of the token's path
+    if (!isAncestorOrEqual(selected.path, tokenPath)) {
       return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
     }
     cred = selected
   } else {
-    const matches = await getCredentialsByHostMatchingExecScopes(db, hostname, callerScopes, 2)
+    // Find credentials at ancestors of token path, ordered by depth desc
+    const matches = await getCredentialsByHostForUsage(db, hostname, tokenPath)
     if (matches.length > 1) {
-      return c.json({
-        error: `Multiple credentials match host '${hostname}'`,
-        credentialSlugs: matches.map(match => match.slug),
-        hint: `Send the ${CREDENTIAL_SELECTOR_HEADER} header to choose a credential slug explicitly.`,
-      }, 409)
+      // Check if top matches are at the same depth (conflict)
+      const topDepth = matches[0].path.length
+      const sameDepth = matches.filter(m => m.path.length === topDepth)
+      if (sameDepth.length > 1) {
+        return c.json({
+          error: `Multiple credentials match host '${hostname}' at the same path depth`,
+          credentialSlugs: sameDepth.map(match => match.slug),
+          hint: `Send the ${CREDENTIAL_SELECTOR_HEADER} header to choose a credential slug explicitly.`,
+        }, 409)
+      }
     }
+    // Deepest ancestor wins (first result due to ORDER BY length DESC)
     cred = matches[0] ?? null
   }
 

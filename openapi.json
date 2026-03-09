@@ -126,6 +126,11 @@
               "api.linear.app"
             ]
           },
+          "path": {
+            "type": "string",
+            "description": "Path in the hierarchy",
+            "example": "/"
+          },
           "displayName": {
             "anyOf": [
               {
@@ -152,6 +157,7 @@
         "required": [
           "slug",
           "host",
+          "path",
           "displayName",
           "description"
         ],
@@ -174,6 +180,11 @@
             "example": [
               "api.linear.app"
             ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Path in the hierarchy",
+            "example": "/"
           },
           "displayName": {
             "anyOf": [
@@ -210,6 +221,7 @@
         "required": [
           "slug",
           "host",
+          "path",
           "displayName",
           "description",
           "auth"
@@ -226,6 +238,11 @@
               "type": "string"
             },
             "description": "Hostnames this profile applies to"
+          },
+          "path": {
+            "description": "Path for this profile (defaults to token path)",
+            "example": "/",
+            "type": "string"
           },
           "auth": {
             "description": "Auth configuration",
@@ -313,6 +330,11 @@
             "description": "Target hostname",
             "example": "api.linear.app"
           },
+          "path": {
+            "type": "string",
+            "description": "Path in the hierarchy",
+            "example": "/orgs/ruzo"
+          },
           "createdAt": {
             "type": "string",
             "description": "ISO 8601 creation timestamp"
@@ -321,6 +343,7 @@
         "required": [
           "slug",
           "host",
+          "path",
           "createdAt"
         ],
         "additionalProperties": false
@@ -352,19 +375,10 @@
             "example": "linear",
             "type": "string"
           },
-          "execScopes": {
-            "description": "Execution scopes for this credential",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "adminScopes": {
-            "description": "Admin scopes for this credential",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "path": {
+            "description": "Path for this credential (defaults to token path)",
+            "example": "/orgs/ruzo",
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -487,7 +501,7 @@
           "credentials"
         ],
         "summary": "List credentials",
-        "description": "List all credentials.",
+        "description": "List all credentials accessible to this token (admin flows downward).",
         "responses": {
           "200": {
             "description": "List of credentials",
@@ -667,7 +681,7 @@
           "cred_profiles"
         ],
         "summary": "List credential profiles",
-        "description": "List all configured credential profiles.",
+        "description": "List credential profiles visible to this token (ancestors and descendants).",
         "responses": {
           "200": {
             "description": "List of profiles",
