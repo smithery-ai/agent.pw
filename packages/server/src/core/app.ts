@@ -19,6 +19,7 @@ export interface CoreAppDeps {
   db?: Database
   biscuitPrivateKey?: string
   baseUrl?: string
+  cliAuthBaseUrl?: string
 }
 
 /**
@@ -95,6 +96,7 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
           : reqUrl.origin
     }
     if (deps.biscuitPrivateKey) c.env.BISCUIT_PRIVATE_KEY = deps.biscuitPrivateKey
+    if (deps.cliAuthBaseUrl) c.env.CLI_AUTH_BASE_URL = deps.cliAuthBaseUrl
     c.env.ENCRYPTION_KEY = await deriveEncryptionKey(c.env.BISCUIT_PRIVATE_KEY)
 
     if (deps.db) {

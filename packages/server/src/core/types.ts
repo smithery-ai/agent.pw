@@ -6,6 +6,7 @@ import type { SelectorRecord } from '../selectors'
 export interface CoreEnv {
   BISCUIT_PRIVATE_KEY: string
   BASE_URL: string
+  CLI_AUTH_BASE_URL?: string
   ENCRYPTION_KEY: string
   DATABASE_URL?: string
 }
