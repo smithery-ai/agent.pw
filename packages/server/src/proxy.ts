@@ -37,6 +37,28 @@ function errorMessage(e: unknown): string {
 export const PROXY_TOKEN_HEADER = 'Proxy-Authorization'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
 
+function buildAgentPwChallenge(params: Record<string, string | undefined>) {
+  const encoded = Object.entries(params)
+    .filter(([, value]) => typeof value === 'string' && value.length > 0)
+    .map(([key, value]) => `${key}="${String(value).replace(/"/g, '\\"')}"`)
+    .join(', ')
+  return encoded.length > 0 ? `AgentPW ${encoded}` : 'AgentPW'
+}
+
+function buildAuthorizationUri(
+  authBaseUrl: string | undefined,
+  profileSlug: string | undefined,
+  hostname: string,
+) {
+  if (!authBaseUrl) return undefined
+
+  const returnTo = profileSlug
+    ? `/auth/${encodeURIComponent(profileSlug)}`
+    : `/auth/manual?target=${encodeURIComponent(hostname)}`
+
+  return `${authBaseUrl.replace(/\/$/, '')}/auth/login?return_to=${encodeURIComponent(returnTo)}`
+}
+
 export function extractBearerToken(header: string | undefined): string | null {
   if (!header) return null
   return header.startsWith('Bearer ') ? header.slice(7) : header
@@ -286,12 +308,11 @@ export async function handleProxy(
 
   if (upstream.status === 401 && !cred && !explicitAuthorization) {
     const responseHeaders = new Headers(upstream.headers)
-    if (profile) {
-      responseHeaders.set('agentpw-profile', profile.slug)
-      responseHeaders.set('agentpw-auth-url', `${c.env.BASE_URL}/auth/${profile.slug}`)
-    } else {
-      responseHeaders.set('agentpw-manual', `agent.pw cred add ${hostname} --auth headers -H "Authorization: Bearer {token:Access token}"`)
-    }
+    responseHeaders.append('WWW-Authenticate', buildAgentPwChallenge({
+      target_host: hostname,
+      profile: profile?.slug,
+      authorization_uri: buildAuthorizationUri(c.env.CLI_AUTH_BASE_URL, profile?.slug, hostname),
+    }))
 
     return new Response(upstream.body, {
       status: upstream.status,

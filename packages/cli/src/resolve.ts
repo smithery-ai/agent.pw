@@ -6,13 +6,15 @@ export interface ResolvedEndpoint {
   token: string
 }
 
+export const DEFAULT_MANAGED_HOST = 'https://api.agent.pw'
+
 /**
  * Resolve the agent.pw endpoint. Priority:
  * 1. AGENT_PW_HOST + AGENT_PW_TOKEN env vars
  * 2. Local config + running server
  * 3. Managed session (~/.agent.pw/session.json)
  */
-export async function resolve(): Promise<ResolvedEndpoint> {
+export async function resolveOptional(): Promise<ResolvedEndpoint | null> {
   // 1. Environment variables
   const envHost = process.env.AGENT_PW_HOST
   const envToken = process.env.AGENT_PW_TOKEN
@@ -52,8 +54,15 @@ export async function resolve(): Promise<ResolvedEndpoint> {
     }
   }
 
+  return null
+}
+
+export async function resolve(): Promise<ResolvedEndpoint> {
+  const resolved = await resolveOptional()
+  if (resolved) return resolved
+
   console.error('No agent.pw instance available.')
-  console.error('  Run `agent.pw login` to connect to https://agent.pw')
+  console.error(`  Run \`agent.pw login\` to connect to ${DEFAULT_MANAGED_HOST}`)
   console.error('  Run `agent.pw setup` to create a local instance')
   process.exit(1)
 }

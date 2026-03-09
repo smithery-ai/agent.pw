@@ -24,6 +24,7 @@ beforeEach(async () => {
     db,
     biscuitPrivateKey: BISCUIT_PRIVATE_KEY,
     baseUrl: 'https://agent.pw',
+    cliAuthBaseUrl: 'https://agent.pw',
   })
 })
 
@@ -181,8 +182,10 @@ describe('Core Scenario Flows', () => {
       headers: withAgentPwToken(ORG_TOKEN),
     })
     expect(bootstrap.status).toBe(401)
-    expect(bootstrap.headers.get('agentpw-profile')).toBe('github')
-    expect(bootstrap.headers.get('agentpw-auth-url')).toBe('https://agent.pw/auth/github')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('AgentPW')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('profile="github"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('target_host="api.github.com"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2Fgithub"')
 
     const privateTarget = await req('/proxy/127.0.0.1/admin', {
       headers: withAgentPwToken(ORG_TOKEN),
