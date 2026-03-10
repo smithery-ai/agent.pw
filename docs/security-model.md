@@ -1,4 +1,4 @@
-# Token Design
+# Security Model
 
 agent.pw uses [Biscuit](https://www.biscuitsec.org/) tokens — a capability-based authorization format built on public-key cryptography. Tokens are self-contained, offline-verifiable, and support attenuation (narrowing permissions without server involvement).
 
@@ -12,9 +12,9 @@ apw_En0KEwoRCAASDAoBdBIHCAQSAxiACBIkCAASIKo...
 
 ## Design Principles
 
-**Token = identity plus scope facts. Credential scopes = access control. Attenuation = client-side narrowing.**
+**Token = identity. Path hierarchy = access control. Attenuation = client-side narrowing.**
 
-The token carries *who you are* plus optional scope facts. Credentials carry scope arrays that determine who can use or manage them. Attenuation narrows further (host, method, path, TTL). All facts are namespaced to `apw` so deployers may extend with additional facts.
+The token carries *who you are* (identity facts like `org_id`). The path tree determines which credentials a token can use or manage. Attenuation narrows further (host, method, path, TTL). All facts are namespaced to `apw` so deployers may extend with additional facts.
 
 **Deployer-defined vocabulary.** agent.pw imposes no required facts like `user_id` or `org_id`. A single-user self-hosted install might use no custom facts at all — the root token has full access. A team gateway might define `team("backend")`. A white-label deployment might define `end_user("customer_1")`. agent.pw is identity-neutral at the core.
 
@@ -39,24 +39,26 @@ A Biscuit token has three layers:
 - **Attenuation blocks**: Appended by anyone holding the token. Can only add checks that *narrow* permissions — never expand them.
 - **Verification**: Anyone with the public key (available at `/.well-known/jwks.json`) can verify the signature and evaluate the Datalog.
 
-## Credential-Level Scopes
+## Path-Based Access Control
 
-Each credential carries its own scope arrays:
+Every credential and profile lives at a path in a tree that encodes organizational hierarchy (e.g. `/orgs/acme/linear`). The token's position in the tree — derived from its identity facts — determines what it can access.
 
-| Field | Purpose |
-|--------|---------|
-| `exec_scopes` | Scopes required to use this credential through the proxy |
-| `admin_scopes` | Scopes required to create, replace, share, or revoke it |
+### Two Directions
 
-The proxy extracts scopes from Biscuit token facts and matches credentials whose required scopes are a subset of the caller's scopes.
+**Usage flows upward.** A token can use credentials stored at ancestor paths. An org-level credential at `/orgs/acme/github` is usable by any token rooted at `/orgs/acme` or deeper (`/orgs/acme/ws/engineering`). Credentials at higher paths are inherited by everyone below, like environment variables in a process tree.
 
-### Scope Inheritance
+**Admin flows downward.** A token can create, update, and delete credentials at its own path or deeper. A token at `/orgs/acme` can manage `/orgs/acme/github` but cannot manage `/other-org/github`.
 
-Credentials inherit the scope context of the token used to create them unless explicitly overridden. If a token carries `scope("org_id:acme")`, credentials created with that token get `[ "org_id:acme" ]` by default. For older tokens, `org_id("acme")` is treated as a scope fallback.
+### Credential Resolution
 
-### Multiple Credentials Per Host
+When multiple credentials match a target host:
 
-When multiple credentials match a target host, the proxy returns an ambiguity error. The agent can specify a credential explicitly via the `agentpw-credential` header (passing the slug).
+1. **Different depths** — the deepest ancestor wins (most specific).
+2. **Same depth** — the proxy returns a 409 conflict. The caller specifies which credential to use via the `agentpw-credential` header.
+
+### Creation
+
+A token can only create objects at its own path or deeper. Global objects (root path `/`) require the master token.
 
 ## Authorization Flow
 
@@ -75,7 +77,7 @@ allow if user($u);
 deny if true;
 ```
 
-Credential scope matching happens alongside the token's attenuation checks. Both must pass for the request to proceed.
+Path-based credential resolution happens after token authorization. Both the token's Biscuit checks and the path ancestry rules must pass for the request to proceed.
 
 ## Attenuation (Client-Side)
 
@@ -102,7 +104,24 @@ A user with credentials for github+linear can delegate a token attenuated to git
 
 ### White-Labeling
 
-Product teams can white-label agent.pw for their end users. Create credentials with scopes like `[ "end_user:customer_1" ]`, then mint tokens carrying `scope("end_user:customer_1")`. Each end-user's agent only accesses their credentials. Biscuit attenuation still enforces the request-level narrowing cryptographically.
+Product teams can white-label agent.pw for their end users by extending the path tree:
+
+```
+/orgs/acme                                Acme (agent.pw deployer)
+/orgs/acme/customers/bigcorp              BigCorp (Acme's customer)
+/orgs/acme/customers/bigcorp/users/alice  Alice (BigCorp's end user)
+```
+
+Credentials at `/orgs/acme` are inherited by BigCorp and Alice. BigCorp can override with more specific credentials at their path. Each level attenuates tokens for the level below. Recursive to any depth.
+
+### Token Stack
+
+The CLI supports a token stack for temporary privilege narrowing:
+
+- `token push` — restrict the current token and push it onto a stack
+- `token pop` — revert to the previous token
+
+This lets agents temporarily operate with reduced permissions (e.g. restrict to a single host for the duration of a task) and then restore the broader token afterwards.
 
 ## Revocation
 
