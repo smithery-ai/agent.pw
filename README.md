@@ -5,7 +5,7 @@ The password manager for AI agents. An authenticated proxy that stores credentia
 <p>
   <a href="https://agent.pw">Website</a> ·
   <a href="#getting-started">Getting Started</a> ·
-  <a href="docs/token-design.md">Token Design</a>
+  <a href="docs/security-model.md">Security Model</a>
 </p>
 
 ```
@@ -26,8 +26,8 @@ Agent ──▶ proxy.agent.pw/api.github.com/user ──▶ api.github.com/user
 - **Authenticated proxy** — credential injection by target hostname, transparent to the agent
 - **Auth bootstrap** — standards-based OAuth discovery (RFC 9728, PKCE, Resource Indicators), with credential profile fallback for non-standard APIs
 - **Credential profiles** — templates that describe how to authenticate with a service (OAuth endpoints or header forms)
-- **Path-based access** — credentials live in a hierarchical tree; usage flows upward, admin flows downward ([details](docs/token-design.md))
-- **Biscuit tokens** — cryptographic attenuation by host, method, path, and TTL; tokens can only be narrowed, never expanded ([details](docs/token-design.md))
+- **Path-based access** — credentials live in a hierarchical tree; usage flows upward, admin flows downward ([details](docs/security-model.md))
+- **Biscuit tokens** — cryptographic attenuation by host, method, path, and TTL; tokens can only be narrowed, never expanded ([details](docs/security-model.md))
 - **Token stack** — `token push` / `token pop` for temporary privilege narrowing during agent tasks
 - **Write-only credentials** — agents use credentials through the proxy but cannot read the raw secret material
 - **Self-hosted or cloud** — same core, run locally with PGlite or use agent.pw Cloud
@@ -120,7 +120,7 @@ packages/
   server/src/        @agent.pw/server — proxy, credential store, tokens, routes
   cli/src/           agent.pw CLI — cloud + self-hosted management
 docs/
-  token-design.md    Biscuit token architecture, path-based access model
+  security-model.md  Biscuit tokens, path-based access model, revocation
 ```
 
 ## License

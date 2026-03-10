@@ -1,4 +1,4 @@
-# Token Design
+# Security Model
 
 agent.pw uses [Biscuit](https://www.biscuitsec.org/) tokens — a capability-based authorization format built on public-key cryptography. Tokens are self-contained, offline-verifiable, and support attenuation (narrowing permissions without server involvement).
 
