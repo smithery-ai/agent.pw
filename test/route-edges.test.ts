@@ -65,7 +65,7 @@ describe('route edge cases', () => {
     const nameMismatch = await app.request('https://agent.pw/credentials/github', {
       method: 'PUT',
       headers: withToken(token, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ token: 'secret', host: 'api.github.com', path: '/orgs/org_alpha/gitlab' }),
+      body: JSON.stringify({ token: 'secret', host: 'api.github.com', path: '/org_alpha/gitlab' }),
     })
     expect(nameMismatch.status).toBe(400)
 
@@ -109,7 +109,7 @@ describe('route edge cases', () => {
     expect(apiKeyCredential.status).toBe(200)
 
     const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const storedApiKey = await getCredential(db, 'api.keys.example', '/orgs/org_alpha/api-key')
+    const storedApiKey = await getCredential(db, 'api.keys.example', '/org_alpha/api-key')
     expect(await decryptCredentials(encryptionKey, storedApiKey!.secret)).toEqual({
       headers: { 'X-Api-Key': 'key-secret' },
     })
@@ -130,7 +130,7 @@ describe('route edge cases', () => {
     })
     expect(invalidPath.status).toBe(400)
 
-    const mismatchPath = await app.request('https://agent.pw/credentials/github?host=api.github.com&path=%2Forgs%2Forg_alpha%2Fgitlab', {
+    const mismatchPath = await app.request('https://agent.pw/credentials/github?host=api.github.com&path=%2Forg_alpha%2Fgitlab', {
       method: 'DELETE',
       headers: withToken(token),
     })

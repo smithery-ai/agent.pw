@@ -94,7 +94,7 @@ describe('proxy routes and proxy handler edges', () => {
     })
     await upsertCredential(db, {
       host: 'api.github.com',
-      path: '/orgs/org_alpha/github',
+      path: '/org_alpha/github',
       auth: { kind: 'headers' },
       secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
         headers: { Authorization: 'Bearer gh-token' },
@@ -136,7 +136,7 @@ describe('proxy routes and proxy handler edges', () => {
     })
     await upsertCredential(db, {
       host: 'api.github.com',
-      path: '/orgs/org_beta/foreign',
+      path: '/org_beta/foreign',
       auth: { kind: 'headers' },
       secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
         headers: { Authorization: 'Bearer foreign-token' },
@@ -162,7 +162,7 @@ describe('proxy routes and proxy handler edges', () => {
     expect(invalidSelector.status).toBe(400)
 
     const forbiddenSelector = await selectorApp.request('https://agent.pw/selector', {
-      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-credential': '/orgs/org_beta/foreign' }),
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-credential': '/org_beta/foreign' }),
     })
     expect(forbiddenSelector.status).toBe(403)
 
@@ -182,7 +182,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'old-access',
       new Date(Date.now() + 60_000).toISOString(),
     )
@@ -232,7 +232,7 @@ describe('proxy routes and proxy handler edges', () => {
     })
 
     const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const stored = await getCredential(db, 'api.refresh.com', '/orgs/org_alpha/oauth-service')
+    const stored = await getCredential(db, 'api.refresh.com', '/org_alpha/oauth-service')
     expect(stored).not.toBeNull()
     expect(await decryptCredentials(encryptionKey, stored!.secret)).toEqual(expect.objectContaining({
       headers: { Authorization: 'Bearer new-access' },
@@ -248,7 +248,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'still-valid',
       new Date(Date.now() + 15 * 60_000).toISOString(),
     )
@@ -280,7 +280,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'invalid-expiry',
       'not-a-date',
     )
@@ -312,7 +312,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'missing-expiry',
       undefined,
     )
@@ -343,7 +343,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'old-access',
       new Date(Date.now() + 60_000).toISOString(),
     )
@@ -460,6 +460,56 @@ describe('proxy routes and proxy handler edges', () => {
     })
     expect(response.status).toBe(401)
     expect(response.headers.get('www-authenticate')).toBe('AgentPW target_host="api.notion.so", profile="/notion"')
+  })
+
+  it('applies credentialFilter to explicit selectors and auto-resolved credentials', async () => {
+    const app = await createManualProxyApp()
+    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
+
+    // Store a credential that the token can normally access
+    await upsertCredential(db, {
+      host: 'api.filtered.com',
+      path: '/org_alpha/blocked-cred',
+      auth: { kind: 'headers' },
+      secret: await encryptCredentials(encryptionKey, {
+        headers: { Authorization: 'Bearer blocked-token' },
+      }),
+    })
+
+    const fetchMock = vi.fn(async (_input: unknown, init: any) => {
+      const headers = new Headers(init?.headers)
+      return new Response(JSON.stringify({
+        authorization: headers.get('Authorization'),
+      }), { headers: { 'content-type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    // Register both routes before making any requests
+    app.get('/explicit', async (c, next) => {
+      c.set('credentialFilter', () => false)
+      return next()
+    }, c => handleProxy(c, undefined, 'api.filtered.com', '/data'))
+
+    app.get('/auto', async (c, next) => {
+      c.set('credentialFilter', () => false)
+      return next()
+    }, c => handleProxy(c, undefined, 'api.filtered.com', '/data'))
+
+    // Explicit selector: credentialFilter rejects the credential
+    const explicitBlocked = await app.request('https://agent.pw/explicit', {
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-credential': 'blocked-cred' }),
+    })
+    expect(explicitBlocked.status).toBe(403)
+    expect(await explicitBlocked.json()).toEqual({
+      error: "Token cannot use credential 'blocked-cred'",
+    })
+
+    const autoFiltered = await app.request('https://agent.pw/auto', {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+    expect(autoFiltered.status).toBe(200)
+    // No credential injected — upstream sees no Authorization header
+    expect(await autoFiltered.json()).toEqual({ authorization: null })
   })
 
   it('adds a manual authorization URI when no profile matches the upstream host', async () => {

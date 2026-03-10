@@ -21,10 +21,6 @@ export const ORG_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', undefin
   `apw:path("${escapeDatalog(`/${TEST_ORG_ID}`)}")`,
 ])
 
-function escapeDatalog(value: string) {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
 export function mintTestToken(
   orgId: string,
   rights?: string[],

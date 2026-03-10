@@ -62,6 +62,7 @@ describe('biscuit helpers', () => {
       rights: ['admin'],
       userId: 'user_test_123',
       orgId: TEST_ORG_ID,
+      path: null,
       scopes: ['repo', 'write'],
     })
     expect(extractUserId(token, PUBLIC_KEY_HEX)).toBe('user_test_123')
@@ -96,6 +97,7 @@ describe('biscuit helpers', () => {
       rights: [],
       userId: null,
       orgId: null,
+      path: null,
       scopes: [],
     })
 
@@ -115,6 +117,7 @@ describe('biscuit helpers', () => {
       rights: ['admin'],
       userId: 'legacy-user',
       orgId: null,
+      path: null,
       scopes: ['repo'],
     })
 
@@ -128,6 +131,7 @@ describe('biscuit helpers', () => {
       rights: [],
       userId: 'managed-user',
       orgId: 'managed-org',
+      path: null,
       scopes: ['write'],
     })
 

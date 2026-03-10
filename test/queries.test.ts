@@ -62,7 +62,7 @@ describe('db queries', () => {
       displayName: 'Global',
       description: 'root profile',
     })
-    await upsertCredProfile(db, '/orgs/org_alpha/team/service', {
+    await upsertCredProfile(db, '/org_alpha/team/service', {
       host: ['api.team.com'],
       auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
       displayName: 'Team',
@@ -88,10 +88,10 @@ describe('db queries', () => {
     expect(await getCredProfile(db, '/global')).toEqual(expect.objectContaining({ path: '/global' }))
     expect(await getCredProfileByHost(db, 'api.global.com')).toEqual(expect.objectContaining({ path: '/global' }))
     expect(await getCredProfileByHost(db, 'missing.example.com')).toBeNull()
-    expect(await getCredProfileByHostForPath(db, 'api.team.com', '/orgs/org_alpha')).toEqual(
-      expect.objectContaining({ path: '/orgs/org_alpha/team/service' }),
+    expect(await getCredProfileByHostForPath(db, 'api.team.com', '/org_alpha')).toEqual(
+      expect.objectContaining({ path: '/org_alpha/team/service' }),
     )
-    expect(await getCredProfileByHostForPath(db, 'api.team.com', '/orgs/org_beta')).toBeNull()
+    expect(await getCredProfileByHostForPath(db, 'api.team.com', '/org_beta')).toBeNull()
 
     const countedProfiles = await listCredProfilesWithCredentialCounts(db)
     expect(countedProfiles.find(profile => profile.path === '/global')?.credentialCount).toBe(2)
@@ -109,7 +109,7 @@ describe('db queries', () => {
     ])
 
     expect((await listServices(db)).map(service => service.slug)).toEqual(
-      expect.arrayContaining(['/global', '/orgs/org_alpha/team/service', '/compat', '/plain']),
+      expect.arrayContaining(['/global', '/org_alpha/team/service', '/compat', '/plain']),
     )
     expect((await listServicesWithCredentialCounts(db)).find(service => service.slug === '/compat')?.credentialCount).toBe(1)
     expect(await deleteService(db, '/compat')).toBe(true)
@@ -118,36 +118,36 @@ describe('db queries', () => {
 
   it('handles credential access queries for admin and usage flows', async () => {
     await storeBearerCredential('api.example.com', '/root-cred', 'root-token')
-    await storeBearerCredential('api.example.com', '/orgs/org_alpha/org-cred', 'org-token')
-    await storeBearerCredential('api.example.com', '/orgs/org_alpha/team/team-cred', 'team-token')
-    await storeBearerCredential('api.example.com', '/orgs/org_beta/other-cred', 'other-token')
+    await storeBearerCredential('api.example.com', '/org_alpha/org-cred', 'org-token')
+    await storeBearerCredential('api.example.com', '/org_alpha/team/team-cred', 'team-token')
+    await storeBearerCredential('api.example.com', '/org_beta/other-cred', 'other-token')
 
-    expect(await getCredential(db, 'api.example.com', '/orgs/org_alpha/org-cred')).toEqual(
-      expect.objectContaining({ path: '/orgs/org_alpha/org-cred' }),
+    expect(await getCredential(db, 'api.example.com', '/org_alpha/org-cred')).toEqual(
+      expect.objectContaining({ path: '/org_alpha/org-cred' }),
     )
     expect((await getCredentialsByHost(db, 'api.example.com')).length).toBe(4)
     expect((await listCredentials(db)).length).toBe(4)
 
-    const adminAccessible = await listCredentialsAdminAccessible(db, '/orgs/org_alpha')
+    const adminAccessible = await listCredentialsAdminAccessible(db, '/org_alpha')
     expect(adminAccessible.map(credential => credential.path)).toEqual(
-      expect.arrayContaining(['/orgs/org_alpha/org-cred', '/orgs/org_alpha/team/team-cred']),
+      expect.arrayContaining(['/org_alpha/org-cred', '/org_alpha/team/team-cred']),
     )
     expect(adminAccessible.map(credential => credential.path)).not.toContain('/root-cred')
 
-    const accessible = await listCredentialsAccessible(db, '/orgs/org_alpha/team')
+    const accessible = await listCredentialsAccessible(db, '/org_alpha/team')
     expect(accessible.map(credential => credential.path)).toEqual(
-      expect.arrayContaining(['/root-cred', '/orgs/org_alpha/org-cred', '/orgs/org_alpha/team/team-cred']),
+      expect.arrayContaining(['/root-cred', '/org_alpha/org-cred', '/org_alpha/team/team-cred']),
     )
-    expect(accessible.map(credential => credential.path)).not.toContain('/orgs/org_beta/other-cred')
+    expect(accessible.map(credential => credential.path)).not.toContain('/org_beta/other-cred')
 
-    expect((await getCredentialsByHostForUsage(db, 'api.example.com', '/orgs/org_alpha/team')).map(credential => credential.path)).toEqual([
-      '/orgs/org_alpha/team/team-cred',
-      '/orgs/org_alpha/org-cred',
+    expect((await getCredentialsByHostForUsage(db, 'api.example.com', '/org_alpha/team')).map(credential => credential.path)).toEqual([
+      '/org_alpha/team/team-cred',
+      '/org_alpha/org-cred',
       '/root-cred',
     ])
 
-    expect(await deleteCredential(db, 'api.example.com', '/orgs/org_alpha/org-cred')).toBe(true)
-    expect(await deleteCredential(db, 'api.example.com', '/orgs/org_alpha/org-cred')).toBe(false)
+    expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(true)
+    expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(false)
   })
 
   it('records revocations and manages auth flow lifecycle', async () => {
@@ -160,7 +160,7 @@ describe('db queries', () => {
       profilePath: '/github',
       method: 'oauth',
       codeVerifier: 'verifier',
-      scopePath: '/orgs/org_alpha',
+      scopePath: '/org_alpha',
       expiresAt: new Date('2099-01-01T00:00:00.000Z'),
     })
     await createAuthFlow(db, {

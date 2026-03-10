@@ -273,16 +273,17 @@ export function extractTokenFacts(
 
     for (const line of source.split('\n')) {
       const trimmed = line.trim().replace(/;$/, '')
-      const apwRightMatch = trimmed.match(/(?:^|[\s,])(?:apw:right|apw_right)\("([^"]+)"\)/)
-      if (apwRightMatch) rights.push(apwRightMatch[1])
-      const apwUserMatch = trimmed.match(/(?:^|[\s,])(?:apw:user_id|apw_user_id)\("([^"]+)"\)/)
-      if (apwUserMatch) userId = apwUserMatch[1]
-      const apwOrgMatch = trimmed.match(/(?:^|[\s,])(?:apw:org_id|apw_org_id)\("([^"]+)"\)/)
-      if (apwOrgMatch) orgId = apwOrgMatch[1]
-      const apwPathMatch = trimmed.match(/(?:^|[\s,])(?:apw:path|apw_path)\("([^"]+)"\)/)
-      if (apwPathMatch) path = apwPathMatch[1]
-      const apwScopeMatch = trimmed.match(/(?:^|[\s,])(?:apw:scope|apw_scope)\("([^"]+)"\)/)
-      if (apwScopeMatch) scopes.push(apwScopeMatch[1])
+      // Match namespaced (apw:*, apw_*) and legacy bare facts
+      const rightMatch = trimmed.match(/(?:^|[\s,])(?:apw:right|apw_right|right)\("([^"]+)"\)/)
+      if (rightMatch) rights.push(rightMatch[1])
+      const userMatch = trimmed.match(/(?:^|[\s,])(?:apw:user_id|apw_user_id|user_id|user)\("([^"]+)"\)/)
+      if (userMatch) userId = userMatch[1]
+      const orgMatch = trimmed.match(/(?:^|[\s,])(?:apw:org_id|apw_org_id|org_id)\("([^"]+)"\)/)
+      if (orgMatch) orgId = orgMatch[1]
+      const pathMatch = trimmed.match(/(?:^|[\s,])(?:apw:path|apw_path)\("([^"]+)"\)/)
+      if (pathMatch) path = pathMatch[1]
+      const scopeMatch = trimmed.match(/(?:^|[\s,])(?:apw:scope|apw_scope|scope)\("([^"]+)"\)/)
+      if (scopeMatch) scopes.push(scopeMatch[1])
     }
 
     return {
