@@ -21,6 +21,16 @@ interface LegacyServiceRecord {
   updatedAt: Date
 }
 
+function normalizeHostList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    return [value]
+  }
+  return []
+}
+
 function parseJsonArray(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null
 }
@@ -35,10 +45,11 @@ function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): Legac
   const managedOauth = profile.managedOauth ?? null
   const authSchemes = parseJsonArray(auth?.authSchemes)
   const authConfig = auth?.authConfig
+  const host = normalizeHostList(profile.host)
 
   return {
     slug: profile.path,
-    allowedHosts: JSON.stringify(profile.host),
+    allowedHosts: JSON.stringify(host),
     authSchemes: authSchemes ? JSON.stringify(authSchemes) : null,
     displayName: profile.displayName,
     description: profile.description,
@@ -58,7 +69,9 @@ function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): Legac
 
 export async function getCredProfile(db: Database, path: string) {
   const rows = await db.select().from(credProfiles).where(eq(credProfiles.path, path))
-  return rows[0] ?? null
+  const row = rows[0]
+  if (!row) return null
+  return { ...row, host: normalizeHostList(row.host) }
 }
 
 export async function getCredProfileByHost(db: Database, host: string) {
@@ -87,7 +100,8 @@ export async function getCredProfileByHostForPath(db: Database, host: string, to
 }
 
 export async function listCredProfiles(db: Database) {
-  return db.select().from(credProfiles)
+  const rows = await db.select().from(credProfiles)
+  return rows.map(row => ({ ...row, host: normalizeHostList(row.host) }))
 }
 
 export async function listCredProfilesWithCredentialCounts(db: Database) {

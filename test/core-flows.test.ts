@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCoreApp } from '@agent.pw/server'
+import { sql } from 'drizzle-orm'
 import {
   encryptCredentials,
   buildCredentialHeaders,
@@ -104,6 +105,43 @@ async function storeScopedCredential(slug: string, host: string, bearerToken: st
 }
 
 describe('Core Scenario Flows', () => {
+  it('normalizes legacy string hosts to arrays in credential profile responses', async () => {
+    await db.execute(sql`
+      INSERT INTO agentpw.cred_profiles (path, host, display_name)
+      VALUES ('/legacy', '"api.legacy.example"'::jsonb, 'Legacy')
+    `)
+
+    await db.execute(sql`
+      INSERT INTO agentpw.cred_profiles (path, host, display_name)
+      VALUES ('/null-host', 'null'::jsonb, 'NullHost')
+    `)
+
+    const listed = await mgmtReq('/cred_profiles')
+    expect(listed.status).toBe(200)
+    expect(await listed.json()).toContainEqual(expect.objectContaining({
+      slug: '/legacy',
+      host: ['api.legacy.example'],
+    }))
+    expect(await mgmtReq('/cred_profiles').then(r => r.json())).toContainEqual(expect.objectContaining({
+      slug: '/null-host',
+      host: [],
+    }))
+
+    const detail = await mgmtReq('/cred_profiles/legacy')
+    expect(detail.status).toBe(200)
+    expect(await detail.json()).toMatchObject({
+      slug: '/legacy',
+      host: ['api.legacy.example'],
+    })
+
+    const nullDetail = await mgmtReq('/cred_profiles/null-host')
+    expect(nullDetail.status).toBe(200)
+    expect(await nullDetail.json()).toMatchObject({
+      slug: '/null-host',
+      host: [],
+    })
+  })
+
   it('stores credential profiles and credentials through the core API and reports health counts', async () => {
     await registerProfile('github', {
       host: ['api.github.com'],
