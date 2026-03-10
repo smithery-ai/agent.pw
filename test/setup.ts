@@ -61,7 +61,6 @@ export async function createTestDb() {
       scope_path TEXT,
       token TEXT,
       identity TEXT,
-      credential_path TEXT,
       expires_at TIMESTAMP NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now()
     )
