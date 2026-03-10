@@ -36,13 +36,25 @@ export async function inspectTokenCmd() {
 
   for (const line of authority.split('\n')) {
     const t = line.trim().replace(/;$/, '')
-    const userMatch = t.match(/apw_user_id\("([^"]+)"\)/) ?? t.match(/user\("([^"]+)"\)/)
+    const userMatch =
+      t.match(/apw:user_id\("([^"]+)"\)/) ??
+      t.match(/apw_user_id\("([^"]+)"\)/) ??
+      t.match(/user\("([^"]+)"\)/)
     if (userMatch) userId = userMatch[1]
-    const orgMatch = t.match(/apw_org_id\("([^"]+)"\)/) ?? t.match(/org_id\("([^"]+)"\)/)
+    const orgMatch =
+      t.match(/apw:org_id\("([^"]+)"\)/) ??
+      t.match(/apw_org_id\("([^"]+)"\)/) ??
+      t.match(/org_id\("([^"]+)"\)/)
     if (orgMatch) orgId = orgMatch[1]
-    const rightMatch = t.match(/apw_right\("([^"]+)"\)/) ?? t.match(/right\("([^"]+)"\)/)
+    const rightMatch =
+      t.match(/apw:right\("([^"]+)"\)/) ??
+      t.match(/apw_right\("([^"]+)"\)/) ??
+      t.match(/right\("([^"]+)"\)/)
     if (rightMatch && !rights.includes(rightMatch[1])) rights.push(rightMatch[1])
-    const scopeMatch = t.match(/apw_scope\("([^"]+)"\)/) ?? t.match(/scope\("([^"]+)"\)/)
+    const scopeMatch =
+      t.match(/apw:scope\("([^"]+)"\)/) ??
+      t.match(/apw_scope\("([^"]+)"\)/) ??
+      t.match(/scope\("([^"]+)"\)/)
     if (scopeMatch && !scopes.includes(scopeMatch[1])) scopes.push(scopeMatch[1])
   }
 
