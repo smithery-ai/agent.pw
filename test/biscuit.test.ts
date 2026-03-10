@@ -5,6 +5,7 @@ import {
   extractTokenFacts,
   extractUserId,
   generateKeyPairHex,
+  getPublicKey,
   getPublicKeyHex,
   getRevocationIds,
   mintToken,
@@ -18,6 +19,20 @@ function buildCustomToken(code: string) {
   const builder = Biscuit.builder()
   builder.addCode(code)
   return builder.build(PrivateKey.fromString(BISCUIT_PRIVATE_KEY)).toBase64()
+}
+
+function mintLegacyToken() {
+  const builder = Biscuit.builder()
+  builder.addCode([
+    'user("legacy_user_123");',
+    'apw_user_id("legacy_user_123");',
+    'right("manage_services");',
+    'apw_right("manage_services");',
+    `apw_org_id("${TEST_ORG_ID}");`,
+    `apw_path("/${TEST_ORG_ID}");`,
+  ].join('\n'))
+  const token = builder.build(PrivateKey.fromString(BISCUIT_PRIVATE_KEY))
+  return `apw_${token.toBase64()}`
 }
 
 describe('biscuit helpers', () => {
@@ -147,5 +162,17 @@ describe('biscuit helpers', () => {
     expect(block).not.toContain('apw:resource')
     expect(block).not.toContain('apw:operation')
     expect(block).not.toContain('apw:path')
+  })
+
+  it('accepts legacy underscore facts for internal compatibility', () => {
+    const legacyToken = mintLegacyToken()
+
+    expect(authorizeRequest(legacyToken, PUBLIC_KEY_HEX, '_management', 'PUT', '/cred_profiles/linear').authorized).toBe(true)
+
+    const facts = extractTokenFacts(legacyToken, PUBLIC_KEY_HEX)
+    expect(facts.userId).toBe('legacy_user_123')
+    expect(facts.orgId).toBe(TEST_ORG_ID)
+    expect(facts.path).toBe(`/${TEST_ORG_ID}`)
+    expect(facts.rights).toContain('manage_services')
   })
 })

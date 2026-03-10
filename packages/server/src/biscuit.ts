@@ -136,6 +136,9 @@ function buildAuthorizerCode(service: string, method: string, path: string): str
     `time(${new Date().toISOString()});`,
     'allow if apw:user_id($u);',
     'allow if apw:org_id($o);',
+    // Temporary compatibility for older internal tokens minted before the colon namespace change.
+    'allow if apw_user_id($u);',
+    'allow if apw_org_id($o);',
     'deny if true;',
   ].join('\n')
 }
@@ -270,15 +273,15 @@ export function extractTokenFacts(
 
     for (const line of source.split('\n')) {
       const trimmed = line.trim().replace(/;$/, '')
-      const apwRightMatch = trimmed.match(/(?:^|[\s,])apw:right\("([^"]+)"\)/)
+      const apwRightMatch = trimmed.match(/(?:^|[\s,])(?:apw:right|apw_right)\("([^"]+)"\)/)
       if (apwRightMatch) rights.push(apwRightMatch[1])
-      const apwUserMatch = trimmed.match(/(?:^|[\s,])apw:user_id\("([^"]+)"\)/)
+      const apwUserMatch = trimmed.match(/(?:^|[\s,])(?:apw:user_id|apw_user_id)\("([^"]+)"\)/)
       if (apwUserMatch) userId = apwUserMatch[1]
-      const apwOrgMatch = trimmed.match(/(?:^|[\s,])apw:org_id\("([^"]+)"\)/)
+      const apwOrgMatch = trimmed.match(/(?:^|[\s,])(?:apw:org_id|apw_org_id)\("([^"]+)"\)/)
       if (apwOrgMatch) orgId = apwOrgMatch[1]
-      const apwPathMatch = trimmed.match(/(?:^|[\s,])apw:path\("([^"]+)"\)/)
+      const apwPathMatch = trimmed.match(/(?:^|[\s,])(?:apw:path|apw_path)\("([^"]+)"\)/)
       if (apwPathMatch) path = apwPathMatch[1]
-      const apwScopeMatch = trimmed.match(/(?:^|[\s,])apw:scope\("([^"]+)"\)/)
+      const apwScopeMatch = trimmed.match(/(?:^|[\s,])(?:apw:scope|apw_scope)\("([^"]+)"\)/)
       if (apwScopeMatch) scopes.push(apwScopeMatch[1])
     }
 
