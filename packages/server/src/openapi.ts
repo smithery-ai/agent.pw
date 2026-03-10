@@ -2,6 +2,7 @@ import { AuthScheme } from './auth-schemes'
 import {
   CredProfileSchema,
   CredProfileDetailSchema,
+  CredProfileListPageSchema,
   CreateCredProfileRequestSchema,
   ErrorSchema,
   OkSchema,
@@ -9,8 +10,11 @@ import {
 } from './routes/cred-profiles'
 import {
   CredentialSchema,
+  CredentialErrorSchema,
+  CredentialListPageSchema,
   CreateCredentialRequestSchema,
 } from './routes/credentials'
+import { ServiceListPageSchema } from './routes/services'
 import {
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
@@ -49,12 +53,16 @@ export const allSchemas = [
   AuthScheme,
   CredProfileSchema,
   CredProfileDetailSchema,
+  CredProfileListPageSchema,
   CreateCredProfileRequestSchema,
   ErrorSchema,
   OkSchema,
   OkWithSlugSchema,
   CredentialSchema,
+  CredentialErrorSchema,
+  CredentialListPageSchema,
   CreateCredentialRequestSchema,
+  ServiceListPageSchema,
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
 ]

@@ -20,6 +20,32 @@ targets:
 environments:
   production: https://api.agent.pw
 
+pagination:
+  - name: cursor_page
+    type: cursor
+    request:
+      cursor:
+        type: string
+        x-stainless-pagination-property:
+          purpose: next_cursor_param
+      limit:
+        type: integer
+    response:
+      data:
+        type: array
+        items:
+          type: unknown
+        x-stainless-pagination-property:
+          purpose: items
+      nextCursor:
+        type: string
+        x-stainless-pagination-property:
+          purpose: next_cursor_field
+      hasMore:
+        type: boolean
+        x-stainless-pagination-property:
+          purpose: has_next_page
+
 resources:
   health:
     methods:
@@ -27,14 +53,18 @@ resources:
 
   profiles:
     methods:
-      list: get /cred_profiles
+      list:
+        endpoint: get /cred_profiles
+        paginated: cursor_page
       get: get /cred_profiles/{slug}
       create: put /cred_profiles/{slug}
       delete: delete /cred_profiles/{slug}
 
   credentials:
     methods:
-      list: get /credentials
+      list:
+        endpoint: get /credentials
+        paginated: cursor_page
       store: put /credentials/{slug}
       delete: delete /credentials/{slug}
 
@@ -66,3 +96,8 @@ readme:
       type: request
       endpoint: get /cred_profiles
       params: {}
+    pagination:
+      type: request
+      endpoint: get /cred_profiles
+      params:
+        limit: 30

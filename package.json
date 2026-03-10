@@ -22,7 +22,8 @@
     "./biscuit": "./packages/server/src/biscuit.ts",
     "./proxy": "./packages/server/src/proxy.ts",
     "./auth-schemes": "./packages/server/src/auth-schemes.ts",
-    "./service-preview": "./packages/server/src/service-preview.ts"
+    "./service-preview": "./packages/server/src/service-preview.ts",
+    "./pagination": "./packages/server/src/lib/pagination.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",

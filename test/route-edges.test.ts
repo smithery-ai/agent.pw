@@ -288,6 +288,100 @@ describe('route edge cases', () => {
     expect(lostDeleteRace.status).toBe(404)
   })
 
+  it('rejects malformed pagination cursors on credentials and profiles', async () => {
+    const token = mintTestToken('org_alpha')
+
+    const badCredCursor = await app.request('https://agent.pw/credentials?cursor=bad-cursor', {
+      headers: withToken(token),
+    })
+    expect(badCredCursor.status).toBe(400)
+    expect(await badCredCursor.json()).toEqual({ error: 'Invalid pagination cursor' })
+
+    const badProfileCursor = await app.request('https://agent.pw/cred_profiles?cursor=bad-cursor', {
+      headers: withToken(token),
+    })
+    expect(badProfileCursor.status).toBe(400)
+    expect(await badProfileCursor.json()).toEqual({ error: 'Invalid pagination cursor' })
+  })
+
+  it('paginates credentials and profiles with cursor continuation', async () => {
+    const manager = mintTestToken('org_alpha', ['manage_services'])
+    const token = mintTestToken('org_alpha')
+
+    // Create two profiles for pagination
+    for (const slug of ['aaa-svc', 'bbb-svc']) {
+      await app.request(`https://agent.pw/cred_profiles/${slug}`, {
+        method: 'PUT',
+        headers: withToken(manager, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ host: [`api.${slug}.com`] }),
+      })
+    }
+
+    const firstProfilePage = await app.request('https://agent.pw/cred_profiles?limit=1', {
+      headers: withToken(token),
+    })
+    expect(firstProfilePage.status).toBe(200)
+    const profilePage = await firstProfilePage.json() as { data: unknown[]; hasMore: boolean; nextCursor: string | null }
+    expect(profilePage.data).toHaveLength(1)
+    expect(profilePage.hasMore).toBe(true)
+    expect(profilePage.nextCursor).toBeTruthy()
+
+    const secondProfilePage = await app.request(`https://agent.pw/cred_profiles?limit=1&cursor=${profilePage.nextCursor}`, {
+      headers: withToken(token),
+    })
+    expect(secondProfilePage.status).toBe(200)
+    const page2 = await secondProfilePage.json() as { data: unknown[]; hasMore: boolean; nextCursor: string | null }
+    expect(page2.data).toHaveLength(1)
+    expect(page2.hasMore).toBe(false)
+
+    // Create two credentials with same host for host comparison coverage
+    for (const name of ['cred-aaa', 'cred-bbb']) {
+      await app.request(`https://agent.pw/credentials/${name}`, {
+        method: 'PUT',
+        headers: withToken(token, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ token: `secret-${name}`, host: 'api.same-host.com' }),
+      })
+    }
+
+    const firstCredPage = await app.request('https://agent.pw/credentials?limit=1', {
+      headers: withToken(token),
+    })
+    expect(firstCredPage.status).toBe(200)
+    const credPage = await firstCredPage.json() as { data: unknown[]; hasMore: boolean; nextCursor: string | null }
+    expect(credPage.data).toHaveLength(1)
+    expect(credPage.hasMore).toBe(true)
+    expect(credPage.nextCursor).toBeTruthy()
+
+    const secondCredPage = await app.request(`https://agent.pw/credentials?limit=1&cursor=${credPage.nextCursor}`, {
+      headers: withToken(token),
+    })
+    expect(secondCredPage.status).toBe(200)
+    const credPage2 = await secondCredPage.json() as { data: unknown[]; hasMore: boolean; nextCursor: string | null }
+    expect(credPage2.data).toHaveLength(1)
+    expect(credPage2.hasMore).toBe(false)
+  })
+
+  it('re-throws non-pagination errors from list endpoints', async () => {
+    const paginationModule = await import('../packages/server/src/lib/pagination')
+    const token = mintTestToken('org_alpha')
+
+    const spy = vi.spyOn(paginationModule, 'paginateItems').mockImplementation(() => {
+      throw new Error('unexpected error')
+    })
+
+    const credRes = await app.request('https://agent.pw/credentials', {
+      headers: withToken(token),
+    })
+    expect(credRes.status).toBe(500)
+
+    const profileRes = await app.request('https://agent.pw/cred_profiles', {
+      headers: withToken(token),
+    })
+    expect(profileRes.status).toBe(500)
+
+    spy.mockRestore()
+  })
+
   it('surfaces token route failures as 400 responses', async () => {
     const token = mintTestToken('org_alpha')
 

@@ -186,7 +186,7 @@ describe('cross-org isolation', () => {
 
     const list = await req('/credentials', { headers: withToken(tokenA) })
     expect(list.status).toBe(200)
-    expect((await list.json()) as { name: string }[]).toEqual([
+    expect(((await list.json()) as { data: { name: string }[] }).data).toEqual([
       expect.objectContaining({ name: 'cred-a' }),
     ])
 
@@ -256,7 +256,7 @@ describe('admin flows downward', () => {
 
     const list = await req('/credentials', { headers: withToken(orgToken) })
     expect(list.status).toBe(200)
-    const names = ((await list.json()) as { name: string }[]).map(credential => credential.name)
+    const names = ((await list.json()) as { data: { name: string }[] }).data.map(credential => credential.name)
     expect(names).toContain('ws-cred')
     expect(names).toContain('root-cred')
 
@@ -468,7 +468,7 @@ describe('credential profile path-based access control', () => {
     const res = await req('/cred_profiles', { headers: withToken(token) })
     expect(res.status).toBe(200)
 
-    const paths = ((await res.json()) as { path: string }[]).map(profile => profile.path)
+    const paths = ((await res.json()) as { data: { path: string }[] }).data.map(profile => profile.path)
     expect(paths).toContain('/global-svc')
     expect(paths).toContain(`/orgs/${ORG_A}/org-svc`)
     expect(paths).not.toContain(`/orgs/${ORG_B}/other-org-svc`)

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { requestJson, request } from '../http'
+import { requestAllPages, requestJson, request } from '../http'
 import { output, outputList } from '../output'
 
 interface CredProfile {
@@ -107,7 +107,7 @@ function buildAuthExtras(options: AddProfileOptions) {
 }
 
 export async function listProfiles() {
-  const profiles = await requestJson<CredProfile[]>('/cred_profiles')
+  const profiles = await requestAllPages<CredProfile>('/cred_profiles')
 
   if (outputList(profiles)) return
 

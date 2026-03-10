@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { deriveEncryptionKey } from '@agent.pw/server/crypto'
 import { createLogger } from '@agent.pw/server/logger'
 import { serviceRoutes } from '../packages/server/src/routes/services'
@@ -11,6 +11,12 @@ import {
 } from './setup'
 
 let db: TestDb
+
+interface ListResponse<T> {
+  data: T[]
+  hasMore: boolean
+  nextCursor: string | null
+}
 
 async function buildApp() {
   const app = new Hono<any>()
@@ -60,15 +66,19 @@ describe('service routes', () => {
       headers: withToken(mintTestToken('org_alpha')),
     })
     expect(list.status).toBe(200)
-    expect(await list.json()).toEqual([
-      {
-        slug: '/github',
-        allowedHosts: ['api.github.com'],
-        displayName: 'Github',
-        description: 'GitHub API',
-        docsUrl: 'https://docs.github.com',
-      },
-    ])
+    expect(await list.json()).toEqual({
+      data: [
+        {
+          slug: '/github',
+          allowedHosts: ['api.github.com'],
+          displayName: 'Github',
+          description: 'GitHub API',
+          docsUrl: 'https://docs.github.com',
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    })
 
     const detail = await app.request('https://agent.pw/services/github', {
       headers: withToken(mintTestToken('org_alpha')),
@@ -138,5 +148,61 @@ describe('service routes', () => {
       docsUrl: null,
       authSchemes: null,
     })
+  })
+
+  it('paginates legacy service listings and rejects malformed cursors', async () => {
+    const app = await buildApp()
+    const managerToken = mintTestToken('org_alpha', ['manage_services'])
+
+    for (const slug of ['github', 'gitlab']) {
+      const res = await app.request(`https://agent.pw/services/${slug}`, {
+        method: 'PUT',
+        headers: withToken(managerToken, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ allowedHosts: [`api.${slug}.com`] }),
+      })
+      expect(res.status).toBe(200)
+    }
+
+    const first = await app.request('https://agent.pw/services?limit=1', {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+    expect(first.status).toBe(200)
+    const firstPage = (await first.json()) as ListResponse<{ slug: string }>
+    expect(firstPage.data).toEqual([
+      expect.objectContaining({ slug: '/github' }),
+    ])
+    expect(firstPage.hasMore).toBe(true)
+    expect(firstPage.nextCursor).toBeTruthy()
+
+    const second = await app.request(`https://agent.pw/services?limit=1&cursor=${encodeURIComponent(firstPage.nextCursor!)}`, {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+    expect(second.status).toBe(200)
+    expect((await second.json()) as ListResponse<{ slug: string }>).toEqual({
+      data: [expect.objectContaining({ slug: '/gitlab' })],
+      hasMore: false,
+      nextCursor: null,
+    })
+
+    const invalid = await app.request('https://agent.pw/services?cursor=bad-cursor', {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+    expect(invalid.status).toBe(400)
+    expect(await invalid.json()).toEqual({ error: 'Invalid pagination cursor' })
+  })
+
+  it('re-throws non-pagination errors from service list', async () => {
+    const app = await buildApp()
+    const paginationModule = await import('../packages/server/src/lib/pagination')
+    const spy = vi.spyOn(paginationModule, 'paginateItems').mockImplementation(() => {
+      throw new Error('unexpected error')
+    })
+
+    const res = await app.request('https://agent.pw/services', {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+    expect(res.status).toBe(500)
+
+    spy.mockRestore()
   })
 })

@@ -122,10 +122,10 @@ describe('Core Scenario Flows', () => {
     })
 
     const profiles = await mgmtReq('/cred_profiles')
-    expect((await profiles.json()) as unknown[]).toHaveLength(1)
+    expect(((await profiles.json()) as { data: unknown[] }).data).toHaveLength(1)
 
     const creds = await credReq('/credentials')
-    expect((await creds.json()) as unknown[]).toHaveLength(1)
+    expect(((await creds.json()) as { data: unknown[] }).data).toHaveLength(1)
   })
 
   it('injects stored credentials on proxied requests and lets callers override Authorization', async () => {

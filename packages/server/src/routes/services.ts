@@ -12,6 +12,12 @@ import {
 } from '../db/queries'
 import { encryptSecret } from '../lib/credentials-crypto'
 import { RESERVED_PATHS } from '../lib/utils'
+import {
+  buildListPageSchema,
+  InvalidPaginationCursorError,
+  paginateItems,
+  PaginationQuerySchema,
+} from '../lib/pagination'
 
 export const ServiceSchema = z.object({
   slug: z.string().meta({ description: 'Unique service identifier', example: 'linear' }),
@@ -24,6 +30,8 @@ export const ServiceSchema = z.object({
 export const ServiceDetailSchema = ServiceSchema.extend({
   authSchemes: z.array(AuthScheme).nullable().meta({ description: 'Supported authentication schemes' }),
 }).meta({ id: 'ServiceDetail' })
+
+export const ServiceListPageSchema = buildListPageSchema(ServiceSchema, 'ServiceListPage')
 
 export const CreateServiceRequestSchema = z.object({
   allowedHosts: z.array(z.string()).min(1).meta({ description: 'Hostnames the proxy may forward to' }),
@@ -54,24 +62,40 @@ serviceRoutes.get('/', requireToken,
   describeRoute({
     tags: ['services'],
     summary: 'List services',
-    description: 'List all configured services with their allowed hosts.',
+    description: 'List configured services with cursor-based pagination.',
     responses: {
-      200: { description: 'List of services', content: { 'application/json': { schema: resolver(z.array(ServiceSchema)) } } },
+      200: { description: 'Paginated list of services', content: { 'application/json': { schema: resolver(ServiceListPageSchema) } } },
+      400: { description: 'Invalid pagination cursor', content: { 'application/json': { schema: resolver(ErrorSchema) } } },
     },
   }),
+  zValidator('query', PaginationQuerySchema),
   async c => {
     const db = c.get('db')
-    const allServices = await listServices(db)
-
-    return c.json(
-      allServices.map(s => ({
+    const query = c.req.valid('query')
+    const allServices = (await listServices(db))
+      .map(s => ({
         slug: s.slug,
         allowedHosts: JSON.parse(s.allowedHosts) as string[],
         displayName: s.displayName,
         description: s.description,
         docsUrl: s.docsUrl,
-      })),
-    )
+      }))
+      .sort((a, b) => a.slug.localeCompare(b.slug))
+
+    try {
+      return c.json(paginateItems({
+        items: allServices,
+        limit: query.limit,
+        cursor: query.cursor,
+        compareToCursor: (item, cursor: { slug: string }) => item.slug.localeCompare(cursor.slug),
+        toCursor: item => ({ slug: item.slug }),
+      }))
+    } catch (error) {
+      if (error instanceof InvalidPaginationCursorError) {
+        return c.json({ error: error.message }, 400)
+      }
+      throw error
+    }
   },
 )
 

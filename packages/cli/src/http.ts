@@ -3,6 +3,11 @@ import { resolve } from './resolve'
 
 let _client: AgentPw | null = null
 
+interface PaginatedResponse<T> {
+  data: T[]
+  nextCursor: string | null
+}
+
 /** Get an authenticated AgentPw SDK client, resolved from env/config/session. */
 export async function getClient() {
   if (_client) return _client
@@ -32,4 +37,25 @@ export async function requestJson<T>(path: string, init: RequestInit = {}): Prom
     throw error
   }
   return res.json() as Promise<T>
+}
+
+export async function requestAllPages<T>(path: string, init: RequestInit = {}) {
+  const allItems: T[] = []
+  let cursor: string | null = null
+
+  do {
+    const url = new URL(path, 'https://agent.pw')
+    if (!url.searchParams.has('limit')) {
+      url.searchParams.set('limit', '100')
+    }
+    if (cursor) {
+      url.searchParams.set('cursor', cursor)
+    }
+
+    const page = await requestJson<PaginatedResponse<T>>(`${url.pathname}${url.search}`, init)
+    allItems.push(...page.data)
+    cursor = page.nextCursor
+  } while (cursor)
+
+  return allItems
 }

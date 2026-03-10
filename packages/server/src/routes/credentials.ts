@@ -21,6 +21,12 @@ import {
   validateCredentialName,
   validatePath,
 } from '../paths'
+import {
+  buildListPageSchema,
+  InvalidPaginationCursorError,
+  paginateItems,
+  PaginationQuerySchema,
+} from '../lib/pagination'
 
 export const CredentialSchema = z.object({
   name: z.string().meta({ description: 'Credential name', example: 'linear' }),
@@ -28,6 +34,12 @@ export const CredentialSchema = z.object({
   path: z.string().meta({ description: 'Full credential path', example: '/orgs/ruzo/linear' }),
   createdAt: z.string().meta({ description: 'ISO 8601 creation timestamp' }),
 }).meta({ id: 'Credential' })
+
+export const CredentialListPageSchema = buildListPageSchema(CredentialSchema, 'CredentialListPage')
+
+export const CredentialErrorSchema = z.object({
+  error: z.string(),
+}).meta({ id: 'CredentialError' })
 
 export const CreateCredentialRequestSchema = z.object({
   token: z.string().optional().meta({ description: 'API token or secret' }),
@@ -39,27 +51,58 @@ export const CreateCredentialRequestSchema = z.object({
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
 
+function compareListedCredentials(
+  a: Pick<z.infer<typeof CredentialSchema>, 'createdAt' | 'path' | 'host'>,
+  b: Pick<z.infer<typeof CredentialSchema>, 'createdAt' | 'path' | 'host'>,
+) {
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    || a.path.localeCompare(b.path)
+    || a.host.localeCompare(b.host)
+}
+
 credentialRoutes.get('/', requireToken,
   describeRoute({
     tags: ['credentials'],
     summary: 'List credentials',
-    description: 'List all credentials accessible to this token (owned + inherited).',
+    description: 'List credentials accessible to this token with cursor-based pagination.',
     responses: {
-      200: { description: 'List of credentials', content: { 'application/json': { schema: resolver(z.array(CredentialSchema)) } } },
+      200: { description: 'Paginated list of credentials', content: { 'application/json': { schema: resolver(CredentialListPageSchema) } } },
+      400: { description: 'Invalid pagination cursor', content: { 'application/json': { schema: resolver(CredentialErrorSchema) } } },
     },
   }),
+  zValidator('query', PaginationQuerySchema),
   async c => {
     const db = c.get('db')
     const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
+    const query = c.req.valid('query')
     const creds = await listCredentialsAccessible(db, tokenPath)
-    return c.json(
-      creds.map(cr => ({
+    const listedCreds = creds
+      .map(cr => ({
         name: credentialName(cr.path),
         host: cr.host,
         path: cr.path,
         createdAt: cr.createdAt,
-      })),
-    )
+      }))
+      .sort(compareListedCredentials)
+
+    try {
+      return c.json(paginateItems({
+        items: listedCreds,
+        limit: query.limit,
+        cursor: query.cursor,
+        compareToCursor: compareListedCredentials,
+        toCursor: item => ({
+          createdAt: item.createdAt,
+          path: item.path,
+          host: item.host,
+        }),
+      }))
+    } catch (error) {
+      if (error instanceof InvalidPaginationCursorError) {
+        return c.json({ error: error.message }, 400)
+      }
+      throw error
+    }
   },
 )
 
@@ -70,7 +113,7 @@ credentialRoutes.put('/:name', requireToken,
     description: 'Create or update a credential for a service. Provide either a token or explicit headers.',
     responses: {
       200: { description: 'Credential stored', content: { 'application/json': { schema: resolver(z.object({ ok: z.literal(true), name: z.string(), path: z.string() }).meta({ id: 'CredentialStored' })) } } },
-      400: { description: 'Invalid request', content: { 'application/json': { schema: resolver(z.object({ error: z.string() }).meta({ id: 'CredentialError' })) } } },
+      400: { description: 'Invalid request', content: { 'application/json': { schema: resolver(CredentialErrorSchema) } } },
       404: { description: 'Profile not found', content: { 'application/json': { schema: resolver(z.object({ error: z.string() })) } } },
     },
   }),

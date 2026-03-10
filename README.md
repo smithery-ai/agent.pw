@@ -77,6 +77,16 @@ POST   /tokens/revoke                     revoke a token
 GET    /.well-known/jwks.json             Ed25519 public key (JWK)
 ```
 
+List endpoints accept `limit` and `cursor` query params and return:
+
+```json
+{
+  "data": [],
+  "hasMore": false,
+  "nextCursor": null
+}
+```
+
 ## Development
 
 ```bash

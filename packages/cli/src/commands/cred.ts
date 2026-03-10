@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline'
-import { request, requestJson } from '../http'
+import { request, requestAllPages, requestJson } from '../http'
 import { output, outputList } from '../output'
 
 interface ListedCredential {
@@ -39,7 +39,7 @@ function relativeTime(date: string) {
 }
 
 export async function listCreds() {
-  const creds = await requestJson<ListedCredential[]>('/credentials')
+  const creds = await requestAllPages<ListedCredential>('/credentials')
 
   if (outputList(creds)) return
 
@@ -62,7 +62,7 @@ async function resolveProfile(target: string): Promise<CredProfile | null> {
     if (!isNotFound(e)) throw e
   }
 
-  const profiles = await requestJson<CredProfile[]>('/cred_profiles')
+  const profiles = await requestAllPages<CredProfile>('/cred_profiles')
   return profiles.find(profile => profile.host.includes(target)) ?? null
 }
 

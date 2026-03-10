@@ -11,6 +11,12 @@ import {
 } from '../db/queries'
 import { RESERVED_PATHS } from '../lib/utils'
 import { pathFromTokenFacts, isAncestorOrEqual, validatePath, credentialParentPath } from '../paths'
+import {
+  buildListPageSchema,
+  InvalidPaginationCursorError,
+  paginateItems,
+  PaginationQuerySchema,
+} from '../lib/pagination'
 
 export const CredProfileSchema = z.object({
   slug: z.string().meta({ description: 'Unique profile identifier', example: 'linear' }),
@@ -23,6 +29,8 @@ export const CredProfileSchema = z.object({
 export const CredProfileDetailSchema = CredProfileSchema.extend({
   auth: z.unknown().nullable().meta({ description: 'Auth configuration (OAuth or headers)' }),
 }).meta({ id: 'CredProfileDetail' })
+
+export const CredProfileListPageSchema = buildListPageSchema(CredProfileSchema, 'CredProfileListPage')
 
 export const CreateCredProfileRequestSchema = z.object({
   host: z.array(z.string()).min(1).meta({ description: 'Hostnames this profile applies to' }),
@@ -51,30 +59,45 @@ credProfileRoutes.get('/', requireToken,
   describeRoute({
     tags: ['cred_profiles'],
     summary: 'List credential profiles',
-    description: 'List credential profiles visible to this token (ancestors and descendants).',
+    description: 'List credential profiles visible to this token with cursor-based pagination.',
     responses: {
-      200: { description: 'List of profiles', content: { 'application/json': { schema: resolver(z.array(CredProfileSchema)) } } },
+      200: { description: 'Paginated list of profiles', content: { 'application/json': { schema: resolver(CredProfileListPageSchema) } } },
+      400: { description: 'Invalid pagination cursor', content: { 'application/json': { schema: resolver(ErrorSchema) } } },
     },
   }),
+  zValidator('query', PaginationQuerySchema),
   async c => {
     const db = c.get('db')
     const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
+    const query = c.req.valid('query')
     const allProfiles = await listCredProfiles(db)
 
     // Show profiles at ancestors (usable as config) and descendants (manageable)
     const visible = allProfiles.filter(p =>
       isAncestorOrEqual(credentialParentPath(p.path), tokenPath) || isAncestorOrEqual(tokenPath, p.path),
-    )
-
-    return c.json(
-      visible.map(p => ({
+    ).map(p => ({
         slug: p.path,
         host: p.host,
         path: p.path,
         displayName: p.displayName,
         description: p.description,
-      })),
-    )
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path))
+
+    try {
+      return c.json(paginateItems({
+        items: visible,
+        limit: query.limit,
+        cursor: query.cursor,
+        compareToCursor: (item, cursor: { slug: string }) => item.slug.localeCompare(cursor.slug),
+        toCursor: item => ({ slug: item.slug }),
+      }))
+    } catch (error) {
+      if (error instanceof InvalidPaginationCursorError) {
+        return c.json({ error: error.message }, 400)
+      }
+      throw error
+    }
   },
 )
 
