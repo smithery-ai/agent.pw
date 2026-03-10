@@ -121,7 +121,7 @@ describe('biscuit helpers', () => {
   })
 
   it('uses only namespaced identity facts and plain ambient request facts', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', ['admin'], [
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', ['manage_services'], [
       `apw:org_id("${TEST_ORG_ID}")`,
       `apw:path("/${TEST_ORG_ID}")`,
     ])
@@ -131,9 +131,9 @@ describe('biscuit helpers', () => {
     const authorityLines = authority.split('\n').map(line => line.trim()).filter(Boolean)
 
     expect(authorityLines).toContain('apw:user_id("user_test_123");')
-    expect(authorityLines).toContain('apw:right("admin");')
+    expect(authorityLines).toContain('apw:right("manage_services");')
     expect(authorityLines).not.toContain('user("user_test_123");')
-    expect(authorityLines).not.toContain('right("admin");')
+    expect(authorityLines).not.toContain('right("manage_services");')
 
     const restricted = restrictToken(token, PUBLIC_KEY_HEX, [
       { services: 'github', methods: 'GET', paths: '/user' },

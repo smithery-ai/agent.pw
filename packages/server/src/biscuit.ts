@@ -134,7 +134,6 @@ function buildAuthorizerCode(service: string, method: string, path: string): str
     `operation("${escapeDatalog(method.toUpperCase())}");`,
     `path("${escapeDatalog(path)}");`,
     `time(${new Date().toISOString()});`,
-    'allow if apw:right("admin");',
     'allow if apw:user_id($u);',
     'allow if apw:org_id($o);',
     'deny if true;',
