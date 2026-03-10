@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { requestJson, request } from '../http'
+import { output, outputList } from '../output'
 
 interface CredProfile {
   slug: string
   host: string[]
   displayName?: string | null
   description?: string | null
-  auth?: unknown | null
+  auth?: Record<string, unknown> | null
 }
 
 interface CreateCredProfileRequest {
@@ -17,10 +18,20 @@ interface CreateCredProfileRequest {
   description?: string
 }
 
-interface AddProfileOptions {
+export interface AddProfileOptions {
   filePath?: string
   auth?: string
   headers?: string[]
+  scopes?: string[]
+  displayName?: string
+  description?: string
+  docsUrl?: string
+  authorizeUrl?: string
+  tokenUrl?: string
+  identityUrl?: string
+  identityPath?: string
+  clientId?: string
+  clientSecret?: string
 }
 
 interface HeaderFieldTemplate {
@@ -65,8 +76,40 @@ function parseHeaderFieldTemplate(spec: string): HeaderFieldTemplate {
   }
 }
 
+function buildHeaderAuthSchemes(fields: HeaderFieldTemplate[]) {
+  const first = fields[0]
+  if (!first) return undefined
+  if (first.header.toLowerCase() === 'authorization') {
+    if (first.prefix === 'Bearer ') return [{ type: 'http', scheme: 'bearer' as const }]
+    if (first.prefix === 'Basic ') return [{ type: 'http', scheme: 'basic' as const }]
+  }
+  return [{ type: 'apiKey' as const, in: 'header' as const, name: first.header }]
+}
+
+function buildOAuthConfig(options: AddProfileOptions) {
+  if (!options.authorizeUrl || !options.tokenUrl) {
+    console.error('OAuth profiles require --authorize-url and --token-url.')
+    process.exit(1)
+  }
+  return {
+    authorizeUrl: options.authorizeUrl,
+    tokenUrl: options.tokenUrl,
+    scopes: options.scopes && options.scopes.length > 0 ? options.scopes.join(' ') : undefined,
+  }
+}
+
+function buildAuthExtras(options: AddProfileOptions) {
+  const extras: Record<string, unknown> = {}
+  if (options.identityUrl) extras.identity_url = options.identityUrl
+  if (options.identityPath) extras.identity_path = options.identityPath
+  if (options.docsUrl) extras.docsUrl = options.docsUrl
+  return extras
+}
+
 export async function listProfiles() {
   const profiles = await requestJson<CredProfile[]>('/cred_profiles')
+
+  if (outputList(profiles)) return
 
   if (profiles.length === 0) {
     console.log('No credential profiles configured.')
@@ -84,6 +127,7 @@ export async function listProfiles() {
 export async function getProfileCmd(slug: string) {
   try {
     const profile = await requestJson<CredProfile>(`/cred_profiles/${encodeURIComponent(slug)}`)
+    if (output(profile)) return
     console.log(JSON.stringify(profile, null, 2))
   } catch (e: unknown) {
     if (isNotFound(e)) {
@@ -103,36 +147,52 @@ export async function addProfile(slug: string, hosts: string[], options: AddProf
     if ((!body.host || body.host.length === 0) && hosts.length > 0) {
       body.host = hosts
     }
-  } else if (options.auth === 'headers') {
-    if (hosts.length === 0) {
-      console.error('At least one --host is required.')
-      process.exit(1)
-    }
-    const fields = (options.headers ?? []).map(parseHeaderFieldTemplate)
-    if (fields.length === 0) {
-      console.error('At least one -H/--header template is required for --auth headers.')
-      process.exit(1)
-    }
-    body = {
-      host: hosts,
-      auth: {
-        kind: 'headers',
-        fields,
-      },
-    }
   } else {
     if (hosts.length === 0) {
       console.error('At least one --host is required.')
       process.exit(1)
     }
-    body = { host: hosts }
+
+    let auth: Record<string, unknown> | undefined
+    if (options.auth === 'headers') {
+      const fields = (options.headers ?? []).map(parseHeaderFieldTemplate)
+      if (fields.length === 0) {
+        console.error('At least one -H/--header template is required for --auth headers.')
+        process.exit(1)
+      }
+      auth = {
+        kind: 'headers',
+        fields,
+        authSchemes: buildHeaderAuthSchemes(fields),
+        ...buildAuthExtras(options),
+      }
+    } else if (options.auth === 'oauth') {
+      auth = {
+        kind: 'oauth',
+        ...buildOAuthConfig(options),
+        ...buildAuthExtras(options),
+      }
+    }
+
+    const managedOauth: Record<string, unknown> = {}
+    if (options.clientId) managedOauth.clientId = options.clientId
+    if (options.clientSecret) managedOauth.clientSecret = options.clientSecret
+
+    body = {
+      host: hosts,
+      auth,
+      managedOauth: Object.keys(managedOauth).length > 0 ? managedOauth : undefined,
+      displayName: options.displayName,
+      description: options.description,
+    }
   }
 
-  await requestJson(`/cred_profiles/${encodeURIComponent(slug)}`, {
+  const result = await requestJson(`/cred_profiles/${encodeURIComponent(slug)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (output(result)) return
   console.log(`Credential profile '${slug}' registered.`)
 }
 
@@ -146,6 +206,7 @@ export async function removeProfile(slug: string) {
       error.status = res.status
       throw error
     }
+    if (output({ slug, removed: true })) return
     console.log(`Credential profile '${slug}' removed.`)
   } catch (e: unknown) {
     if (isNotFound(e)) {

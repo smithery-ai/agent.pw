@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "packageManager": "pnpm@10.8.0",
   "type": "module",
+  "bin": {
+    "agent.pw-server": "./packages/server/cli.ts"
+  },
   "exports": {
     ".": "./packages/server/src/core/app.ts",
     "./types": "./packages/server/src/core/types.ts",

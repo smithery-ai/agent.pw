@@ -1,4 +1,5 @@
 import { getClient, requestJson } from '../http'
+import { output } from '../output'
 
 interface RestrictConstraint {
   services?: string | string[]
@@ -42,6 +43,7 @@ export async function restrictTokenCmd(args: string[]) {
     body: JSON.stringify({ constraints: [constraint] }),
   })
 
+  if (output(res)) return
   console.log(res.token)
 }
 

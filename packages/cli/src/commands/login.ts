@@ -30,7 +30,7 @@ export async function login(host?: string) {
   const config = await fetchCliAuthConfig(targetHost)
   if (config.provider !== 'workos_device') {
     console.error(`This host does not support cloud login.`)
-    console.error('Use `agent.pw setup` for a local instance or configure AGENT_PW_HOST and AGENT_PW_TOKEN manually.')
+    console.error('Configure AGENT_PW_HOST and AGENT_PW_TOKEN environment variables for a self-hosted instance.')
     process.exit(1)
   }
 
@@ -68,7 +68,7 @@ async function fetchCliAuthConfig(targetHost: string): Promise<CliAuthConfig> {
   if (!res.ok) {
     console.error(`This host does not advertise CLI auth (${res.status}).`)
     if (res.status === 404) {
-      console.error('If this is self-hosted, use `agent.pw setup` locally or configure a token manually.')
+      console.error('If this is self-hosted, configure AGENT_PW_HOST and AGENT_PW_TOKEN environment variables.')
     }
     process.exit(1)
   }

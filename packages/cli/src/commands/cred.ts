@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline'
 import { request, requestJson } from '../http'
+import { output, outputList } from '../output'
 
 interface ListedCredential {
   slug: string
@@ -32,6 +33,8 @@ function relativeTime(date: string) {
 
 export async function listCreds() {
   const creds = await requestJson<ListedCredential[]>('/credentials')
+
+  if (outputList(creds)) return
 
   if (creds.length === 0) {
     console.log('No credentials stored. Add one with `agent.pw cred add <slug-or-host>`.')
