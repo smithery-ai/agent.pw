@@ -10,7 +10,7 @@ import {
   deleteCredProfile,
 } from '../db/queries'
 import { RESERVED_PATHS } from '../lib/utils'
-import { pathFromTokenFacts, isAncestorOrEqual, validatePath } from '../paths'
+import { pathFromTokenFacts, isAncestorOrEqual, validatePath, credentialParentPath } from '../paths'
 
 export const CredProfileSchema = z.object({
   slug: z.string().meta({ description: 'Unique profile identifier', example: 'linear' }),
@@ -63,7 +63,7 @@ credProfileRoutes.get('/', requireToken,
 
     // Show profiles at ancestors (usable as config) and descendants (manageable)
     const visible = allProfiles.filter(p =>
-      isAncestorOrEqual(p.path, tokenPath) || isAncestorOrEqual(tokenPath, p.path),
+      isAncestorOrEqual(credentialParentPath(p.path), tokenPath) || isAncestorOrEqual(tokenPath, p.path),
     )
 
     return c.json(
