@@ -97,7 +97,7 @@ async function storeScopedCredential(slug: string, host: string, bearerToken: st
 
   await upsertCredential(db, {
     host,
-    path: `/orgs/${TEST_ORG_ID}/${slug}`,
+    path: `/${TEST_ORG_ID}/${slug}`,
     auth: { kind: 'headers' },
     secret: encrypted,
   })

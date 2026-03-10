@@ -14,6 +14,7 @@ export interface TokenFacts {
   rights: string[]
   userId: string | null
   orgId: string | null
+  path: string | null
   scopes: string[]
 }
 

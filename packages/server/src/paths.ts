@@ -2,7 +2,7 @@
  * Path-based security model utilities.
  *
  * Every credential and profile lives at a canonical path in a tree that
- * encodes organizational hierarchy (e.g. /orgs/ruzo/ws/engineering).
+ * encodes organizational hierarchy (e.g. /org_ruzo/ws/engineering).
  *
  * Two directions of access:
  * - Usage flows upward: credentials at ancestor paths are inherited
@@ -13,14 +13,14 @@
 export function isAncestorOrEqual(ancestor: string, descendant: string) {
   if (ancestor === descendant) return true
   if (ancestor === '/') return true
-  // Ensure boundary match: /orgs/ab must NOT match /orgs/abc
+  // Ensure boundary match: /ab must NOT match /abc
   const prefix = ancestor.endsWith('/') ? ancestor : ancestor + '/'
   return descendant.startsWith(prefix)
 }
 
-/** Derive the canonical path from token facts (orgId → /orgs/{orgId}). */
+/** Derive the canonical authorization path from token facts (orgId → /{orgId}). */
 export function pathFromTokenFacts(facts: { orgId?: string | null }) {
-  if (facts.orgId) return `/orgs/${facts.orgId}`
+  if (facts.orgId) return `/${facts.orgId}`
   return '/'
 }
 

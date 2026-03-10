@@ -9,10 +9,17 @@ export const BISCUIT_PRIVATE_KEY =
 export const TEST_ORG_ID = 'org_test_456'
 export const PUBLIC_KEY_HEX =
   'ed25519/e43c506c0d441f5b4e4ccac8c7572ac5b9d3773a3a95c21584164bec11f0d9ab'
-export const ROOT_TOKEN =
-  'apw_Et8BCnUKBWxvY2FsCgthcHdfdXNlcl9pZAoJYXB3X3JpZ2h0Cg9tYW5hZ2Vfc2VydmljZXMYAyIJCgcIChIDGIAIIgoKCAiBCBIDGIAIIggKBggEEgIYDSIJCgcIgggSAhgNIgkKBwgEEgMYgwgiCgoICIIIEgMYgwgSJAgAEiDbNEU90WEHi3F50uL58WqtjG44f5PyGx4DqWADYZFo2RpAULFl2PrOfpFbnYTf34vjWGZTZZvtVrvIkXOkJqjFxbvgMQNXwFpEieQ0VUd0CVdyyhY0X2ZJx06hyfAAz-m0ACIiCiCpSp7XIW3EzHRDIBvL4F3H4FpsPtUQDA5qqAsUXXRQBA=='
-export const ORG_TOKEN =
-  'apw_EsEBClcKDXVzZXJfdGVzdF8xMjMKC2Fwd191c2VyX2lkCgZvcmdfaWQKDG9yZ190ZXN0XzQ1NhgDIgkKBwgKEgMYgAgiCgoICIEIEgMYgAgiCgoICIIIEgMYgwgSJAgAEiB9mmA7aHk9nraGp-kNgDvEr3lMqRlV5L4XM-sVud5hExpACC78EUybNmLT7DXkRC8EUMrTm13As19X87Bb0OESx6rkL04ZmzTioCS1zPjsC1T116UNEjz9XFZIS0sBjinhAiIiCiChD_vSIHjWv5vqa4zXCSo_N9zrbpxreBc0U6sY4CMwkA=='
+
+function escapeDatalog(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+export const ROOT_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'local', ['manage_services'])
+
+export const ORG_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', undefined, [
+  `apw:org_id("${escapeDatalog(TEST_ORG_ID)}")`,
+  `apw:path("${escapeDatalog(`/${TEST_ORG_ID}`)}")`,
+])
 
 function escapeDatalog(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')

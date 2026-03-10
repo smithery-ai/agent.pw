@@ -31,7 +31,7 @@ import {
 export const CredentialSchema = z.object({
   name: z.string().meta({ description: 'Credential name', example: 'linear' }),
   host: z.string().meta({ description: 'Target hostname', example: 'api.linear.app' }),
-  path: z.string().meta({ description: 'Full credential path', example: '/orgs/ruzo/linear' }),
+  path: z.string().meta({ description: 'Full credential path', example: '/org_ruzo/linear' }),
   createdAt: z.string().meta({ description: 'ISO 8601 creation timestamp' }),
 }).meta({ id: 'Credential' })
 
@@ -46,7 +46,7 @@ export const CreateCredentialRequestSchema = z.object({
   headers: z.record(z.string(), z.string()).optional().meta({ description: 'Explicit header map to send on proxied requests' }),
   host: z.string().optional().meta({ description: 'Target hostname for this credential', example: 'api.linear.app' }),
   profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
-  path: z.string().optional().meta({ description: 'Full credential path (defaults to token path + name)', example: '/orgs/ruzo/linear' }),
+  path: z.string().optional().meta({ description: 'Full credential path (defaults to token path + name)', example: '/org_ruzo/linear' }),
 }).meta({ id: 'CreateCredentialRequest' })
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
