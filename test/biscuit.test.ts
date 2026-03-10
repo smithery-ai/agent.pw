@@ -119,4 +119,33 @@ describe('biscuit helpers', () => {
     const orgOnlyToken = buildCustomToken('org_id("org-only");')
     expect(extractUserId(orgOnlyToken, PUBLIC_KEY_HEX)).toBe('org-only')
   })
+
+  it('uses only namespaced identity facts and plain ambient request facts', () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', ['admin'], [
+      `apw:org_id("${TEST_ORG_ID}")`,
+      `apw:path("/${TEST_ORG_ID}")`,
+    ])
+    const publicKey = getPublicKey(BISCUIT_PRIVATE_KEY)
+    const biscuit = Biscuit.fromBase64(stripPrefix(token), publicKey)
+    const authority = biscuit.getBlockSource(0)
+    const authorityLines = authority.split('\n').map(line => line.trim()).filter(Boolean)
+
+    expect(authorityLines).toContain('apw:user_id("user_test_123");')
+    expect(authorityLines).toContain('apw:right("admin");')
+    expect(authorityLines).not.toContain('user("user_test_123");')
+    expect(authorityLines).not.toContain('right("admin");')
+
+    const restricted = restrictToken(token, PUBLIC_KEY_HEX, [
+      { services: 'github', methods: 'GET', paths: '/user' },
+    ])
+    const attenuated = Biscuit.fromBase64(stripPrefix(restricted), publicKey)
+    const block = attenuated.getBlockSource(1)
+
+    expect(block).toContain('resource($r)')
+    expect(block).toContain('operation($op)')
+    expect(block).toContain('path($p)')
+    expect(block).not.toContain('apw:resource')
+    expect(block).not.toContain('apw:operation')
+    expect(block).not.toContain('apw:path')
+  })
 })

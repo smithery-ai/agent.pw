@@ -95,6 +95,7 @@ pnpm build           # typecheck
 pnpm test            # run tests (in-memory PGlite)
 pnpm run lint        # lint
 pnpm run db:generate # generate Drizzle migrations from schema changes
+pnpm run smoke:token # boot a temp local server and inspect a fresh token end to end
 ```
 
 ## Repo Structure

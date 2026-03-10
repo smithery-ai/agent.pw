@@ -58,8 +58,8 @@ export function requireRight(right: string) {
 
 /**
  * Resolves userId from the token's identity and sets it on context.
- * - Admin tokens (right("admin")): can act as any user via Act-As header
- * - Regular tokens: userId from user() fact, rejects Act-As override
+ * - Admin tokens (apw:right("admin")): can act as any user via Act-As header
+ * - Regular tokens: userId from apw:user_id() fact, rejects Act-As override
  * Must be used after `requireToken`.
  */
 export async function resolveUserId(c: Context<CoreHonoEnv>, next: Next) {

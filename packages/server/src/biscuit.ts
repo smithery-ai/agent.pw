@@ -2,9 +2,9 @@
  * Biscuit token operations for the auth proxy.
  *
  * Identity-based model:
- * - Authority block: legacy user()/right() facts plus namespaced apw:* facts
+ * - Authority block: namespaced apw:* identity and rights facts
  * - Attenuation blocks: checks that narrow service/method/path/TTL
- * - Authorizer: ambient facts from the HTTP request, allow if user exists
+ * - Authorizer: ambient request facts plus namespaced identity checks
  * - Credentials DB: source of truth for what services a userId can access
  */
 
@@ -83,12 +83,12 @@ function buildAttenuationCode(constraints: TokenConstraint[]): string {
 
     if (services.length > 0) {
       const list = services.map(s => `"${escapeDatalog(s)}"`).join(', ')
-      parts.push(`resource($r), apw:resource($r), [${list}].contains($r)`)
+      parts.push(`resource($r), [${list}].contains($r)`)
     }
 
     if (methods.length > 0) {
       const list = methods.map(m => `"${escapeDatalog(m.toUpperCase())}"`).join(', ')
-      parts.push(`operation($op), apw:operation($op), [${list}].contains($op)`)
+      parts.push(`operation($op), [${list}].contains($op)`)
     }
 
     if (paths.length > 0) {
@@ -131,17 +131,10 @@ function buildAttenuationCode(constraints: TokenConstraint[]): string {
 function buildAuthorizerCode(service: string, method: string, path: string): string {
   return [
     `resource("${escapeDatalog(service)}");`,
-    `apw:resource("${escapeDatalog(service)}");`,
     `operation("${escapeDatalog(method.toUpperCase())}");`,
-    `apw:operation("${escapeDatalog(method.toUpperCase())}");`,
     `path("${escapeDatalog(path)}");`,
-    `apw:path("${escapeDatalog(path)}");`,
     `time(${new Date().toISOString()});`,
-    'allow if right("admin");',
     'allow if apw:right("admin");',
-    'allow if user($u);',
-    'allow if user_id($u);',
-    'allow if org_id($o);',
     'allow if apw:user_id($u);',
     'allow if apw:org_id($o);',
     'deny if true;',
@@ -172,8 +165,8 @@ export function getPublicKeyHex(privateKeyHex: string): string {
  * Mint a token with identity, optional rights, and optional extra facts.
  *
  * Authority block contains:
- * - user("userId") / apw:user_id("userId") — identity
- * - right("name") / apw:right("name") — capabilities (optional)
+ * - apw:user_id("userId") — identity
+ * - apw:right("name") — capabilities (optional)
  * - arbitrary extra facts (optional)
  */
 export function mintToken(
@@ -183,10 +176,8 @@ export function mintToken(
   extraFacts?: string[],
 ): string {
   const lines: string[] = []
-  lines.push(`user("${escapeDatalog(userId)}");`)
   lines.push(`apw:user_id("${escapeDatalog(userId)}");`)
   for (const r of (rights ?? [])) {
-    lines.push(`right("${escapeDatalog(r)}");`)
     lines.push(`apw:right("${escapeDatalog(r)}");`)
   }
   for (const fact of (extraFacts ?? []).map(normalizeFactStatement)) {
@@ -260,7 +251,7 @@ export function authorizeRequest(
 
 /**
  * Extract token facts from the authority block.
- * Returns rights, user identity, and managed org identity when present.
+ * Returns namespaced identity, rights, org, audit path, and scopes when present.
  */
 export function extractTokenFacts(
   tokenBase64: string,
@@ -274,38 +265,27 @@ export function extractTokenFacts(
 
     const rights: string[] = []
     let userId: string | null = null
-    let namespacedUserId: string | null = null
     let orgId: string | null = null
     let path: string | null = null
     const scopes: string[] = []
 
     for (const line of source.split('\n')) {
       const trimmed = line.trim().replace(/;$/, '')
-      const rightMatch = trimmed.match(/(?:^|[\s,])right\("([^"]+)"\)/)
-      if (rightMatch) rights.push(rightMatch[1])
       const apwRightMatch = trimmed.match(/(?:^|[\s,])apw:right\("([^"]+)"\)/)
       if (apwRightMatch) rights.push(apwRightMatch[1])
-      const userMatch = trimmed.match(/(?:^|[\s,])user\("([^"]+)"\)/)
-      if (userMatch) userId = userMatch[1]
-      const managedUserMatch = trimmed.match(/(?:^|[\s,])user_id\("([^"]+)"\)/)
-      if (managedUserMatch) namespacedUserId = managedUserMatch[1]
       const apwUserMatch = trimmed.match(/(?:^|[\s,])apw:user_id\("([^"]+)"\)/)
-      if (apwUserMatch) namespacedUserId = apwUserMatch[1]
-      const managedOrgMatch = trimmed.match(/(?:^|[\s,])org_id\("([^"]+)"\)/)
-      if (managedOrgMatch) orgId = managedOrgMatch[1]
+      if (apwUserMatch) userId = apwUserMatch[1]
       const apwOrgMatch = trimmed.match(/(?:^|[\s,])apw:org_id\("([^"]+)"\)/)
       if (apwOrgMatch) orgId = apwOrgMatch[1]
       const apwPathMatch = trimmed.match(/(?:^|[\s,])apw:path\("([^"]+)"\)/)
       if (apwPathMatch) path = apwPathMatch[1]
-      const scopeMatch = trimmed.match(/(?:^|[\s,])scope\("([^"]+)"\)/)
-      if (scopeMatch) scopes.push(scopeMatch[1])
       const apwScopeMatch = trimmed.match(/(?:^|[\s,])apw:scope\("([^"]+)"\)/)
       if (apwScopeMatch) scopes.push(apwScopeMatch[1])
     }
 
     return {
       rights: [...new Set(rights)],
-      userId: namespacedUserId ?? userId,
+      userId,
       orgId,
       path,
       scopes: [...new Set(scopes)],
@@ -316,7 +296,7 @@ export function extractTokenFacts(
 }
 
 /**
- * Extract the userId from the token's user() fact.
+ * Extract the userId from the token's apw:user_id fact.
  */
 export function extractUserId(
   tokenBase64: string,
