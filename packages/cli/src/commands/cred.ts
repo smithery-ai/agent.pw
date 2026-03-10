@@ -5,6 +5,7 @@ import { output, outputList } from '../output'
 interface ListedCredential {
   slug: string
   host: string
+  path: string
   createdAt: string
 }
 
@@ -41,10 +42,10 @@ export async function listCreds() {
     return
   }
 
-  console.log(`${'HOST'.padEnd(28)}${'SLUG'.padEnd(24)}ADDED`)
+  console.log(`${'HOST'.padEnd(28)}${'SLUG'.padEnd(20)}${'PATH'.padEnd(24)}ADDED`)
   for (const cr of creds) {
     const added = cr.createdAt ? relativeTime(cr.createdAt) : ''
-    console.log(`${cr.host.padEnd(28)}${cr.slug.padEnd(24)}${added}`)
+    console.log(`${cr.host.padEnd(28)}${cr.slug.padEnd(20)}${cr.path.padEnd(24)}${added}`)
   }
 }
 

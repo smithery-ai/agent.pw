@@ -241,6 +241,30 @@ export async function listCredentialsAdminAccessible(
     .where(sql`${credentials.path} = ${tokenPath} OR ${credentials.path} LIKE ${escaped + '/%'}`)
 }
 
+
+/**
+ * List all credentials the token can see: admin-accessible (at path or deeper)
+ * plus usage-accessible (at ancestor paths).
+ */
+export async function listCredentialsAccessible(
+  db: Database,
+  tokenPath: string,
+) {
+  if (tokenPath === '/') {
+    return db.select().from(credentials)
+  }
+  const escaped = escapeLikePath(tokenPath)
+  return db
+    .select()
+    .from(credentials)
+    .where(sql`
+      ${credentials.path} = ${tokenPath}
+      OR ${credentials.path} LIKE ${escaped + '/%'}
+      OR ${credentials.path} = '/'
+      OR ${tokenPath} LIKE ${credentials.path} || '/%'
+    `)
+}
+
 /**
  * Find credentials for a host that the token can use (usage flows upward).
  * Returns credentials where credential.path is an ancestor of tokenPath,

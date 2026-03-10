@@ -6,7 +6,7 @@ import { requireToken } from '../core/middleware'
 import {
   getCredProfile,
   getCredentialBySlug,
-  listCredentialsAdminAccessible,
+  listCredentialsAccessible,
   upsertCredential,
   deleteCredential,
 } from '../db/queries'
@@ -35,7 +35,7 @@ credentialRoutes.get('/', requireToken,
   describeRoute({
     tags: ['credentials'],
     summary: 'List credentials',
-    description: 'List all credentials accessible to this token (admin flows downward).',
+    description: 'List all credentials accessible to this token (owned + inherited).',
     responses: {
       200: { description: 'List of credentials', content: { 'application/json': { schema: resolver(z.array(CredentialSchema)) } } },
     },
@@ -43,7 +43,7 @@ credentialRoutes.get('/', requireToken,
   async c => {
     const db = c.get('db')
     const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
-    const creds = await listCredentialsAdminAccessible(db, tokenPath)
+    const creds = await listCredentialsAccessible(db, tokenPath)
     return c.json(
       creds.map(cr => ({
         slug: cr.slug,
