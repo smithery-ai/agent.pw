@@ -59,22 +59,6 @@ export function pathDepth(path: string) {
   return path.split('/').filter(Boolean).length
 }
 
-// ─── ltree Conversion ────────────────────────────────────────────────────────
-
-const ROOT_LABEL = 'root'
-
-/** Convert a slash path to Postgres ltree format: `/orgs/ruzo` → `root.orgs.ruzo`. */
-export function pathToLtree(path: string) {
-  const trimmed = path.replace(/^\/+|\/+$/g, '')
-  return trimmed ? `${ROOT_LABEL}.${trimmed.replace(/\//g, '.')}` : ROOT_LABEL
-}
-
-/** Convert Postgres ltree format back to a slash path: `root.orgs.ruzo` → `/orgs/ruzo`. */
-export function ltreeToPath(value: string) {
-  if (value === ROOT_LABEL) return '/'
-  return '/' + value.replace(new RegExp(`^${ROOT_LABEL}\.`), '').replace(/\./g, '/')
-}
-
 /**
  * From a list of candidates with paths, find the deepest ancestor of
  * `tokenPath` (longest prefix match). Returns null if none match.
