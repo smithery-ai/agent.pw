@@ -10,8 +10,8 @@
     "compile": "bun build --compile src/index.ts --outfile dist/agent.pw"
   },
   "dependencies": {
-    "@agent.pw/server": "workspace:*",
-    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/3bb21e19b486fdc8ae63577a1bb6c0a5d54a0b1f/dist.tar.gz"
+    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/3bb21e19b486fdc8ae63577a1bb6c0a5d54a0b1f/dist.tar.gz",
+    "commander": "^14.0.3"
   },
   "devDependencies": {
     "@types/bun": "^1.3.10",

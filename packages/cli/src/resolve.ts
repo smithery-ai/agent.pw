@@ -63,6 +63,6 @@ export async function resolve(): Promise<ResolvedEndpoint> {
 
   console.error('No agent.pw instance available.')
   console.error(`  Run \`agent.pw login\` to connect to ${DEFAULT_MANAGED_HOST}`)
-  console.error('  Run `agent.pw setup` to create a local instance')
+  console.error('  Or set AGENT_PW_HOST and AGENT_PW_TOKEN environment variables')
   process.exit(1)
 }
