@@ -62,32 +62,6 @@ agent.pw curl http://localhost:9315/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
-## CLI
-
-```
-agent.pw login                       Log in to agent.pw Cloud
-agent.pw status                      Show active backend + token info
-
-agent.pw cred                        List stored credentials
-agent.pw cred add <slug-or-host>     Add a credential
-agent.pw cred remove <name>          Remove a credential
-
-agent.pw profile                     List credential profiles
-agent.pw profile add <slug>          Register a profile
-agent.pw profile remove <slug>       Remove a profile
-
-agent.pw token                       Inspect current token
-agent.pw token restrict              Create a restricted child token
-agent.pw token push                  Restrict + push onto token stack
-agent.pw token pop                   Revert to previous token
-
-agent.pw curl [args...]              Proxy-aware curl wrapper
-```
-
-Key flags for `token restrict` / `token push`: `--service`, `--method`, `--path`, `--ttl`.
-
-Run `agent.pw <command> --help` for all options. When piped, commands output JSONL.
-
 ## API
 
 ```
