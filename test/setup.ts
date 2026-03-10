@@ -26,9 +26,9 @@ export function mintTestToken(
   rights?: string[],
   path?: string,
 ) {
-  const extraFacts = [`apw_org_id("${escapeDatalog(orgId)}")`]
+  const extraFacts = [`apw:org_id("${escapeDatalog(orgId)}")`]
   if (path) {
-    extraFacts.push(`apw_path("${escapeDatalog(path)}")`)
+    extraFacts.push(`apw:path("${escapeDatalog(path)}")`)
   }
   return mintToken(BISCUIT_PRIVATE_KEY, orgId, rights, extraFacts)
 }

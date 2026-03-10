@@ -21,20 +21,6 @@ function buildCustomToken(code: string) {
   return builder.build(PrivateKey.fromString(BISCUIT_PRIVATE_KEY)).toBase64()
 }
 
-function mintLegacyToken() {
-  const builder = Biscuit.builder()
-  builder.addCode([
-    'user("legacy_user_123");',
-    'apw_user_id("legacy_user_123");',
-    'right("manage_services");',
-    'apw_right("manage_services");',
-    `apw_org_id("${TEST_ORG_ID}");`,
-    `apw_path("/${TEST_ORG_ID}");`,
-  ].join('\n'))
-  const token = builder.build(PrivateKey.fromString(BISCUIT_PRIVATE_KEY))
-  return `apw_${token.toBase64()}`
-}
-
 describe('biscuit helpers', () => {
   it('strips prefixes and parses TTL values', () => {
     expect(stripPrefix('apw_abc')).toBe('abc')
@@ -53,7 +39,7 @@ describe('biscuit helpers', () => {
       `apw:org_id("${TEST_ORG_ID}")`,
       '  ',
       'apw:scope("repo");',
-      'apw_scope("write")',
+      'apw:scope("write")',
       'custom("value")',
     ])
 
@@ -106,7 +92,7 @@ describe('biscuit helpers', () => {
     expect(pair.publicKey).toMatch(/^ed25519\//)
   })
 
-  it('only extracts namespaced identity facts, ignoring bare legacy facts', () => {
+  it('only extracts apw: namespaced facts, ignoring bare and underscore variants', () => {
     const bareToken = buildCustomToken([
       'user("legacy-user");',
       'right("admin");',
@@ -129,11 +115,11 @@ describe('biscuit helpers', () => {
     ].join('\n'))
 
     expect(extractTokenFacts(underscoreToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: ['manage_services'],
-      userId: 'underscore-user',
-      orgId: 'underscore-org',
+      rights: [],
+      userId: null,
+      orgId: null,
       path: null,
-      scopes: ['write'],
+      scopes: [],
     })
 
     const colonToken = buildCustomToken([
@@ -184,15 +170,4 @@ describe('biscuit helpers', () => {
     expect(block).not.toContain('apw:path')
   })
 
-  it('accepts legacy underscore facts for internal compatibility', () => {
-    const legacyToken = mintLegacyToken()
-
-    expect(authorizeRequest(legacyToken, PUBLIC_KEY_HEX, '_management', 'PUT', '/cred_profiles/linear').authorized).toBe(true)
-
-    const facts = extractTokenFacts(legacyToken, PUBLIC_KEY_HEX)
-    expect(facts.userId).toBe('legacy_user_123')
-    expect(facts.orgId).toBe(TEST_ORG_ID)
-    expect(facts.path).toBe(`/${TEST_ORG_ID}`)
-    expect(facts.rights).toContain('manage_services')
-  })
 })

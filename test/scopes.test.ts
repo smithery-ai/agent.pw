@@ -21,10 +21,10 @@ describe('scopes helpers', () => {
   })
 
   it('builds escaped, sorted datalog scope facts', () => {
-    expect(scopeFacts(['zeta', 'a"b', 'c\\d'], 'apw_scope')).toEqual([
-      'apw_scope("a\\"b")',
-      'apw_scope("c\\\\d")',
-      'apw_scope("zeta")',
+    expect(scopeFacts(['zeta', 'a"b', 'c\\d'], 'apw:scope')).toEqual([
+      'apw:scope("a\\"b")',
+      'apw:scope("c\\\\d")',
+      'apw:scope("zeta")',
     ])
   })
 
