@@ -320,9 +320,9 @@
       "Credential": {
         "type": "object",
         "properties": {
-          "slug": {
+          "name": {
             "type": "string",
-            "description": "Credential slug",
+            "description": "Credential name",
             "example": "linear"
           },
           "host": {
@@ -332,8 +332,8 @@
           },
           "path": {
             "type": "string",
-            "description": "Path in the hierarchy",
-            "example": "/orgs/ruzo"
+            "description": "Full credential path",
+            "example": "/orgs/ruzo/linear"
           },
           "createdAt": {
             "type": "string",
@@ -341,7 +341,7 @@
           }
         },
         "required": [
-          "slug",
+          "name",
           "host",
           "path",
           "createdAt"
@@ -376,8 +376,8 @@
             "type": "string"
           },
           "path": {
-            "description": "Path for this credential (defaults to token path)",
-            "example": "/orgs/ruzo",
+            "description": "Full credential path (defaults to token path + name)",
+            "example": "/orgs/ruzo/linear",
             "type": "string"
           }
         },
@@ -524,9 +524,9 @@
         }
       }
     },
-    "/credentials/{slug}": {
+    "/credentials/{name}": {
       "put": {
-        "operationId": "putCredentialsBySlug",
+        "operationId": "putCredentialsByName",
         "tags": [
           "credentials"
         ],
@@ -544,13 +544,17 @@
                       "type": "boolean",
                       "const": true
                     },
-                    "slug": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "path": {
                       "type": "string"
                     }
                   },
                   "required": [
                     "ok",
-                    "slug"
+                    "name",
+                    "path"
                   ],
                   "id": "CredentialStored"
                 }
@@ -611,18 +615,18 @@
               "type": "string"
             },
             "in": "path",
-            "name": "slug",
+            "name": "name",
             "required": true
           }
         ]
       },
       "delete": {
-        "operationId": "deleteCredentialsBySlug",
+        "operationId": "deleteCredentialsByName",
         "tags": [
           "credentials"
         ],
         "summary": "Delete credential",
-        "description": "Delete a credential by slug.",
+        "description": "Delete a credential by name plus host/path context.",
         "responses": {
           "200": {
             "description": "Credential deleted",
@@ -668,7 +672,7 @@
               "type": "string"
             },
             "in": "path",
-            "name": "slug",
+            "name": "name",
             "required": true
           }
         ]
