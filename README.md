@@ -23,7 +23,7 @@ proxy.agent.pw/uploads.github.com/repos/owner/repo/releases/1/assets
 
 ```
 1. Agent sends a normal HTTP request through the proxy
-2. agent.pw checks for a matching stored credential
+2. agent.pw checks for a matching stored credential at the token's path or any ancestor path
 3. If a credential exists, inject auth headers and forward
 4. If no credential exists, forward the request as-is
 5. If the upstream returns 200, return it (unauthenticated endpoint)
@@ -42,19 +42,11 @@ Requests to the proxy carry a Biscuit token (`apw_` prefix) in the `Proxy-Author
 
 ### Credential Store
 
-Credentials are matched by target host and injected automatically.
+Every credential lives at a path in a tree (e.g. `/orgs/acme/github`). Credentials are keyed by `(host, path)` — one credential per host per path node.
 
-```
-CREDENTIALS TABLE
-host            target hostname this credential authenticates against
-slug            unique ID (auto-generated or user-specified via --slug)
-auth            auth config object (kind: oauth → Bearer header, kind: headers → custom header map)
-secret          encrypted token / key material
-exec_scopes     scopes required to use this credential through the proxy
-admin_scopes    scopes required to create, replace, share, or revoke it
-```
+The proxy matches credentials by walking up the path tree from the token's position. If multiple credentials match a host at different depths, the deepest one wins (most specific). If multiple match at the same depth, the proxy returns a 409 and the caller specifies via the `agentpw-credential` header.
 
-Each credential is self-describing: it knows how to inject itself. Multiple credentials per host are supported. If more than one credential matches a host for the caller's scopes, the proxy returns an ambiguity error and the agent must specify `agentpw-credential`.
+Each credential is self-describing: it knows how to inject itself (OAuth Bearer header or custom header map). Credentials are write-only — agents cannot read the raw secret material.
 
 ### Auth Bootstrap
 
@@ -86,7 +78,7 @@ agent.pw curl proxy.agent.pw/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 → no credential found
 → forward raw → 401
-→ check cred profiles → managed profile found
+→ check cred profiles → profile found
 → browser opens → credential stored
 → request retried → works
 ```
@@ -99,13 +91,13 @@ agent.pw cred add linear
 → Auth: headers
 → Authorization: Bearer ____
 → Paste your API key: ****
-→ Stored as linear/k7x
+→ Stored credential 'linear' for api.linear.app
 
 agent.pw cred add github
 → Profile found: GitHub (api.github.com)
 → Auth: oauth
 → Opening browser... (→ GitHub consent screen → redirect back)
-→ Stored as github/m3p
+→ Stored credential 'github' for api.github.com
 ```
 
 View stored credentials:
@@ -113,9 +105,9 @@ View stored credentials:
 ```
 agent.pw cred
 
-HOST             SLUG        AUTH       ADDED
-api.linear.app   linear/k7x  headers    2d ago
-api.github.com   github/m3p  oauth      5d ago
+HOST             NAME      PATH                   ADDED
+api.linear.app   linear    /orgs/acme/linear      2d ago
+api.github.com   github    /orgs/acme/github      5d ago
 ```
 
 Credentials are write-only. Agents cannot exfiltrate them.
@@ -163,6 +155,16 @@ The CLI auto-detects the active backend. `agent.pw status` shows which one.
 
 ## Concepts
 
+### Path-Based Access
+
+Every credential and profile lives at a path in a tree that encodes organizational hierarchy. Access follows two rules:
+
+**Usage flows upward.** A token can use credentials stored at ancestor paths. An org-level credential is usable by every workspace and user below it, like environment variables in a process tree.
+
+**Admin flows downward.** A token can create, update, and delete credentials at its own path or deeper. A workspace token cannot manage org-level credentials.
+
+See [docs/token-design.md](docs/token-design.md) for the full access model.
+
 ### Credential Profiles
 
 Credential profiles are templates for setting up credentials. They match a target host and supply the auth metadata that discovery would have returned — OAuth endpoints, or a header form definition.
@@ -170,7 +172,7 @@ Credential profiles are templates for setting up credentials. They match a targe
 **OAuth config** — for services with OAuth that lack standard discovery:
 
 ```yaml
-slug: github
+path: /github
 host: [api.github.com, uploads.github.com]
 auth:
   kind: oauth
@@ -183,7 +185,7 @@ auth:
 **Headers form** — for services that use API keys or custom headers:
 
 ```yaml
-slug: linear
+path: /linear
 host: api.linear.app
 auth:
   kind: headers
@@ -200,9 +202,9 @@ The proxy checks credential profiles only when standards-based discovery fails. 
 
 Biscuit tokens (`apw_` prefix) determine which requests may be made through the proxy and which credentials are accessible.
 
-The root token (generated during setup) has full authority. Restricted tokens are attenuated by target host, method, TTL, or additional Biscuit checks. A restricted token can never gain more authority than its parent.
+The root token (generated during setup) has full authority. Restricted tokens are attenuated by target host, method, path prefix, or TTL. A restricted token can never gain more authority than its parent.
 
-Credentials carry scope arrays: `exec_scopes` governs proxy use, `admin_scopes` governs management operations. Tokens can also carry `scope("value")` facts directly, with `org_id` remaining as a fallback for older tokens. See [docs/token-design.md](docs/token-design.md) for full details.
+The token's position in the path tree determines which credentials it can use (ancestors) and manage (descendants). See [docs/token-design.md](docs/token-design.md) for full details.
 
 ## CLI
 
@@ -211,16 +213,38 @@ The CLI (`agent.pw`) manages credentials, profiles, and tokens. It works with bo
 ```
 agent.pw <command>
 
-  login      Log in to agent.pw
-  logout     Log out
-  status     Show connection status
-  profile    Manage credential profiles
-  cred       Manage stored credentials
-  token      Manage access tokens
-  curl       Proxy-aware curl wrapper
+  login                          Log in to agent.pw
+  logout                         Log out
+  status                         Show connection status
+
+  profile                        List credential profiles
+  profile get <slug>             Show profile details
+  profile add <slug>             Register a profile
+  profile remove <slug>          Remove a profile
+
+  cred                           List stored credentials
+  cred add <slug-or-host>        Add a credential
+  cred remove <name>             Remove a credential
+
+  token                          Inspect current token
+  token restrict                 Create a restricted child token
+  token revoke                   Revoke the current token
+  token push                     Restrict + push onto token stack
+  token pop                      Revert to previous token
+
+  curl [args...]                 Proxy-aware curl wrapper
 ```
 
-Run `agent.pw <command> --help` for subcommands and options.
+Key flags for `token restrict` / `token push`:
+
+```
+  --service <host...>    Limit to service host(s)
+  --method <verb...>     Limit to HTTP method(s)
+  --path <prefix...>     Limit to path prefix(es)
+  --ttl <duration>       Token lifetime (e.g. 1h, 30m)
+```
+
+Run `agent.pw <command> --help` for all options.
 
 When piped (non-TTY), commands output JSONL for machine consumption.
 
@@ -247,21 +271,23 @@ Proxy:
   Optional credential selector: agentpw-credential
 
 Credentials:
-  GET    /credentials                list credentials
-  PUT    /credentials/{slug_or_host} store a credential
-  DELETE /credentials/{slug}         remove a credential
+  GET    /credentials              list credentials accessible to token
+  PUT    /credentials/{name}       store a credential
+  DELETE /credentials/{name}       remove a credential
 
 Credential Profiles:
-  GET    /cred_profiles              list profiles
-  GET    /cred_profiles/{slug}       get profile details
-  PUT    /cred_profiles/{slug}       register/update a profile
-  DELETE /cred_profiles/{slug}       remove a profile
+  GET    /cred_profiles             list profiles
+  GET    /cred_profiles/{slug}      get profile details
+  PUT    /cred_profiles/{slug}      create/update a profile
+  DELETE /cred_profiles/{slug}      remove a profile
 
 Tokens:
-  POST   /tokens/revoke              revoke the caller's token
+  POST   /tokens/restrict           create an attenuated child token
+  POST   /tokens/revoke             revoke the caller's token
 
 Infrastructure:
-  GET    /.well-known/jwks.json      Ed25519 public key (JWK format)
+  GET    /                          health check (profiles + credential counts)
+  GET    /.well-known/jwks.json     Ed25519 public key (JWK format)
 ```
 
 ## Repo Structure
@@ -276,7 +302,7 @@ agent.pw/
         db/               ← Drizzle schema and queries
         lib/              ← shared utilities, crypto
       cli.ts              ← agent.pw-server CLI (self-hosted)
-    cli/                  ← agent.pw CLI (cloud + management, SDK only)
+    cli/                  ← agent.pw CLI (cloud + management)
 ```
 
 ## Development
