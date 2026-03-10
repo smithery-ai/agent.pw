@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { Command } from 'commander'
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -32,139 +33,127 @@ function writeConfig(config: WardenConfig) {
   writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
 }
 
-// ─── Commands ────────────────────────────────────────────────────────────────
+// ─── Program ─────────────────────────────────────────────────────────────────
 
-async function setup() {
-  if (existsSync(CONFIG_FILE)) {
-    console.log('agent.pw is already set up. Config at:', CONFIG_DIR)
-    console.log('Run `agent.pw-server start` to start the local server.')
-    return
-  }
+const program = new Command()
+  .name('agent.pw-server')
+  .description('Self-hosted agent.pw server')
+  .version('0.1.0')
 
-  console.log('Setting up agent.pw...\n')
+program
+  .command('setup')
+  .description('Set up a local instance (keys, database)')
+  .action(async () => {
+    if (existsSync(CONFIG_FILE)) {
+      console.log('agent.pw is already set up. Config at:', CONFIG_DIR)
+      console.log('Run `agent.pw-server start` to start the local server.')
+      return
+    }
 
-  const { generateKeyPairHex, mintToken } = await import('./src/biscuit')
-  const { createLocalDb } = await import('./src/db/index')
-  const { migrateLocal } = await import('./src/db/migrate-local')
+    console.log('Setting up agent.pw...\n')
 
-  const keypair = generateKeyPairHex()
+    const { generateKeyPairHex, mintToken } = await import('./src/biscuit')
+    const { createLocalDb } = await import('./src/db/index')
+    const { migrateLocal } = await import('./src/db/migrate-local')
 
-  mkdirSync(DATA_DIR, { recursive: true })
-  console.log('Initializing database at', DATA_DIR)
-  const db = await createLocalDb(DATA_DIR)
-  await migrateLocal(db)
+    const keypair = generateKeyPairHex()
 
-  const masterToken = mintToken(keypair.privateKey, 'local', ['admin', 'manage_services'])
-  const port = 9315
+    mkdirSync(DATA_DIR, { recursive: true })
+    console.log('Initializing database at', DATA_DIR)
+    const db = await createLocalDb(DATA_DIR)
+    await migrateLocal(db)
 
-  writeConfig({
-    biscuitPrivateKey: keypair.privateKey,
-    masterToken,
-    port,
-    dataDir: DATA_DIR,
+    const masterToken = mintToken(keypair.privateKey, 'local', ['admin', 'manage_services'])
+    const port = 9315
+
+    writeConfig({
+      biscuitPrivateKey: keypair.privateKey,
+      masterToken,
+      port,
+      dataDir: DATA_DIR,
+    })
+
+    console.log('\nagent.pw is set up!\n')
+    console.log('Config saved to:', CONFIG_DIR)
+    console.log('Master token:', masterToken)
+    console.log('\nNext steps:')
+    console.log('  agent.pw-server start   Start the local proxy server')
+    console.log('  agent.pw cred add       Add API credentials')
+    console.log('  agent.pw curl <url>     Make authenticated API calls')
   })
 
-  console.log('\nagent.pw is set up!\n')
-  console.log('Config saved to:', CONFIG_DIR)
-  console.log('Master token:', masterToken)
-  console.log('\nNext steps:')
-  console.log('  agent.pw-server start   Start the local proxy server')
-  console.log('  agent.pw cred add       Add API credentials')
-  console.log('  agent.pw curl <url>     Make authenticated API calls')
-}
+program
+  .command('start')
+  .description('Start the local proxy server')
+  .action(async () => {
+    const config = readConfig()
+    if (!config) {
+      console.error('Not set up. Run `agent.pw-server setup` first.')
+      process.exit(1)
+    }
 
-async function start() {
-  const config = readConfig()
-  if (!config) {
-    console.error('Not set up. Run `agent.pw-server setup` first.')
-    process.exit(1)
-  }
+    if (existsSync(PID_FILE)) {
+      const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10)
+      try {
+        process.kill(pid, 0)
+        console.error(`agent.pw is already running (PID ${pid}). Stop it with \`agent.pw-server stop\`.`)
+        process.exit(1)
+      } catch {
+        unlinkSync(PID_FILE)
+      }
+    }
 
-  if (existsSync(PID_FILE)) {
+    const { createCoreApp } = await import('./src/core/app')
+    const { createLocalDb } = await import('./src/db/index')
+    const { migrateLocal } = await import('./src/db/migrate-local')
+
+    const db = await createLocalDb(config.dataDir)
+    await migrateLocal(db)
+
+    const app = createCoreApp({
+      db,
+      biscuitPrivateKey: config.biscuitPrivateKey,
+      baseUrl: `http://local.agent.pw:${config.port}`,
+    })
+
+    writeFileSync(PID_FILE, process.pid.toString())
+
+    const cleanup = () => {
+      try { unlinkSync(PID_FILE) } catch { /* already removed */ }
+    }
+    process.on('SIGINT', () => { cleanup(); process.exit(0) })
+    process.on('SIGTERM', () => { cleanup(); process.exit(0) })
+
+    Bun.serve({
+      fetch: app.fetch,
+      port: config.port,
+      hostname: '0.0.0.0',
+    })
+
+    console.log(`agent.pw running at http://local.agent.pw:${config.port}`)
+    console.log('Press Ctrl+C to stop.')
+  })
+
+program
+  .command('stop')
+  .description('Stop the local proxy server')
+  .action(async () => {
+    if (!existsSync(PID_FILE)) {
+      console.log('agent.pw is not running.')
+      return
+    }
+
     const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10)
     try {
-      process.kill(pid, 0)
-      console.error(`agent.pw is already running (PID ${pid}). Stop it with \`agent.pw-server stop\`.`)
-      process.exit(1)
+      process.kill(pid, 'SIGTERM')
+      console.log(`Stopped agent.pw (PID ${pid}).`)
     } catch {
-      unlinkSync(PID_FILE)
+      console.log('agent.pw process not found. Cleaning up PID file.')
     }
-  }
-
-  const { createCoreApp } = await import('./src/core/app')
-  const { createLocalDb } = await import('./src/db/index')
-  const { migrateLocal } = await import('./src/db/migrate-local')
-
-  const db = await createLocalDb(config.dataDir)
-  await migrateLocal(db)
-
-  const app = createCoreApp({
-    db,
-    biscuitPrivateKey: config.biscuitPrivateKey,
-    baseUrl: `http://local.agent.pw:${config.port}`,
+    try { unlinkSync(PID_FILE) } catch { /* ignore */ }
   })
 
-  writeFileSync(PID_FILE, process.pid.toString())
-
-  const cleanup = () => {
-    try { unlinkSync(PID_FILE) } catch { /* already removed */ }
-  }
-  process.on('SIGINT', () => { cleanup(); process.exit(0) })
-  process.on('SIGTERM', () => { cleanup(); process.exit(0) })
-
-  Bun.serve({
-    fetch: app.fetch,
-    port: config.port,
-    hostname: '0.0.0.0',
-  })
-
-  console.log(`agent.pw running at http://local.agent.pw:${config.port}`)
-  console.log('Press Ctrl+C to stop.')
-}
-
-async function stop() {
-  if (!existsSync(PID_FILE)) {
-    console.log('agent.pw is not running.')
-    return
-  }
-
-  const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10)
-  try {
-    process.kill(pid, 'SIGTERM')
-    console.log(`Stopped agent.pw (PID ${pid}).`)
-  } catch {
-    console.log('agent.pw process not found. Cleaning up PID file.')
-  }
-  try { unlinkSync(PID_FILE) } catch { /* ignore */ }
-}
-
-// ─── Main ────────────────────────────────────────────────────────────────────
-
-const command = process.argv[2]
-
-async function main() {
-  switch (command) {
-    case 'setup':
-      return setup()
-    case 'start':
-      return start()
-    case 'stop':
-      return stop()
-    default:
-      console.log('Usage: agent.pw-server <command>')
-      console.log('')
-      console.log('Commands:')
-      console.log('  setup    Set up a local instance (keys, database)')
-      console.log('  start    Start the local proxy server')
-      console.log('  stop     Stop the local proxy server')
-      if (command && command !== 'help' && command !== '--help' && command !== '-h') {
-        console.error(`\nUnknown command: ${command}`)
-        process.exit(1)
-      }
-  }
-}
-
-main().catch(err => {
+program.parseAsync().catch(err => {
   console.error(err.message ?? err)
   process.exit(1)
 })
