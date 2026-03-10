@@ -20,9 +20,8 @@ export async function createTestDb() {
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS agentpw.cred_profiles (
-      slug TEXT PRIMARY KEY,
+      path TEXT PRIMARY KEY,
       host JSONB NOT NULL,
-      path TEXT NOT NULL DEFAULT '/',
       auth JSONB,
       managed_oauth JSONB,
       display_name TEXT,
@@ -55,7 +54,7 @@ export async function createTestDb() {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS agentpw.auth_flows (
       id TEXT PRIMARY KEY,
-      slug TEXT NOT NULL,
+      profile_path TEXT,
       method TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       code_verifier TEXT,

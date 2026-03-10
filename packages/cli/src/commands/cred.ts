@@ -10,7 +10,7 @@ interface ListedCredential {
 }
 
 interface CredProfile {
-  slug: string
+  path: string
   host: string[]
 }
 
@@ -88,10 +88,16 @@ function parseHeaders(headerSpecs: string[]) {
   return headers
 }
 
+function profileName(profile: CredProfile) {
+  const path = profile.path
+  const lastSlash = path.lastIndexOf('/')
+  return lastSlash >= 0 ? path.slice(lastSlash + 1) : path
+}
+
 export async function addCred(target: string, value?: string, options: AddCredOptions = {}) {
   const profile = await resolveProfile(target)
   const manualHeaders = options.headers && options.headers.length > 0 ? parseHeaders(options.headers) : undefined
-  const credentialName = options.credentialName ?? profile?.slug ?? targetToCredentialName(target)
+  const credentialName = options.credentialName ?? (profile ? profileName(profile) : targetToCredentialName(target))
 
   if (!manualHeaders && !value) {
     const rl = createInterface({ input: process.stdin, output: process.stderr })
@@ -114,7 +120,7 @@ export async function addCred(target: string, value?: string, options: AddCredOp
       token: manualHeaders ? undefined : value,
       headers: manualHeaders,
       host: profile ? undefined : target,
-      profile: profile?.slug,
+      profile: profile ? profileName(profile) : undefined,
       auth: options.auth,
     }),
   })

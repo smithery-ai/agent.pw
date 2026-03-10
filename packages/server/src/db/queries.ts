@@ -37,7 +37,7 @@ function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): Legac
   const authConfig = auth?.authConfig
 
   return {
-    slug: profile.slug,
+    slug: profile.path,
     allowedHosts: JSON.stringify(profile.host),
     authSchemes: authSchemes ? JSON.stringify(authSchemes) : null,
     displayName: profile.displayName,
@@ -56,8 +56,8 @@ function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): Legac
 
 // ─── Cred Profiles ──────────────────────────────────────────────────────────
 
-export async function getCredProfile(db: Database, slug: string) {
-  const rows = await db.select().from(credProfiles).where(eq(credProfiles.slug, slug))
+export async function getCredProfile(db: Database, path: string) {
+  const rows = await db.select().from(credProfiles).where(eq(credProfiles.path, path))
   return rows[0] ?? null
 }
 
@@ -73,10 +73,14 @@ export async function getCredProfileByHost(db: Database, host: string) {
 export async function getCredProfileByHostForPath(db: Database, host: string, tokenPath: string) {
   const profiles = await listCredProfiles(db)
   const matching = profiles.filter(p => p.host.includes(host))
-  // Find the deepest ancestor of tokenPath among matching profiles
+  // Find the best profile: prefer deepest ancestor, then nearest visible profile
   let best: (typeof matching)[number] | null = null
   for (const p of matching) {
-    if (!isAncestorOrEqual(p.path, tokenPath)) continue
+    const profileParent = credentialParentPath(p.path)
+    const visible = isAncestorOrEqual(p.path, tokenPath)
+      || isAncestorOrEqual(tokenPath, p.path)
+      || isAncestorOrEqual(profileParent, tokenPath)
+    if (!visible) continue
     if (!best || pathDepth(p.path) > pathDepth(best.path)) best = p
   }
   return best
@@ -111,10 +115,9 @@ export async function listCredProfilesWithCredentialCounts(db: Database) {
 
 export async function upsertCredProfile(
   db: Database,
-  slug: string,
+  path: string,
   data: {
     host: string[]
-    path?: string
     auth?: Record<string, unknown>
     managedOauth?: Record<string, unknown>
     displayName?: string
@@ -124,19 +127,17 @@ export async function upsertCredProfile(
   await db
     .insert(credProfiles)
     .values({
-      slug,
+      path,
       host: data.host,
-      path: data.path ?? '/',
       auth: data.auth,
       managedOauth: data.managedOauth,
       displayName: data.displayName,
       description: data.description,
     })
     .onConflictDoUpdate({
-      target: credProfiles.slug,
+      target: credProfiles.path,
       set: {
         host: sql`excluded.host`,
-        path: sql`excluded.path`,
         auth: sql`coalesce(excluded.auth, ${credProfiles.auth})`,
         managedOauth: sql`coalesce(excluded.managed_oauth, ${credProfiles.managedOauth})`,
         displayName: sql`coalesce(excluded.display_name, ${credProfiles.displayName})`,
@@ -146,8 +147,8 @@ export async function upsertCredProfile(
     })
 }
 
-export async function deleteCredProfile(db: Database, slug: string) {
-  const result = await db.delete(credProfiles).where(eq(credProfiles.slug, slug)).returning()
+export async function deleteCredProfile(db: Database, path: string) {
+  const result = await db.delete(credProfiles).where(eq(credProfiles.path, path)).returning()
   return result.length > 0
 }
 
@@ -155,8 +156,8 @@ export async function deleteCredProfile(db: Database, slug: string) {
 
 // Keep the legacy service API compiling on merged PR builds while the product
 // migrates from /services to /cred_profiles.
-export async function getService(db: Database, slug: string) {
-  const profile = await getCredProfile(db, slug)
+export async function getService(db: Database, path: string) {
+  const profile = await getCredProfile(db, path)
   return profile ? toLegacyServiceRecord(profile) : null
 }
 
@@ -175,7 +176,7 @@ export async function listServicesWithCredentialCounts(db: Database) {
 
 export async function upsertService(
   db: Database,
-  slug: string,
+  path: string,
   data: {
     allowedHosts: string[]
     authSchemes?: unknown
@@ -198,7 +199,7 @@ export async function upsertService(
     managedOauth.encryptedClientSecret = data.encryptedOauthClientSecret.toString('base64')
   }
 
-  await upsertCredProfile(db, slug, {
+  await upsertCredProfile(db, path, {
     host: data.allowedHosts,
     auth: Object.keys(auth).length > 0 ? auth : undefined,
     managedOauth:
@@ -208,8 +209,8 @@ export async function upsertService(
   })
 }
 
-export async function deleteService(db: Database, slug: string) {
-  return deleteCredProfile(db, slug)
+export async function deleteService(db: Database, path: string) {
+  return deleteCredProfile(db, path)
 }
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
@@ -332,7 +333,7 @@ export async function revokeToken(db: Database, revocationId: string, reason?: s
 
 export interface CreateFlowData {
   id: string
-  slug: string
+  profilePath?: string
   method: 'oauth' | 'api_key'
   codeVerifier?: string
   scopePath?: string
@@ -348,7 +349,7 @@ export interface CompleteFlowData {
 export async function createAuthFlow(db: Database, data: CreateFlowData) {
   await db.insert(authFlows).values({
     id: data.id,
-    slug: data.slug,
+    profilePath: data.profilePath,
     method: data.method,
     codeVerifier: data.codeVerifier,
     scopePath: data.scopePath,

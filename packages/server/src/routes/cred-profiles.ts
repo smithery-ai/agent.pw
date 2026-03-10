@@ -68,7 +68,7 @@ credProfileRoutes.get('/', requireToken,
 
     return c.json(
       visible.map(p => ({
-        slug: p.slug,
+        slug: p.path,
         host: p.host,
         path: p.path,
         displayName: p.displayName,
@@ -92,11 +92,11 @@ credProfileRoutes.get('/:slug', requireToken,
     const slug = c.req.param('slug')
     const db = c.get('db')
 
-    const profile = await getCredProfile(db, slug)
+    const profile = await getCredProfile(db, '/' + slug)
     if (!profile) return c.json({ error: 'Profile not found' }, 404)
 
     return c.json({
-      slug: profile.slug,
+      slug: profile.path,
       host: profile.host,
       path: profile.path,
       displayName: profile.displayName,
@@ -130,7 +130,7 @@ credProfileRoutes.put('/:slug', requireToken, requireRight('manage_services'),
     }
 
     const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
-    const profilePath = body.path ?? tokenPath
+    const profilePath = body.path ?? (tokenPath === '/' ? '/' + slug : tokenPath + '/' + slug)
 
     if (!validatePath(profilePath)) {
       return c.json({ error: 'Invalid path' }, 400)
@@ -143,16 +143,15 @@ credProfileRoutes.put('/:slug', requireToken, requireRight('manage_services'),
 
     // Admin check for updates: must be at or above existing profile's path
     const db = c.get('db')
-    const existing = await getCredProfile(db, slug)
+    const existing = await getCredProfile(db, '/' + slug)
     if (existing && !isAncestorOrEqual(tokenPath, existing.path)) {
       return c.json({ error: `Token cannot update profile '${slug}'` }, 403)
     }
 
     const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
 
-    await upsertCredProfile(db, slug, {
+    await upsertCredProfile(db, profilePath, {
       host: body.host,
-      path: profilePath,
       auth: body.auth,
       managedOauth: body.managedOauth,
       displayName,
@@ -176,7 +175,7 @@ credProfileRoutes.delete('/:slug', requireToken, requireRight('manage_services')
   async c => {
     const db = c.get('db')
     const slug = c.req.param('slug')
-    const existing = await getCredProfile(db, slug)
+    const existing = await getCredProfile(db, '/' + slug)
     if (!existing) return c.json({ error: 'Profile not found' }, 404)
 
     // Admin check: must be at or above the profile's path
@@ -185,7 +184,7 @@ credProfileRoutes.delete('/:slug', requireToken, requireRight('manage_services')
       return c.json({ error: `Token cannot delete profile '${slug}'` }, 403)
     }
 
-    const deleted = await deleteCredProfile(db, slug)
+    const deleted = await deleteCredProfile(db, '/' + slug)
     if (!deleted) return c.json({ error: 'Profile not found' }, 404)
     return c.json({ ok: true as const })
   },

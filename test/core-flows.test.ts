@@ -118,7 +118,7 @@ describe('Core Scenario Flows', () => {
     const health = await req('/')
     expect(health.status).toBe(200)
     expect(await health.json()).toEqual({
-      profiles: [{ slug: 'github', credentialCount: 1 }],
+      profiles: [{ slug: '/github', credentialCount: 1 }],
     })
 
     const profiles = await mgmtReq('/cred_profiles')
@@ -181,9 +181,9 @@ describe('Core Scenario Flows', () => {
     })
     expect(bootstrap.status).toBe(401)
     expect(bootstrap.headers.get('www-authenticate')).toContain('AgentPW')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('profile="github"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('profile="/github"')
     expect(bootstrap.headers.get('www-authenticate')).toContain('target_host="api.github.com"')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2Fgithub"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2F%252Fgithub"')
 
     const privateTarget = await req('/proxy/127.0.0.1/admin', {
       headers: withAgentPwToken(ORG_TOKEN),

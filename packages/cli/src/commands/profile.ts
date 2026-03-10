@@ -3,7 +3,7 @@ import { requestJson, request } from '../http'
 import { output, outputList } from '../output'
 
 interface CredProfile {
-  slug: string
+  path: string
   host: string[]
   displayName?: string | null
   description?: string | null
@@ -120,7 +120,7 @@ export async function listProfiles() {
   for (const profile of profiles) {
     const hosts = profile.host.join(', ')
     const desc = profile.description ? profile.description.slice(0, 40) : ''
-    console.log(`${profile.slug.padEnd(24)}${hosts.padEnd(40)}${desc}`)
+    console.log(`${profile.path.padEnd(24)}${hosts.padEnd(40)}${desc}`)
   }
 }
 

@@ -132,7 +132,7 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
     async c => {
       const db = c.get('db')
       const profiles = await listCredProfilesWithCredentialCounts(db)
-      return c.json({ profiles: profiles.map(p => ({ slug: p.slug, credentialCount: p.credentialCount })) })
+      return c.json({ profiles: profiles.map(p => ({ slug: p.path, credentialCount: p.credentialCount })) })
     },
   )
 

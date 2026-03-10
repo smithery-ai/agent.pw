@@ -102,7 +102,7 @@ credentialRoutes.put('/:name', requireToken,
     }
 
     const db = c.get('db')
-    const profileSlug = body.profile ?? name
+    const profileSlug = '/' + (body.profile ?? name)
     const profile = body.host ? null : await getCredProfile(db, profileSlug)
     if (!body.host && !profile) {
       return c.json({ error: `Profile '${profileSlug}' not configured` }, 404)
@@ -162,7 +162,7 @@ credentialRoutes.delete('/:name', requireToken,
     const queryProfile = c.req.query('profile')
     let host = queryHost ?? null
     if (!host && queryProfile) {
-      const profile = await getCredProfile(db, queryProfile)
+      const profile = await getCredProfile(db, '/' + queryProfile)
       if (!profile) return c.json({ error: `Profile '${queryProfile}' not configured` }, 404)
       host = profile.host[0] ?? null
     }

@@ -236,7 +236,7 @@ export async function handleProxy(
 
   // Profile resolution: nearest ancestor profile for this host
   const profile = slug
-    ? await getCredProfile(db, slug)
+    ? await getCredProfile(db, '/' + slug)
     : await getCredProfileByHostForPath(db, hostname, tokenPath)
 
   if (slug && !profile) {
@@ -244,7 +244,7 @@ export async function handleProxy(
   }
 
   if (profile && !profile.host.includes(hostname)) {
-    return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.slug}'` }, 403)
+    return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.path}'` }, 403)
   }
 
   const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
@@ -293,7 +293,7 @@ export async function handleProxy(
 
   const log = c.get('logger')
   log.info({
-    slug: profile?.slug ?? slug,
+    slug: profile?.path ?? slug,
     hostname,
     method: c.req.method,
     upstreamUrl,
@@ -334,8 +334,8 @@ export async function handleProxy(
     const responseHeaders = new Headers(upstream.headers)
     responseHeaders.append('WWW-Authenticate', buildAgentPwChallenge({
       target_host: hostname,
-      profile: profile?.slug,
-      authorization_uri: buildAuthorizationUri(c.env.CLI_AUTH_BASE_URL, profile?.slug, hostname),
+      profile: profile?.path,
+      authorization_uri: buildAuthorizationUri(c.env.CLI_AUTH_BASE_URL, profile?.path, hostname),
     }))
 
     return new Response(upstream.body, {
@@ -346,7 +346,7 @@ export async function handleProxy(
   }
 
   log.info({
-    slug: profile?.slug ?? slug,
+    slug: profile?.path ?? slug,
     hostname,
     method: c.req.method,
     upstreamUrl,

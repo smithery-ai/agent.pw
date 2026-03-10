@@ -6,7 +6,7 @@ export const authFlowStatusEnum = agentpwSchema.enum('auth_flow_status', ['pendi
 
 export const authFlows = agentpwSchema.table('auth_flows', {
   id: text('id').primaryKey(),
-  slug: text('slug').notNull(),
+  profilePath: text('profile_path'),
   method: authFlowMethodEnum('method').notNull(),
   status: authFlowStatusEnum('status').notNull().default('pending'),
   codeVerifier: text('code_verifier'),
