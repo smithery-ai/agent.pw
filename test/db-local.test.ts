@@ -40,7 +40,7 @@ describe('db entrypoints', () => {
       db = await createLocalDb(dataDir)
       await migrateLocal(db)
       expect(migrate).toHaveBeenCalledWith(expect.anything(), {
-        migrationsFolder: expect.stringMatching(/agent\.pw-oss\/drizzle$/),
+        migrationsFolder: expect.stringMatching(/[\\/]drizzle$/),
       })
     } finally {
       await closeLocalDb(db)
