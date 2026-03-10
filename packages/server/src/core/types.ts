@@ -26,6 +26,8 @@ export interface CoreHonoEnv {
     token?: string
     userId?: string
     logger: Logger
+    /** Optional filter applied to credential candidates during proxy resolution. */
+    credentialFilter?: (cred: { path: string }) => boolean
   }
 }
 

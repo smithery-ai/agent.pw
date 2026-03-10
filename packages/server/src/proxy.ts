@@ -232,6 +232,7 @@ export async function handleProxy(
   }
 
   const tokenFacts = extractTokenFacts(token, publicKeyHex)
+  c.set('tokenFacts', tokenFacts)
   const tokenPath = pathFromTokenFacts(tokenFacts)
 
   // Profile resolution: nearest ancestor profile for this host
@@ -263,10 +264,16 @@ export async function handleProxy(
     if (!isAncestorOrEqual(credentialParentPath(selected.path), tokenPath)) {
       return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
     }
+    const credFilter = c.get('credentialFilter')
+    if (credFilter && !credFilter(selected)) {
+      return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
+    }
     cred = selected
   } else {
     // Find credentials at ancestors of token path, ordered by depth desc
-    const matches = await getCredentialsByHostForUsage(db, hostname, tokenPath)
+    let matches = await getCredentialsByHostForUsage(db, hostname, tokenPath)
+    const credFilter = c.get('credentialFilter')
+    if (credFilter) matches = matches.filter(credFilter)
     if (matches.length > 1) {
       // Check if top matches are at the same depth (conflict)
       const topDepth = pathDepth(matches[0].path)
