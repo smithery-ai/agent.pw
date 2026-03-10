@@ -39,7 +39,7 @@ proxyRoutes.all('/proxy/*',
     let prefix = `/proxy/${hostname}`
 
     if (segments.length >= 2) {
-      const explicitProfile = await getCredProfile(c.get('db'), '/' + segments[0])
+      const explicitProfile = await getCredProfile(c.get('db'), `/${segments[0]}`)
       if (explicitProfile) {
         const allowedHosts = explicitProfile.host
         if (allowedHosts.includes(segments[1])) {

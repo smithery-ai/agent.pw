@@ -53,7 +53,7 @@ function defaultMonogram(hostname: string, displayName?: string) {
   }
 
   const core = normalizeHostname(hostname).replace(/^(api|www|app|gateway|m)\./, '')
-  const firstLabel = core.split('.')[0] ?? core
+  const firstLabel = core.split('.')[0]
   const cleaned = firstLabel.replace(/[^a-z0-9]/gi, '')
   return cleaned.length > 0 ? cleaned.slice(0, 2).toUpperCase() : 'API'
 }

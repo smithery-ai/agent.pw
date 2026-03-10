@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/pglite'
 import { sql } from 'drizzle-orm'
 import * as schema from '@agent.pw/server/db/schema'
+import { mintToken } from '@agent.pw/server/biscuit'
 
 export const BISCUIT_PRIVATE_KEY =
   'ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad'
@@ -12,6 +13,22 @@ export const ROOT_TOKEN =
   'apw_Et8BCnUKBWxvY2FsCgthcHdfdXNlcl9pZAoJYXB3X3JpZ2h0Cg9tYW5hZ2Vfc2VydmljZXMYAyIJCgcIChIDGIAIIgoKCAiBCBIDGIAIIggKBggEEgIYDSIJCgcIgggSAhgNIgkKBwgEEgMYgwgiCgoICIIIEgMYgwgSJAgAEiDbNEU90WEHi3F50uL58WqtjG44f5PyGx4DqWADYZFo2RpAULFl2PrOfpFbnYTf34vjWGZTZZvtVrvIkXOkJqjFxbvgMQNXwFpEieQ0VUd0CVdyyhY0X2ZJx06hyfAAz-m0ACIiCiCpSp7XIW3EzHRDIBvL4F3H4FpsPtUQDA5qqAsUXXRQBA=='
 export const ORG_TOKEN =
   'apw_EsEBClcKDXVzZXJfdGVzdF8xMjMKC2Fwd191c2VyX2lkCgZvcmdfaWQKDG9yZ190ZXN0XzQ1NhgDIgkKBwgKEgMYgAgiCgoICIEIEgMYgAgiCgoICIIIEgMYgwgSJAgAEiB9mmA7aHk9nraGp-kNgDvEr3lMqRlV5L4XM-sVud5hExpACC78EUybNmLT7DXkRC8EUMrTm13As19X87Bb0OESx6rkL04ZmzTioCS1zPjsC1T116UNEjz9XFZIS0sBjinhAiIiCiChD_vSIHjWv5vqa4zXCSo_N9zrbpxreBc0U6sY4CMwkA=='
+
+function escapeDatalog(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+export function mintTestToken(
+  orgId: string,
+  rights?: string[],
+  path?: string,
+) {
+  const extraFacts = [`apw_org_id("${escapeDatalog(orgId)}")`]
+  if (path) {
+    extraFacts.push(`apw_path("${escapeDatalog(path)}")`)
+  }
+  return mintToken(BISCUIT_PRIVATE_KEY, orgId, rights, extraFacts)
+}
 
 export async function createTestDb() {
   const db = drizzle({ connection: { dataDir: 'memory://' }, schema })
