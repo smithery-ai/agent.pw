@@ -35,12 +35,12 @@ export async function createTestDb() {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS agentpw.credentials (
       host TEXT NOT NULL,
-      slug TEXT PRIMARY KEY,
-      path TEXT NOT NULL DEFAULT '/',
+      path TEXT NOT NULL,
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
-      updated_at TIMESTAMP NOT NULL DEFAULT now()
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      PRIMARY KEY (host, path)
     )
   `)
 
@@ -59,10 +59,10 @@ export async function createTestDb() {
       method TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       code_verifier TEXT,
-      exec_policy TEXT,
+      scope_path TEXT,
       token TEXT,
       identity TEXT,
-      credential_slug TEXT,
+      credential_path TEXT,
       expires_at TIMESTAMP NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now()
     )

@@ -1,4 +1,5 @@
 import { customType } from 'drizzle-orm/pg-core'
+import { pathToLtree, ltreeToPath } from '../../paths'
 
 export const bytea = customType<{ data: Buffer }>({
   dataType() {
@@ -18,3 +19,15 @@ export const jsonb = <T>() =>
       return (typeof value === 'string' ? JSON.parse(value) : value) as T
     },
   })
+
+export const ltree = customType<{ data: string; driverValue: string }>({
+  dataType() {
+    return 'ltree'
+  },
+  toDriver(value: string) {
+    return pathToLtree(value)
+  },
+  fromDriver(value: unknown) {
+    return ltreeToPath(String(value))
+  },
+})

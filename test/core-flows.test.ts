@@ -97,8 +97,7 @@ async function storeScopedCredential(slug: string, host: string, bearerToken: st
 
   await upsertCredential(db, {
     host,
-    slug,
-    path: `/orgs/${TEST_ORG_ID}`,
+    path: `/orgs/${TEST_ORG_ID}/${slug}`,
     auth: { kind: 'headers' },
     secret: encrypted,
   })
@@ -252,7 +251,7 @@ describe('Core Scenario Flows', () => {
     expect(revokedProxy.status).toBe(403)
   })
 
-  it('requires an explicit credential slug when multiple credentials match a host', async () => {
+  it('requires an explicit credential name when multiple credentials match a host', async () => {
     await registerProfile('slack', {
       host: ['slack.com'],
       displayName: 'Slack',
@@ -276,7 +275,7 @@ describe('Core Scenario Flows', () => {
     })
     expect(ambiguous.status).toBe(409)
     expect(await ambiguous.json()).toMatchObject({
-      credentialSlugs: expect.arrayContaining(['shared-slack', 'personal-slack']),
+      credentialNames: expect.arrayContaining(['shared-slack', 'personal-slack']),
     })
 
     const selected = await req('/proxy/slack.com/api/auth.test', {

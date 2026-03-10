@@ -3,7 +3,7 @@ import { request, requestJson } from '../http'
 import { output, outputList } from '../output'
 
 interface ListedCredential {
-  slug: string
+  name: string
   host: string
   path: string
   createdAt: string
@@ -16,8 +16,14 @@ interface CredProfile {
 
 interface AddCredOptions {
   auth?: string
-  credentialSlug?: string
+  credentialName?: string
   headers?: string[]
+}
+
+interface RemoveCredOptions {
+  host?: string
+  path?: string
+  profile?: string
 }
 
 function relativeTime(date: string) {
@@ -38,14 +44,14 @@ export async function listCreds() {
   if (outputList(creds)) return
 
   if (creds.length === 0) {
-    console.log('No credentials stored. Add one with `agent.pw cred add <slug-or-host>`.')
+    console.log('No credentials stored. Add one with `agent.pw cred add <profile-or-host>`.')
     return
   }
 
-  console.log(`${'HOST'.padEnd(28)}${'SLUG'.padEnd(20)}${'PATH'.padEnd(24)}ADDED`)
+  console.log(`${'HOST'.padEnd(28)}${'NAME'.padEnd(20)}${'PATH'.padEnd(32)}ADDED`)
   for (const cr of creds) {
     const added = cr.createdAt ? relativeTime(cr.createdAt) : ''
-    console.log(`${cr.host.padEnd(28)}${cr.slug.padEnd(20)}${cr.path.padEnd(24)}${added}`)
+    console.log(`${cr.host.padEnd(28)}${cr.name.padEnd(20)}${cr.path.padEnd(32)}${added}`)
   }
 }
 
@@ -60,7 +66,7 @@ async function resolveProfile(target: string): Promise<CredProfile | null> {
   return profiles.find(profile => profile.host.includes(target)) ?? null
 }
 
-function targetToCredentialSlug(target: string) {
+function targetToCredentialName(target: string) {
   const sanitized = target.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
   return sanitized || 'credential'
 }
@@ -85,7 +91,7 @@ function parseHeaders(headerSpecs: string[]) {
 export async function addCred(target: string, value?: string, options: AddCredOptions = {}) {
   const profile = await resolveProfile(target)
   const manualHeaders = options.headers && options.headers.length > 0 ? parseHeaders(options.headers) : undefined
-  const credentialSlug = options.credentialSlug ?? profile?.slug ?? targetToCredentialSlug(target)
+  const credentialName = options.credentialName ?? profile?.slug ?? targetToCredentialName(target)
 
   if (!manualHeaders && !value) {
     const rl = createInterface({ input: process.stdin, output: process.stderr })
@@ -101,7 +107,7 @@ export async function addCred(target: string, value?: string, options: AddCredOp
     }
   }
 
-  await requestJson(`/credentials/${encodeURIComponent(credentialSlug)}`, {
+  await requestJson(`/credentials/${encodeURIComponent(credentialName)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -114,12 +120,22 @@ export async function addCred(target: string, value?: string, options: AddCredOp
   })
 
   const resolvedHost = profile?.host[0] ?? target
-  console.log(`Stored credential '${credentialSlug}' for ${resolvedHost}.`)
+  console.log(`Stored credential '${credentialName}' for ${resolvedHost}.`)
 }
 
-export async function removeCred(slug: string) {
+export async function removeCred(name: string, options: RemoveCredOptions = {}) {
   try {
-    const res = await request(`/credentials/${encodeURIComponent(slug)}`, {
+    const profile = options.profile ? await resolveProfile(options.profile) : await resolveProfile(name)
+    const host = options.host ?? profile?.host[0]
+    if (!host) {
+      console.error('Host is required to remove a credential. Pass --host <hostname> for manual credentials.')
+      process.exit(1)
+    }
+
+    const params = new URLSearchParams({ host })
+    if (options.path) params.set('path', options.path)
+
+    const res = await request(`/credentials/${encodeURIComponent(name)}?${params.toString()}`, {
       method: 'DELETE',
     })
     if (!res.ok) {
@@ -127,10 +143,10 @@ export async function removeCred(slug: string) {
       error.status = res.status
       throw error
     }
-    console.log(`Removed credential for ${slug}.`)
+    console.log(`Removed credential '${name}'.`)
   } catch (e: unknown) {
     if (isNotFound(e)) {
-      console.error(`No credential found for '${slug}'.`)
+      console.error(`No credential found for '${name}'.`)
       process.exit(1)
     }
     throw e
