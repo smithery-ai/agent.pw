@@ -501,7 +501,7 @@
           "credentials"
         ],
         "summary": "List credentials",
-        "description": "List all credentials accessible to this token (admin flows downward).",
+        "description": "List all credentials accessible to this token (owned + inherited).",
         "responses": {
           "200": {
             "description": "List of credentials",
