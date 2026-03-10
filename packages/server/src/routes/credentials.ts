@@ -50,7 +50,7 @@ credentialRoutes.get('/', requireToken,
   }),
   async c => {
     const db = c.get('db')
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
     const creds = await listCredentialsAccessible(db, tokenPath)
     return c.json(
       creds.map(cr => ({
@@ -86,7 +86,7 @@ credentialRoutes.put('/:name', requireToken,
       return c.json({ error: 'Either token or headers is required' }, 400)
     }
 
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
     const credPath = body.path ?? joinCredentialPath(tokenPath, name)
 
     if (!validatePath(credPath) || credPath === '/') {
@@ -102,7 +102,7 @@ credentialRoutes.put('/:name', requireToken,
     }
 
     const db = c.get('db')
-    const profileSlug = '/' + (body.profile ?? name)
+    const profileSlug = `/${body.profile ?? name}`
     const profile = body.host ? null : await getCredProfile(db, profileSlug)
     if (!body.host && !profile) {
       return c.json({ error: `Profile '${profileSlug}' not configured` }, 404)
@@ -116,11 +116,6 @@ credentialRoutes.put('/:name', requireToken,
     const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
     const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
     const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
-
-    const existing = await getCredential(db, host, credPath)
-    if (existing && !isAncestorOrEqual(tokenPath, credentialParentPath(existing.path))) {
-      return c.json({ error: `Token cannot update credential '${name}'` }, 403)
-    }
 
     await upsertCredential(db, {
       host,
@@ -149,7 +144,7 @@ credentialRoutes.delete('/:name', requireToken,
       return c.json({ error: 'Invalid credential name' }, 400)
     }
 
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') ?? {})
+    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
     const requestedPath = c.req.query('path') ?? joinCredentialPath(tokenPath, name)
     if (!validatePath(requestedPath) || requestedPath === '/') {
       return c.json({ error: 'Invalid path' }, 400)
@@ -162,7 +157,7 @@ credentialRoutes.delete('/:name', requireToken,
     const queryProfile = c.req.query('profile')
     let host = queryHost ?? null
     if (!host && queryProfile) {
-      const profile = await getCredProfile(db, '/' + queryProfile)
+      const profile = await getCredProfile(db, `/${queryProfile}`)
       if (!profile) return c.json({ error: `Profile '${queryProfile}' not configured` }, 404)
       host = profile.host[0] ?? null
     }

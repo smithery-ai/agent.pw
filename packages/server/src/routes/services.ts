@@ -89,7 +89,7 @@ serviceRoutes.get('/:slug', requireToken,
     const slug = c.req.param('slug')
     const db = c.get('db')
 
-    const service = await getService(db, '/' + slug)
+    const service = await getService(db, `/${slug}`)
     if (!service) return c.json({ error: 'Service not found' }, 404)
 
     return c.json({
@@ -122,14 +122,10 @@ serviceRoutes.put('/:slug', requireToken, requireRight('manage_services'),
 
     const body = c.req.valid('json')
 
-    if (!body.allowedHosts || body.allowedHosts.length === 0) {
-      return c.json({ error: 'allowedHosts is required' }, 400)
-    }
-
     const db = c.get('db')
     const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
 
-    await upsertService(db, '/' + slug, {
+    await upsertService(db, `/${slug}`, {
       allowedHosts: body.allowedHosts,
       authSchemes: body.authSchemes,
       displayName,
@@ -158,7 +154,7 @@ serviceRoutes.delete('/:slug', requireToken, requireRight('manage_services'),
   }),
   async c => {
     const db = c.get('db')
-    const deleted = await deleteService(db, '/' + c.req.param('slug'))
+    const deleted = await deleteService(db, `/${c.req.param('slug')}`)
     if (!deleted) return c.json({ error: 'Service not found' }, 404)
     return c.json({ ok: true as const })
   },

@@ -58,13 +58,10 @@ export function parseTtlSeconds(ttl: string | number): number {
   const match = ttl.match(/^(\d+)(s|m|h|d)$/)
   if (!match) throw new Error(`Invalid TTL format: ${ttl}`)
   const value = parseInt(match[1], 10)
-  switch (match[2]) {
-    case 's': return value
-    case 'm': return value * 60
-    case 'h': return value * 3600
-    case 'd': return value * 86400
-    default: throw new Error(`Invalid TTL unit: ${match[2]}`)
-  }
+  const multiplier = ({ s: 1, m: 60, h: 3600, d: 86400 } as const)[
+    match[2] as 's' | 'm' | 'h' | 'd'
+  ]
+  return value * multiplier
 }
 
 // ─── Attenuation Block Code ─────────────────────────────────────────────────
@@ -240,8 +237,7 @@ export function authorizeRequest(
   // Retry loop: the first authorizeWithLimits call on a cold worker may timeout
   // because WASM JIT compilation is counted against the time limit. The retry
   // succeeds immediately because the compiled code is cached.
-  let lastError: unknown
-  for (let attempt = 0; attempt < MAX_AUTHORIZE_RETRIES; attempt++) {
+  function attemptAuthorize(retriesLeft: number): AuthorizationResult {
     try {
       const token = Biscuit.fromBase64(raw, publicKey)
       const ab = new AuthorizerBuilder()
@@ -250,17 +246,16 @@ export function authorizeRequest(
       auth.authorizeWithLimits(RUN_LIMITS)
       return { authorized: true }
     } catch (e) {
-      lastError = e
-      const msg = typeof e === 'string' ? e : JSON.stringify(e)
+      const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e)
       // Only retry on timeout (WASM JIT warmup), not on logic failures
-      if (!msg.includes('Timeout')) {
+      if (!msg.includes('Timeout') || retriesLeft <= 1) {
         return { authorized: false, error: msg }
       }
+      return attemptAuthorize(retriesLeft - 1)
     }
   }
 
-  const msg = lastError instanceof Error ? lastError.message : typeof lastError === 'string' ? lastError : JSON.stringify(lastError)
-  return { authorized: false, error: msg }
+  return attemptAuthorize(MAX_AUTHORIZE_RETRIES)
 }
 
 /**

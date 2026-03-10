@@ -50,7 +50,7 @@ function buildAgentPwChallenge(params: Record<string, string | undefined>) {
     .filter(([, value]) => typeof value === 'string' && value.length > 0)
     .map(([key, value]) => `${key}="${String(value).replace(/"/g, '\\"')}"`)
     .join(', ')
-  return encoded.length > 0 ? `AgentPW ${encoded}` : 'AgentPW'
+  return `AgentPW ${encoded}`.trimEnd()
 }
 
 function buildAuthorizationUri(
@@ -236,7 +236,7 @@ export async function handleProxy(
 
   // Profile resolution: nearest ancestor profile for this host
   const profile = slug
-    ? await getCredProfile(db, '/' + slug)
+    ? await getCredProfile(db, `/${slug}`)
     : await getCredProfileByHostForPath(db, hostname, tokenPath)
 
   if (slug && !profile) {
