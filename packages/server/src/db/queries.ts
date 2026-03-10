@@ -343,7 +343,6 @@ export interface CreateFlowData {
 export interface CompleteFlowData {
   token: string
   identity: string
-  credentialPath?: string
 }
 
 export async function createAuthFlow(db: Database, data: CreateFlowData) {
@@ -375,7 +374,6 @@ export async function completeAuthFlow(db: Database, id: string, data: CompleteF
       status: 'completed',
       token: data.token,
       identity: data.identity,
-      credentialPath: data.credentialPath,
     })
     .where(eq(authFlows.id, id))
 }

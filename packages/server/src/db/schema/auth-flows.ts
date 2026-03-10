@@ -14,7 +14,6 @@ export const authFlows = agentpwSchema.table('auth_flows', {
   scopePath: text('scope_path'),
   token: text('token'),
   identity: text('identity'),
-  credentialPath: text('credential_path'),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
