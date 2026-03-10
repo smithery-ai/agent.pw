@@ -122,19 +122,27 @@ Credentials are write-only. Agents cannot exfiltrate them.
 
 ## Getting Started (Self-Hosted)
 
+Install the server package:
+
 ```bash
-agent.pw setup
+bun add @agent.pw/server
 ```
 
-Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token. Run `agent.pw start` to start the proxy. Everything runs on your machine.
+Set up and start:
 
-Self-hosted starts with an empty credential store and no credential profiles. Standards-based discovery works for compatible APIs. For everything else, add profiles via skill:
-
-```
-/add-profile api.linear.app
+```bash
+agent.pw-server setup
 ```
 
-Or manually:
+Generates Biscuit signing keys (Ed25519), creates a local PGlite database, and mints a root token.
+
+```bash
+agent.pw-server start
+```
+
+Starts the proxy on your machine. Everything runs locally.
+
+Self-hosted starts with an empty credential store and no credential profiles. Standards-based discovery works for compatible APIs. For everything else, add profiles:
 
 ```bash
 agent.pw profile add linear --host api.linear.app \
@@ -147,7 +155,7 @@ The `-H` flag follows curl conventions. `{name:description}` syntax defines form
 Then use the proxy locally:
 
 ```bash
-agent.pw curl http://localhost:3000/proxy/api.linear.app/graphql \
+agent.pw curl http://localhost:9315/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
@@ -196,29 +204,36 @@ The root token (generated during setup) has full authority. Restricted tokens ar
 
 Credentials carry scope arrays: `exec_scopes` governs proxy use, `admin_scopes` governs management operations. Tokens can also carry `scope("value")` facts directly, with `org_id` remaining as a fallback for older tokens. See [docs/token-design.md](docs/token-design.md) for full details.
 
-## CLI Commands
+## CLI
+
+The CLI (`agent.pw`) manages credentials, profiles, and tokens. It works with both cloud and self-hosted backends.
 
 ```
-agent.pw login                                authenticate with Cloud
-agent.pw logout                               log out
-agent.pw setup                                self-hosted: generate keys, create DB, mint root token
-agent.pw start                                start the local proxy server
-agent.pw stop                                 stop the local proxy server
-agent.pw status                               show connected backend + token info
+agent.pw <command>
 
-agent.pw profile                              list credential profiles
-agent.pw profile get <slug>                   show profile details
-agent.pw profile add <slug> --host <h>        register a profile
-agent.pw profile remove <slug>                remove a profile
+  login      Log in to agent.pw
+  logout     Log out
+  status     Show connection status
+  profile    Manage credential profiles
+  cred       Manage stored credentials
+  token      Manage access tokens
+  curl       Proxy-aware curl wrapper
+```
 
-agent.pw cred                                 list credentials
-agent.pw cred add <slug-or-host>              add a credential
-agent.pw cred remove <slug>                   remove a credential
+Run `agent.pw <command> --help` for subcommands and options.
 
-agent.pw token restrict                       create restricted child token
-agent.pw token revoke                         revoke a token
+When piped (non-TTY), commands output JSONL for machine consumption.
 
-agent.pw curl <url> [curl flags]              proxy request with auto-injected token
+### Self-Hosted Server CLI
+
+The server package (`@agent.pw/server`) includes its own CLI for managing a local instance:
+
+```
+agent.pw-server <command>
+
+  setup    Set up a local instance (keys, database)
+  start    Start the local proxy server
+  stop     Stop the local proxy server
 ```
 
 ## API Reference
@@ -260,21 +275,21 @@ agent.pw/
         routes/           ← API route handlers
         db/               ← Drizzle schema and queries
         lib/              ← shared utilities, crypto
-    cli/                  ← agent.pw CLI (depends on server + SDK)
+      cli.ts              ← agent.pw-server CLI (self-hosted)
+    cli/                  ← agent.pw CLI (cloud + management, SDK only)
 ```
 
 ## Development
 
 ```bash
 pnpm install
-pnpm build              # build CLI
+pnpm build              # typecheck
 npm link                # link CLI globally
 ```
 
 ```bash
 pnpm test               # run tests (uses in-memory PGlite)
 pnpm test:watch         # watch mode
-pnpm run build          # typecheck
 pnpm run lint           # lint
 ```
 
