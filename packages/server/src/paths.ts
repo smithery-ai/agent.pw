@@ -32,6 +32,33 @@ export function validatePath(path: string) {
   return true
 }
 
+/** Extract the leaf credential name from a full credential path. */
+export function credentialName(path: string) {
+  return path.split('/').pop()!
+}
+
+/** Extract the containing node path for a full credential path. */
+export function credentialParentPath(path: string) {
+  const i = path.lastIndexOf('/')
+  return i <= 0 ? '/' : path.slice(0, i)
+}
+
+/** Join a node path and credential name into a full credential path. */
+export function joinCredentialPath(nodePath: string, name: string) {
+  return nodePath === '/' ? `/${name}` : `${nodePath}/${name}`
+}
+
+/** Validate a credential name used as the final path segment. */
+export function validateCredentialName(name: string) {
+  return name.length > 0 && !name.includes('/') && !name.includes('.') && name !== '.' && name !== '..'
+}
+
+/** Count slash-delimited path segments, excluding the leading slash. */
+export function pathDepth(path: string) {
+  if (path === '/') return 0
+  return path.split('/').filter(Boolean).length
+}
+
 /**
  * From a list of candidates with paths, find the deepest ancestor of
  * `tokenPath` (longest prefix match). Returns null if none match.
@@ -46,9 +73,4 @@ export function deepestAncestor<T extends { path: string }>(
     if (!best || c.path.length > best.path.length) best = c
   }
   return best
-}
-
-/** Escape special LIKE characters in a path for use in SQL LIKE patterns. */
-export function escapeLikePath(path: string) {
-  return path.replace(/%/g, '\\%').replace(/_/g, '\\_')
 }

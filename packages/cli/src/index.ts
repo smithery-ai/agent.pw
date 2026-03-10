@@ -131,7 +131,7 @@ credCmd
     const { addCred } = await import('./commands/cred')
     return addCred(target, opts.value, {
       auth: opts.auth,
-      credentialSlug: opts.slug,
+      credentialName: opts.slug,
       headers: opts.header,
     })
   })

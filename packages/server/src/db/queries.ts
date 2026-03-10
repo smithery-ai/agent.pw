@@ -1,7 +1,11 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { credProfiles, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
-import { escapeLikePath, isAncestorOrEqual } from '../paths'
+import {
+  credentialParentPath,
+  isAncestorOrEqual,
+  pathDepth,
+} from '../paths'
 
 interface LegacyServiceRecord {
   slug: string
@@ -33,7 +37,7 @@ function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): Legac
   const authConfig = auth?.authConfig
 
   return {
-    slug: profile.slug,
+    slug: profile.path,
     allowedHosts: JSON.stringify(profile.host),
     authSchemes: authSchemes ? JSON.stringify(authSchemes) : null,
     displayName: profile.displayName,
@@ -52,8 +56,8 @@ function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): Legac
 
 // ─── Cred Profiles ──────────────────────────────────────────────────────────
 
-export async function getCredProfile(db: Database, slug: string) {
-  const rows = await db.select().from(credProfiles).where(eq(credProfiles.slug, slug))
+export async function getCredProfile(db: Database, path: string) {
+  const rows = await db.select().from(credProfiles).where(eq(credProfiles.path, path))
   return rows[0] ?? null
 }
 
@@ -69,11 +73,15 @@ export async function getCredProfileByHost(db: Database, host: string) {
 export async function getCredProfileByHostForPath(db: Database, host: string, tokenPath: string) {
   const profiles = await listCredProfiles(db)
   const matching = profiles.filter(p => p.host.includes(host))
-  // Find the deepest ancestor of tokenPath among matching profiles
+  // Find the best profile: prefer deepest ancestor, then nearest visible profile
   let best: (typeof matching)[number] | null = null
   for (const p of matching) {
-    if (!isAncestorOrEqual(p.path, tokenPath)) continue
-    if (!best || p.path.length > best.path.length) best = p
+    const profileParent = credentialParentPath(p.path)
+    const visible = isAncestorOrEqual(p.path, tokenPath)
+      || isAncestorOrEqual(tokenPath, p.path)
+      || isAncestorOrEqual(profileParent, tokenPath)
+    if (!visible) continue
+    if (!best || pathDepth(p.path) > pathDepth(best.path)) best = p
   }
   return best
 }
@@ -107,10 +115,9 @@ export async function listCredProfilesWithCredentialCounts(db: Database) {
 
 export async function upsertCredProfile(
   db: Database,
-  slug: string,
+  path: string,
   data: {
     host: string[]
-    path?: string
     auth?: Record<string, unknown>
     managedOauth?: Record<string, unknown>
     displayName?: string
@@ -120,19 +127,17 @@ export async function upsertCredProfile(
   await db
     .insert(credProfiles)
     .values({
-      slug,
+      path,
       host: data.host,
-      path: data.path ?? '/',
       auth: data.auth,
       managedOauth: data.managedOauth,
       displayName: data.displayName,
       description: data.description,
     })
     .onConflictDoUpdate({
-      target: credProfiles.slug,
+      target: credProfiles.path,
       set: {
         host: sql`excluded.host`,
-        path: sql`excluded.path`,
         auth: sql`coalesce(excluded.auth, ${credProfiles.auth})`,
         managedOauth: sql`coalesce(excluded.managed_oauth, ${credProfiles.managedOauth})`,
         displayName: sql`coalesce(excluded.display_name, ${credProfiles.displayName})`,
@@ -142,8 +147,8 @@ export async function upsertCredProfile(
     })
 }
 
-export async function deleteCredProfile(db: Database, slug: string) {
-  const result = await db.delete(credProfiles).where(eq(credProfiles.slug, slug)).returning()
+export async function deleteCredProfile(db: Database, path: string) {
+  const result = await db.delete(credProfiles).where(eq(credProfiles.path, path)).returning()
   return result.length > 0
 }
 
@@ -151,8 +156,8 @@ export async function deleteCredProfile(db: Database, slug: string) {
 
 // Keep the legacy service API compiling on merged PR builds while the product
 // migrates from /services to /cred_profiles.
-export async function getService(db: Database, slug: string) {
-  const profile = await getCredProfile(db, slug)
+export async function getService(db: Database, path: string) {
+  const profile = await getCredProfile(db, path)
   return profile ? toLegacyServiceRecord(profile) : null
 }
 
@@ -171,7 +176,7 @@ export async function listServicesWithCredentialCounts(db: Database) {
 
 export async function upsertService(
   db: Database,
-  slug: string,
+  path: string,
   data: {
     allowedHosts: string[]
     authSchemes?: unknown
@@ -194,7 +199,7 @@ export async function upsertService(
     managedOauth.encryptedClientSecret = data.encryptedOauthClientSecret.toString('base64')
   }
 
-  await upsertCredProfile(db, slug, {
+  await upsertCredProfile(db, path, {
     host: data.allowedHosts,
     auth: Object.keys(auth).length > 0 ? auth : undefined,
     managedOauth:
@@ -204,14 +209,17 @@ export async function upsertService(
   })
 }
 
-export async function deleteService(db: Database, slug: string) {
-  return deleteCredProfile(db, slug)
+export async function deleteService(db: Database, path: string) {
+  return deleteCredProfile(db, path)
 }
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
 
-export async function getCredentialBySlug(db: Database, slug: string) {
-  const rows = await db.select().from(credentials).where(eq(credentials.slug, slug))
+export async function getCredential(db: Database, host: string, path: string) {
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(and(eq(credentials.host, host), eq(credentials.path, path)))
   return rows[0] ?? null
 }
 
@@ -231,14 +239,26 @@ export async function listCredentialsAdminAccessible(
   db: Database,
   tokenPath: string,
 ) {
-  const escaped = escapeLikePath(tokenPath)
-  if (tokenPath === '/') {
-    return db.select().from(credentials)
-  }
-  return db
-    .select()
-    .from(credentials)
-    .where(sql`${credentials.path} = ${tokenPath} OR ${credentials.path} LIKE ${escaped + '/%'}`)
+  const all = await listCredentials(db)
+  return all.filter(credential =>
+    isAncestorOrEqual(tokenPath, credentialParentPath(credential.path)),
+  )
+}
+
+
+/**
+ * List all credentials the token can see: admin-accessible (at path or deeper)
+ * plus usage-accessible (at ancestor paths).
+ */
+export async function listCredentialsAccessible(
+  db: Database,
+  tokenPath: string,
+) {
+  const all = await listCredentials(db)
+  return all.filter(credential => {
+    const parentPath = credentialParentPath(credential.path)
+    return isAncestorOrEqual(parentPath, tokenPath) || isAncestorOrEqual(tokenPath, parentPath)
+  })
 }
 
 /**
@@ -251,22 +271,16 @@ export async function getCredentialsByHostForUsage(
   host: string,
   tokenPath: string,
 ) {
-  const escaped = escapeLikePath(tokenPath)
-  return db
-    .select()
-    .from(credentials)
-    .where(and(
-      eq(credentials.host, host),
-      sql`${tokenPath} = ${credentials.path} OR ${credentials.path} = '/' OR ${tokenPath} LIKE ${credentials.path} || '/%'`,
-    ))
-    .orderBy(sql`length(${credentials.path}) DESC`)
+  const candidates = await getCredentialsByHost(db, host)
+  return candidates
+    .filter(credential => isAncestorOrEqual(credentialParentPath(credential.path), tokenPath))
+    .sort((a, b) => pathDepth(b.path) - pathDepth(a.path))
 }
 
 export async function upsertCredential(
   db: Database,
   data: {
     host: string
-    slug: string
     path: string
     auth: Record<string, unknown>
     secret: Buffer
@@ -276,16 +290,13 @@ export async function upsertCredential(
     .insert(credentials)
     .values({
       host: data.host,
-      slug: data.slug,
       path: data.path,
       auth: data.auth,
       secret: data.secret,
     })
     .onConflictDoUpdate({
-      target: credentials.slug,
+      target: [credentials.host, credentials.path],
       set: {
-        host: sql`excluded.host`,
-        path: sql`excluded.path`,
         auth: sql`excluded.auth`,
         secret: sql`excluded.secret`,
         updatedAt: sql`now()`,
@@ -293,8 +304,11 @@ export async function upsertCredential(
     })
 }
 
-export async function deleteCredential(db: Database, slug: string) {
-  const result = await db.delete(credentials).where(eq(credentials.slug, slug)).returning()
+export async function deleteCredential(db: Database, host: string, path: string) {
+  const result = await db
+    .delete(credentials)
+    .where(and(eq(credentials.host, host), eq(credentials.path, path)))
+    .returning()
   return result.length > 0
 }
 
@@ -319,26 +333,26 @@ export async function revokeToken(db: Database, revocationId: string, reason?: s
 
 export interface CreateFlowData {
   id: string
-  slug: string
+  profilePath?: string
   method: 'oauth' | 'api_key'
   codeVerifier?: string
-  execPolicy?: string
+  scopePath?: string
   expiresAt: Date
 }
 
 export interface CompleteFlowData {
   token: string
   identity: string
-  credentialSlug?: string
+  credentialPath?: string
 }
 
 export async function createAuthFlow(db: Database, data: CreateFlowData) {
   await db.insert(authFlows).values({
     id: data.id,
-    slug: data.slug,
+    profilePath: data.profilePath,
     method: data.method,
     codeVerifier: data.codeVerifier,
-    execPolicy: data.execPolicy,
+    scopePath: data.scopePath,
     expiresAt: data.expiresAt,
   })
 }
@@ -361,7 +375,7 @@ export async function completeAuthFlow(db: Database, id: string, data: CompleteF
       status: 'completed',
       token: data.token,
       identity: data.identity,
-      credentialSlug: data.credentialSlug,
+      credentialPath: data.credentialPath,
     })
     .where(eq(authFlows.id, id))
 }

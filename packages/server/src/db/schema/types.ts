@@ -18,3 +18,9 @@ export const jsonb = <T>() =>
       return (typeof value === 'string' ? JSON.parse(value) : value) as T
     },
   })
+
+export const ltree = customType<{ data: string; driverValue: string }>({
+  dataType() {
+    return 'text'
+  },
+})

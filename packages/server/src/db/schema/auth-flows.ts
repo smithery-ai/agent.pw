@@ -6,14 +6,14 @@ export const authFlowStatusEnum = agentpwSchema.enum('auth_flow_status', ['pendi
 
 export const authFlows = agentpwSchema.table('auth_flows', {
   id: text('id').primaryKey(),
-  slug: text('slug').notNull(),
+  profilePath: text('profile_path'),
   method: authFlowMethodEnum('method').notNull(),
   status: authFlowStatusEnum('status').notNull().default('pending'),
   codeVerifier: text('code_verifier'),
-  execPolicy: text('exec_policy'),
+  scopePath: text('scope_path'),
   token: text('token'),
   identity: text('identity'),
-  credentialSlug: text('credential_slug'),
+  credentialPath: text('credential_path'),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })

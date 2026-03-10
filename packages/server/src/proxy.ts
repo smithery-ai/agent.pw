@@ -9,7 +9,7 @@ import {
 import {
   getCredProfile,
   getCredProfileByHostForPath,
-  getCredentialBySlug,
+  getCredential,
   getCredentialsByHostForUsage,
   isRevoked,
   upsertCredential,
@@ -22,7 +22,15 @@ import {
 } from './lib/credentials-crypto'
 import { refreshOAuthToken } from './lib/oauth-refresh'
 import { isDnsError } from './lib/dns'
-import { pathFromTokenFacts, isAncestorOrEqual } from './paths'
+import {
+  credentialName,
+  credentialParentPath,
+  joinCredentialPath,
+  pathDepth,
+  pathFromTokenFacts,
+  isAncestorOrEqual,
+  validatePath,
+} from './paths'
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -81,7 +89,6 @@ async function refreshCredentialIfNeeded(
   c: Context<CoreHonoEnv>,
   cred: {
     host: string
-    slug: string
     path: string
     auth: Record<string, unknown>
     secret: Buffer
@@ -117,7 +124,6 @@ async function refreshCredentialIfNeeded(
   const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, nextStored)
   await upsertCredential(c.get('db'), {
     host: cred.host,
-    slug: cred.slug,
     path: cred.path,
     auth: cred.auth,
     secret: encrypted,
@@ -230,7 +236,7 @@ export async function handleProxy(
 
   // Profile resolution: nearest ancestor profile for this host
   const profile = slug
-    ? await getCredProfile(db, slug)
+    ? await getCredProfile(db, '/' + slug)
     : await getCredProfileByHostForPath(db, hostname, tokenPath)
 
   if (slug && !profile) {
@@ -238,22 +244,23 @@ export async function handleProxy(
   }
 
   if (profile && !profile.host.includes(hostname)) {
-    return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.slug}'` }, 403)
+    return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.path}'` }, 403)
   }
 
   const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
 
-  let cred: Awaited<ReturnType<typeof getCredentialBySlug>> | null = null
+  let cred: Awaited<ReturnType<typeof getCredential>> | null = null
   if (selector) {
-    const selected = await getCredentialBySlug(db, selector)
+    const selectedPath = selector.startsWith('/') ? selector : joinCredentialPath(tokenPath, selector)
+    if (!validatePath(selectedPath) || selectedPath === '/') {
+      return c.json({ error: `Invalid credential selector '${selector}'` }, 400)
+    }
+    const selected = await getCredential(db, hostname, selectedPath)
     if (!selected) {
       return c.json({ error: `Unknown credential: ${selector}` }, 404)
     }
-    if (selected.host !== hostname) {
-      return c.json({ error: `Credential '${selector}' does not match host '${hostname}'` }, 403)
-    }
     // Usage check: credential must be at an ancestor of the token's path
-    if (!isAncestorOrEqual(selected.path, tokenPath)) {
+    if (!isAncestorOrEqual(credentialParentPath(selected.path), tokenPath)) {
       return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
     }
     cred = selected
@@ -262,13 +269,13 @@ export async function handleProxy(
     const matches = await getCredentialsByHostForUsage(db, hostname, tokenPath)
     if (matches.length > 1) {
       // Check if top matches are at the same depth (conflict)
-      const topDepth = matches[0].path.length
-      const sameDepth = matches.filter(m => m.path.length === topDepth)
+      const topDepth = pathDepth(matches[0].path)
+      const sameDepth = matches.filter(m => pathDepth(m.path) === topDepth)
       if (sameDepth.length > 1) {
         return c.json({
           error: `Multiple credentials match host '${hostname}' at the same path depth`,
-          credentialSlugs: sameDepth.map(match => match.slug),
-          hint: `Send the ${CREDENTIAL_SELECTOR_HEADER} header to choose a credential slug explicitly.`,
+          credentialNames: sameDepth.map(match => credentialName(match.path)),
+          hint: `Send the ${CREDENTIAL_SELECTOR_HEADER} header to choose a credential name explicitly.`,
         }, 409)
       }
     }
@@ -285,7 +292,13 @@ export async function handleProxy(
   const explicitAuthorization = headers.has('Authorization')
 
   const log = c.get('logger')
-  log.info({ slug: profile?.slug ?? slug, hostname, method: c.req.method, upstreamUrl, credential: cred?.slug ?? null }, 'proxy request')
+  log.info({
+    slug: profile?.path ?? slug,
+    hostname,
+    method: c.req.method,
+    upstreamUrl,
+    credential: cred ? credentialName(cred.path) : null,
+  }, 'proxy request')
 
   if (cred) {
     let stored = await decryptCredentials(c.env.ENCRYPTION_KEY, cred.secret)
@@ -321,8 +334,8 @@ export async function handleProxy(
     const responseHeaders = new Headers(upstream.headers)
     responseHeaders.append('WWW-Authenticate', buildAgentPwChallenge({
       target_host: hostname,
-      profile: profile?.slug,
-      authorization_uri: buildAuthorizationUri(c.env.CLI_AUTH_BASE_URL, profile?.slug, hostname),
+      profile: profile?.path,
+      authorization_uri: buildAuthorizationUri(c.env.CLI_AUTH_BASE_URL, profile?.path, hostname),
     }))
 
     return new Response(upstream.body, {
@@ -333,7 +346,7 @@ export async function handleProxy(
   }
 
   log.info({
-    slug: profile?.slug ?? slug,
+    slug: profile?.path ?? slug,
     hostname,
     method: c.req.method,
     upstreamUrl,

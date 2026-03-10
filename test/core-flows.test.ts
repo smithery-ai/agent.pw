@@ -97,8 +97,7 @@ async function storeScopedCredential(slug: string, host: string, bearerToken: st
 
   await upsertCredential(db, {
     host,
-    slug,
-    path: `/orgs/${TEST_ORG_ID}`,
+    path: `/orgs/${TEST_ORG_ID}/${slug}`,
     auth: { kind: 'headers' },
     secret: encrypted,
   })
@@ -119,7 +118,7 @@ describe('Core Scenario Flows', () => {
     const health = await req('/')
     expect(health.status).toBe(200)
     expect(await health.json()).toEqual({
-      profiles: [{ slug: 'github', credentialCount: 1 }],
+      profiles: [{ slug: '/github', credentialCount: 1 }],
     })
 
     const profiles = await mgmtReq('/cred_profiles')
@@ -182,9 +181,9 @@ describe('Core Scenario Flows', () => {
     })
     expect(bootstrap.status).toBe(401)
     expect(bootstrap.headers.get('www-authenticate')).toContain('AgentPW')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('profile="github"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('profile="/github"')
     expect(bootstrap.headers.get('www-authenticate')).toContain('target_host="api.github.com"')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2Fgithub"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain('authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2F%252Fgithub"')
 
     const privateTarget = await req('/proxy/127.0.0.1/admin', {
       headers: withAgentPwToken(ORG_TOKEN),
@@ -252,7 +251,7 @@ describe('Core Scenario Flows', () => {
     expect(revokedProxy.status).toBe(403)
   })
 
-  it('requires an explicit credential slug when multiple credentials match a host', async () => {
+  it('requires an explicit credential name when multiple credentials match a host', async () => {
     await registerProfile('slack', {
       host: ['slack.com'],
       displayName: 'Slack',
@@ -276,7 +275,7 @@ describe('Core Scenario Flows', () => {
     })
     expect(ambiguous.status).toBe(409)
     expect(await ambiguous.json()).toMatchObject({
-      credentialSlugs: expect.arrayContaining(['shared-slack', 'personal-slack']),
+      credentialNames: expect.arrayContaining(['shared-slack', 'personal-slack']),
     })
 
     const selected = await req('/proxy/slack.com/api/auth.test', {
