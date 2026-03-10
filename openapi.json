@@ -333,7 +333,7 @@
           "path": {
             "type": "string",
             "description": "Full credential path",
-            "example": "/orgs/ruzo/linear"
+            "example": "/org_ruzo/linear"
           },
           "createdAt": {
             "type": "string",
@@ -377,7 +377,7 @@
           },
           "path": {
             "description": "Full credential path (defaults to token path + name)",
-            "example": "/orgs/ruzo/linear",
+            "example": "/org_ruzo/linear",
             "type": "string"
           }
         },
