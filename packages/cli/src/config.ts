@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from '
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
-export interface WardenConfig {
+export interface AgentPwConfig {
   biscuitPrivateKey: string
   masterToken: string
   port: number
@@ -11,7 +11,7 @@ export interface WardenConfig {
 
 const CONFIG_DIR = join(homedir(), '.agent.pw')
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
-const PID_FILE = join(CONFIG_DIR, 'warden.pid')
+const PID_FILE = join(CONFIG_DIR, 'agent.pw.pid')
 
 export function getConfigDir() {
   return CONFIG_DIR
@@ -29,7 +29,7 @@ export function configExists() {
   return existsSync(CONFIG_FILE)
 }
 
-export function readConfig(): WardenConfig | null {
+export function readConfig(): AgentPwConfig | null {
   if (!existsSync(CONFIG_FILE)) return null
   try {
     return JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'))
@@ -38,7 +38,7 @@ export function readConfig(): WardenConfig | null {
   }
 }
 
-export function writeConfig(config: WardenConfig) {
+export function writeConfig(config: AgentPwConfig) {
   mkdirSync(CONFIG_DIR, { recursive: true })
   writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
 }

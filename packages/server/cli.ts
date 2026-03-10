@@ -7,7 +7,7 @@ import { Command } from 'commander'
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-interface WardenConfig {
+interface AgentPwConfig {
   biscuitPrivateKey: string
   masterToken: string
   port: number
@@ -16,10 +16,10 @@ interface WardenConfig {
 
 const CONFIG_DIR = join(homedir(), '.agent.pw')
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
-const PID_FILE = join(CONFIG_DIR, 'warden.pid')
+const PID_FILE = join(CONFIG_DIR, 'agent.pw.pid')
 const DATA_DIR = join(CONFIG_DIR, 'data')
 
-function readConfig(): WardenConfig | null {
+function readConfig(): AgentPwConfig | null {
   if (!existsSync(CONFIG_FILE)) return null
   try {
     return JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'))
@@ -28,7 +28,7 @@ function readConfig(): WardenConfig | null {
   }
 }
 
-function writeConfig(config: WardenConfig) {
+function writeConfig(config: AgentPwConfig) {
   mkdirSync(CONFIG_DIR, { recursive: true })
   writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
 }
