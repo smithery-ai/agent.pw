@@ -50,9 +50,9 @@ describe('biscuit helpers', () => {
 
   it('mints tokens, extracts facts, and derives public metadata', () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', ['admin'], [
-      `org_id("${TEST_ORG_ID}")`,
+      `apw:org_id("${TEST_ORG_ID}")`,
       '  ',
-      'scope("repo");',
+      'apw:scope("repo");',
       'apw_scope("write")',
       'custom("value")',
     ])
@@ -106,36 +106,52 @@ describe('biscuit helpers', () => {
     expect(pair.publicKey).toMatch(/^ed25519\//)
   })
 
-  it('extracts legacy and managed identity facts from custom authority blocks', () => {
-    const legacyToken = buildCustomToken([
+  it('only extracts namespaced identity facts, ignoring bare legacy facts', () => {
+    const bareToken = buildCustomToken([
       'user("legacy-user");',
       'right("admin");',
       'scope("repo");',
     ].join('\n'))
 
-    expect(extractTokenFacts(legacyToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: ['admin'],
-      userId: 'legacy-user',
+    expect(extractTokenFacts(bareToken, PUBLIC_KEY_HEX)).toEqual({
+      rights: [],
+      userId: null,
       orgId: null,
       path: null,
-      scopes: ['repo'],
+      scopes: [],
     })
 
-    const managedToken = buildCustomToken([
-      'user_id("managed-user");',
-      'org_id("managed-org");',
+    const underscoreToken = buildCustomToken([
+      'apw_user_id("underscore-user");',
+      'apw_org_id("underscore-org");',
+      'apw_right("manage_services");',
       'apw_scope("write");',
     ].join('\n'))
 
-    expect(extractTokenFacts(managedToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: [],
-      userId: 'managed-user',
-      orgId: 'managed-org',
+    expect(extractTokenFacts(underscoreToken, PUBLIC_KEY_HEX)).toEqual({
+      rights: ['manage_services'],
+      userId: 'underscore-user',
+      orgId: 'underscore-org',
       path: null,
       scopes: ['write'],
     })
 
-    const orgOnlyToken = buildCustomToken('org_id("org-only");')
+    const colonToken = buildCustomToken([
+      'apw:user_id("colon-user");',
+      'apw:org_id("colon-org");',
+      'apw:right("admin");',
+      'apw:scope("repo");',
+    ].join('\n'))
+
+    expect(extractTokenFacts(colonToken, PUBLIC_KEY_HEX)).toEqual({
+      rights: ['admin'],
+      userId: 'colon-user',
+      orgId: 'colon-org',
+      path: null,
+      scopes: ['repo'],
+    })
+
+    const orgOnlyToken = buildCustomToken('apw:org_id("org-only");')
     expect(extractUserId(orgOnlyToken, PUBLIC_KEY_HEX)).toBe('org-only')
   })
 
