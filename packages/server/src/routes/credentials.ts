@@ -81,7 +81,7 @@ credentialRoutes.get('/', requireToken,
         name: credentialName(cr.path),
         host: cr.host,
         path: cr.path,
-        createdAt: cr.createdAt,
+        createdAt: new Date(cr.createdAt).toISOString(),
       }))
       .sort(compareListedCredentials)
 
