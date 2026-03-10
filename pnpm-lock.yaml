@@ -71,6 +71,9 @@ importers:
       '@agent.pw/sdk':
         specifier: https://pkg.stainless.com/s/agent.pw-typescript/3bb21e19b486fdc8ae63577a1bb6c0a5d54a0b1f/dist.tar.gz
         version: https://pkg.stainless.com/s/agent.pw-typescript/3bb21e19b486fdc8ae63577a1bb6c0a5d54a0b1f/dist.tar.gz
+      '@smithery/biscuit':
+        specifier: ^1.0.0
+        version: 1.0.0
       commander:
         specifier: ^14.0.3
         version: 14.0.3

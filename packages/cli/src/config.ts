@@ -71,3 +71,26 @@ export function clearManagedSession() {
     unlinkSync(SESSION_FILE)
   }
 }
+
+// ─── Token Stack ─────────────────────────────────────────────────────────
+
+const TOKEN_STACK_FILE = join(CONFIG_DIR, 'token-stack.json')
+
+export function readTokenStack(): string[] {
+  if (!existsSync(TOKEN_STACK_FILE)) return []
+  try {
+    const data = JSON.parse(readFileSync(TOKEN_STACK_FILE, 'utf-8'))
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+export function writeTokenStack(stack: string[]) {
+  mkdirSync(CONFIG_DIR, { recursive: true })
+  if (stack.length === 0) {
+    if (existsSync(TOKEN_STACK_FILE)) unlinkSync(TOKEN_STACK_FILE)
+    return
+  }
+  writeFileSync(TOKEN_STACK_FILE, `${JSON.stringify(stack, null, 2)}\n`, { mode: 0o600 })
+}

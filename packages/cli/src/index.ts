@@ -150,6 +150,10 @@ credCmd
 const tokenCmd = program
   .command('token')
   .description('Manage access tokens')
+  .action(async () => {
+    const { inspectTokenCmd } = await import('./commands/token')
+    return inspectTokenCmd()
+  })
 
 tokenCmd
   .command('restrict')
@@ -175,6 +179,32 @@ tokenCmd
   .action(async () => {
     const { revokeTokenCmd } = await import('./commands/token')
     return revokeTokenCmd()
+  })
+
+tokenCmd
+  .command('push')
+  .description('Restrict and push token onto the stack')
+  .option('--service <host...>', 'Limit to service host')
+  .option('--host <host...>', 'Limit to service host')
+  .option('--method <verb...>', 'Limit to HTTP method')
+  .option('--path <prefix...>', 'Limit to path prefix')
+  .option('--ttl <duration>', 'Token lifetime (e.g. 1h)')
+  .action(async (opts) => {
+    const { pushTokenCmd } = await import('./commands/token')
+    return pushTokenCmd({
+      services: [...(opts.service ?? []), ...(opts.host ?? [])],
+      methods: opts.method,
+      paths: opts.path,
+      ttl: opts.ttl,
+    })
+  })
+
+tokenCmd
+  .command('pop')
+  .description('Pop the top token, revert to previous')
+  .action(async () => {
+    const { popTokenCmd } = await import('./commands/token')
+    return popTokenCmd()
   })
 
 // ─── curl ────────────────────────────────────────────────────────────────────

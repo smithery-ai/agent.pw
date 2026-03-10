@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { readConfig, getPidFile, readManagedSession } from './config'
+import { readConfig, getPidFile, readManagedSession, readTokenStack } from './config'
 
 export interface ResolvedEndpoint {
   url: string
@@ -59,10 +59,18 @@ export async function resolveOptional(): Promise<ResolvedEndpoint | null> {
 
 export async function resolve(): Promise<ResolvedEndpoint> {
   const resolved = await resolveOptional()
-  if (resolved) return resolved
+  if (!resolved) {
+    console.error('No agent.pw instance available.')
+    console.error(`  Run \`agent.pw login\` to connect to ${DEFAULT_MANAGED_HOST}`)
+    console.error('  Or set AGENT_PW_HOST and AGENT_PW_TOKEN environment variables')
+    process.exit(1)
+  }
 
-  console.error('No agent.pw instance available.')
-  console.error(`  Run \`agent.pw login\` to connect to ${DEFAULT_MANAGED_HOST}`)
-  console.error('  Or set AGENT_PW_HOST and AGENT_PW_TOKEN environment variables')
-  process.exit(1)
+  // Override with token stack top if present
+  const stack = readTokenStack()
+  if (stack.length > 0) {
+    resolved.token = stack[stack.length - 1]
+  }
+
+  return resolved
 }
