@@ -17,9 +17,16 @@ jobs:
       cli_release_created: ${{ steps.release.outputs['packages/cli--release_created'] }}
       cli_tag_name: ${{ steps.release.outputs['packages/cli--tag_name'] }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@v4
         id: release
         with:
+          token: ${{ steps.app-token.outputs.token }}
           manifest-file: '.release-please-manifest.json'
           config-file: 'release-please-config.json'
 
