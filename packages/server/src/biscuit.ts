@@ -173,7 +173,9 @@ function buildAuthorizerCode(
   }
   lines.push(
     'allow if user_id($u);',
+    'allow if apw:user_id($u);',
     'allow if org_id($o);',
+    'allow if apw:org_id($o);',
     'deny if true;',
   )
   return lines.join('\n')

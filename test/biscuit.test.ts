@@ -139,6 +139,22 @@ describe('biscuit helpers', () => {
     expect(extractUserId(orgOnlyToken, PUBLIC_KEY_HEX)).toBe('org-only')
   })
 
+  it('authorizes legacy prefixed identity facts', () => {
+    const legacyToken = buildCustomToken([
+      'apw:user_id("legacy-user");',
+      'apw:org_id("legacy-org");',
+      'apw:right("/legacy-org", "profile.manage");',
+    ].join('\n'))
+
+    expect(authorizeRequest(
+      legacyToken,
+      PUBLIC_KEY_HEX,
+      'api.example.com',
+      'PUT',
+      '/cred_profiles/linear',
+    )).toEqual({ authorized: true })
+  })
+
   it('emits bare identity facts and plain ambient request facts', () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', [
       { action: 'credential.manage', root: `/${TEST_ORG_ID}` },
