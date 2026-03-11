@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline'
-import { request, requestAllPages, requestJson, requestPage, type PaginatedResponse } from '../http'
+import { collectAllPages, getClient, request, requestJson, pageToPaginatedResponse, type PaginatedResponse } from '../http'
 import { output, outputList, outputListPage } from '../output'
 
 interface ListedCredential {
@@ -44,17 +44,6 @@ function relativeTime(date: string) {
   return `${days}d ago`
 }
 
-function paginatedPath(path: string, options: { limit?: number; cursor?: string }) {
-  const url = new URL(path, 'https://agent.pw')
-  if (options.limit !== undefined) {
-    url.searchParams.set('limit', options.limit.toString())
-  }
-  if (options.cursor) {
-    url.searchParams.set('cursor', options.cursor)
-  }
-  return `${url.pathname}${url.search}`
-}
-
 function printCredTable(creds: ListedCredential[]) {
   if (creds.length === 0) {
     console.log('No credentials stored. Add one with `agent.pw cred add <profile-or-host>`.')
@@ -75,15 +64,17 @@ function printNextPageHint(page: PaginatedResponse<unknown>) {
 }
 
 export async function listCreds(options: ListCredsOptions = {}) {
+  const client = await getClient()
+
   if (options.all) {
-    const creds = await requestAllPages<ListedCredential>(paginatedPath('/credentials', { limit: options.limit }))
+    const creds = await collectAllPages<ListedCredential>(client.credentials.list({ limit: options.limit }))
 
     if (outputList(creds)) return
     printCredTable(creds)
     return
   }
 
-  const page = await requestPage<ListedCredential>(paginatedPath('/credentials', {
+  const page = await pageToPaginatedResponse<ListedCredential>(client.credentials.list({
     limit: options.limit,
     cursor: options.cursor,
   }))
@@ -94,13 +85,14 @@ export async function listCreds(options: ListCredsOptions = {}) {
 }
 
 async function resolveProfile(target: string): Promise<CredProfile | null> {
+  const client = await getClient()
   try {
-    return await requestJson<CredProfile>(`/cred_profiles/${encodeURIComponent(target)}`)
+    return await client.profiles.get(target)
   } catch (e: unknown) {
     if (!isNotFound(e)) throw e
   }
 
-  const profiles = await requestAllPages<CredProfile>('/cred_profiles')
+  const profiles = await collectAllPages<CredProfile>(client.profiles.list())
   return profiles.find(profile => profile.host.includes(target)) ?? null
 }
 

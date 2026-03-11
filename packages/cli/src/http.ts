@@ -40,28 +40,23 @@ export async function requestJson<T>(path: string, init: RequestInit = {}): Prom
   return res.json() as Promise<T>
 }
 
-export async function requestPage<T>(path: string, init: RequestInit = {}) {
-  const url = new URL(path, 'https://agent.pw')
-  if (!url.searchParams.has('limit')) {
-    url.searchParams.set('limit', '100')
-  }
-  return requestJson<PaginatedResponse<T>>(`${url.pathname}${url.search}`, init)
+export async function pageToPaginatedResponse<T>(pagePromise: Promise<{
+  data: T[]
+  hasMore: boolean
+  nextCursor?: string | null
+}>) {
+  const page = await pagePromise
+  return {
+    data: page.data,
+    hasMore: page.hasMore,
+    nextCursor: page.nextCursor ?? null,
+  } satisfies PaginatedResponse<T>
 }
 
-export async function requestAllPages<T>(path: string, init: RequestInit = {}) {
+export async function collectAllPages<T>(pages: AsyncIterable<T>) {
   const allItems: T[] = []
-  let cursor: string | null = null
-
-  do {
-    const url = new URL(path, 'https://agent.pw')
-    if (cursor) {
-      url.searchParams.set('cursor', cursor)
-    }
-
-    const page = await requestPage<T>(`${url.pathname}${url.search}`, init)
-    allItems.push(...page.data)
-    cursor = page.nextCursor
-  } while (cursor)
-
+  for await (const item of pages) {
+    allItems.push(item)
+  }
   return allItems
 }
