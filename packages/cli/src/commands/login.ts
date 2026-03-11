@@ -32,6 +32,7 @@ export async function login(host?: string, token?: string) {
   if (token) {
     writeManagedSession({ host: targetHost, token })
     console.log(`Logged in to ${targetHost}`)
+    printNextSteps()
     return
   }
   const config = await fetchCliAuthConfig(targetHost)
@@ -68,6 +69,7 @@ export async function login(host?: string, token?: string) {
   const data = await exchange.json() as { token: string }
   writeManagedSession({ host: targetHost, token: data.token })
   console.log(`Logged in to ${targetHost}`)
+  printNextSteps()
 }
 
 async function fetchCliAuthConfig(targetHost: string): Promise<CliAuthConfig> {
@@ -159,6 +161,11 @@ async function openBrowser(url: string) {
   const { exec } = await import('node:child_process')
   const open = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open'
   exec(`${open} "${url}"`)
+}
+
+function printNextSteps() {
+  console.log('')
+  console.log('Next: run `npx agent.pw init` in your project to install the agent skill.')
 }
 
 function sleep(ms: number) {

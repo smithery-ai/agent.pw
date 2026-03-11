@@ -52,6 +52,14 @@ program
   })
 
 program
+  .command('init')
+  .description('Log in and install the agent.pw skill')
+  .action(async () => {
+    const { init } = await import('./commands/init')
+    return init()
+  })
+
+program
   .command('status')
   .description('Show connection status')
   .action(async () => {
