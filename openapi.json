@@ -367,6 +367,18 @@
             "description": "Full credential path",
             "example": "/org_ruzo/linear"
           },
+          "authKind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credential auth kind",
+            "example": "headers"
+          },
           "createdAt": {
             "type": "string",
             "description": "ISO 8601 creation timestamp"
@@ -376,6 +388,7 @@
           "name",
           "host",
           "path",
+          "authKind",
           "createdAt"
         ],
         "additionalProperties": false
@@ -457,6 +470,257 @@
             "type": "string"
           }
         },
+        "additionalProperties": false
+      },
+      "DeleteCredentialQuery": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Full credential path to delete",
+            "example": "/org_ruzo/linear",
+            "type": "string"
+          },
+          "host": {
+            "description": "Target hostname for the credential",
+            "example": "api.linear.app",
+            "type": "string"
+          },
+          "profile": {
+            "description": "Profile slug to resolve the hostname when host is omitted",
+            "example": "linear",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "InspectTokenRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Token to inspect"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "InspectTokenResponse": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "const": true
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "orgId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rights": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "root": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action",
+                "root"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "homePath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "valid",
+          "userId",
+          "orgId",
+          "rights",
+          "homePath",
+          "scopes"
+        ],
+        "additionalProperties": false
+      },
+      "RestrictTokenRequest": {
+        "type": "object",
+        "properties": {
+          "constraints": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actions": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "hosts": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "roots": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "services": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "methods": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "DELETE",
+                        "PATCH",
+                        "HEAD",
+                        "OPTIONS"
+                      ]
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "GET",
+                          "POST",
+                          "PUT",
+                          "DELETE",
+                          "PATCH",
+                          "HEAD",
+                          "OPTIONS"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "paths": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "ttl": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Attenuation constraints to append to the current token"
+          }
+        },
+        "required": [
+          "constraints"
+        ],
+        "additionalProperties": false
+      },
+      "RestrictTokenResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "token": {
+            "type": "string",
+            "description": "Restricted child token"
+          }
+        },
+        "required": [
+          "ok",
+          "token"
+        ],
         "additionalProperties": false
       },
       "RevokeTokenRequest": {
@@ -760,6 +1024,33 @@
         },
         "parameters": [
           {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "example": "/org_ruzo/linear",
+              "type": "string"
+            },
+            "description": "Full credential path to delete"
+          },
+          {
+            "in": "query",
+            "name": "host",
+            "schema": {
+              "example": "api.linear.app",
+              "type": "string"
+            },
+            "description": "Target hostname for the credential"
+          },
+          {
+            "in": "query",
+            "name": "profile",
+            "schema": {
+              "example": "linear",
+              "type": "string"
+            },
+            "description": "Profile slug to resolve the hostname when host is omitted"
+          },
+          {
             "schema": {
               "type": "string"
             },
@@ -971,22 +1262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean",
-                      "const": true
-                    },
-                    "token": {
-                      "type": "string",
-                      "description": "Restricted child token"
-                    }
-                  },
-                  "required": [
-                    "ok",
-                    "token"
-                  ],
-                  "id": "RestrictTokenResponse"
+                  "$ref": "#/components/schemas/RestrictTokenResponse"
                 }
               }
             }
@@ -1016,90 +1292,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "constraints": {
-                    "minItems": 1,
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "services": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            }
-                          ]
-                        },
-                        "methods": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "enum": [
-                                "GET",
-                                "POST",
-                                "PUT",
-                                "DELETE",
-                                "PATCH",
-                                "HEAD",
-                                "OPTIONS"
-                              ]
-                            },
-                            {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "enum": [
-                                  "GET",
-                                  "POST",
-                                  "PUT",
-                                  "DELETE",
-                                  "PATCH",
-                                  "HEAD",
-                                  "OPTIONS"
-                                ]
-                              }
-                            }
-                          ]
-                        },
-                        "paths": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            }
-                          ]
-                        },
-                        "ttl": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "number"
-                            }
-                          ]
-                        }
-                      }
-                    },
-                    "description": "Attenuation constraints to append to the current token"
-                  }
-                },
-                "required": [
-                  "constraints"
-                ],
-                "id": "RestrictTokenRequest"
+                "$ref": "#/components/schemas/RestrictTokenRequest"
               }
             }
           }
@@ -1151,6 +1344,57 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RevokeTokenRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tokens/inspect": {
+      "post": {
+        "operationId": "postTokensInspect",
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Inspect token",
+        "description": "Inspect a Biscuit token and return its extracted facts.",
+        "responses": {
+          "200": {
+            "description": "Token facts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Token is invalid or unrecognized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "id": "TokenInspectError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectTokenRequest"
               }
             }
           }

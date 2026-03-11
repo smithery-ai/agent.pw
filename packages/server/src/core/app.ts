@@ -81,7 +81,16 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
     return c.json({ error: 'Internal Server Error' }, 500)
   })
 
-  app.use('*', cors())
+  app.use('*', cors({
+    origin: '*',
+    allowHeaders: [
+      'Authorization',
+      'Proxy-Authorization',
+      'Content-Type',
+      'agentpw-credential',
+      'agentpw-path',
+    ],
+  }))
   app.use('*', urlRedirectMiddleware)
 
   app.use('*', async (c, next) => {

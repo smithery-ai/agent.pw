@@ -13,8 +13,13 @@ import {
   CredentialErrorSchema,
   CredentialListPageSchema,
   CreateCredentialRequestSchema,
+  DeleteCredentialQuerySchema,
 } from './routes/credentials'
 import {
+  InspectTokenRequestSchema,
+  InspectTokenResponseSchema,
+  RestrictTokenRequestSchema,
+  RestrictTokenResponseSchema,
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
 } from './routes/tokens'
@@ -61,6 +66,11 @@ export const allSchemas = [
   CredentialErrorSchema,
   CredentialListPageSchema,
   CreateCredentialRequestSchema,
+  DeleteCredentialQuerySchema,
+  InspectTokenRequestSchema,
+  InspectTokenResponseSchema,
+  RestrictTokenRequestSchema,
+  RestrictTokenResponseSchema,
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
 ]

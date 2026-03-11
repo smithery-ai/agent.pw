@@ -93,18 +93,58 @@ describe('core middleware', () => {
     expect(missing.status).toBe(401)
 
     const invalid = await app.request(makeUrl('/protected'), {
-      headers: { 'Proxy-Authorization': 'Bearer bad-token' },
+      headers: { Authorization: 'Bearer bad-token' },
     })
     expect(invalid.status).toBe(401)
 
-    const valid = await app.request(makeUrl('/protected'), {
+    const wrongHeader = await app.request(makeUrl('/protected'), {
       headers: { 'Proxy-Authorization': `Bearer ${mintTestToken('org_alpha')}` },
+    })
+    expect(wrongHeader.status).toBe(401)
+    expect(await wrongHeader.json()).toEqual({
+      error: 'Missing Authorization header',
+      hint: 'Send your Biscuit token in the Authorization header. Proxy requests still use Proxy-Authorization.',
+    })
+
+    const valid = await app.request(makeUrl('/protected'), {
+      headers: { Authorization: `Bearer ${mintTestToken('org_alpha')}` },
     })
     expect(valid.status).toBe(200)
     expect(await valid.json()).toEqual(expect.objectContaining({
       orgId: 'org_alpha',
       userId: 'org_alpha',
     }))
+  })
+
+  it('inspects tokens via the public inspect route', async () => {
+    const app = createCoreApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY })
+    const token = mintTestToken('org_alpha', ['credential.use', 'credential.manage'])
+
+    const inspect = await app.request(makeUrl('/tokens/inspect'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+    expect(inspect.status).toBe(200)
+    expect(await inspect.json()).toEqual({
+      valid: true,
+      userId: 'org_alpha',
+      orgId: 'org_alpha',
+      rights: [
+        { action: 'credential.use', root: '/org_alpha' },
+        { action: 'credential.manage', root: '/org_alpha' },
+      ],
+      homePath: '/org_alpha',
+      scopes: [],
+    })
+
+    const invalid = await app.request(makeUrl('/tokens/inspect'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'apw_invalid' }),
+    })
+    expect(invalid.status).toBe(400)
+    expect(await invalid.json()).toEqual({ error: 'Invalid or unrecognized token' })
   })
 
   it('rejects revoked tokens and service-restricted tokens for management routes', async () => {
@@ -115,14 +155,14 @@ describe('core middleware', () => {
     await revokeToken(db, (await import('@agent.pw/server/biscuit')).getRevocationIds(token, PUBLIC_KEY_HEX)[0], 'revoked')
 
     const revoked = await app.request(makeUrl('/protected'), {
-      headers: { 'Proxy-Authorization': `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}` },
     })
     expect(revoked.status).toBe(403)
     expect(await revoked.json()).toEqual({ error: 'Token has been revoked' })
 
     const restricted = restrictToken(mintTestToken('org_alpha'), PUBLIC_KEY_HEX, [{ services: 'github' }])
     const forbidden = await app.request(makeUrl('/protected'), {
-      headers: { 'Proxy-Authorization': `Bearer ${restricted}` },
+      headers: { Authorization: `Bearer ${restricted}` },
     })
     expect(forbidden.status).toBe(403)
     expect(await forbidden.json()).toEqual(expect.objectContaining({ error: 'Forbidden' }))
@@ -143,7 +183,7 @@ describe('core middleware', () => {
     expect(noFacts.status).toBe(403)
 
     const noRight = await app.request(makeUrl('/admin'), {
-      headers: { 'Proxy-Authorization': `Bearer ${mintTestToken('org_alpha')}` },
+      headers: { Authorization: `Bearer ${mintTestToken('org_alpha')}` },
     })
     expect(noRight.status).toBe(403)
 
@@ -151,14 +191,14 @@ describe('core middleware', () => {
       { action: 'profile.manage', root: '/' },
     ])
     const admin = await app.request(makeUrl('/admin'), {
-      headers: { 'Proxy-Authorization': `Bearer ${adminToken}` },
+      headers: { Authorization: `Bearer ${adminToken}` },
     })
     expect(admin.status).toBe(200)
     expect(await admin.json()).toEqual({ userId: 'admin-user' })
 
     const userToken = mintToken(BISCUIT_PRIVATE_KEY, 'normal-user')
     const user = await app.request(makeUrl('/user'), {
-      headers: { 'Proxy-Authorization': `Bearer ${userToken}` },
+      headers: { Authorization: `Bearer ${userToken}` },
     })
     expect(user.status).toBe(200)
     expect(await user.json()).toEqual({ userId: 'normal-user' })

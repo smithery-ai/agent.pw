@@ -33,6 +33,7 @@ export const CredentialSchema = z.object({
   name: z.string().meta({ description: 'Credential name', example: 'linear' }),
   host: z.string().meta({ description: 'Target hostname', example: 'api.linear.app' }),
   path: z.string().meta({ description: 'Full credential path', example: '/org_ruzo/linear' }),
+  authKind: z.string().nullable().meta({ description: 'Credential auth kind', example: 'headers' }),
   createdAt: z.string().meta({ description: 'ISO 8601 creation timestamp' }),
 }).meta({ id: 'Credential' })
 
@@ -49,6 +50,12 @@ export const CreateCredentialRequestSchema = z.object({
   profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
   path: z.string().optional().meta({ description: 'Full credential path (defaults to token path + name)', example: '/org_ruzo/linear' }),
 }).meta({ id: 'CreateCredentialRequest' })
+
+export const DeleteCredentialQuerySchema = z.object({
+  path: z.string().optional().meta({ description: 'Full credential path to delete', example: '/org_ruzo/linear' }),
+  host: z.string().optional().meta({ description: 'Target hostname for the credential', example: 'api.linear.app' }),
+  profile: z.string().optional().meta({ description: 'Profile slug to resolve the hostname when host is omitted', example: 'linear' }),
+}).meta({ id: 'DeleteCredentialQuery' })
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
 
@@ -110,6 +117,10 @@ credentialRoutes.get('/', requireToken,
         name: credentialName(cr.path),
         host: cr.host,
         path: cr.path,
+        authKind:
+          cr.auth && typeof cr.auth === 'object' && typeof cr.auth.kind === 'string'
+            ? cr.auth.kind
+            : null,
         createdAt: new Date(cr.createdAt).toISOString(),
       }))
 
@@ -255,6 +266,7 @@ credentialRoutes.delete('/:name', requireToken,
       404: { description: 'Credential not found', content: { 'application/json': { schema: resolver(z.object({ error: z.string() })) } } },
     },
   }),
+  zValidator('query', DeleteCredentialQuerySchema),
   async c => {
     const facts = c.get('tokenFacts')
     /* v8 ignore next -- requireToken always populates tokenFacts before this handler runs */
@@ -268,7 +280,8 @@ credentialRoutes.delete('/:name', requireToken,
     }
 
     const manageRoots = rootsForAction(facts.rights, 'credential.manage')
-    let resolvedPath = c.req.query('path')
+    const query = c.req.valid('query')
+    let resolvedPath = query.path
     if (!resolvedPath) {
       if (manageRoots.length === 0) {
         return c.json({ error: 'Forbidden: requires "credential.manage" right' }, 403)
@@ -288,8 +301,8 @@ credentialRoutes.delete('/:name', requireToken,
       return c.json({ error: 'Credential path must end with the route name' }, 400)
     }
 
-    const queryHost = c.req.query('host')
-    const queryProfile = c.req.query('profile')
+    const queryHost = query.host
+    const queryProfile = query.profile
     let host = queryHost ?? null
     if (!host && queryProfile) {
       const profileRoots = coveringRootsForPath(
