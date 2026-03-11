@@ -10,7 +10,7 @@ import {
   deleteCredProfile,
 } from '../db/queries'
 import { RESERVED_PATHS } from '../lib/utils'
-import { credentialName, isAncestorOrEqual, validatePath } from '../paths'
+import { credentialName, credentialParentPath, isAncestorOrEqual, validatePath } from '../paths'
 import { hasRightForPath, rootsForAction, rootsForActions } from '../rights'
 import {
   buildListPageSchema,
@@ -163,7 +163,9 @@ credProfileRoutes.get('/:slug', requireToken,
     const facts = c.get('tokenFacts')
     if (!facts) return c.json({ error: 'Forbidden' }, 403)
     const visibleRoots = rootsForActions(facts.rights, ['credential.use', 'credential.bootstrap', 'profile.manage'])
-    if (!visibleRoots.some(root => isAncestorOrEqual(root, profile.path))) {
+    if (!visibleRoots.some(root =>
+      isAncestorOrEqual(root, profile.path) || isAncestorOrEqual(credentialParentPath(profile.path), root),
+    )) {
       return c.json({ error: 'Profile not found' }, 404)
     }
 

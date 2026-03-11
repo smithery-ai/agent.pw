@@ -569,7 +569,7 @@ describe('credential profile path-based access control', () => {
     expect(blocked.status).toBe(403)
   })
 
-  it('lists only profiles inside granted descendant roots', async () => {
+  it('lists descendant profiles plus applicable ancestor profiles', async () => {
     await upsertCredProfile(db, publicProfilePath('global-svc'), {
       host: ['api.global.com'],
       displayName: 'Global',
@@ -578,18 +578,28 @@ describe('credential profile path-based access control', () => {
       host: ['api.org.com'],
       displayName: 'Org',
     })
+    await upsertCredProfile(db, `/${ORG_A}/team/team-svc`, {
+      host: ['api.team.com'],
+      displayName: 'Team',
+    })
+    await upsertCredProfile(db, `/${ORG_A}/ws_design/design-svc`, {
+      host: ['api.design.com'],
+      displayName: 'Design',
+    })
     await upsertCredProfile(db, `/${ORG_B}/other-org-svc`, {
       host: ['api.other.com'],
       displayName: 'Other Org',
     })
 
-    const token = mintTestToken(ORG_A)
+    const token = mintTestToken(ORG_A, ['credential.use'], [`/${ORG_A}/team`])
     const res = await req('/cred_profiles', { headers: withToken(token) })
     expect(res.status).toBe(200)
 
     const paths = ((await res.json()) as { data: { path: string }[] }).data.map(profile => profile.path)
+    expect(paths).toContain(publicProfilePath('global-svc'))
     expect(paths).toContain(`/${ORG_A}/org-svc`)
-    expect(paths).not.toContain(publicProfilePath('global-svc'))
+    expect(paths).toContain(`/${ORG_A}/team/team-svc`)
+    expect(paths).not.toContain(`/${ORG_A}/ws_design/design-svc`)
     expect(paths).not.toContain(`/${ORG_B}/other-org-svc`)
   })
 })

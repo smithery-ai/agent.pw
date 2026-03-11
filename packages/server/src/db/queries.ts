@@ -89,6 +89,10 @@ function appliesToRoot(profilePath: string, root: string) {
   return isAncestorOrEqual(credentialParentPath(profilePath), root)
 }
 
+function profileVisibleWithinRoot(profilePath: string, root: string) {
+  return isAncestorOrEqual(root, profilePath) || appliesToRoot(profilePath, root)
+}
+
 // ─── Cred Profiles ──────────────────────────────────────────────────────────
 
 export async function getCredProfile(db: Database, path: string) {
@@ -167,17 +171,13 @@ export async function listCredProfilesPage(
     return takePage([], options.limit)
   }
 
-  const rows = await db
-    .select()
-    .from(credProfiles)
-    .where(and(
-      pathWithinAnyRootCondition(credProfiles.path, options.visibleRoots),
-      options.afterPath ? gt(credProfiles.path, options.afterPath) : sql`true`,
-    ))
-    .orderBy(asc(credProfiles.path))
-    .limit(options.limit + 1)
+  const profiles = await listCredProfiles(db)
+  const visible = profiles
+    .filter(profile => options.visibleRoots.some(root => profileVisibleWithinRoot(profile.path, root)))
+    .filter(profile => options.afterPath ? profile.path > options.afterPath : true)
+    .sort((a, b) => a.path.localeCompare(b.path))
 
-  return takePage(rows.map(row => ({ ...row, host: normalizeHostList(row.host) })), options.limit)
+  return takePage(visible, options.limit)
 }
 
 export async function listCredProfilesWithCredentialCounts(db: Database) {
