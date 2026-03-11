@@ -261,20 +261,20 @@ describe('credential use within descendant roots', () => {
     const token = mintTestToken('org_ruzo', ['credential.use'], ['/org_ruzo/ws_engineering'])
 
     const sharedRoot = await req('/proxy/api.github.com/user', {
-      headers: withToken(token, { 'agentpw-path': '/org_ruzo/ws_engineering/shared' }),
+      headers: withToken(token, { 'agentpw-path': 'ws_engineering/shared' }),
     })
     expect(sharedRoot.status).toBe(200)
     expect(await sharedRoot.json()).toEqual({ auth: 'Bearer engineering-shared-secret' })
 
     const personalRoot = await req('/proxy/api.github.com/user', {
-      headers: withToken(token, { 'agentpw-path': '/org_ruzo/ws_engineering/user_alice' }),
+      headers: withToken(token, { 'agentpw-path': 'ws_engineering/user_alice' }),
     })
     expect(personalRoot.status).toBe(200)
     expect(await personalRoot.json()).toEqual({ auth: 'Bearer engineering-personal-secret' })
 
     const wrongSelector = await req('/proxy/api.github.com/user', {
       headers: withToken(token, {
-        'agentpw-path': '/org_ruzo/ws_engineering/shared',
+        'agentpw-path': 'ws_engineering/shared',
         'agentpw-credential': '/org_ruzo/ws_engineering/user_alice/github_personal',
       }),
     })

@@ -51,6 +51,14 @@ export function joinCredentialPath(nodePath: string, name: string) {
   return nodePath === '/' ? `/${name}` : `${nodePath}/${name}`
 }
 
+/** Resolve an absolute-or-relative path reference against a base path. */
+export function resolvePathReference(reference: string, basePath: string | null | undefined) {
+  if (reference.startsWith('/')) return reference
+  if (!basePath) return null
+  const relative = reference.replace(/^\/+/, '')
+  return basePath === '/' ? `/${relative}` : `${basePath}/${relative}`
+}
+
 /** Validate a credential name used as the final path segment. */
 export function validateCredentialName(name: string) {
   return name.length > 0 && !name.includes('/') && !name.includes('.') && name !== '.' && name !== '..'

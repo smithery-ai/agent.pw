@@ -50,6 +50,7 @@ describe('biscuit helpers', () => {
       rights: [{ action: 'credential.use', root: `/${TEST_ORG_ID}` }],
       userId: 'user_test_123',
       orgId: TEST_ORG_ID,
+      homePath: null,
       scopes: ['repo', 'write'],
     })
     expect(extractUserId(token, PUBLIC_KEY_HEX)).toBe('user_test_123')
@@ -84,6 +85,7 @@ describe('biscuit helpers', () => {
       rights: [],
       userId: null,
       orgId: null,
+      homePath: null,
       scopes: [],
     })
 
@@ -104,6 +106,7 @@ describe('biscuit helpers', () => {
       rights: [{ action: 'credential.use', root: '/legacy-org' }],
       userId: 'legacy-user',
       orgId: 'legacy-org',
+      homePath: null,
       scopes: ['repo'],
     })
 

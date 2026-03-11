@@ -135,7 +135,7 @@ describe('core middleware', () => {
     app.get('/user', requireToken, resolveUserId, c => c.json({ userId: c.get('userId') }))
     app.get('/missing-facts', (c, next) => resolveUserId(c, next), c => c.json({ userId: c.get('userId') }))
     app.get('/identityless', async (c, next) => {
-      c.set('tokenFacts', { rights: [], userId: null, orgId: null })
+      c.set('tokenFacts', { rights: [], userId: null, orgId: null, homePath: null, scopes: [] })
       return resolveUserId(c, next)
     }, c => c.json({ userId: c.get('userId') }))
 

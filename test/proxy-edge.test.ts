@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCoreApp } from '@agent.pw/server'
+import { mintToken } from '@agent.pw/server/biscuit'
 import { deriveEncryptionKey, decryptCredentials, encryptCredentials } from '@agent.pw/server/crypto'
 import { createLogger } from '@agent.pw/server/logger'
 import { extractBearerToken, handleProxy } from '@agent.pw/server/proxy'
@@ -213,7 +214,7 @@ describe('proxy routes and proxy handler edges', () => {
     expect(await response.json()).toEqual({
       error: 'Multiple credential roots are available',
       roots: ['/org_alpha/team', '/org_alpha'],
-      hint: 'Send the agentpw-path header to choose a root explicitly.',
+      hint: 'Send the agentpw-path header to choose a path explicitly.',
     })
   })
 
@@ -231,7 +232,7 @@ describe('proxy routes and proxy handler edges', () => {
     expect(await response.json()).toEqual({
       error: 'Multiple roots match the requested credential path',
       roots: ['/org_alpha/team', '/org_alpha'],
-      hint: 'Send the agentpw-path header to choose a root explicitly.',
+      hint: 'Send the agentpw-path header to choose a path explicitly.',
     })
   })
 
@@ -239,7 +240,7 @@ describe('proxy routes and proxy handler edges', () => {
     const app = await createApp()
 
     const invalidRequestedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
-      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-path': 'invalid-root' }),
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-path': '../invalid-root' }),
     })
     expect(invalidRequestedRoot.status).toBe(400)
 
@@ -292,6 +293,57 @@ describe('proxy routes and proxy handler edges', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ authorization: 'Bearer team-shared-token' })
+  })
+
+  it('resolves relative agentpw-path and agentpw-credential values from home_path', async () => {
+    const app = await createApp()
+    await upsertCredential(db, {
+      host: 'api.github.com',
+      path: '/org_alpha/shared/github',
+      auth: { kind: 'headers' },
+      secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
+        headers: { Authorization: 'Bearer shared-token' },
+      }),
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+      const headers = new Headers(init?.headers)
+      return new Response(JSON.stringify({ authorization: headers.get('Authorization') }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha']),
+        {
+          'agentpw-path': 'shared',
+          'agentpw-credential': 'github',
+        },
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ authorization: 'Bearer shared-token' })
+  })
+
+  it('rejects relative agentpw-path values when the token has no home_path', async () => {
+    const app = await createApp()
+    const tokenWithoutHomePath = mintToken(BISCUIT_PRIVATE_KEY, 'org_alpha', [
+      { action: 'credential.use', root: '/org_alpha' },
+    ], [
+      'org_id("org_alpha")',
+    ])
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(tokenWithoutHomePath, { 'agentpw-path': 'shared' }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Relative agentpw-path requires token home_path metadata',
+      hint: "Send an absolute agentpw-path that starts with '/' or mint a token with home_path(...).",
+    })
   })
 
   it('accepts the root path as an explicit requested root', async () => {

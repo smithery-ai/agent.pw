@@ -26,6 +26,7 @@ import {
   credentialName,
   joinCredentialPath,
   pathDepth,
+  resolvePathReference,
   isAncestorOrEqual,
   validatePath,
 } from './paths'
@@ -58,6 +59,13 @@ function errorMessage(e: unknown): string {
 export const PROXY_TOKEN_HEADER = 'Proxy-Authorization'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
 export const REQUESTED_ROOT_HEADER = 'agentpw-path'
+
+function missingHomePathResponse(c: Context<CoreHonoEnv>, header: string) {
+  return c.json({
+    error: `Relative ${header} requires token home_path metadata`,
+    hint: `Send an absolute ${header} that starts with '/' or mint a token with home_path(...).`,
+  }, 409)
+}
 
 function buildAgentPwChallenge(params: Record<string, string | undefined>) {
   const encoded = Object.entries(params)
@@ -253,15 +261,19 @@ export async function handleProxy(
   let requestedRoot: string | null = null
 
   if (requestedRootHeader) {
-    if (!validatePath(requestedRootHeader) || requestedRootHeader === '/') {
-      if (requestedRootHeader !== '/') {
-        return c.json({ error: `Invalid requested root '${requestedRootHeader}'` }, 400)
+    const normalizedRequestedRoot = resolvePathReference(requestedRootHeader, tokenFacts.homePath)
+    if (!normalizedRequestedRoot) {
+      return missingHomePathResponse(c, REQUESTED_ROOT_HEADER)
+    }
+    if (!validatePath(normalizedRequestedRoot) || normalizedRequestedRoot === '/') {
+      if (normalizedRequestedRoot !== '/') {
+        return c.json({ error: `Invalid requested path '${requestedRootHeader}'` }, 400)
       }
     }
-    if (coveringRootsForPath(useRoots, requestedRootHeader).length === 0) {
-      return c.json({ error: `Forbidden: token cannot use requested root '${requestedRootHeader}'` }, 403)
+    if (coveringRootsForPath(useRoots, normalizedRequestedRoot).length === 0) {
+      return c.json({ error: `Forbidden: token cannot use requested path '${requestedRootHeader}'` }, 403)
     }
-    requestedRoot = requestedRootHeader
+    requestedRoot = normalizedRequestedRoot
   } else if (useRoots.length === 1) {
     requestedRoot = useRoots[0]
   } else if (selector?.startsWith('/')) {
@@ -274,7 +286,7 @@ export async function handleProxy(
       return c.json({
         error: 'Multiple roots match the requested credential path',
         roots,
-        hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a root explicitly.`,
+        hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
       }, 409)
     }
   }
@@ -283,7 +295,7 @@ export async function handleProxy(
     return c.json({
       error: 'Multiple credential roots are available',
       roots: useRoots,
-      hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a root explicitly.`,
+      hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
     }, 409)
   }
 
@@ -306,7 +318,7 @@ export async function handleProxy(
       return c.json({
         error: `Multiple profiles named '${slug}' match inside '${requestedRoot}'`,
         profilePaths: conflicts.map(candidate => candidate.path),
-        hint: `Choose a different active root with ${REQUESTED_ROOT_HEADER} or make the profile path unique.`,
+        hint: `Choose a different active path with ${REQUESTED_ROOT_HEADER} or make the profile path unique.`,
       }, 409)
     }
     /* v8 ignore stop */
@@ -334,7 +346,12 @@ export async function handleProxy(
 
   let cred: Awaited<ReturnType<typeof getCredential>> | null = null
   if (selector) {
-    const selectedPath = selector.startsWith('/') ? selector : joinCredentialPath(requestedRoot, selector)
+    const selectedPath = selector.startsWith('/')
+      ? selector
+      : resolvePathReference(selector, requestedRoot)
+    if (!selectedPath) {
+      return missingHomePathResponse(c, CREDENTIAL_SELECTOR_HEADER)
+    }
     if (!validatePath(selectedPath) || selectedPath === '/') {
       return c.json({ error: `Invalid credential selector '${selector}'` }, 400)
     }

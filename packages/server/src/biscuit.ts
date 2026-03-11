@@ -310,6 +310,7 @@ export function extractTokenFacts(
     const rights: TokenRight[] = []
     let userId: string | null = null
     let orgId: string | null = null
+    let homePath: string | null = null
     const scopes: string[] = []
 
     for (const line of source.split('\n')) {
@@ -325,6 +326,8 @@ export function extractTokenFacts(
       if (userMatch) userId = userMatch[1]
       const orgMatch = trimmed.match(/(?:^|[\s,])org_id\("([^"]+)"\)/)
       if (orgMatch) orgId = orgMatch[1]
+      const homeMatch = trimmed.match(/(?:^|[\s,])home_path\("([^"]+)"\)/)
+      if (homeMatch) homePath = homeMatch[1]
       const scopeMatch = trimmed.match(/(?:^|[\s,])scope\("([^"]+)"\)/)
       if (scopeMatch) scopes.push(scopeMatch[1])
     }
@@ -335,10 +338,11 @@ export function extractTokenFacts(
       ),
       userId,
       orgId,
+      homePath,
       scopes: [...new Set(scopes)],
     }
   } catch {
-    return { rights: [], userId: null, orgId: null, scopes: [] }
+    return { rights: [], userId: null, orgId: null, homePath: null, scopes: [] }
   }
 }
 

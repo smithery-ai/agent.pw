@@ -15,6 +15,7 @@ Inside the Biscuit, agent.pw uses bare facts only:
 ```datalog
 user_id("usr_123");
 org_id("org_acme");
+home_path("/org_acme");
 right("/org_acme/shared", "credential.use");
 right("/org_acme/shared", "credential.bootstrap");
 right("/org_acme", "credential.manage");
@@ -29,6 +30,7 @@ The `apw:` / `apw_` fact prefixes are not part of the current model.
 **Identity lives in the token. Authorization is explicit descendant-root access. Attenuation narrows that access further.**
 
 - Tokens carry identity facts plus explicit `right(root, action)` grants.
+- `home_path(...)` is optional client-facing metadata for relative path aliases. It is not authority.
 - Credentials are authorized by descendant roots, not by implicit ancestor inheritance.
 - Each proxied or bootstrap request runs against one active root.
 - Profiles are stored like credentials, but resolved as overrides: subtree-local profiles beat broader defaults.
@@ -67,6 +69,15 @@ Examples:
 /linear
 ```
 
+Canonical storage and policy always use absolute paths starting with `/`.
+
+Client requests may use relative aliases for convenience:
+
+- `agentpw-path`: if it starts with `/`, use it as-is; otherwise resolve it relative to the token's `home_path`
+- `agentpw-credential`: if it starts with `/`, use it as-is; otherwise resolve it relative to the selected active root
+
+If a relative reference cannot be resolved because `home_path` is missing or the caller has not selected an active root yet, the proxy returns `409` and requires an absolute path.
+
 The core authorization unit is an explicit root grant:
 
 ```datalog
@@ -99,7 +110,7 @@ Examples:
 /org_acme/ws_eng/user_alice
 ```
 
-Clients may provide it explicitly, for example with the `agentpw-path` header. If a token has multiple eligible roots and the caller does not choose one, the proxy returns `409`.
+Clients may provide it explicitly with `agentpw-path`, using either an absolute path or a relative alias resolved from `home_path`. If a token has multiple eligible roots and the caller does not choose one, the proxy returns `409`.
 
 ## Credential Resolution
 
@@ -108,7 +119,7 @@ Within an active root, credential lookup is local and descendant-based:
 1. Filter by host.
 2. Keep credentials whose path is inside the active root.
 3. Choose the deepest matching credential path.
-4. If multiple credentials match at the same depth, return `409` and require the caller to disambiguate.
+4. If multiple credentials match at the same depth, return `409` and require the caller to disambiguate with `agentpw-credential`.
 
 This is descendant selection, not ancestor inheritance.
 

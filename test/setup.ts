@@ -23,6 +23,7 @@ export const ROOT_TOKEN = mintToken(
   BISCUIT_PRIVATE_KEY,
   'local',
   rightsAtRoot('/', ['credential.use', 'credential.manage', 'credential.bootstrap', 'profile.manage']),
+  ['home_path("/")'],
 )
 
 export const ORG_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', rightsAtRoot(`/${TEST_ORG_ID}`, [
@@ -32,6 +33,7 @@ export const ORG_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', rightsA
   'profile.manage',
 ]), [
   `org_id("${escapeDatalog(TEST_ORG_ID)}")`,
+  `home_path("/${escapeDatalog(TEST_ORG_ID)}")`,
 ])
 
 export function mintTestToken(
@@ -39,7 +41,10 @@ export function mintTestToken(
   actions: string[] = ['credential.use'],
   roots: string[] = [`/${orgId}`],
 ) {
-  const extraFacts = [`org_id("${escapeDatalog(orgId)}")`]
+  const extraFacts = [
+    `org_id("${escapeDatalog(orgId)}")`,
+    `home_path("/${escapeDatalog(orgId)}")`,
+  ]
   return mintToken(
     BISCUIT_PRIVATE_KEY,
     orgId,
