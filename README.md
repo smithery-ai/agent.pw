@@ -109,4 +109,4 @@ docs/
 
 ## License
 
-MIT
+[FSL-1.1-MIT](LICENSE.md) — converts to MIT after two years.

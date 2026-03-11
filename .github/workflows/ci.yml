@@ -25,6 +25,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build && pnpm --filter agent.pw build
+      - name: Bundle CLI
+        run: pnpm --filter agent.pw compile
       - name: Lint
         run: pnpm lint
       - name: Test
