@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { requestAllPages, requestJson, request } from '../http'
-import { output, outputList } from '../output'
+import { collectAllPages, getClient, pageToPaginatedResponse, type PaginatedResponse } from '../http'
+import { output, outputList, outputListPage } from '../output'
 
 interface CredProfile {
   path: string
@@ -16,6 +16,12 @@ interface CreateCredProfileRequest {
   managedOauth?: Record<string, unknown>
   displayName?: string
   description?: string
+}
+
+export interface ListProfilesOptions {
+  limit?: number
+  cursor?: string
+  all?: boolean
 }
 
 export interface AddProfileOptions {
@@ -106,11 +112,7 @@ function buildAuthExtras(options: AddProfileOptions) {
   return extras
 }
 
-export async function listProfiles() {
-  const profiles = await requestAllPages<CredProfile>('/cred_profiles')
-
-  if (outputList(profiles)) return
-
+function printProfileTable(profiles: CredProfile[]) {
   if (profiles.length === 0) {
     console.log('No credential profiles configured.')
     return
@@ -128,9 +130,37 @@ export async function listProfiles() {
   }
 }
 
+function printNextPageHint(page: PaginatedResponse<unknown>) {
+  if (!page.hasMore || !page.nextCursor) return
+  console.log(`\nNext cursor: ${page.nextCursor}`)
+  console.log('More results available. Re-run with `--cursor <cursor>` or `--all`.')
+}
+
+export async function listProfiles(options: ListProfilesOptions = {}) {
+  const client = await getClient()
+
+  if (options.all) {
+    const profiles = await collectAllPages<CredProfile>(client.profiles.list({ limit: options.limit }))
+
+    if (outputList(profiles)) return
+    printProfileTable(profiles)
+    return
+  }
+
+  const page = await pageToPaginatedResponse<CredProfile>(client.profiles.list({
+    limit: options.limit,
+    cursor: options.cursor,
+  }))
+
+  if (outputListPage(page)) return
+  printProfileTable(page.data)
+  printNextPageHint(page)
+}
+
 export async function getProfileCmd(slug: string) {
+  const client = await getClient()
   try {
-    const profile = await requestJson<CredProfile>(`/cred_profiles/${encodeURIComponent(slug)}`)
+    const profile = await client.profiles.get(slug)
     if (output(profile)) return
     console.log(JSON.stringify(profile, null, 2))
   } catch (e: unknown) {
@@ -143,6 +173,7 @@ export async function getProfileCmd(slug: string) {
 }
 
 export async function addProfile(slug: string, hosts: string[], options: AddProfileOptions = {}) {
+  const client = await getClient()
   let body: CreateCredProfileRequest
 
   if (options.filePath) {
@@ -191,25 +222,15 @@ export async function addProfile(slug: string, hosts: string[], options: AddProf
     }
   }
 
-  const result = await requestJson(`/cred_profiles/${encodeURIComponent(slug)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  const result = await client.profiles.create(slug, body)
   if (output(result)) return
   console.log(`Credential profile '${slug}' registered.`)
 }
 
 export async function removeProfile(slug: string) {
+  const client = await getClient()
   try {
-    const res = await request(`/cred_profiles/${encodeURIComponent(slug)}`, {
-      method: 'DELETE',
-    })
-    if (!res.ok) {
-      const error = new Error(await res.text()) as Error & { status?: number }
-      error.status = res.status
-      throw error
-    }
+    await client.profiles.delete(slug)
     if (output({ slug, removed: true })) return
     console.log(`Credential profile '${slug}' removed.`)
   } catch (e: unknown) {

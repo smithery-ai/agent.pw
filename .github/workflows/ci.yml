@@ -91,17 +91,27 @@ jobs:
       - name: Generate OpenAPI spec
         run: pnpm run openapi:generate
       - name: Commit openapi.json
+        id: openapi-commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add openapi.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: generated openapi.json for Stainless preview" --no-verify
-            git push origin HEAD:${{ github.head_ref }}
-          else
+          if git diff --quiet -- openapi.json; then
+            echo "stale=false" >> $GITHUB_OUTPUT
             echo "No changes to openapi.json, skipping commit"
+            exit 0
+          fi
+
+          BASE_SHA=$(git rev-parse HEAD)
+          git commit -m "chore: generated openapi.json for Stainless preview" --no-verify --only -- openapi.json
+
+          if git push --force-with-lease=refs/heads/${{ github.head_ref }}:$BASE_SHA origin HEAD:${{ github.head_ref }}; then
+            echo "stale=false" >> $GITHUB_OUTPUT
+          else
+            echo "Preview branch advanced; skipping stale openapi push"
+            echo "stale=true" >> $GITHUB_OUTPUT
           fi
       - name: Upload OpenAPI spec for preview
+        if: steps.openapi-commit.outputs.stale != 'true'
         id: stainless-build
         uses: stainless-api/upload-openapi-spec-action/preview@v1
         with:
@@ -110,6 +120,7 @@ jobs:
           oas_path: openapi.json
           config_path: openapi.stainless.yml
       - name: Update @agent.pw/sdk to preview build
+        if: steps.openapi-commit.outputs.stale != 'true'
         id: sdk-update
         env:
           STAINLESS_OUTCOMES: ${{ steps.stainless-build.outputs.outcomes }}
@@ -125,18 +136,20 @@ jobs:
           OLD_PATTERN='https://pkg\.stainless\.com/s/agent\.pw-typescript/[a-f0-9]\+/dist\.tar\.gz'
           sed -i "s|${OLD_PATTERN}|${INSTALL_URL}|g" packages/cli/package.json
 
-          if git diff --quiet; then
+          if git diff --quiet -- packages/cli/package.json; then
             echo "SDK URL unchanged, skipping"
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
       - name: Install dependencies with updated SDK
-        if: steps.sdk-update.outputs.changed == 'true'
+        if: steps.openapi-commit.outputs.stale != 'true' && steps.sdk-update.outputs.changed == 'true'
         run: pnpm install --no-frozen-lockfile
       - name: Commit and push SDK update
-        if: steps.sdk-update.outputs.changed == 'true'
+        if: steps.openapi-commit.outputs.stale != 'true' && steps.sdk-update.outputs.changed == 'true'
         run: |
-          git add packages/cli/package.json pnpm-lock.yaml
-          git commit -m "chore: update @agent.pw/sdk to latest preview build"
-          git push origin HEAD:${{ github.head_ref }}
+          BASE_SHA=$(git rev-parse HEAD)
+          git commit -m "chore: update @agent.pw/sdk to latest preview build" --only -- packages/cli/package.json pnpm-lock.yaml
+          if ! git push --force-with-lease=refs/heads/${{ github.head_ref }}:$BASE_SHA origin HEAD:${{ github.head_ref }}; then
+            echo "Preview branch advanced; skipping stale SDK push"
+          fi

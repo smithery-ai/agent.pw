@@ -52,12 +52,43 @@ export function decodePageCursor<T>(cursor: string) {
   }
 }
 
+export function decodePageCursorWithSchema<T extends z.ZodTypeAny>(cursor: string, schema: T): z.infer<T> {
+  const parsed = schema.safeParse(decodePageCursor<unknown>(cursor))
+  if (!parsed.success) {
+    throw new InvalidPaginationCursorError()
+  }
+  return parsed.data
+}
+
 interface PaginateItemsOptions<T, Cursor> {
   items: T[]
   limit: number
   cursor?: string | null
   compareToCursor: (item: T, cursor: Cursor) => number
   toCursor: (item: T) => Cursor
+}
+
+interface PaginateSliceOptions<T, Cursor> {
+  items: T[]
+  limit: number
+  toCursor: (item: T) => Cursor
+}
+
+export function paginateSlice<T, Cursor>({
+  items,
+  limit,
+  toCursor,
+}: PaginateSliceOptions<T, Cursor>): ListPage<T> {
+  const data = items.slice(0, limit)
+  const hasMore = items.length > limit
+
+  return {
+    data,
+    hasMore,
+    nextCursor: hasMore && data.length > 0
+      ? encodePageCursor(toCursor(data[data.length - 1]!))
+      : null,
+  }
 }
 
 export function paginateItems<T, Cursor>({
@@ -72,16 +103,11 @@ export function paginateItems<T, Cursor>({
     ? items.filter(item => compareToCursor(item, cursorValue) > 0)
     : items
 
-  const data = remainingItems.slice(0, limit)
-  const hasMore = remainingItems.length > limit
-
-  return {
-    data,
-    hasMore,
-    nextCursor: hasMore && data.length > 0
-      ? encodePageCursor(toCursor(data[data.length - 1]!))
-      : null,
-  }
+  return paginateSlice({
+    items: remainingItems,
+    limit,
+    toCursor,
+  })
 }
 
 export function buildListPageSchema<Item extends z.ZodType>(itemSchema: Item, id: string) {

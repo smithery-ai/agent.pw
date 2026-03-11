@@ -21,9 +21,15 @@ if (!privateKey) {
 const rootToken = mintToken(
   privateKey,
   'local',
-  ['admin', 'manage_services'],
+  [
+    { action: 'credential.use', root: '/' },
+    { action: 'credential.bootstrap', root: '/' },
+    { action: 'credential.manage', root: '/' },
+    { action: 'profile.manage', root: '/' },
+    { action: 'token.mint', root: '/' },
+  ],
 )
 
 console.log('Root token (store securely):\n')
 console.log(rootToken)
-console.log('\nThis token has admin rights and can manage all services.')
+console.log('\nThis token has root rights for credentials, profiles, and token minting.')

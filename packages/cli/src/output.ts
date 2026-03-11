@@ -24,3 +24,17 @@ export function outputList(items: unknown[]) {
   }
   return true
 }
+
+/**
+ * Output a single paginated list page. In non-TTY mode, prints one JSON object
+ * that preserves pagination metadata.
+ */
+export function outputListPage(page: {
+  data: unknown[]
+  hasMore: boolean
+  nextCursor: string | null
+}) {
+  if (isTTY()) return false
+  console.log(JSON.stringify(page))
+  return true
+}

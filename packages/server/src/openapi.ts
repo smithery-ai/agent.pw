@@ -14,7 +14,6 @@ import {
   CredentialListPageSchema,
   CreateCredentialRequestSchema,
 } from './routes/credentials'
-import { ServiceListPageSchema } from './routes/services'
 import {
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
@@ -62,7 +61,6 @@ export const allSchemas = [
   CredentialErrorSchema,
   CredentialListPageSchema,
   CreateCredentialRequestSchema,
-  ServiceListPageSchema,
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
 ]

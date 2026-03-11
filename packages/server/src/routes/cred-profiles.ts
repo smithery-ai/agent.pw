@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { CoreHonoEnv } from '../core/types'
 import { requireToken } from '../core/middleware'
 import {
-  listCredProfiles,
+  listCredProfilesPage,
   getCredProfile,
   upsertCredProfile,
   deleteCredProfile,
@@ -14,8 +14,9 @@ import { credentialName, isAncestorOrEqual, validatePath } from '../paths'
 import { hasRightForPath, rootsForAction, rootsForActions } from '../rights'
 import {
   buildListPageSchema,
+  decodePageCursorWithSchema,
+  encodePageCursor,
   InvalidPaginationCursorError,
-  paginateItems,
   PaginationQuerySchema,
 } from '../lib/pagination'
 
@@ -56,6 +57,10 @@ export const OkWithSlugSchema = OkSchema.extend({
 
 export const credProfileRoutes = new Hono<CoreHonoEnv>()
 
+const CredProfileCursorSchema = z.object({
+  slug: z.string(),
+})
+
 credProfileRoutes.get('/', requireToken,
   describeRoute({
     tags: ['cred_profiles'],
@@ -74,27 +79,31 @@ credProfileRoutes.get('/', requireToken,
       ? rootsForActions(facts.rights, ['credential.use', 'credential.bootstrap', 'profile.manage'])
       : []
     const query = c.req.valid('query')
-    const allProfiles = await listCredProfiles(db)
 
-    const visible = allProfiles.filter(profile =>
-      roots.some(root => isAncestorOrEqual(root, profile.path)),
-    ).map(p => ({
+    try {
+      const cursor = query.cursor
+        ? decodePageCursorWithSchema(query.cursor, CredProfileCursorSchema)
+        : null
+      const page = await listCredProfilesPage(db, {
+        limit: query.limit,
+        afterPath: cursor?.slug,
+        visibleRoots: roots,
+      })
+      const data = page.items.map(p => ({
         slug: p.path,
         host: p.host,
         path: p.path,
         displayName: p.displayName,
         description: p.description,
       }))
-      .sort((a, b) => a.path.localeCompare(b.path))
 
-    try {
-      return c.json(paginateItems({
-        items: visible,
-        limit: query.limit,
-        cursor: query.cursor,
-        compareToCursor: (item, cursor: { slug: string }) => item.slug.localeCompare(cursor.slug),
-        toCursor: item => ({ slug: item.slug }),
-      }))
+      return c.json({
+        data,
+        hasMore: page.hasMore,
+        nextCursor: page.hasMore && data.length > 0
+          ? encodePageCursor({ slug: data[data.length - 1]!.slug })
+          : null,
+      })
     } catch (error) {
       if (error instanceof InvalidPaginationCursorError) {
         return c.json({ error: error.message }, 400)

@@ -3,7 +3,6 @@ import {
   completeAuthFlow,
   createAuthFlow,
   deleteCredential,
-  deleteService,
   getAuthFlow,
   getCredProfile,
   getCredProfileByHost,
@@ -12,18 +11,16 @@ import {
   getCredential,
   getCredentialsByHost,
   getCredentialsByHostWithinRoot,
-  getService,
   isRevoked,
   listCredProfilesWithCredentialCounts,
+  listCredProfilesPage,
   listCredentials,
   listCredentialsAccessible,
+  listCredentialsAccessiblePage,
   listCredentialsWithinRoots,
-  listServices,
-  listServicesWithCredentialCounts,
   revokeToken,
   upsertCredProfile,
   upsertCredential,
-  upsertService,
 } from '@agent.pw/server/db/queries'
 import {
   buildCredentialHeaders,
@@ -58,7 +55,7 @@ beforeEach(async () => {
 })
 
 describe('db queries', () => {
-  it('handles profile lookups, visibility, and legacy service compatibility', async () => {
+  it('handles profile lookups and visibility', async () => {
     await upsertCredProfile(db, publicProfilePath('global'), {
       host: ['api.global.com', 'api.shared.com'],
       displayName: 'Global',
@@ -69,23 +66,9 @@ describe('db queries', () => {
       auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
       displayName: 'Team',
     })
-    await upsertService(db, '/compat', {
-      allowedHosts: ['api.compat.com'],
-      authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-Api-Key' }],
-      displayName: 'Compat',
-      description: 'legacy profile',
-      oauthClientId: 'client-id',
-      encryptedOauthClientSecret: Buffer.from('secret'),
-      docsUrl: 'https://docs.example.com',
-      authConfig: { token_auth: 'basic' },
-    })
-    await upsertService(db, '/plain', {
-      allowedHosts: ['api.plain.com'],
-    })
 
     await storeBearerCredential('api.global.com', '/global-cred', 'global-token')
     await storeBearerCredential('api.shared.com', '/shared-cred', 'shared-token')
-    await storeBearerCredential('api.compat.com', '/compat-cred', 'compat-token')
 
     expect(await getCredProfile(db, publicProfilePath('global'))).toEqual(
       expect.objectContaining({ path: publicProfilePath('global') }),
@@ -107,25 +90,6 @@ describe('db queries', () => {
 
     const countedProfiles = await listCredProfilesWithCredentialCounts(db)
     expect(countedProfiles.find(profile => profile.path === publicProfilePath('global'))?.credentialCount).toBe(2)
-
-    const service = await getService(db, '/compat')
-    expect(service).toEqual(expect.objectContaining({
-      slug: '/compat',
-      allowedHosts: '["api.compat.com"]',
-      oauthClientId: 'client-id',
-      docsUrl: 'https://docs.example.com',
-      authConfig: '{"token_auth":"basic"}',
-    }))
-    expect(JSON.parse(service?.authSchemes ?? '[]')).toEqual([
-      { type: 'apiKey', in: 'header', name: 'X-Api-Key' },
-    ])
-
-    expect((await listServices(db)).map(service => service.slug)).toEqual(
-      expect.arrayContaining([publicProfilePath('global'), '/org_alpha/team/service', '/compat', '/plain']),
-    )
-    expect((await listServicesWithCredentialCounts(db)).find(service => service.slug === '/compat')?.credentialCount).toBe(1)
-    expect(await deleteService(db, '/compat')).toBe(true)
-    expect(await deleteService(db, '/compat')).toBe(false)
   })
 
   it('handles credential queries within explicit descendant roots', async () => {
@@ -156,6 +120,58 @@ describe('db queries', () => {
 
     expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(true)
     expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(false)
+  })
+
+  it('pages profile and credential listings at the query layer', async () => {
+    for (const slug of ['aaa', 'bbb', 'ccc']) {
+      await upsertCredProfile(db, `/${slug}`, {
+        host: [`api.${slug}.com`],
+      })
+    }
+
+    const firstProfilePage = await listCredProfilesPage(db, {
+      limit: 2,
+      visibleRoots: ['/'],
+    })
+    expect(firstProfilePage.items.map(profile => profile.path)).toEqual(['/aaa', '/bbb'])
+    expect(firstProfilePage.hasMore).toBe(true)
+
+    const secondProfilePage = await listCredProfilesPage(db, {
+      limit: 2,
+      visibleRoots: ['/'],
+      afterPath: firstProfilePage.items[firstProfilePage.items.length - 1]!.path,
+    })
+    expect(secondProfilePage.items.map(profile => profile.path)).toEqual(['/ccc'])
+    expect(secondProfilePage.hasMore).toBe(false)
+
+    await storeBearerCredential('api.example.com', '/org_alpha/cred-a', 'token-a')
+    await storeBearerCredential('api.example.com', '/org_alpha/cred-b', 'token-b')
+    await storeBearerCredential('api.example.com', '/org_alpha/cred-c', 'token-c')
+
+    const firstCredentialPage = await listCredentialsAccessiblePage(db, {
+      limit: 2,
+      roots: ['/org_alpha'],
+    })
+    expect(firstCredentialPage.items).toHaveLength(2)
+    expect(firstCredentialPage.hasMore).toBe(true)
+
+    const lastCredential = firstCredentialPage.items[firstCredentialPage.items.length - 1]!
+    const secondCredentialPage = await listCredentialsAccessiblePage(db, {
+      limit: 2,
+      roots: ['/org_alpha'],
+      after: {
+        createdAt: lastCredential.createdAt,
+        path: lastCredential.path,
+        host: lastCredential.host,
+      },
+    })
+    expect(secondCredentialPage.items).toHaveLength(1)
+    expect(secondCredentialPage.hasMore).toBe(false)
+
+    expect([
+      ...firstCredentialPage.items.map(credential => credential.path),
+      ...secondCredentialPage.items.map(credential => credential.path),
+    ]).toEqual(expect.arrayContaining(['/org_alpha/cred-a', '/org_alpha/cred-b', '/org_alpha/cred-c']))
   })
 
   it('resolves profile applicability from the active root cascade', async () => {
