@@ -92,7 +92,7 @@ describe('biscuit helpers', () => {
     expect(pair.publicKey).toMatch(/^ed25519\//)
   })
 
-  it('extracts bare facts, tolerates legacy prefixed facts, and ignores underscore variants', () => {
+  it('extracts bare facts and maps legacy capability tokens to root rights', () => {
     const bareToken = buildCustomToken([
       'user_id("legacy-user");',
       'org_id("legacy-org");',
@@ -115,7 +115,12 @@ describe('biscuit helpers', () => {
     ].join('\n'))
 
     expect(extractTokenFacts(underscoreToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: [],
+      rights: [
+        { action: 'credential.use', root: '/' },
+        { action: 'credential.bootstrap', root: '/' },
+        { action: 'credential.manage', root: '/' },
+        { action: 'profile.manage', root: '/' },
+      ],
       userId: null,
       orgId: null,
       scopes: [],
@@ -137,6 +142,22 @@ describe('biscuit helpers', () => {
 
     const orgOnlyToken = buildCustomToken('org_id("org-only");')
     expect(extractUserId(orgOnlyToken, PUBLIC_KEY_HEX)).toBe('org-only')
+  })
+
+  it('deduplicates legacy root-management capability tokens', () => {
+    const legacyManagementToken = buildCustomToken([
+      'user("legacy-admin");',
+      'apw_user_id("legacy-admin");',
+      'right("admin");',
+      'apw_right("manage_services");',
+    ].join('\n'))
+
+    expect(extractTokenFacts(legacyManagementToken, PUBLIC_KEY_HEX).rights).toEqual([
+      { action: 'credential.use', root: '/' },
+      { action: 'credential.bootstrap', root: '/' },
+      { action: 'credential.manage', root: '/' },
+      { action: 'profile.manage', root: '/' },
+    ])
   })
 
   it('authorizes legacy prefixed identity facts', () => {

@@ -27,6 +27,12 @@ const RUN_LIMITS = {
 }
 
 const MAX_AUTHORIZE_RETRIES = 2 // first call may trigger WASM JIT and timeout; retry succeeds
+const LEGACY_MANAGEMENT_ACTIONS = [
+  'credential.use',
+  'credential.bootstrap',
+  'credential.manage',
+  'profile.manage',
+] as const
 
 function addPrefix(base64: string): string {
   return TOKEN_PREFIX + base64
@@ -50,6 +56,14 @@ function normalizeFactStatement(fact: string): string {
   const trimmed = fact.trim()
   if (!trimmed) return ''
   return trimmed.endsWith(';') ? trimmed : `${trimmed};`
+}
+
+function legacyRightsForCapability(capability: string): TokenRight[] {
+  if (!['admin', 'manage_services'].includes(capability)) {
+    return []
+  }
+
+  return LEGACY_MANAGEMENT_ACTIONS.map(action => ({ action, root: '/' }))
 }
 
 export function parseTtlSeconds(ttl: string | number): number {
@@ -311,6 +325,7 @@ export function extractTokenFacts(
     const source = token.getBlockSource(0)
 
     const rights: TokenRight[] = []
+    const legacyCapabilities: string[] = []
     let userId: string | null = null
     let orgId: string | null = null
     const scopes: string[] = []
@@ -325,6 +340,10 @@ export function extractTokenFacts(
           root: first.startsWith('/') ? first : second,
         })
       }
+      const legacyRightMatch = trimmed.match(/(?:^|[\s,])(?:apw:right|apw_right|right)\("([^"]+)"\)/)
+      if (legacyRightMatch) {
+        legacyCapabilities.push(legacyRightMatch[1])
+      }
       const userMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?user_id\("([^"]+)"\)/)
       if (userMatch) userId = userMatch[1]
       const orgMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?org_id\("([^"]+)"\)/)
@@ -334,7 +353,10 @@ export function extractTokenFacts(
     }
 
     return {
-      rights: rights.filter((right, index, all) =>
+      rights: [
+        ...rights,
+        ...legacyCapabilities.flatMap(legacyRightsForCapability),
+      ].filter((right, index, all) =>
         all.findIndex(candidate => candidate.action === right.action && candidate.root === right.root) === index,
       ),
       userId,
