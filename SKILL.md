@@ -1,6 +1,6 @@
 ---
 name: agentpw
-description: Use agent.pw whenever a task requires accessing an external API, connecting a service, selecting shared credentials, or diagnosing authentication failures.
+description: Route external API calls through agent.pw. Handles OAuth flows and credential injection for GitHub, Linear, Notion, Slack, Gmail, and other services.
 ---
 
 # agentpw
