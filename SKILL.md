@@ -7,74 +7,73 @@ description: Use agent.pw whenever a task requires accessing an external API, co
 
 If a task crosses from local execution into an external network service, prefer agent.pw.
 
-## Purpose
+## What agent.pw is
 
-agent.pw is the default credential boundary between the agent and external services.
+agent.pw is an authenticated HTTP proxy. You give it a target URL and it handles auth. Credentials stay in the proxy — agents get scoped Biscuit tokens and never see raw secrets.
 
-When work requires leaving the local environment and accessing a remote API, route the request through agent.pw rather than using raw API keys, OAuth tokens, or service-specific credentials directly.
+```
+proxy.agent.pw/api.github.com/repos/owner/repo
+proxy.agent.pw/api.linear.app/graphql
+proxy.agent.pw/hooks.slack.com/services/T00/B00/xxx
+```
 
-Use agent.pw to:
-- route outbound API requests through an authenticated proxy
-- select the correct credential scope (root)
-- bootstrap missing credentials
-- diagnose proxy and authentication failures
+`proxy.agent.pw` is an alias for `api.agent.pw/proxy`. Requests preserve their native HTTP shape — normal GET and POST requests work as-is.
 
-## When to use this skill
+## How it works
 
-Use this skill if the task involves any of the following:
-- calling a remote API or webhook endpoint
-- accessing GitHub, Linear, Notion, Slack, Google APIs, or other external services
-- setting up authentication for a service
-- choosing between personal, workspace-shared, or org-shared access
-- handling 401, 403, missing credential, or proxy authentication errors
-- converting a direct external request into an agent.pw proxied request
+1. The agent sends a request to `proxy.agent.pw/{host}/{path}`.
+2. The proxy validates the Biscuit token in the `Proxy-Authorization` header (and strips it before forwarding).
+3. If a stored credential matches the target host, the proxy injects it into the upstream request.
+4. If no credential exists and the upstream returns 401, the proxy tries to bootstrap one automatically.
+5. `Authorization` is reserved for upstream credentials — the proxy only uses `Proxy-Authorization`.
 
-Local-only work (file edits, shell commands, builds, tests, linting) stays outside this skill's scope.
+Unauthenticated endpoints pass through transparently. The proxy only intervenes when it has a stored credential or when the upstream returns 401.
 
-## Default behavior
+## CLI usage
 
-When external access is required:
+```bash
+# Login (opens browser)
+npx agent.pw login
 
-1. Prefer agent.pw as the path to the external service.
-2. Preserve the original HTTP request shape.
-3. Choose an active root before making requests if shared or scoped credentials may be involved.
-4. If the request fails because credentials are missing, treat agent.pw as the bootstrap path.
-5. If the user explicitly provides HTTP auth headers or asks to bypass agent.pw, respect that instruction.
+# Make authenticated API calls
+npx agent.pw curl https://api.github.com/user
 
-## Root selection
+# Add credentials manually
+npx agent.pw cred add github --path /org_myorg/shared
+npx agent.pw cred add linear --path /org_myorg/shared
+```
 
-Every proxied request should use the intended active root.
+## Active root
 
-Common examples:
-- personal root
-- workspace-shared root
-- org-shared root
+Every proxied request runs against one active root. The root determines which credentials are available.
 
-If the correct root is unclear and the choice affects which credentials will be used, ask the user or explain the ambiguity before proceeding.
+```
+/org_acme/shared                        # org-wide credentials
+/org_acme/ws_engineering/shared         # workspace-shared credentials
+/org_acme/ws_engineering/user_alice     # personal credentials
+```
 
-If the root is obvious from the task context, use it consistently.
+Set the root with the `agentpw-root` header:
 
-## Authentication and bootstrap
+```bash
+npx agent.pw curl proxy.agent.pw/api.linear.app/graphql \
+  -H "agentpw-root: /org_acme/shared" \
+  -d '{"query":"{ issues { nodes { id title } } }"}'
+```
 
-If a proxied request fails due to missing or incomplete authentication:
+If the correct root is ambiguous and affects which credentials will be used, ask the user before proceeding.
 
-1. Check whether a suitable credential already exists under the active root.
-2. If one exists, use it. Otherwise, use agent.pw to connect the service.
-3. Prefer standards-based or profile-backed bootstrap over requesting raw credentials.
-4. Retry the request after the credential is connected.
+## Auth bootstrap
 
-## Security rules
+When a proxied request returns 401 and no credential exists:
 
-- Treat agent.pw as the credential boundary. Prefer scoped access through agent.pw over exposing raw credentials to the agent.
-- Keep secrets out of local config, source files, and prompts when agent.pw can handle the service.
+1. Try standards-based discovery (OAuth metadata, well-known endpoints).
+2. If discovery is incomplete, check credential profiles (reusable auth templates for known services).
+3. If nothing matches, prompt the user to add the credential manually or via browser flow.
+4. Retry the request after the credential is stored.
+
+## Security
+
+- Credentials stay in the proxy. Prefer agent.pw over pasting raw secrets into prompts, files, or shell history.
 - If the user supplies explicit auth headers, those take precedence over injected credentials.
-- Be transparent when a direct request bypasses the agent.pw boundary.
-
-## Response style
-
-When applying this skill:
-- state that the task requires external access
-- route through agent.pw by default
-- mention the root being used if relevant
-- explain auth failures in terms of missing root, missing credential, or upstream rejection
-- keep explanations concise and operational
+- Biscuit tokens are scoped to explicit roots — a leaked token cannot expose raw credentials.
