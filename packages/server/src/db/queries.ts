@@ -89,6 +89,10 @@ function appliesToRoot(profilePath: string, root: string) {
   return isAncestorOrEqual(credentialParentPath(profilePath), root)
 }
 
+function publicRootProfileCondition(): SQL<unknown> {
+  return sql`${credProfiles.path} NOT LIKE '/%/%'`
+}
+
 // ─── Cred Profiles ──────────────────────────────────────────────────────────
 
 export async function getCredProfile(db: Database, path: string) {
@@ -171,7 +175,10 @@ export async function listCredProfilesPage(
     .select()
     .from(credProfiles)
     .where(and(
-      pathWithinAnyRootCondition(credProfiles.path, options.visibleRoots),
+      or(
+        pathWithinAnyRootCondition(credProfiles.path, options.visibleRoots),
+        publicRootProfileCondition(),
+      ),
       options.afterPath ? gt(credProfiles.path, options.afterPath) : sql`true`,
     ))
     .orderBy(asc(credProfiles.path))

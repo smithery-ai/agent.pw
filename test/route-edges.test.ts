@@ -295,6 +295,19 @@ describe('route edge cases', () => {
       auth: { kind: 'headers' },
     })
 
+    const orgScopedDetail = await app.request(`https://agent.pw/cred_profiles/visible?path=${encodeURIComponent(publicProfilePath('visible'))}`, {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+    expect(orgScopedDetail.status).toBe(200)
+    expect(await orgScopedDetail.json()).toEqual({
+      slug: publicProfilePath('visible'),
+      host: ['api.visible.com'],
+      path: publicProfilePath('visible'),
+      displayName: 'Visible',
+      description: null,
+      auth: { kind: 'headers' },
+    })
+
     await upsertCredProfile(db, publicProfilePath('no-auth'), {
       host: ['api.no-auth.com'],
     })

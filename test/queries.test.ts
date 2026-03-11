@@ -176,6 +176,28 @@ describe('db queries', () => {
     ]).toEqual(expect.arrayContaining(['/org_alpha/cred-a', '/org_alpha/cred-b', '/org_alpha/cred-c']))
   })
 
+  it('includes public root profiles when paging org-scoped profile listings', async () => {
+    await upsertCredProfile(db, publicProfilePath('global'), {
+      host: ['api.global.com'],
+    })
+    await upsertCredProfile(db, '/org_alpha/team', {
+      host: ['api.team.com'],
+    })
+    await upsertCredProfile(db, '/org_beta/other', {
+      host: ['api.other.com'],
+    })
+
+    const page = await listCredProfilesPage(db, {
+      limit: 10,
+      visibleRoots: ['/org_alpha'],
+    })
+
+    expect(page.items.map(profile => profile.path)).toEqual([
+      publicProfilePath('global'),
+      '/org_alpha/team',
+    ])
+  })
+
   it('resolves profile applicability from the active root cascade', async () => {
     await upsertCredProfile(db, '/linear', {
       host: ['api.linear.global'],

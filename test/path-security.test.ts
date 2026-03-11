@@ -569,7 +569,7 @@ describe('credential profile path-based access control', () => {
     expect(blocked.status).toBe(403)
   })
 
-  it('lists only profiles inside granted descendant roots', async () => {
+  it('lists profiles inside granted roots and public root profiles', async () => {
     await upsertCredProfile(db, publicProfilePath('global-svc'), {
       host: ['api.global.com'],
       displayName: 'Global',
@@ -588,8 +588,8 @@ describe('credential profile path-based access control', () => {
     expect(res.status).toBe(200)
 
     const paths = ((await res.json()) as { data: { path: string }[] }).data.map(profile => profile.path)
+    expect(paths).toContain(publicProfilePath('global-svc'))
     expect(paths).toContain(`/${ORG_A}/org-svc`)
-    expect(paths).not.toContain(publicProfilePath('global-svc'))
     expect(paths).not.toContain(`/${ORG_B}/other-org-svc`)
   })
 })
