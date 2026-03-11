@@ -127,7 +127,7 @@ serviceRoutes.get('/:slug', requireToken,
   },
 )
 
-serviceRoutes.put('/:slug', requireToken, requireRight('manage_services'),
+serviceRoutes.put('/:slug', requireToken, requireRight('profile.manage'),
   describeRoute({
     tags: ['services'],
     summary: 'Create or update service',
@@ -166,7 +166,7 @@ serviceRoutes.put('/:slug', requireToken, requireRight('manage_services'),
   },
 )
 
-serviceRoutes.delete('/:slug', requireToken, requireRight('manage_services'),
+serviceRoutes.delete('/:slug', requireToken, requireRight('profile.manage'),
   describeRoute({
     tags: ['services'],
     summary: 'Delete service',

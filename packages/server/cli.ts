@@ -63,7 +63,7 @@ program
     const db = await createLocalDb(DATA_DIR)
     await migrateLocal(db)
 
-    const masterToken = mintToken(keypair.privateKey, 'local', ['admin', 'manage_services'])
+    const masterToken = mintToken(keypair.privateKey, 'local', ['manage_services'])
     const port = 9315
 
     writeConfig({

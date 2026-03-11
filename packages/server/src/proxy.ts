@@ -7,10 +7,10 @@ import {
   getRevocationIds,
 } from './biscuit'
 import {
-  getCredProfile,
-  getCredProfileByHostForPath,
+  getCredProfilesByHostWithPublicFallback,
+  getCredProfilesBySlugWithPublicFallback,
   getCredential,
-  getCredentialsByHostForUsage,
+  getCredentialsByHostWithinRoot,
   isRevoked,
   upsertCredential,
 } from './db/queries'
@@ -24,13 +24,27 @@ import { refreshOAuthToken } from './lib/oauth-refresh'
 import { isDnsError } from './lib/dns'
 import {
   credentialName,
-  credentialParentPath,
   joinCredentialPath,
   pathDepth,
-  pathFromTokenFacts,
+  resolvePathReference,
   isAncestorOrEqual,
   validatePath,
 } from './paths'
+import { coveringRootsForPath, rootsForAction } from './rights'
+
+function pickDeepestMatches<T extends { path: string }>(matches: T[]) {
+  if (matches.length === 0) {
+    return { selected: null, conflicts: [] as T[] }
+  }
+
+  const topDepth = pathDepth(matches[0].path)
+  const conflicts = matches.filter(match => pathDepth(match.path) === topDepth)
+  if (conflicts.length > 1) {
+    return { selected: null, conflicts }
+  }
+
+  return { selected: matches[0], conflicts: [] as T[] }
+}
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -44,6 +58,14 @@ function errorMessage(e: unknown): string {
 
 export const PROXY_TOKEN_HEADER = 'Proxy-Authorization'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
+export const REQUESTED_ROOT_HEADER = 'agentpw-path'
+
+function missingHomePathResponse(c: Context<CoreHonoEnv>, header: string) {
+  return c.json({
+    error: `Relative ${header} requires token home_path metadata`,
+    hint: `Send an absolute ${header} that starts with '/' or mint a token with home_path(...).`,
+  }, 409)
+}
 
 function buildAgentPwChallenge(params: Record<string, string | undefined>) {
   const encoded = Object.entries(params)
@@ -162,9 +184,11 @@ function isPrivateOrLocalAddress(hostname: string) {
 function buildUpstreamHeaders(c: Context<CoreHonoEnv>) {
   const headers = new Headers()
   const proxyHeader = PROXY_TOKEN_HEADER.toLowerCase()
+  const requestedRootHeader = REQUESTED_ROOT_HEADER.toLowerCase()
   c.req.raw.headers.forEach((value, key) => {
     const lower = key.toLowerCase()
     if (lower === 'host' || lower === 'act-as') return
+    if (lower === requestedRootHeader) return
     if (lower === proxyHeader || lower === CREDENTIAL_SELECTOR_HEADER) return
     headers.set(key, value)
   })
@@ -225,19 +249,92 @@ export async function handleProxy(
     return c.json({ error: `Invalid token: ${errorMessage(e)}` }, 401)
   }
 
+  const tokenFacts = extractTokenFacts(token, publicKeyHex)
+  c.set('tokenFacts', tokenFacts)
+  const useRoots = rootsForAction(tokenFacts.rights, 'credential.use')
+  if (useRoots.length === 0) {
+    return c.json({ error: 'Forbidden: requires "credential.use" right' }, 403)
+  }
+
+  const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
+  const requestedRootHeader = c.req.header(REQUESTED_ROOT_HEADER)
+  let requestedRoot: string | null = null
+
+  if (requestedRootHeader) {
+    const normalizedRequestedRoot = resolvePathReference(requestedRootHeader, tokenFacts.homePath)
+    if (!normalizedRequestedRoot) {
+      return missingHomePathResponse(c, REQUESTED_ROOT_HEADER)
+    }
+    if (!validatePath(normalizedRequestedRoot) || normalizedRequestedRoot === '/') {
+      if (normalizedRequestedRoot !== '/') {
+        return c.json({ error: `Invalid requested path '${requestedRootHeader}'` }, 400)
+      }
+    }
+    if (coveringRootsForPath(useRoots, normalizedRequestedRoot).length === 0) {
+      return c.json({ error: `Forbidden: token cannot use requested path '${requestedRootHeader}'` }, 403)
+    }
+    requestedRoot = normalizedRequestedRoot
+  } else if (useRoots.length === 1) {
+    requestedRoot = useRoots[0]
+  } else if (selector?.startsWith('/')) {
+    const roots = coveringRootsForPath(useRoots, selector)
+    if (roots.length === 1) {
+      requestedRoot = roots[0]
+    } else if (roots.length === 0) {
+      return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
+    } else if (roots.length > 1) {
+      return c.json({
+        error: 'Multiple roots match the requested credential path',
+        roots,
+        hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
+      }, 409)
+    }
+  }
+
+  if (!requestedRoot) {
+    return c.json({
+      error: 'Multiple credential roots are available',
+      roots: useRoots,
+      hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
+    }, 409)
+  }
+
   const resource = slug ?? hostname
-  const result = authorizeRequest(token, publicKeyHex, resource, c.req.method, upstreamPath)
+  const result = authorizeRequest(token, publicKeyHex, resource, c.req.method, upstreamPath, {
+    action: 'credential.use',
+    host: hostname,
+    requestedRoot,
+  })
   if (!result.authorized) {
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  const tokenFacts = extractTokenFacts(token, publicKeyHex)
-  const tokenPath = pathFromTokenFacts(tokenFacts)
-
-  // Profile resolution: nearest ancestor profile for this host
-  const profile = slug
-    ? await getCredProfile(db, `/${slug}`)
-    : await getCredProfileByHostForPath(db, hostname, tokenPath)
+  let profile: { path: string; host: string[] } | null = null
+  if (slug) {
+    const matches = await getCredProfilesBySlugWithPublicFallback(db, slug, requestedRoot)
+    const { selected, conflicts } = pickDeepestMatches(matches)
+    /* v8 ignore start -- same-slug profile conflicts are prevented by canonical path uniqueness plus ancestor applicability */
+    if (conflicts.length > 0) {
+      return c.json({
+        error: `Multiple profiles named '${slug}' match inside '${requestedRoot}'`,
+        profilePaths: conflicts.map(candidate => candidate.path),
+        hint: `Choose a different active path with ${REQUESTED_ROOT_HEADER} or make the profile path unique.`,
+      }, 409)
+    }
+    /* v8 ignore stop */
+    profile = selected
+  } else {
+    const matches = await getCredProfilesByHostWithPublicFallback(db, hostname, requestedRoot)
+    const { selected, conflicts } = pickDeepestMatches(matches)
+    if (conflicts.length > 0) {
+      return c.json({
+        error: `Multiple profiles match host '${hostname}' inside '${requestedRoot}'`,
+        profilePaths: conflicts.map(candidate => candidate.path),
+        hint: `Send the ${REQUESTED_ROOT_HEADER} header to narrow the request or use an explicit profile slug.`,
+      }, 409)
+    }
+    profile = selected
+  }
 
   if (slug && !profile) {
     return c.json({ error: `Unknown credential profile: ${slug}` }, 404)
@@ -247,11 +344,14 @@ export async function handleProxy(
     return c.json({ error: `Host '${hostname}' is not allowed for profile '${profile.path}'` }, 403)
   }
 
-  const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
-
   let cred: Awaited<ReturnType<typeof getCredential>> | null = null
   if (selector) {
-    const selectedPath = selector.startsWith('/') ? selector : joinCredentialPath(tokenPath, selector)
+    const selectedPath = selector.startsWith('/')
+      ? selector
+      : resolvePathReference(selector, requestedRoot)
+    if (!selectedPath) {
+      return missingHomePathResponse(c, CREDENTIAL_SELECTOR_HEADER)
+    }
     if (!validatePath(selectedPath) || selectedPath === '/') {
       return c.json({ error: `Invalid credential selector '${selector}'` }, 400)
     }
@@ -259,27 +359,23 @@ export async function handleProxy(
     if (!selected) {
       return c.json({ error: `Unknown credential: ${selector}` }, 404)
     }
-    // Usage check: credential must be at an ancestor of the token's path
-    if (!isAncestorOrEqual(credentialParentPath(selected.path), tokenPath)) {
+    if (!isAncestorOrEqual(requestedRoot, selected.path)) {
       return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
     }
     cred = selected
   } else {
-    // Find credentials at ancestors of token path, ordered by depth desc
-    const matches = await getCredentialsByHostForUsage(db, hostname, tokenPath)
+    const matches = await getCredentialsByHostWithinRoot(db, hostname, requestedRoot)
     if (matches.length > 1) {
-      // Check if top matches are at the same depth (conflict)
       const topDepth = pathDepth(matches[0].path)
       const sameDepth = matches.filter(m => pathDepth(m.path) === topDepth)
       if (sameDepth.length > 1) {
         return c.json({
-          error: `Multiple credentials match host '${hostname}' at the same path depth`,
+          error: `Multiple credentials match host '${hostname}' inside '${requestedRoot}' at the same path depth`,
           credentialNames: sameDepth.map(match => credentialName(match.path)),
           hint: `Send the ${CREDENTIAL_SELECTOR_HEADER} header to choose a credential name explicitly.`,
         }, 409)
       }
     }
-    // Deepest ancestor wins (first result due to ORDER BY length DESC)
     cred = matches[0] ?? null
   }
 
@@ -296,6 +392,7 @@ export async function handleProxy(
     slug: profile?.path ?? slug,
     hostname,
     method: c.req.method,
+    requestedRoot,
     upstreamUrl,
     credential: cred ? credentialName(cred.path) : null,
   }, 'proxy request')
@@ -349,6 +446,7 @@ export async function handleProxy(
     slug: profile?.path ?? slug,
     hostname,
     method: c.req.method,
+    requestedRoot,
     upstreamUrl,
     status: upstream.status,
     responseHeaders: Object.fromEntries(upstream.headers.entries()),

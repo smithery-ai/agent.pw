@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCoreApp } from '@agent.pw/server'
+import { sql } from 'drizzle-orm'
 import {
   encryptCredentials,
   buildCredentialHeaders,
@@ -75,7 +76,10 @@ async function registerProfile(slug: string, body: Record<string, unknown>) {
   const res = await mgmtReq(`/cred_profiles/${slug}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      path: `/${TEST_ORG_ID}/${slug}`,
+      ...body,
+    }),
   })
   expect(res.status).toBe(200)
 }
@@ -97,13 +101,52 @@ async function storeScopedCredential(slug: string, host: string, bearerToken: st
 
   await upsertCredential(db, {
     host,
-    path: `/orgs/${TEST_ORG_ID}/${slug}`,
+    path: `/${TEST_ORG_ID}/${slug}`,
     auth: { kind: 'headers' },
     secret: encrypted,
   })
 }
 
 describe('Core Scenario Flows', () => {
+  it('normalizes legacy string hosts to arrays in credential profile responses', async () => {
+    await db.execute(sql`
+      INSERT INTO agentpw.cred_profiles (path, host, display_name)
+      VALUES ('/legacy', '"api.legacy.example"'::jsonb, 'Legacy')
+    `)
+
+    await db.execute(sql`
+      INSERT INTO agentpw.cred_profiles (path, host, display_name)
+      VALUES ('/null-host', 'null'::jsonb, 'NullHost')
+    `)
+
+    const listed = await mgmtReq('/cred_profiles')
+    expect(listed.status).toBe(200)
+    const { data: profiles } = await listed.json() as { data: unknown[] }
+    expect(profiles).toContainEqual(expect.objectContaining({
+      slug: '/legacy',
+      host: ['api.legacy.example'],
+    }))
+    const { data: profiles2 } = await mgmtReq('/cred_profiles').then(r => r.json()) as { data: unknown[] }
+    expect(profiles2).toContainEqual(expect.objectContaining({
+      slug: '/null-host',
+      host: [],
+    }))
+
+    const detail = await mgmtReq('/cred_profiles/legacy')
+    expect(detail.status).toBe(200)
+    expect(await detail.json()).toMatchObject({
+      slug: '/legacy',
+      host: ['api.legacy.example'],
+    })
+
+    const nullDetail = await mgmtReq('/cred_profiles/null-host')
+    expect(nullDetail.status).toBe(200)
+    expect(await nullDetail.json()).toMatchObject({
+      slug: '/null-host',
+      host: [],
+    })
+  })
+
   it('stores credential profiles and credentials through the core API and reports health counts', async () => {
     await registerProfile('github', {
       host: ['api.github.com'],
@@ -113,12 +156,16 @@ describe('Core Scenario Flows', () => {
       },
     })
 
-    await storeCredential('github', { token: 'ghp_test123' })
+    await storeCredential('github', {
+      token: 'ghp_test123',
+      host: 'api.github.com',
+      path: `/${TEST_ORG_ID}/github`,
+    })
 
     const health = await req('/')
     expect(health.status).toBe(200)
     expect(await health.json()).toEqual({
-      profiles: [{ slug: '/github', credentialCount: 1 }],
+      profiles: [{ slug: `/${TEST_ORG_ID}/github`, credentialCount: 1 }],
     })
 
     const profiles = await mgmtReq('/cred_profiles')
@@ -136,7 +183,11 @@ describe('Core Scenario Flows', () => {
         authSchemes: [{ type: 'http', scheme: 'bearer' }],
       },
     })
-    await storeCredential('github', { token: 'ghp_test123' })
+    await storeCredential('github', {
+      token: 'ghp_test123',
+      host: 'api.github.com',
+      path: `/${TEST_ORG_ID}/github`,
+    })
 
     const fetchMock = mockUpstream(async (_input, init) => {
       const headers = new Headers(init?.headers)
@@ -181,9 +232,11 @@ describe('Core Scenario Flows', () => {
     })
     expect(bootstrap.status).toBe(401)
     expect(bootstrap.headers.get('www-authenticate')).toContain('AgentPW')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('profile="/github"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain(`profile="/${TEST_ORG_ID}/github"`)
     expect(bootstrap.headers.get('www-authenticate')).toContain('target_host="api.github.com"')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2F%252Fgithub"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain(
+      `authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2F%252F${TEST_ORG_ID}%252Fgithub"`,
+    )
 
     const privateTarget = await req('/proxy/127.0.0.1/admin', {
       headers: withAgentPwToken(ORG_TOKEN),

@@ -10,10 +10,16 @@ export interface CoreEnv {
   DATABASE_URL?: string
 }
 
+export interface TokenRight {
+  action: string
+  root: string
+}
+
 export interface TokenFacts {
-  rights: string[]
+  rights: TokenRight[]
   userId: string | null
   orgId: string | null
+  homePath: string | null
   scopes: string[]
 }
 
@@ -31,6 +37,9 @@ export interface CoreHonoEnv {
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
 
 export interface TokenConstraint {
+  actions?: string | string[]
+  hosts?: string | string[]
+  roots?: string | string[]
   services?: string | string[]
   methods?: HttpMethod | HttpMethod[]
   paths?: string | string[]

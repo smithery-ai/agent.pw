@@ -4,7 +4,7 @@ import { output, outputList } from '../output'
 
 interface CredProfile {
   path: string
-  host: string[]
+  host: string[] | string | null
   displayName?: string | null
   description?: string | null
   auth?: Record<string, unknown> | null
@@ -118,7 +118,11 @@ export async function listProfiles() {
 
   console.log(`${'SLUG'.padEnd(24)}${'HOSTS'.padEnd(40)}DESCRIPTION`)
   for (const profile of profiles) {
-    const hosts = profile.host.join(', ')
+    const hosts = Array.isArray(profile.host)
+      ? profile.host.join(', ')
+      : typeof profile.host === 'string'
+        ? profile.host
+        : ''
     const desc = profile.description ? profile.description.slice(0, 40) : ''
     console.log(`${profile.path.padEnd(24)}${hosts.padEnd(40)}${desc}`)
   }

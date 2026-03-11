@@ -5,6 +5,7 @@ import type { CoreHonoEnv } from '../core/types'
 import { requireToken } from '../core/middleware'
 import {
   getCredProfile,
+  getCredProfilesBySlugWithPublicFallback,
   getCredential,
   listCredentialsAccessible,
   upsertCredential,
@@ -16,11 +17,10 @@ import {
   credentialName,
   credentialParentPath,
   joinCredentialPath,
-  pathFromTokenFacts,
-  isAncestorOrEqual,
   validateCredentialName,
   validatePath,
 } from '../paths'
+import { coveringRootsForPath, hasRightForPath, rootsForAction, rootsForActions } from '../rights'
 import {
   buildListPageSchema,
   InvalidPaginationCursorError,
@@ -31,7 +31,7 @@ import {
 export const CredentialSchema = z.object({
   name: z.string().meta({ description: 'Credential name', example: 'linear' }),
   host: z.string().meta({ description: 'Target hostname', example: 'api.linear.app' }),
-  path: z.string().meta({ description: 'Full credential path', example: '/orgs/ruzo/linear' }),
+  path: z.string().meta({ description: 'Full credential path', example: '/org_ruzo/linear' }),
   createdAt: z.string().meta({ description: 'ISO 8601 creation timestamp' }),
 }).meta({ id: 'Credential' })
 
@@ -46,7 +46,7 @@ export const CreateCredentialRequestSchema = z.object({
   headers: z.record(z.string(), z.string()).optional().meta({ description: 'Explicit header map to send on proxied requests' }),
   host: z.string().optional().meta({ description: 'Target hostname for this credential', example: 'api.linear.app' }),
   profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
-  path: z.string().optional().meta({ description: 'Full credential path (defaults to token path + name)', example: '/orgs/ruzo/linear' }),
+  path: z.string().optional().meta({ description: 'Full credential path (defaults to token path + name)', example: '/org_ruzo/linear' }),
 }).meta({ id: 'CreateCredentialRequest' })
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
@@ -58,6 +58,20 @@ function compareListedCredentials(
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     || a.path.localeCompare(b.path)
     || a.host.localeCompare(b.host)
+}
+
+function pickDeepestProfile<T extends { path: string }>(matches: T[]) {
+  if (matches.length === 0) {
+    return { selected: null, conflicts: [] as T[] }
+  }
+
+  const topDepth = Math.max(...matches.map(match => match.path.split('/').filter(Boolean).length))
+  const conflicts = matches.filter(match => match.path.split('/').filter(Boolean).length === topDepth)
+  if (conflicts.length > 1) {
+    return { selected: null, conflicts }
+  }
+
+  return { selected: matches[0], conflicts: [] as T[] }
 }
 
 credentialRoutes.get('/', requireToken,
@@ -73,9 +87,12 @@ credentialRoutes.get('/', requireToken,
   zValidator('query', PaginationQuerySchema),
   async c => {
     const db = c.get('db')
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
+    const facts = c.get('tokenFacts')
+    const roots = facts
+      ? rootsForActions(facts.rights, ['credential.use', 'credential.manage'])
+      : []
     const query = c.req.valid('query')
-    const creds = await listCredentialsAccessible(db, tokenPath)
+    const creds = await listCredentialsAccessible(db, roots)
     const listedCreds = creds
       .map(cr => ({
         name: credentialName(cr.path),
@@ -119,6 +136,12 @@ credentialRoutes.put('/:name', requireToken,
   }),
   zValidator('json', CreateCredentialRequestSchema),
   async c => {
+    const facts = c.get('tokenFacts')
+    /* v8 ignore start -- requireToken guarantees tokenFacts is present on this route */
+    if (!facts) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    /* v8 ignore stop */
     const name = c.req.param('name')
     if (!validateCredentialName(name)) {
       return c.json({ error: 'Invalid credential name' }, 400)
@@ -129,8 +152,23 @@ credentialRoutes.put('/:name', requireToken,
       return c.json({ error: 'Either token or headers is required' }, 400)
     }
 
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
-    const credPath = body.path ?? joinCredentialPath(tokenPath, name)
+    const db = c.get('db')
+    const profileSlug = body.profile ?? name
+    const bootstrapRoots = rootsForAction(facts.rights, 'credential.bootstrap')
+
+    let credPath = body.path
+    if (!credPath) {
+      if (bootstrapRoots.length === 0) {
+        return c.json({ error: 'Forbidden: requires "credential.bootstrap" right' }, 403)
+      }
+      if (bootstrapRoots.length > 1) {
+        return c.json({
+          error: 'Credential path is required when multiple bootstrap roots are granted',
+          roots: bootstrapRoots,
+        }, 409)
+      }
+      credPath = joinCredentialPath(bootstrapRoots[0], name)
+    }
 
     if (!validatePath(credPath) || credPath === '/') {
       return c.json({ error: 'Invalid path' }, 400)
@@ -139,20 +177,47 @@ credentialRoutes.put('/:name', requireToken,
       return c.json({ error: 'Credential path must end with the route name' }, 400)
     }
 
-    // Creation/update: token can only create at its own path or deeper
-    if (!isAncestorOrEqual(tokenPath, credentialParentPath(credPath))) {
-      return c.json({ error: 'Cannot create credentials above your path' }, 403)
-    }
+    let profile = null
+    if (!body.host) {
+      const profileRoots = coveringRootsForPath(
+        rootsForActions(facts.rights, ['credential.bootstrap', 'credential.manage']),
+        credPath,
+      )
+      if (profileRoots.length > 1) {
+        return c.json({
+          error: 'Credential path matches multiple roots; choose a more specific path or root',
+          roots: profileRoots,
+        }, 409)
+      }
 
-    const db = c.get('db')
-    const profileSlug = `/${body.profile ?? name}`
-    const profile = body.host ? null : await getCredProfile(db, profileSlug)
-    if (!body.host && !profile) {
-      return c.json({ error: `Profile '${profileSlug}' not configured` }, 404)
+      const profileRoot = profileRoots[0] ?? credentialParentPath(credPath)
+      const matches = await getCredProfilesBySlugWithPublicFallback(db, profileSlug, profileRoot)
+      const { selected, conflicts } = pickDeepestProfile(matches)
+      /* v8 ignore start -- same-slug profile conflicts cannot arise once applicable roots collapse to a single ancestor chain */
+      if (conflicts.length > 0) {
+        return c.json({
+          error: `Multiple profiles named '${profileSlug}' match for '${profileRoot}'`,
+          profilePaths: conflicts.map(candidate => candidate.path),
+        }, 409)
+      }
+      /* v8 ignore stop */
+      profile = selected
+      if (!profile) {
+        return c.json({ error: `Profile '${profileSlug}' not configured` }, 404)
+      }
     }
 
     const host = body.host ?? profile?.host[0]
     if (!host) return c.json({ error: 'host is required when no profile host can be resolved' }, 400)
+
+    const existing = await getCredential(db, host, credPath)
+    if (existing) {
+      if (!hasRightForPath(facts.rights, 'credential.manage', existing.path)) {
+        return c.json({ error: `Forbidden: requires "credential.manage" for '${credPath}'` }, 403)
+      }
+    } else if (!hasRightForPath(facts.rights, 'credential.bootstrap', credPath)) {
+      return c.json({ error: `Forbidden: requires "credential.bootstrap" for '${credPath}'` }, 403)
+    }
 
     const authConfig = profile?.auth ?? null
     const schemes = authConfig?.kind === 'oauth' ? [] : parseAuthSchemes(authConfig?.authSchemes ? JSON.stringify(authConfig.authSchemes) : null)
@@ -181,18 +246,35 @@ credentialRoutes.delete('/:name', requireToken,
     },
   }),
   async c => {
+    const facts = c.get('tokenFacts')
+    /* v8 ignore next -- requireToken always populates tokenFacts before this handler runs */
+    if (!facts) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
     const db = c.get('db')
     const name = c.req.param('name')
     if (!validateCredentialName(name)) {
       return c.json({ error: 'Invalid credential name' }, 400)
     }
 
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
-    const requestedPath = c.req.query('path') ?? joinCredentialPath(tokenPath, name)
-    if (!validatePath(requestedPath) || requestedPath === '/') {
+    const manageRoots = rootsForAction(facts.rights, 'credential.manage')
+    let resolvedPath = c.req.query('path')
+    if (!resolvedPath) {
+      if (manageRoots.length === 0) {
+        return c.json({ error: 'Forbidden: requires "credential.manage" right' }, 403)
+      }
+      if (manageRoots.length > 1) {
+        return c.json({
+          error: 'Credential path is required when multiple management roots are granted',
+          roots: manageRoots,
+        }, 409)
+      }
+      resolvedPath = joinCredentialPath(manageRoots[0], name)
+    }
+    if (!validatePath(resolvedPath) || resolvedPath === '/') {
       return c.json({ error: 'Invalid path' }, 400)
     }
-    if (credentialName(requestedPath) !== name) {
+    if (credentialName(resolvedPath) !== name) {
       return c.json({ error: 'Credential path must end with the route name' }, 400)
     }
 
@@ -200,23 +282,43 @@ credentialRoutes.delete('/:name', requireToken,
     const queryProfile = c.req.query('profile')
     let host = queryHost ?? null
     if (!host && queryProfile) {
-      const profile = await getCredProfile(db, `/${queryProfile}`)
-      if (!profile) return c.json({ error: `Profile '${queryProfile}' not configured` }, 404)
-      host = profile.host[0] ?? null
+      const profileRoots = coveringRootsForPath(
+        rootsForActions(facts.rights, ['credential.bootstrap', 'credential.manage']),
+        resolvedPath,
+      )
+      if (profileRoots.length > 1) {
+        return c.json({
+          error: 'Credential path matches multiple roots; choose a more specific path or root',
+          roots: profileRoots,
+        }, 409)
+      }
+
+      const profileRoot = profileRoots[0] ?? credentialParentPath(resolvedPath)
+      const matches = await getCredProfilesBySlugWithPublicFallback(db, queryProfile, profileRoot)
+      const { selected, conflicts } = pickDeepestProfile(matches)
+      /* v8 ignore start -- same-slug profile conflicts cannot arise once applicable roots collapse to a single ancestor chain */
+      if (conflicts.length > 0) {
+        return c.json({
+          error: `Multiple profiles named '${queryProfile}' match for '${profileRoot}'`,
+          profilePaths: conflicts.map(candidate => candidate.path),
+        }, 409)
+      }
+      /* v8 ignore stop */
+      if (!selected) return c.json({ error: `Profile '${queryProfile}' not configured` }, 404)
+      host = selected.host[0] ?? null
     }
     if (!host) {
       return c.json({ error: 'host or profile is required' }, 400)
     }
 
-    const existing = await getCredential(db, host, requestedPath)
+    const existing = await getCredential(db, host, resolvedPath)
     if (!existing) return c.json({ error: 'Credential not found' }, 404)
 
-    // Admin check: token must be at or above the credential's path
-    if (!isAncestorOrEqual(tokenPath, credentialParentPath(existing.path))) {
-      return c.json({ error: `Token cannot delete credential '${name}'` }, 403)
+    if (!hasRightForPath(facts.rights, 'credential.manage', existing.path)) {
+      return c.json({ error: `Forbidden: requires "credential.manage" for '${existing.path}'` }, 403)
     }
 
-    const deleted = await deleteCredential(db, host, requestedPath)
+    const deleted = await deleteCredential(db, host, resolvedPath)
     if (!deleted) return c.json({ error: 'Credential not found' }, 404)
     return c.json({ ok: true as const })
   },

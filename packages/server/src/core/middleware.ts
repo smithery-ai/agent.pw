@@ -33,8 +33,9 @@ export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
   }
 
   // Run Biscuit authorizer to enforce attenuation checks (TTL, service restrictions).
-  // Uses "_management" as resource so service-attenuated tokens are rejected here.
-  const authResult = authorizeRequest(token, publicKeyHex, '_management', c.req.method, c.req.path)
+  const authResult = authorizeRequest(token, publicKeyHex, '_management', c.req.method, c.req.path, {
+    action: '_management',
+  })
   if (!authResult.authorized) {
     return c.json({ error: 'Forbidden', details: authResult.error }, 403)
   }
@@ -49,7 +50,7 @@ export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
 export function requireRight(right: string) {
   return async (c: Context<CoreHonoEnv>, next: Next) => {
     const facts = c.get('tokenFacts')
-    if (!facts || !facts.rights.includes(right)) {
+    if (!facts || !facts.rights.some(tokenRight => tokenRight.action === right)) {
       return c.json({ error: `Forbidden: requires "${right}" right` }, 403)
     }
     return next()
@@ -58,23 +59,16 @@ export function requireRight(right: string) {
 
 /**
  * Resolves userId from the token's identity and sets it on context.
- * - Admin tokens (right("admin")): can act as any user via Act-As header
- * - Regular tokens: userId from user() fact, rejects Act-As override
+ * Uses the token's user_id() fact when present, otherwise falls back to org identity.
  * Must be used after `requireToken`.
  */
 export async function resolveUserId(c: Context<CoreHonoEnv>, next: Next) {
   const facts = c.get('tokenFacts')
   if (!facts) return c.json({ error: 'Forbidden' }, 403)
 
-  const actAs = c.req.header('Act-As')
   const resolvedIdentity = facts.userId ?? facts.orgId
 
-  if (facts.rights.includes('admin')) {
-    c.set('userId', actAs ?? resolvedIdentity ?? 'local')
-  } else if (resolvedIdentity) {
-    if (actAs && actAs !== resolvedIdentity) {
-      return c.json({ error: 'Forbidden' }, 403)
-    }
+  if (resolvedIdentity) {
     c.set('userId', resolvedIdentity)
   } else {
     return c.json({ error: 'No identity in token' }, 403)

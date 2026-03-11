@@ -2,25 +2,23 @@
  * Path-based security model utilities.
  *
  * Every credential and profile lives at a canonical path in a tree that
- * encodes organizational hierarchy (e.g. /orgs/ruzo/ws/engineering).
+ * encodes organizational hierarchy (e.g. /org_ruzo/ws/engineering).
  *
- * Two directions of access:
- * - Usage flows upward: credentials at ancestor paths are inherited
- * - Admin flows downward: tokens manage objects at their path or deeper
+ * Tokens grant explicit rights over descendant subtrees.
  */
 
 /** Check if `ancestor` is a path ancestor of (or equal to) `descendant`. */
 export function isAncestorOrEqual(ancestor: string, descendant: string) {
   if (ancestor === descendant) return true
   if (ancestor === '/') return true
-  // Ensure boundary match: /orgs/ab must NOT match /orgs/abc
+  // Ensure boundary match: /ab must NOT match /abc
   const prefix = ancestor.endsWith('/') ? ancestor : ancestor + '/'
   return descendant.startsWith(prefix)
 }
 
-/** Derive the canonical path from token facts (orgId → /orgs/{orgId}). */
+/** Derive the canonical authorization path from token facts (orgId → /{orgId}). */
 export function pathFromTokenFacts(facts: { orgId?: string | null }) {
-  if (facts.orgId) return `/orgs/${facts.orgId}`
+  if (facts.orgId) return `/${facts.orgId}`
   return '/'
 }
 
@@ -37,6 +35,11 @@ export function credentialName(path: string) {
   return path.split('/').pop()!
 }
 
+/** Build the canonical root-level default profile path from a profile slug. */
+export function publicProfilePath(slug: string) {
+  return joinCredentialPath('/', slug)
+}
+
 /** Extract the containing node path for a full credential path. */
 export function credentialParentPath(path: string) {
   const i = path.lastIndexOf('/')
@@ -46,6 +49,14 @@ export function credentialParentPath(path: string) {
 /** Join a node path and credential name into a full credential path. */
 export function joinCredentialPath(nodePath: string, name: string) {
   return nodePath === '/' ? `/${name}` : `${nodePath}/${name}`
+}
+
+/** Resolve an absolute-or-relative path reference against a base path. */
+export function resolvePathReference(reference: string, basePath: string | null | undefined) {
+  if (reference.startsWith('/')) return reference
+  if (!basePath) return null
+  const relative = reference.replace(/^\/+/, '')
+  return basePath === '/' ? `/${relative}` : `${basePath}/${relative}`
 }
 
 /** Validate a credential name used as the final path segment. */
@@ -60,8 +71,7 @@ export function pathDepth(path: string) {
 }
 
 /**
- * From a list of candidates with paths, find the deepest ancestor of
- * `tokenPath` (longest prefix match). Returns null if none match.
+ * From a list of candidates with paths, find the deepest ancestor match.
  */
 export function deepestAncestor<T extends { path: string }>(
   candidates: T[],

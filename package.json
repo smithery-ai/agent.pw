@@ -18,6 +18,7 @@
     "./utils": "./packages/server/src/lib/utils.ts",
     "./scopes": "./packages/server/src/scopes.ts",
     "./paths": "./packages/server/src/paths.ts",
+    "./rights": "./packages/server/src/rights.ts",
     "./dns": "./packages/server/src/lib/dns.ts",
     "./biscuit": "./packages/server/src/biscuit.ts",
     "./proxy": "./packages/server/src/proxy.ts",

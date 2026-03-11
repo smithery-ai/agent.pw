@@ -228,6 +228,38 @@
         ],
         "additionalProperties": false
       },
+      "CredProfileListPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CredProfile"
+            }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether more items remain after this page"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor to request the next page"
+          }
+        },
+        "required": [
+          "data",
+          "hasMore",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
       "CreateCredProfileRequest": {
         "type": "object",
         "properties": {
@@ -333,7 +365,7 @@
           "path": {
             "type": "string",
             "description": "Full credential path",
-            "example": "/orgs/ruzo/linear"
+            "example": "/org_ruzo/linear"
           },
           "createdAt": {
             "type": "string",
@@ -345,6 +377,50 @@
           "host",
           "path",
           "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "CredentialError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "CredentialListPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether more items remain after this page"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor to request the next page"
+          }
+        },
+        "required": [
+          "data",
+          "hasMore",
+          "nextCursor"
         ],
         "additionalProperties": false
       },
@@ -377,10 +453,104 @@
           },
           "path": {
             "description": "Full credential path (defaults to token path + name)",
-            "example": "/orgs/ruzo/linear",
+            "example": "/org_ruzo/linear",
             "type": "string"
           }
         },
+        "additionalProperties": false
+      },
+      "Service": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Unique service identifier",
+            "example": "linear"
+          },
+          "allowedHosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Hostnames the proxy may forward to",
+            "example": [
+              "api.linear.app"
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable display name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Service description"
+          },
+          "docsUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Link to API documentation"
+          }
+        },
+        "required": [
+          "slug",
+          "allowedHosts",
+          "displayName",
+          "description",
+          "docsUrl"
+        ],
+        "additionalProperties": false,
+        "id": "Service"
+      },
+      "ServiceListPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Service"
+            }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether more items remain after this page"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor to request the next page"
+          }
+        },
+        "required": [
+          "data",
+          "hasMore",
+          "nextCursor"
+        ],
         "additionalProperties": false
       },
       "RevokeTokenRequest": {
@@ -501,27 +671,52 @@
           "credentials"
         ],
         "summary": "List credentials",
-        "description": "List all credentials accessible to this token (owned + inherited).",
+        "description": "List credentials accessible to this token with cursor-based pagination.",
         "responses": {
           "200": {
-            "description": "List of credentials",
+            "description": "Paginated list of credentials",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Credential"
-                  },
-                  "$defs": {
-                    "Credential": {
-                      "$ref": "#/components/schemas/Credential"
-                    }
-                  }
+                  "$ref": "#/components/schemas/CredentialListPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialError"
                 }
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "example": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum number of items to return (1-100)"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "example": "eyJzbHVnIjoiL2dpdGh1YiJ9",
+              "type": "string"
+            },
+            "description": "Opaque cursor returned by a previous list response"
+          }
+        ]
       }
     },
     "/credentials/{name}": {
@@ -566,16 +761,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "id": "CredentialError"
+                  "$ref": "#/components/schemas/CredentialError"
                 }
               }
             }
@@ -685,27 +871,52 @@
           "cred_profiles"
         ],
         "summary": "List credential profiles",
-        "description": "List credential profiles visible to this token (ancestors and descendants).",
+        "description": "List credential profiles visible to this token with cursor-based pagination.",
         "responses": {
           "200": {
-            "description": "List of profiles",
+            "description": "Paginated list of profiles",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CredProfile"
-                  },
-                  "$defs": {
-                    "CredProfile": {
-                      "$ref": "#/components/schemas/CredProfile"
-                    }
-                  }
+                  "$ref": "#/components/schemas/CredProfileListPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "example": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum number of items to return (1-100)"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "example": "eyJzbHVnIjoiL2dpdGh1YiJ9",
+              "type": "string"
+            },
+            "description": "Opaque cursor returned by a previous list response"
+          }
+        ]
       }
     },
     "/cred_profiles/{slug}": {

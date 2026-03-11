@@ -15,7 +15,13 @@ export const jsonb = <T>() =>
       return JSON.stringify(value)
     },
     fromDriver(value: unknown) {
-      return (typeof value === 'string' ? JSON.parse(value) : value) as T
+      if (typeof value !== 'string') return value as T
+      try {
+        return JSON.parse(value) as T
+      } catch {
+        // Older rows may contain a primitive string payload rather than JSON text.
+        return value as T
+      }
     },
   })
 

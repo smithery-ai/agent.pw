@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import type { CoreHonoEnv } from '../core/types'
 import { handleProxy } from '../proxy'
-import { getCredProfile } from '../db/queries'
+import { getCredProfilesBySlugAndHost } from '../db/queries'
 
 export const proxyRoutes = new Hono<CoreHonoEnv>()
 
@@ -39,14 +39,11 @@ proxyRoutes.all('/proxy/*',
     let prefix = `/proxy/${hostname}`
 
     if (segments.length >= 2) {
-      const explicitProfile = await getCredProfile(c.get('db'), `/${segments[0]}`)
-      if (explicitProfile) {
-        const allowedHosts = explicitProfile.host
-        if (allowedHosts.includes(segments[1])) {
-          slug = segments[0]
-          hostname = segments[1]
-          prefix = `/proxy/${slug}/${hostname}`
-        }
+      const explicitProfiles = await getCredProfilesBySlugAndHost(c.get('db'), segments[0], segments[1])
+      if (explicitProfiles.length > 0) {
+        slug = segments[0]
+        hostname = segments[1]
+        prefix = `/proxy/${slug}/${hostname}`
       }
     }
 

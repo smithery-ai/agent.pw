@@ -130,16 +130,12 @@ describe('core middleware', () => {
 
   it('enforces rights and resolves user identity from tokens', async () => {
     const app = await buildHarness()
-    app.get('/needs-admin', requireRight('admin'), c => c.json({ ok: true }))
-    app.get('/admin', requireToken, requireRight('admin'), resolveUserId, c => c.json({ userId: c.get('userId') }))
+    app.get('/needs-admin', requireRight('profile.manage'), c => c.json({ ok: true }))
+    app.get('/admin', requireToken, requireRight('profile.manage'), resolveUserId, c => c.json({ userId: c.get('userId') }))
     app.get('/user', requireToken, resolveUserId, c => c.json({ userId: c.get('userId') }))
     app.get('/missing-facts', (c, next) => resolveUserId(c, next), c => c.json({ userId: c.get('userId') }))
     app.get('/identityless', async (c, next) => {
-      c.set('tokenFacts', { rights: [], userId: null, orgId: null })
-      return resolveUserId(c, next)
-    }, c => c.json({ userId: c.get('userId') }))
-    app.get('/admin-fallback', async (c, next) => {
-      c.set('tokenFacts', { rights: ['admin'], userId: null, orgId: null })
+      c.set('tokenFacts', { rights: [], userId: null, orgId: null, homePath: null, scopes: [] })
       return resolveUserId(c, next)
     }, c => c.json({ userId: c.get('userId') }))
 
@@ -151,33 +147,21 @@ describe('core middleware', () => {
     })
     expect(noRight.status).toBe(403)
 
-    const adminToken = mintToken(BISCUIT_PRIVATE_KEY, 'admin-user', ['admin'])
+    const adminToken = mintToken(BISCUIT_PRIVATE_KEY, 'admin-user', [
+      { action: 'profile.manage', root: '/' },
+    ])
     const admin = await app.request(makeUrl('/admin'), {
-      headers: {
-        'Proxy-Authorization': `Bearer ${adminToken}`,
-        'Act-As': 'delegated-user',
-      },
+      headers: { 'Proxy-Authorization': `Bearer ${adminToken}` },
     })
     expect(admin.status).toBe(200)
-    expect(await admin.json()).toEqual({ userId: 'delegated-user' })
+    expect(await admin.json()).toEqual({ userId: 'admin-user' })
 
     const userToken = mintToken(BISCUIT_PRIVATE_KEY, 'normal-user')
-    const sameActAs = await app.request(makeUrl('/user'), {
-      headers: {
-        'Proxy-Authorization': `Bearer ${userToken}`,
-        'Act-As': 'normal-user',
-      },
+    const user = await app.request(makeUrl('/user'), {
+      headers: { 'Proxy-Authorization': `Bearer ${userToken}` },
     })
-    expect(sameActAs.status).toBe(200)
-    expect(await sameActAs.json()).toEqual({ userId: 'normal-user' })
-
-    const differentActAs = await app.request(makeUrl('/user'), {
-      headers: {
-        'Proxy-Authorization': `Bearer ${userToken}`,
-        'Act-As': 'other-user',
-      },
-    })
-    expect(differentActAs.status).toBe(403)
+    expect(user.status).toBe(200)
+    expect(await user.json()).toEqual({ userId: 'normal-user' })
 
     const missingFacts = await app.request(makeUrl('/missing-facts'))
     expect(missingFacts.status).toBe(403)
@@ -186,9 +170,5 @@ describe('core middleware', () => {
     const identityless = await app.request(makeUrl('/identityless'))
     expect(identityless.status).toBe(403)
     expect(await identityless.json()).toEqual({ error: 'No identity in token' })
-
-    const adminFallback = await app.request(makeUrl('/admin-fallback'))
-    expect(adminFallback.status).toBe(200)
-    expect(await adminFallback.json()).toEqual({ userId: 'local' })
   })
 })

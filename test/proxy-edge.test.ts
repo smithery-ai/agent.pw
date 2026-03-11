@@ -1,9 +1,11 @@
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCoreApp } from '@agent.pw/server'
+import { mintToken } from '@agent.pw/server/biscuit'
 import { deriveEncryptionKey, decryptCredentials, encryptCredentials } from '@agent.pw/server/crypto'
 import { createLogger } from '@agent.pw/server/logger'
 import { extractBearerToken, handleProxy } from '@agent.pw/server/proxy'
+import { publicProfilePath } from '@agent.pw/server/paths'
 import {
   getCredential,
   upsertCredProfile,
@@ -13,6 +15,7 @@ import {
   BISCUIT_PRIVATE_KEY,
   createTestDb,
   mintTestToken,
+  ROOT_TOKEN,
   type TestDb,
 } from './setup'
 
@@ -88,13 +91,13 @@ describe('proxy routes and proxy handler edges', () => {
 
   it('parses explicit profile routes and rejects missing hostnames', async () => {
     const app = await createApp()
-    await upsertCredProfile(db, '/github', {
+    await upsertCredProfile(db, publicProfilePath('github'), {
       host: ['api.github.com'],
       auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
     })
     await upsertCredential(db, {
       host: 'api.github.com',
-      path: '/orgs/org_alpha/github',
+      path: '/org_alpha/github',
       auth: { kind: 'headers' },
       secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
         headers: { Authorization: 'Bearer gh-token' },
@@ -130,13 +133,13 @@ describe('proxy routes and proxy handler edges', () => {
 
   it('handles missing tokens, invalid selectors, unknown profiles, and host mismatches', async () => {
     const app = await createApp()
-    await upsertCredProfile(db, '/github', {
+    await upsertCredProfile(db, publicProfilePath('github'), {
       host: ['api.github.com'],
       auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
     })
     await upsertCredential(db, {
       host: 'api.github.com',
-      path: '/orgs/org_beta/foreign',
+      path: '/org_beta/foreign',
       auth: { kind: 'headers' },
       secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
         headers: { Authorization: 'Bearer foreign-token' },
@@ -162,7 +165,7 @@ describe('proxy routes and proxy handler edges', () => {
     expect(invalidSelector.status).toBe(400)
 
     const forbiddenSelector = await selectorApp.request('https://agent.pw/selector', {
-      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-credential': '/orgs/org_beta/foreign' }),
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-credential': '/org_beta/foreign' }),
     })
     expect(forbiddenSelector.status).toBe(403)
 
@@ -177,12 +180,209 @@ describe('proxy routes and proxy handler edges', () => {
     expect(wrongHost.status).toBe(403)
   })
 
+  it('returns 409 when multiple root-level profiles match the same host', async () => {
+    const app = await createApp()
+    await upsertCredProfile(db, '/github-a', {
+      host: ['api.conflict.example'],
+      auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredProfile(db, '/github-b', {
+      host: ['api.conflict.example'],
+      auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+
+    const response = await app.request('https://agent.pw/proxy/api.conflict.example/user', {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "Multiple profiles match host 'api.conflict.example' inside '/org_alpha'",
+      profilePaths: ['/github-a', '/github-b'],
+      hint: 'Send the agentpw-path header to narrow the request or use an explicit profile slug.',
+    })
+  })
+
+  it('requires an explicit active root when multiple credential roots are available', async () => {
+    const app = await createApp()
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_alpha/team'])),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Multiple credential roots are available',
+      roots: ['/org_alpha/team', '/org_alpha'],
+      hint: 'Send the agentpw-path header to choose a path explicitly.',
+    })
+  })
+
+  it('rejects explicit credential selectors that match multiple granted roots', async () => {
+    const app = await createApp()
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_alpha/team']),
+        { 'agentpw-credential': '/org_alpha/team/github' },
+      ),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Multiple roots match the requested credential path',
+      roots: ['/org_alpha/team', '/org_alpha'],
+      hint: 'Send the agentpw-path header to choose a path explicitly.',
+    })
+  })
+
+  it('validates requested roots and derives an active root from selectors when possible', async () => {
+    const app = await createApp()
+
+    const invalidRequestedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-path': '../invalid-root' }),
+    })
+    expect(invalidRequestedRoot.status).toBe(400)
+
+    const forbiddenRequestedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-path': '/org_beta' }),
+    })
+    expect(forbiddenRequestedRoot.status).toBe(403)
+
+    const derivedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_beta']),
+        { 'agentpw-credential': '/org_alpha/team/github' },
+      ),
+    })
+    expect(derivedRoot.status).toBe(404)
+
+    const selectorOutsideGrantedRoots = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_beta']),
+        { 'agentpw-credential': '/org_gamma/github' },
+      ),
+    })
+    expect(selectorOutsideGrantedRoots.status).toBe(403)
+  })
+
+  it('accepts descendant requested roots under a broader granted use root', async () => {
+    const app = await createApp()
+    await upsertCredential(db, {
+      host: 'api.github.com',
+      path: '/org_alpha/team/shared/github',
+      auth: { kind: 'headers' },
+      secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
+        headers: { Authorization: 'Bearer team-shared-token' },
+      }),
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+      const headers = new Headers(init?.headers)
+      return new Response(JSON.stringify({ authorization: headers.get('Authorization') }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha/team']),
+        { 'agentpw-path': '/org_alpha/team/shared' },
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ authorization: 'Bearer team-shared-token' })
+  })
+
+  it('resolves relative agentpw-path and agentpw-credential values from home_path', async () => {
+    const app = await createApp()
+    await upsertCredential(db, {
+      host: 'api.github.com',
+      path: '/org_alpha/shared/github',
+      auth: { kind: 'headers' },
+      secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
+        headers: { Authorization: 'Bearer shared-token' },
+      }),
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+      const headers = new Headers(init?.headers)
+      return new Response(JSON.stringify({ authorization: headers.get('Authorization') }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha']),
+        {
+          'agentpw-path': 'shared',
+          'agentpw-credential': 'github',
+        },
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ authorization: 'Bearer shared-token' })
+  })
+
+  it('rejects relative agentpw-path values when the token has no home_path', async () => {
+    const app = await createApp()
+    const tokenWithoutHomePath = mintToken(BISCUIT_PRIVATE_KEY, 'org_alpha', [
+      { action: 'credential.use', root: '/org_alpha' },
+    ], [
+      'org_id("org_alpha")',
+    ])
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(tokenWithoutHomePath, { 'agentpw-path': 'shared' }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Relative agentpw-path requires token home_path metadata',
+      hint: "Send an absolute agentpw-path that starts with '/' or mint a token with home_path(...).",
+    })
+  })
+
+  it('accepts the root path as an explicit requested root', async () => {
+    const app = await createApp()
+    await upsertCredProfile(db, publicProfilePath('root-svc'), {
+      host: ['api.root.example'],
+      auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredential(db, {
+      host: 'api.root.example',
+      path: '/root-svc',
+      auth: { kind: 'headers' },
+      secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
+        headers: { Authorization: 'Bearer root-token' },
+      }),
+    })
+
+    const fetchMock = vi.fn(async (_input, init) => {
+      const headers = new Headers(init?.headers)
+      return new Response(JSON.stringify({ authorization: headers.get('Authorization') }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await app.request('https://agent.pw/proxy/root-svc/api.root.example/user', {
+      headers: withToken(ROOT_TOKEN, { 'agentpw-path': '/' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ authorization: 'Bearer root-token' })
+  })
+
   it('refreshes OAuth credentials, forwards request bodies, and strips proxy-only headers', async () => {
     const app = await createApp()
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'old-access',
       new Date(Date.now() + 60_000).toISOString(),
     )
@@ -232,7 +432,7 @@ describe('proxy routes and proxy handler edges', () => {
     })
 
     const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const stored = await getCredential(db, 'api.refresh.com', '/orgs/org_alpha/oauth-service')
+    const stored = await getCredential(db, 'api.refresh.com', '/org_alpha/oauth-service')
     expect(stored).not.toBeNull()
     expect(await decryptCredentials(encryptionKey, stored!.secret)).toEqual(expect.objectContaining({
       headers: { Authorization: 'Bearer new-access' },
@@ -248,7 +448,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'still-valid',
       new Date(Date.now() + 15 * 60_000).toISOString(),
     )
@@ -280,7 +480,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'invalid-expiry',
       'not-a-date',
     )
@@ -312,7 +512,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'missing-expiry',
       undefined,
     )
@@ -343,7 +543,7 @@ describe('proxy routes and proxy handler edges', () => {
     const token = mintTestToken('org_alpha')
     await storeOAuthCredential(
       'api.refresh.com',
-      '/orgs/org_alpha/oauth-service',
+      '/org_alpha/oauth-service',
       'old-access',
       new Date(Date.now() + 60_000).toISOString(),
     )
@@ -448,7 +648,7 @@ describe('proxy routes and proxy handler edges', () => {
 
   it('adds bootstrap challenges without authorization URIs when CLI auth is disabled', async () => {
     const app = await createApp('')
-    await upsertCredProfile(db, '/notion', {
+    await upsertCredProfile(db, '/org_alpha/notion', {
       host: ['api.notion.so'],
       auth: { authSchemes: [{ type: 'oauth2', authorizeUrl: 'https://notion.so/oauth/authorize', tokenUrl: 'https://notion.so/oauth/token' }] },
     })
@@ -459,7 +659,7 @@ describe('proxy routes and proxy handler edges', () => {
       headers: withToken(mintTestToken('org_alpha')),
     })
     expect(response.status).toBe(401)
-    expect(response.headers.get('www-authenticate')).toBe('AgentPW target_host="api.notion.so", profile="/notion"')
+    expect(response.headers.get('www-authenticate')).toBe('AgentPW target_host="api.notion.so", profile="/org_alpha/notion"')
   })
 
   it('adds a manual authorization URI when no profile matches the upstream host', async () => {
