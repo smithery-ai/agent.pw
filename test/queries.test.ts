@@ -20,6 +20,7 @@ import {
   listCredentialsAccessiblePage,
   listCredentialsWithinRoots,
   revokeToken,
+  updateAuthFlow,
   upsertCredProfile,
   upsertCredential,
 } from '@agent.pw/server/db/queries'
@@ -262,10 +263,26 @@ describe('db queries', () => {
       method: 'api_key',
     }))
 
+    await updateAuthFlow(db, 'flow-near-future', {
+      id: 'flow-near-future',
+      profilePath: publicProfilePath('github'),
+      method: 'oauth',
+      codeVerifier: 'updated-verifier',
+      scopePath: '/org_alpha',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    })
+
     expect(await getAuthFlow(db, 'flow-1')).toEqual(expect.objectContaining({
       id: 'flow-1',
       status: 'pending',
       method: 'oauth',
+    }))
+    expect(await getAuthFlow(db, 'flow-near-future')).toEqual(expect.objectContaining({
+      id: 'flow-near-future',
+      profilePath: publicProfilePath('github'),
+      method: 'oauth',
+      codeVerifier: 'updated-verifier',
+      scopePath: '/org_alpha',
     }))
 
     await completeAuthFlow(db, 'flow-1', {

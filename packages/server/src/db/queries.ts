@@ -394,7 +394,7 @@ function asTimestampWithoutTimezone(date: Date) {
 }
 
 export interface CompleteFlowData {
-  token: string
+  token?: string
   identity: string
 }
 
