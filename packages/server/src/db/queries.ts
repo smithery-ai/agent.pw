@@ -380,8 +380,21 @@ export interface CreateFlowData {
   expiresAt: Date
 }
 
+function formatTimestampWithoutTimezone(date: Date) {
+  // auth_flows.expires_at is TIMESTAMP WITHOUT TIME ZONE in the current schema,
+  // and this stack round-trips that type through the local process timezone.
+  // Persist the local wall-clock components explicitly so reads map back to the
+  // same absolute instant regardless of driver defaults.
+  const pad = (value: number, width = 2) => value.toString().padStart(width, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
+}
+
+function asTimestampWithoutTimezone(date: Date) {
+  return sql`${formatTimestampWithoutTimezone(date)}::timestamp`
+}
+
 export interface CompleteFlowData {
-  token: string
+  token?: string
   identity: string
 }
 
@@ -392,8 +405,21 @@ export async function createAuthFlow(db: Database, data: CreateFlowData) {
     method: data.method,
     codeVerifier: data.codeVerifier,
     scopePath: data.scopePath,
-    expiresAt: data.expiresAt,
+    expiresAt: asTimestampWithoutTimezone(data.expiresAt),
   })
+}
+
+export async function updateAuthFlow(db: Database, id: string, data: CreateFlowData) {
+  await db
+    .update(authFlows)
+    .set({
+      profilePath: data.profilePath,
+      method: data.method,
+      codeVerifier: data.codeVerifier,
+      scopePath: data.scopePath,
+      expiresAt: asTimestampWithoutTimezone(data.expiresAt),
+    })
+    .where(eq(authFlows.id, id))
 }
 
 export async function getAuthFlow(db: Database, id: string) {

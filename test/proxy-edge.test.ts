@@ -672,8 +672,8 @@ describe('proxy routes and proxy handler edges', () => {
     })
 
     expect(response.status).toBe(401)
-    expect(response.headers.get('www-authenticate')).toBe(
-      'AgentPW target_host="api.unknown.example", authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2Fmanual%3Ftarget%3Dapi.unknown.example"',
+    expect(response.headers.get('www-authenticate')).toMatch(
+      /^AgentPW target_host="api\.unknown\.example", authorization_uri="https:\/\/agent\.pw\/auth\/manual\?target=api\.unknown\.example&flow_id=[0-9a-f]+"$/,
     )
   })
 })

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
 import {
   completeAuthFlow,
   createAuthFlow,
@@ -19,6 +20,7 @@ import {
   listCredentialsAccessiblePage,
   listCredentialsWithinRoots,
   revokeToken,
+  updateAuthFlow,
   upsertCredProfile,
   upsertCredential,
 } from '@agent.pw/server/db/queries'
@@ -228,10 +230,17 @@ describe('db queries', () => {
   })
 
   it('records revocations and manages auth flow lifecycle', async () => {
+    await db.execute(sql`set time zone '-08:00'`)
+
     expect(await isRevoked(db, 'rev-1')).toBe(false)
     await revokeToken(db, 'rev-1', 'user request')
     expect(await isRevoked(db, 'rev-1')).toBe(true)
 
+    await createAuthFlow(db, {
+      id: 'flow-near-future',
+      method: 'api_key',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    })
     await createAuthFlow(db, {
       id: 'flow-1',
       profilePath: publicProfilePath('github'),
@@ -248,11 +257,32 @@ describe('db queries', () => {
 
     expect(await getAuthFlow(db, 'flow-expired')).toBeNull()
     expect(await getAuthFlow(db, 'missing-flow')).toBeNull()
+    expect(await getAuthFlow(db, 'flow-near-future')).toEqual(expect.objectContaining({
+      id: 'flow-near-future',
+      status: 'pending',
+      method: 'api_key',
+    }))
+
+    await updateAuthFlow(db, 'flow-near-future', {
+      id: 'flow-near-future',
+      profilePath: publicProfilePath('github'),
+      method: 'oauth',
+      codeVerifier: 'updated-verifier',
+      scopePath: '/org_alpha',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    })
 
     expect(await getAuthFlow(db, 'flow-1')).toEqual(expect.objectContaining({
       id: 'flow-1',
       status: 'pending',
       method: 'oauth',
+    }))
+    expect(await getAuthFlow(db, 'flow-near-future')).toEqual(expect.objectContaining({
+      id: 'flow-near-future',
+      profilePath: publicProfilePath('github'),
+      method: 'oauth',
+      codeVerifier: 'updated-verifier',
+      scopePath: '/org_alpha',
     }))
 
     await completeAuthFlow(db, 'flow-1', {
