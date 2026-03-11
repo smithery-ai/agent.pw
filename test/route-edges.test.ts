@@ -310,6 +310,8 @@ describe('route edge cases', () => {
       path: '/org_alpha/linear',
       displayName: 'Org Linear',
       description: null,
+      authSchemes: [],
+      managedOauthConfigured: false,
       auth: { kind: 'headers' },
     })
 
