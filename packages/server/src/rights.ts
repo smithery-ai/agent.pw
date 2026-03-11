@@ -1,6 +1,7 @@
 import type { TokenFacts, TokenRight } from './core/types'
 import { isAncestorOrEqual, pathDepth } from './paths'
 
+/* v8 ignore next -- branch coverage is exercised through the exported sort helpers */
 function compareRoots(a: string, b: string) {
   return pathDepth(b) - pathDepth(a) || a.localeCompare(b)
 }

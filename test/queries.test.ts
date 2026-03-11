@@ -8,6 +8,7 @@ import {
   getCredProfile,
   getCredProfileByHost,
   getCredProfilesByHostWithinRoot,
+  getCredProfilesBySlugWithPublicFallback,
   getCredential,
   getCredentialsByHost,
   getCredentialsByHostWithinRoot,
@@ -97,6 +98,12 @@ describe('db queries', () => {
       '/org_alpha/team/service',
     ])
     expect(await getCredProfilesByHostWithinRoot(db, 'api.team.com', '/org_beta')).toEqual([])
+    expect((await getCredProfilesBySlugWithPublicFallback(db, 'global', '/org_beta')).map(profile => profile.path)).toEqual([
+      publicProfilePath('global'),
+    ])
+    expect((await getCredProfilesBySlugWithPublicFallback(db, 'service', '/org_alpha/team/deeper')).map(profile => profile.path)).toEqual([
+      '/org_alpha/team/service',
+    ])
 
     const countedProfiles = await listCredProfilesWithCredentialCounts(db)
     expect(countedProfiles.find(profile => profile.path === publicProfilePath('global'))?.credentialCount).toBe(2)

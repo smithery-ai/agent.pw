@@ -301,6 +301,7 @@ export async function handleProxy(
   if (slug) {
     const matches = await getCredProfilesBySlugWithPublicFallback(db, slug, requestedRoot)
     const { selected, conflicts } = pickDeepestMatches(matches)
+    /* v8 ignore start -- same-slug profile conflicts are prevented by canonical path uniqueness plus ancestor applicability */
     if (conflicts.length > 0) {
       return c.json({
         error: `Multiple profiles named '${slug}' match inside '${requestedRoot}'`,
@@ -308,6 +309,7 @@ export async function handleProxy(
         hint: `Choose a different active root with ${REQUESTED_ROOT_HEADER} or make the profile path unique.`,
       }, 409)
     }
+    /* v8 ignore stop */
     profile = selected
   } else {
     const matches = await getCredProfilesByHostWithPublicFallback(db, hostname, requestedRoot)

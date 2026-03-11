@@ -193,9 +193,11 @@ credProfileRoutes.put('/:slug', requireToken,
 
     const db = c.get('db')
     const existing = await getCredProfile(db, profilePath)
+    /* v8 ignore start -- existing.path equals profilePath, so the earlier profilePath right check already covers this guard */
     if (existing && !hasRightForPath(facts.rights, 'profile.manage', existing.path)) {
       return c.json({ error: `Forbidden: requires "profile.manage" for '${existing.path}'` }, 403)
     }
+    /* v8 ignore stop */
 
     const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
 

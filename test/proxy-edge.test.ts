@@ -178,6 +178,92 @@ describe('proxy routes and proxy handler edges', () => {
     expect(wrongHost.status).toBe(403)
   })
 
+  it('returns 409 when multiple root-level profiles match the same host', async () => {
+    const app = await createApp()
+    await upsertCredProfile(db, '/github-a', {
+      host: ['api.conflict.example'],
+      auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredProfile(db, '/github-b', {
+      host: ['api.conflict.example'],
+      auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+
+    const response = await app.request('https://agent.pw/proxy/api.conflict.example/user', {
+      headers: withToken(mintTestToken('org_alpha')),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "Multiple profiles match host 'api.conflict.example' inside '/org_alpha'",
+      profilePaths: ['/github-a', '/github-b'],
+      hint: 'Send the agentpw-root header to narrow the request or use an explicit profile slug.',
+    })
+  })
+
+  it('requires an explicit active root when multiple credential roots are available', async () => {
+    const app = await createApp()
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_alpha/team'])),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Multiple credential roots are available',
+      roots: ['/org_alpha/team', '/org_alpha'],
+      hint: 'Send the agentpw-root header to choose a root explicitly.',
+    })
+  })
+
+  it('rejects explicit credential selectors that match multiple granted roots', async () => {
+    const app = await createApp()
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_alpha/team']),
+        { 'agentpw-credential': '/org_alpha/team/github' },
+      ),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Multiple roots match the requested credential path',
+      roots: ['/org_alpha/team', '/org_alpha'],
+      hint: 'Send the agentpw-root header to choose a root explicitly.',
+    })
+  })
+
+  it('validates requested roots and derives an active root from selectors when possible', async () => {
+    const app = await createApp()
+
+    const invalidRequestedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-root': 'invalid-root' }),
+    })
+    expect(invalidRequestedRoot.status).toBe(400)
+
+    const forbiddenRequestedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-root': '/org_beta' }),
+    })
+    expect(forbiddenRequestedRoot.status).toBe(403)
+
+    const derivedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_beta']),
+        { 'agentpw-credential': '/org_alpha/team/github' },
+      ),
+    })
+    expect(derivedRoot.status).toBe(404)
+
+    const selectorOutsideGrantedRoots = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha', '/org_beta']),
+        { 'agentpw-credential': '/org_gamma/github' },
+      ),
+    })
+    expect(selectorOutsideGrantedRoots.status).toBe(403)
+  })
+
   it('refreshes OAuth credentials, forwards request bodies, and strips proxy-only headers', async () => {
     const app = await createApp()
     const token = mintTestToken('org_alpha')

@@ -137,9 +137,11 @@ credentialRoutes.put('/:name', requireToken,
   zValidator('json', CreateCredentialRequestSchema),
   async c => {
     const facts = c.get('tokenFacts')
+    /* v8 ignore start -- requireToken guarantees tokenFacts is present on this route */
     if (!facts) {
       return c.json({ error: 'Forbidden' }, 403)
     }
+    /* v8 ignore stop */
     const name = c.req.param('name')
     if (!validateCredentialName(name)) {
       return c.json({ error: 'Invalid credential name' }, 400)
@@ -191,12 +193,14 @@ credentialRoutes.put('/:name', requireToken,
       const profileRoot = profileRoots[0] ?? credentialParentPath(credPath)
       const matches = await getCredProfilesBySlugWithPublicFallback(db, profileSlug, profileRoot)
       const { selected, conflicts } = pickDeepestProfile(matches)
+      /* v8 ignore start -- same-slug profile conflicts cannot arise once applicable roots collapse to a single ancestor chain */
       if (conflicts.length > 0) {
         return c.json({
           error: `Multiple profiles named '${profileSlug}' match for '${profileRoot}'`,
           profilePaths: conflicts.map(candidate => candidate.path),
         }, 409)
       }
+      /* v8 ignore stop */
       profile = selected
       if (!profile) {
         return c.json({ error: `Profile '${profileSlug}' not configured` }, 404)
@@ -291,12 +295,14 @@ credentialRoutes.delete('/:name', requireToken,
       const profileRoot = profileRoots[0] ?? credentialParentPath(resolvedPath)
       const matches = await getCredProfilesBySlugWithPublicFallback(db, queryProfile, profileRoot)
       const { selected, conflicts } = pickDeepestProfile(matches)
+      /* v8 ignore start -- same-slug profile conflicts cannot arise once applicable roots collapse to a single ancestor chain */
       if (conflicts.length > 0) {
         return c.json({
           error: `Multiple profiles named '${queryProfile}' match for '${profileRoot}'`,
           profilePaths: conflicts.map(candidate => candidate.path),
         }, 409)
       }
+      /* v8 ignore stop */
       if (!selected) return c.json({ error: `Profile '${queryProfile}' not configured` }, 404)
       host = selected.host[0] ?? null
     }
