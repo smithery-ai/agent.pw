@@ -10,7 +10,7 @@
     "compile": "bun build --compile src/index.ts --outfile dist/agent.pw"
   },
   "dependencies": {
-    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/da09aabb08d40ece0eefa71f9d583654524f3908/dist.tar.gz",
+    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/4ed6071122a58510142695618c5ac79ba0d4c405/dist.tar.gz",
     "@smithery/biscuit": "^1.0.0",
     "commander": "^14.0.3"
   },
