@@ -65,8 +65,8 @@ resources:
       list:
         endpoint: get /credentials
         paginated: cursor_page
-      store: put /credentials/{slug}
-      delete: delete /credentials/{slug}
+      store: put /credentials/{name}
+      delete: delete /credentials/{name}
 
   tokens:
     methods:
