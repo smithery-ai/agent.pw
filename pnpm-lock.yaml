@@ -72,8 +72,8 @@ importers:
   packages/cli:
     dependencies:
       '@agent.pw/sdk':
-        specifier: https://pkg.stainless.com/s/agent.pw-typescript/1fbfbdcbcd68e433e71af0579a2bbcc15173c28f/dist.tar.gz
-        version: https://pkg.stainless.com/s/agent.pw-typescript/1fbfbdcbcd68e433e71af0579a2bbcc15173c28f/dist.tar.gz
+        specifier: https://pkg.stainless.com/s/agent.pw-typescript/749d352be000242487c36ca186726cadeeb602ac/dist.tar.gz
+        version: https://pkg.stainless.com/s/agent.pw-typescript/749d352be000242487c36ca186726cadeeb602ac/dist.tar.gz
       '@smithery/biscuit':
         specifier: ^1.0.0
         version: 1.0.0
@@ -93,8 +93,8 @@ importers:
 
 packages:
 
-  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/1fbfbdcbcd68e433e71af0579a2bbcc15173c28f/dist.tar.gz':
-    resolution: {tarball: https://pkg.stainless.com/s/agent.pw-typescript/1fbfbdcbcd68e433e71af0579a2bbcc15173c28f/dist.tar.gz}
+  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/749d352be000242487c36ca186726cadeeb602ac/dist.tar.gz':
+    resolution: {tarball: https://pkg.stainless.com/s/agent.pw-typescript/749d352be000242487c36ca186726cadeeb602ac/dist.tar.gz}
     version: 0.0.1
 
   '@ampproject/remapping@2.3.0':
@@ -1522,7 +1522,7 @@ packages:
 
 snapshots:
 
-  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/1fbfbdcbcd68e433e71af0579a2bbcc15173c28f/dist.tar.gz': {}
+  '@agent.pw/sdk@https://pkg.stainless.com/s/agent.pw-typescript/749d352be000242487c36ca186726cadeeb602ac/dist.tar.gz': {}
 
   '@ampproject/remapping@2.3.0':
     dependencies:
