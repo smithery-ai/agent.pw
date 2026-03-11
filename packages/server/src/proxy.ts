@@ -57,7 +57,7 @@ function errorMessage(e: unknown): string {
 
 export const PROXY_TOKEN_HEADER = 'Proxy-Authorization'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
-export const REQUESTED_ROOT_HEADER = 'agentpw-root'
+export const REQUESTED_ROOT_HEADER = 'agentpw-path'
 
 function buildAgentPwChallenge(params: Record<string, string | undefined>) {
   const encoded = Object.entries(params)

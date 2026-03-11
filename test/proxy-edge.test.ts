@@ -198,7 +198,7 @@ describe('proxy routes and proxy handler edges', () => {
     expect(await response.json()).toEqual({
       error: "Multiple profiles match host 'api.conflict.example' inside '/org_alpha'",
       profilePaths: ['/github-a', '/github-b'],
-      hint: 'Send the agentpw-root header to narrow the request or use an explicit profile slug.',
+      hint: 'Send the agentpw-path header to narrow the request or use an explicit profile slug.',
     })
   })
 
@@ -213,7 +213,7 @@ describe('proxy routes and proxy handler edges', () => {
     expect(await response.json()).toEqual({
       error: 'Multiple credential roots are available',
       roots: ['/org_alpha/team', '/org_alpha'],
-      hint: 'Send the agentpw-root header to choose a root explicitly.',
+      hint: 'Send the agentpw-path header to choose a root explicitly.',
     })
   })
 
@@ -231,7 +231,7 @@ describe('proxy routes and proxy handler edges', () => {
     expect(await response.json()).toEqual({
       error: 'Multiple roots match the requested credential path',
       roots: ['/org_alpha/team', '/org_alpha'],
-      hint: 'Send the agentpw-root header to choose a root explicitly.',
+      hint: 'Send the agentpw-path header to choose a root explicitly.',
     })
   })
 
@@ -239,12 +239,12 @@ describe('proxy routes and proxy handler edges', () => {
     const app = await createApp()
 
     const invalidRequestedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
-      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-root': 'invalid-root' }),
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-path': 'invalid-root' }),
     })
     expect(invalidRequestedRoot.status).toBe(400)
 
     const forbiddenRequestedRoot = await app.request('https://agent.pw/proxy/api.github.com/user', {
-      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-root': '/org_beta' }),
+      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-path': '/org_beta' }),
     })
     expect(forbiddenRequestedRoot.status).toBe(403)
 
@@ -286,7 +286,7 @@ describe('proxy routes and proxy handler edges', () => {
     const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
       headers: withToken(
         mintTestToken('org_alpha', ['credential.use'], ['/org_alpha/team']),
-        { 'agentpw-root': '/org_alpha/team/shared' },
+        { 'agentpw-path': '/org_alpha/team/shared' },
       ),
     })
 
@@ -318,7 +318,7 @@ describe('proxy routes and proxy handler edges', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const response = await app.request('https://agent.pw/proxy/root-svc/api.root.example/user', {
-      headers: withToken(ROOT_TOKEN, { 'agentpw-root': '/' }),
+      headers: withToken(ROOT_TOKEN, { 'agentpw-path': '/' }),
     })
 
     expect(response.status).toBe(200)

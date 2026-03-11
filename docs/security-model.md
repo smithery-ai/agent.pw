@@ -99,7 +99,7 @@ Examples:
 /org_acme/ws_eng/user_alice
 ```
 
-Clients may provide it explicitly, for example with the `agentpw-root` header. If a token has multiple eligible roots and the caller does not choose one, the proxy returns `409`.
+Clients may provide it explicitly, for example with the `agentpw-path` header. If a token has multiple eligible roots and the caller does not choose one, the proxy returns `409`.
 
 ## Credential Resolution
 
