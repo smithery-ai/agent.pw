@@ -1,22 +1,37 @@
 # Security Model
 
-agent.pw uses [Biscuit](https://www.biscuitsec.org/) tokens — a capability-based authorization format built on public-key cryptography. Tokens are self-contained, offline-verifiable, and support attenuation (narrowing permissions without server involvement).
+agent.pw uses [Biscuit](https://www.biscuitsec.org/) tokens for identity plus client-side attenuation, and canonical slash-delimited paths for credential and profile scoping.
 
 ## Token Format
 
-Tokens are base64-encoded Biscuit tokens with an `apw_` prefix:
+Tokens are base64-encoded Biscuit tokens wrapped with an `apw_` transport prefix:
 
 ```
 apw_En0KEwoRCAASDAoBdBIHCAQSAxiACBIkCAASIKo...
 ```
 
+Inside the Biscuit, agent.pw uses bare facts only:
+
+```datalog
+user_id("usr_123");
+org_id("org_acme");
+right("/org_acme/shared", "credential.use");
+right("/org_acme/shared", "credential.bootstrap");
+right("/org_acme", "credential.manage");
+right("/org_acme", "profile.manage");
+scope("repo");
+```
+
+The `apw:` / `apw_` fact prefixes are not part of the current model.
+
 ## Design Principles
 
-**Token = identity. Path hierarchy = access control. Attenuation = client-side narrowing.**
+**Identity lives in the token. Authorization is explicit descendant-root access. Attenuation narrows that access further.**
 
-The token carries *who you are* (identity facts like `org_id`). The path tree determines which credentials a token can use or manage. Attenuation narrows further (host, method, path, TTL). All facts are namespaced to `apw` so deployers may extend with additional facts.
-
-**Deployer-defined vocabulary.** agent.pw imposes no required facts like `user_id` or `org_id`. A single-user self-hosted install might use no custom facts at all — the root token has full access. A team gateway might define `team("backend")`. A white-label deployment might define `end_user("customer_1")`. agent.pw is identity-neutral at the core.
+- Tokens carry identity facts plus explicit `right(root, action)` grants.
+- Credentials are authorized by descendant roots, not by implicit ancestor inheritance.
+- Each proxied or bootstrap request runs against one active root.
+- Profiles are stored like credentials, but resolved as overrides: subtree-local profiles beat broader defaults.
 
 ## Architecture
 
@@ -37,47 +52,112 @@ A Biscuit token has three layers:
 
 - **Authority block**: Written by the server using the Ed25519 private key. Contains identity facts and optional rights.
 - **Attenuation blocks**: Appended by anyone holding the token. Can only add checks that *narrow* permissions — never expand them.
-- **Verification**: Anyone with the public key (available at `/.well-known/jwks.json`) can verify the signature and evaluate the Datalog.
+- **Verification**: Anyone with the public key (available at `/.well-known/jwks.json`) can verify the signature and evaluate the Biscuit checks.
 
-## Path-Based Access Control
+## Paths and Rights
 
-Every credential and profile lives at a path in a tree that encodes organizational hierarchy (e.g. `/orgs/acme/linear`). The token's position in the tree — derived from its identity facts — determines what it can access.
+Every credential and profile has one canonical leaf path. There are no folder rows in the database; hierarchy is implicit in the path segments.
 
-### Two Directions
+Examples:
 
-**Usage flows upward.** A token can use credentials stored at ancestor paths. An org-level credential at `/orgs/acme/github` is usable by any token rooted at `/orgs/acme` or deeper (`/orgs/acme/ws/engineering`). Credentials at higher paths are inherited by everyone below, like environment variables in a process tree.
+```
+/org_acme/shared/github_main
+/org_acme/ws_eng/shared/linear_main
+/org_acme/ws_eng/user_alice/notion_personal
+/linear
+```
 
-**Admin flows downward.** A token can create, update, and delete credentials at its own path or deeper. A token at `/orgs/acme` can manage `/orgs/acme/github` but cannot manage `/other-org/github`.
+The core authorization unit is an explicit root grant:
 
-### Credential Resolution
+```datalog
+right("/org_acme/shared", "credential.use");
+right("/org_acme/shared", "credential.bootstrap");
+right("/org_acme", "credential.manage");
+right("/org_acme", "profile.manage");
+right("/org_acme", "token.mint");
+```
 
-When multiple credentials match a target host:
+A right over a root authorizes actions inside that subtree:
 
-1. **Different depths** — the deepest ancestor wins (most specific).
-2. **Same depth** — the proxy returns a 409 conflict. The caller specifies which credential to use via the `agentpw-credential` header.
+- `credential.use` allows proxied use of matching credentials inside the granted root.
+- `credential.bootstrap` allows creation of a new credential inside the granted root.
+- `credential.manage` allows mutation of existing credentials inside the granted root.
+- `profile.manage` allows mutation of profiles inside the granted root.
+- `token.mint` allows minting child tokens for descendant roots.
 
-### Creation
+There is no implicit upward inheritance for credentials. A token can act only inside roots it was explicitly granted.
 
-A token can only create objects at its own path or deeper. Global objects (root path `/`) require the master token.
+## Active Root
+
+Every proxied or bootstrap request runs against one active root.
+
+Examples:
+
+```
+/org_acme/shared
+/org_acme/ws_eng/shared
+/org_acme/ws_eng/user_alice
+```
+
+Clients may provide it explicitly, for example with the `agentpw-root` header. If a token has multiple eligible roots and the caller does not choose one, the proxy returns `409`.
+
+## Credential Resolution
+
+Within an active root, credential lookup is local and descendant-based:
+
+1. Filter by host.
+2. Keep credentials whose path is inside the active root.
+3. Choose the deepest matching credential path.
+4. If multiple credentials match at the same depth, return `409` and require the caller to disambiguate.
+
+This is descendant selection, not ancestor inheritance.
+
+## Profile Resolution
+
+Profiles use the same storage model as credentials, but they resolve as defaults and overrides rather than one selected credential.
+
+Root-level profiles such as `/linear` and `/github` are the global defaults.
+
+More specific profiles override those defaults inside their subtree:
+
+```
+/linear
+/org_acme/linear
+/org_acme/ws_eng/linear
+```
+
+A profile applies to descendants of `parent(profile.path)`. That means:
+
+- `/org_acme/linear` applies inside `/org_acme/...`
+- `/org_acme/ws_eng/linear` applies inside `/org_acme/ws_eng/...`
+- `/linear` is the global fallback
+
+Resolution order:
+
+1. Match profiles by slug and host.
+2. Keep profiles whose applicable subtree contains the active root.
+3. Choose the deepest applicable profile.
+4. If none apply locally, fall back to the root-level default.
+5. Same-depth conflicts return `409`.
 
 ## Authorization Flow
 
-When a proxy request arrives, the server builds an authorizer with ambient facts from the HTTP request:
+The request pipeline has two layers:
+
+1. **Biscuit attenuation checks**
+   Attenuation blocks may narrow by service, HTTP method, URL path prefix, active root, host, or expiry.
+2. **agent.pw path authorization**
+   The server extracts `right(root, action)` facts from the authority block and enforces descendant semantics in the proxy and route handlers.
+
+Typical attenuation checks look like:
 
 ```datalog
-// Ambient facts (from the request)
-resource("api.github.com");
-operation("GET");
-path("/repos/owner/repo");
-time(2026-03-05T12:00:00Z);
-
-// Policies
-allow if right("admin");
-allow if user($u);
-deny if true;
+check if resource($r), ["api.github.com"].contains($r);
+check if operation($op), ["GET"].contains($op);
+check if path($p), $p.starts_with("/repos/");
+check if requested_root($root), ["/org_acme/shared"].contains($root);
+check if time($t), $t <= 2026-03-05T13:00:00Z;
 ```
-
-Path-based credential resolution happens after token authorization. Both the token's Biscuit checks and the path ancestry rules must pass for the request to proceed.
 
 ## Attenuation (Client-Side)
 
@@ -96,23 +176,29 @@ Attenuation is a pure cryptographic operation — it requires only the token and
 import { restrictToken, getPublicKeyHex } from './biscuit'
 
 const narrowed = restrictToken(originalToken, publicKeyHex, [
-  { services: 'api.github.com', methods: 'GET', ttl: '1h' },
+  {
+    services: 'api.github.com',
+    methods: 'GET',
+    roots: '/org_acme/shared',
+    paths: '/repos/',
+    ttl: '1h',
+  },
 ])
 ```
 
-A user with credentials for github+linear can delegate a token attenuated to github-GET-only. The recipient can't access linear or do POST requests, even though the underlying user has those credentials.
+A user with multiple roots can delegate a token narrowed to one host, one method, one active root, and one path prefix. The recipient cannot escape those checks.
 
 ### White-Labeling
 
 Product teams can white-label agent.pw for their end users by extending the path tree:
 
 ```
-/orgs/acme                                Acme (agent.pw deployer)
-/orgs/acme/customers/bigcorp              BigCorp (Acme's customer)
-/orgs/acme/customers/bigcorp/users/alice  Alice (BigCorp's end user)
+/org_acme
+/org_acme/customers/bigcorp
+/org_acme/customers/bigcorp/users/alice
 ```
 
-Credentials at `/orgs/acme` are inherited by BigCorp and Alice. BigCorp can override with more specific credentials at their path. Each level attenuates tokens for the level below. Recursive to any depth.
+Each level gets explicit roots instead of implicit inheritance. A platform can mint tokens for any combination of descendant roots it wants to expose.
 
 ### Token Stack
 
