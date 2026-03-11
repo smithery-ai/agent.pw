@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.1.0...agent.pw-v0.2.0) (2026-03-11)
+## 0.1.0 (2026-03-11)
 
 
 ### Features
