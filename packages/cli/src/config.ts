@@ -13,20 +13,8 @@ const CONFIG_DIR = join(homedir(), '.agent.pw')
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
 const PID_FILE = join(CONFIG_DIR, 'agent.pw.pid')
 
-export function getConfigDir() {
-  return CONFIG_DIR
-}
-
-export function getDataDir() {
-  return join(CONFIG_DIR, 'data')
-}
-
 export function getPidFile() {
   return PID_FILE
-}
-
-export function configExists() {
-  return existsSync(CONFIG_FILE)
 }
 
 export function readConfig(): AgentPwConfig | null {
@@ -36,11 +24,6 @@ export function readConfig(): AgentPwConfig | null {
   } catch {
     return null
   }
-}
-
-export function writeConfig(config: AgentPwConfig) {
-  mkdirSync(CONFIG_DIR, { recursive: true })
-  writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
 }
 
 // ─── Managed Session ──────────────────────────────────────────────────────

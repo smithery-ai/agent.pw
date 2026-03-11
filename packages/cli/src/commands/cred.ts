@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline'
 import { collectAllPages, getClient, request, requestJson, pageToPaginatedResponse, type PaginatedResponse } from '../http'
-import { output, outputList, outputListPage } from '../output'
+import { outputList, outputListPage } from '../output'
 
 interface ListedCredential {
   name: string

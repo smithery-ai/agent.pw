@@ -4,7 +4,6 @@ import { z } from 'zod'
 import type { CoreHonoEnv } from '../core/types'
 import { requireToken } from '../core/middleware'
 import {
-  getCredProfile,
   getCredProfilesBySlugWithPublicFallback,
   getCredential,
   listCredentialsAccessiblePage,

@@ -1,6 +1,18 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.5/schema.json",
   "files": {
-    "includes": ["**", "!coverage", "!**/dist", "!.context", "!.claude", "!node_modules", "!.workers-biscuit-pr"]
+    "includes": [
+      "**",
+      "!coverage",
+      "!**/dist",
+      "!.context",
+      "!**/.context",
+      "!.claude",
+      "!**/.claude",
+      "!node_modules",
+      "!**/node_modules",
+      "!.workers-biscuit-pr",
+      "!**/.git"
+    ]
   }
 }

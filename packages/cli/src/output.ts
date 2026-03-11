@@ -1,5 +1,5 @@
 /** Returns true if stdout is a terminal (not piped). */
-export function isTTY() {
+function isTTY() {
   return process.stdout.isTTY ?? false
 }
 
