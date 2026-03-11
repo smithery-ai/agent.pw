@@ -290,7 +290,8 @@ describe('route edge cases', () => {
       path: publicProfilePath('visible'),
       displayName: 'Visible',
       description: null,
-      hasOAuth: false,
+      authSchemes: [],
+      managedOauthConfigured: false,
       auth: { kind: 'headers' },
     })
 
@@ -307,7 +308,8 @@ describe('route edge cases', () => {
       path: publicProfilePath('no-auth'),
       displayName: null,
       description: null,
-      hasOAuth: false,
+      authSchemes: [],
+      managedOauthConfigured: false,
       auth: null,
     })
 
