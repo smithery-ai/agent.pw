@@ -5,7 +5,7 @@ import type { CoreHonoEnv } from '../core/types'
 import { AuthScheme } from '../auth-schemes'
 import { requireToken, requireRight } from '../core/middleware'
 import {
-  listServices,
+  listServicesPage,
   getService,
   upsertService,
   deleteService,
@@ -14,8 +14,9 @@ import { encryptSecret } from '../lib/credentials-crypto'
 import { RESERVED_PATHS } from '../lib/utils'
 import {
   buildListPageSchema,
+  decodePageCursorWithSchema,
+  encodePageCursor,
   InvalidPaginationCursorError,
-  paginateItems,
   PaginationQuerySchema,
 } from '../lib/pagination'
 
@@ -58,6 +59,10 @@ export const OkWithSlugSchema = OkSchema.extend({
 
 export const serviceRoutes = new Hono<CoreHonoEnv>()
 
+const ServiceCursorSchema = z.object({
+  slug: z.string(),
+})
+
 serviceRoutes.get('/', requireToken,
   describeRoute({
     tags: ['services'],
@@ -72,24 +77,30 @@ serviceRoutes.get('/', requireToken,
   async c => {
     const db = c.get('db')
     const query = c.req.valid('query')
-    const allServices = (await listServices(db))
-      .map(s => ({
+
+    try {
+      const cursor = query.cursor
+        ? decodePageCursorWithSchema(query.cursor, ServiceCursorSchema)
+        : null
+      const page = await listServicesPage(db, {
+        limit: query.limit,
+        afterSlug: cursor?.slug,
+      })
+      const data = page.items.map(s => ({
         slug: s.slug,
         allowedHosts: JSON.parse(s.allowedHosts) as string[],
         displayName: s.displayName,
         description: s.description,
         docsUrl: s.docsUrl,
       }))
-      .sort((a, b) => a.slug.localeCompare(b.slug))
 
-    try {
-      return c.json(paginateItems({
-        items: allServices,
-        limit: query.limit,
-        cursor: query.cursor,
-        compareToCursor: (item, cursor: { slug: string }) => item.slug.localeCompare(cursor.slug),
-        toCursor: item => ({ slug: item.slug }),
-      }))
+      return c.json({
+        data,
+        hasMore: page.hasMore,
+        nextCursor: page.hasMore && data.length > 0
+          ? encodePageCursor({ slug: data[data.length - 1]!.slug })
+          : null,
+      })
     } catch (error) {
       if (error instanceof InvalidPaginationCursorError) {
         return c.json({ error: error.message }, 400)

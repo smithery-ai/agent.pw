@@ -7,7 +7,7 @@ import {
   getCredProfile,
   getCredProfilesBySlugWithPublicFallback,
   getCredential,
-  listCredentialsAccessible,
+  listCredentialsAccessiblePage,
   upsertCredential,
   deleteCredential,
 } from '../db/queries'
@@ -23,8 +23,9 @@ import {
 import { coveringRootsForPath, hasRightForPath, rootsForAction, rootsForActions } from '../rights'
 import {
   buildListPageSchema,
+  decodePageCursorWithSchema,
+  encodePageCursor,
   InvalidPaginationCursorError,
-  paginateItems,
   PaginationQuerySchema,
 } from '../lib/pagination'
 
@@ -51,14 +52,11 @@ export const CreateCredentialRequestSchema = z.object({
 
 export const credentialRoutes = new Hono<CoreHonoEnv>()
 
-function compareListedCredentials(
-  a: Pick<z.infer<typeof CredentialSchema>, 'createdAt' | 'path' | 'host'>,
-  b: Pick<z.infer<typeof CredentialSchema>, 'createdAt' | 'path' | 'host'>,
-) {
-  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    || a.path.localeCompare(b.path)
-    || a.host.localeCompare(b.host)
-}
+const CredentialCursorSchema = z.object({
+  createdAt: z.string().datetime(),
+  path: z.string(),
+  host: z.string(),
+})
 
 function pickDeepestProfile<T extends { path: string }>(matches: T[]) {
   if (matches.length === 0) {
@@ -92,28 +90,40 @@ credentialRoutes.get('/', requireToken,
       ? rootsForActions(facts.rights, ['credential.use', 'credential.manage'])
       : []
     const query = c.req.valid('query')
-    const creds = await listCredentialsAccessible(db, roots)
-    const listedCreds = creds
-      .map(cr => ({
+
+    try {
+      const cursor = query.cursor
+        ? decodePageCursorWithSchema(query.cursor, CredentialCursorSchema)
+        : null
+      const page = await listCredentialsAccessiblePage(db, {
+        limit: query.limit,
+        roots,
+        after: cursor
+          ? {
+            createdAt: new Date(cursor.createdAt),
+            path: cursor.path,
+            host: cursor.host,
+          }
+          : null,
+      })
+      const data = page.items.map(cr => ({
         name: credentialName(cr.path),
         host: cr.host,
         path: cr.path,
         createdAt: new Date(cr.createdAt).toISOString(),
       }))
-      .sort(compareListedCredentials)
 
-    try {
-      return c.json(paginateItems({
-        items: listedCreds,
-        limit: query.limit,
-        cursor: query.cursor,
-        compareToCursor: compareListedCredentials,
-        toCursor: item => ({
-          createdAt: item.createdAt,
-          path: item.path,
-          host: item.host,
-        }),
-      }))
+      return c.json({
+        data,
+        hasMore: page.hasMore,
+        nextCursor: page.hasMore && data.length > 0
+          ? encodePageCursor({
+            createdAt: data[data.length - 1]!.createdAt,
+            path: data[data.length - 1]!.path,
+            host: data[data.length - 1]!.host,
+          })
+          : null,
+      })
     } catch (error) {
       if (error instanceof InvalidPaginationCursorError) {
         return c.json({ error: error.message }, 400)

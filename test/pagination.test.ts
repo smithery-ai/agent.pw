@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
   buildListPageSchema,
+  decodePageCursorWithSchema,
   decodePageCursor,
   encodePageCursor,
   InvalidPaginationCursorError,
+  paginateSlice,
   paginateItems,
 } from '@agent.pw/server/pagination'
 
@@ -18,6 +20,14 @@ describe('pagination helpers', () => {
 
   it('rejects malformed cursors', () => {
     expect(() => decodePageCursor('not-a-valid-cursor')).toThrow(InvalidPaginationCursorError)
+  })
+
+  it('rejects cursors that do not match the expected shape', () => {
+    const encoded = encodePageCursor({ slug: 123 })
+
+    expect(() => decodePageCursorWithSchema(encoded, z.object({ slug: z.string() }))).toThrow(
+      InvalidPaginationCursorError,
+    )
   })
 
   it('slices items and emits a next cursor when more remain', () => {
@@ -70,6 +80,24 @@ describe('pagination helpers', () => {
       ],
       hasMore: false,
       nextCursor: null,
+    })
+  })
+
+  it('builds a list page from a limit-plus-one slice', () => {
+    const page = paginateSlice({
+      items: [
+        { slug: '/a' },
+        { slug: '/b' },
+        { slug: '/c' },
+      ],
+      limit: 2,
+      toCursor: item => ({ slug: item.slug }),
+    })
+
+    expect(page).toEqual({
+      data: [{ slug: '/a' }, { slug: '/b' }],
+      hasMore: true,
+      nextCursor: encodePageCursor({ slug: '/b' }),
     })
   })
 

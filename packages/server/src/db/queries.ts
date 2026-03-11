@@ -1,4 +1,15 @@
-import { and, eq, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  like,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm'
 import { credProfiles, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
 import {
@@ -34,6 +45,54 @@ function normalizeHostList(value: unknown): string[] {
 
 function compareByDeepestPath<T extends { path: string }>(a: T, b: T) {
   return pathDepth(b.path) - pathDepth(a.path) || a.path.localeCompare(b.path)
+}
+
+export interface QueryPage<T> {
+  items: T[]
+  hasMore: boolean
+}
+
+function takePage<T>(rows: T[], limit: number): QueryPage<T> {
+  return {
+    items: rows.slice(0, limit),
+    hasMore: rows.length > limit,
+  }
+}
+
+function pathWithinRootCondition(
+  column: typeof credProfiles.path | typeof credentials.path,
+  root: string,
+): SQL<unknown> {
+  if (root === '/') {
+    return sql`true`
+  }
+  return or(eq(column, root), like(column, `${root}/%`))!
+}
+
+function pathWithinAnyRootCondition(
+  column: typeof credProfiles.path | typeof credentials.path,
+  roots: string[],
+): SQL<unknown> {
+  if (roots.length === 0) {
+    return sql`false`
+  }
+  return or(...roots.map(root => pathWithinRootCondition(column, root)))!
+}
+
+function afterCredentialCursorCondition(cursor: {
+  createdAt: Date
+  path: string
+  host: string
+}): SQL<unknown> {
+  return or(
+    lt(credentials.createdAt, cursor.createdAt),
+    and(eq(credentials.createdAt, cursor.createdAt), gt(credentials.path, cursor.path)),
+    and(
+      eq(credentials.createdAt, cursor.createdAt),
+      eq(credentials.path, cursor.path),
+      gt(credentials.host, cursor.host),
+    ),
+  )!
 }
 
 function isRootLevelProfile(path: string) {
@@ -144,6 +203,31 @@ export async function listCredProfiles(db: Database) {
   return rows.map(row => ({ ...row, host: normalizeHostList(row.host) }))
 }
 
+export async function listCredProfilesPage(
+  db: Database,
+  options: {
+    limit: number
+    afterPath?: string | null
+    visibleRoots: string[]
+  },
+) {
+  if (options.visibleRoots.length === 0) {
+    return takePage([], options.limit)
+  }
+
+  const rows = await db
+    .select()
+    .from(credProfiles)
+    .where(and(
+      pathWithinAnyRootCondition(credProfiles.path, options.visibleRoots),
+      options.afterPath ? gt(credProfiles.path, options.afterPath) : sql`true`,
+    ))
+    .orderBy(asc(credProfiles.path))
+    .limit(options.limit + 1)
+
+  return takePage(rows.map(row => ({ ...row, host: normalizeHostList(row.host) })), options.limit)
+}
+
 export async function listCredProfilesWithCredentialCounts(db: Database) {
   const [allProfiles, counts] = await Promise.all([
     listCredProfiles(db),
@@ -218,6 +302,23 @@ export async function getService(db: Database, path: string) {
 export async function listServices(db: Database) {
   const profiles = await listCredProfiles(db)
   return profiles.map(toLegacyServiceRecord)
+}
+
+export async function listServicesPage(
+  db: Database,
+  options: {
+    limit: number
+    afterSlug?: string | null
+  },
+) {
+  const rows = await db
+    .select()
+    .from(credProfiles)
+    .where(options.afterSlug ? gt(credProfiles.path, options.afterSlug) : sql`true`)
+    .orderBy(asc(credProfiles.path))
+    .limit(options.limit + 1)
+
+  return takePage(rows.map(toLegacyServiceRecord), options.limit)
 }
 
 export async function listServicesWithCredentialCounts(db: Database) {
@@ -300,6 +401,35 @@ export async function listCredentialsAccessible(
   roots: string[],
 ) {
   return listCredentialsWithinRoots(db, roots)
+}
+
+export async function listCredentialsAccessiblePage(
+  db: Database,
+  options: {
+    limit: number
+    roots: string[]
+    after?: {
+      createdAt: Date
+      path: string
+      host: string
+    } | null
+  },
+) {
+  if (options.roots.length === 0) {
+    return takePage([], options.limit)
+  }
+
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(and(
+      pathWithinAnyRootCondition(credentials.path, options.roots),
+      options.after ? afterCredentialCursorCondition(options.after) : sql`true`,
+    ))
+    .orderBy(desc(credentials.createdAt), asc(credentials.path), asc(credentials.host))
+    .limit(options.limit + 1)
+
+  return takePage(rows, options.limit)
 }
 
 export async function getCredentialsByHostWithinRoot(

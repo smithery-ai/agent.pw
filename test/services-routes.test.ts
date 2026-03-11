@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { deriveEncryptionKey } from '@agent.pw/server/crypto'
 import { createLogger } from '@agent.pw/server/logger'
 import { serviceRoutes } from '../packages/server/src/routes/services'
+import * as queryModule from '../packages/server/src/db/queries'
 import {
   BISCUIT_PRIVATE_KEY,
   createTestDb,
@@ -193,10 +194,7 @@ describe('service routes', () => {
 
   it('re-throws non-pagination errors from service list', async () => {
     const app = await buildApp()
-    const paginationModule = await import('../packages/server/src/lib/pagination')
-    const spy = vi.spyOn(paginationModule, 'paginateItems').mockImplementation(() => {
-      throw new Error('unexpected error')
-    })
+    const spy = vi.spyOn(queryModule, 'listServicesPage').mockRejectedValueOnce(new Error('unexpected error'))
 
     const res = await app.request('https://agent.pw/services', {
       headers: withToken(mintTestToken('org_alpha')),

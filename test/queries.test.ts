@@ -15,10 +15,13 @@ import {
   getService,
   isRevoked,
   listCredProfilesWithCredentialCounts,
+  listCredProfilesPage,
   listCredentials,
   listCredentialsAccessible,
+  listCredentialsAccessiblePage,
   listCredentialsWithinRoots,
   listServices,
+  listServicesPage,
   listServicesWithCredentialCounts,
   revokeToken,
   upsertCredProfile,
@@ -156,6 +159,71 @@ describe('db queries', () => {
 
     expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(true)
     expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(false)
+  })
+
+  it('pages profile, service, and credential listings at the query layer', async () => {
+    for (const slug of ['aaa', 'bbb', 'ccc']) {
+      await upsertCredProfile(db, `/${slug}`, {
+        host: [`api.${slug}.com`],
+      })
+    }
+
+    const firstProfilePage = await listCredProfilesPage(db, {
+      limit: 2,
+      visibleRoots: ['/'],
+    })
+    expect(firstProfilePage.items.map(profile => profile.path)).toEqual(['/aaa', '/bbb'])
+    expect(firstProfilePage.hasMore).toBe(true)
+
+    const secondProfilePage = await listCredProfilesPage(db, {
+      limit: 2,
+      visibleRoots: ['/'],
+      afterPath: firstProfilePage.items[firstProfilePage.items.length - 1]!.path,
+    })
+    expect(secondProfilePage.items.map(profile => profile.path)).toEqual(['/ccc'])
+    expect(secondProfilePage.hasMore).toBe(false)
+
+    const firstServicePage = await listServicesPage(db, {
+      limit: 2,
+    })
+    expect(firstServicePage.items.map(service => service.slug)).toEqual(['/aaa', '/bbb'])
+    expect(firstServicePage.hasMore).toBe(true)
+
+    const secondServicePage = await listServicesPage(db, {
+      limit: 2,
+      afterSlug: firstServicePage.items[firstServicePage.items.length - 1]!.slug,
+    })
+    expect(secondServicePage.items.map(service => service.slug)).toEqual(['/ccc'])
+    expect(secondServicePage.hasMore).toBe(false)
+
+    await storeBearerCredential('api.example.com', '/org_alpha/cred-a', 'token-a')
+    await storeBearerCredential('api.example.com', '/org_alpha/cred-b', 'token-b')
+    await storeBearerCredential('api.example.com', '/org_alpha/cred-c', 'token-c')
+
+    const firstCredentialPage = await listCredentialsAccessiblePage(db, {
+      limit: 2,
+      roots: ['/org_alpha'],
+    })
+    expect(firstCredentialPage.items).toHaveLength(2)
+    expect(firstCredentialPage.hasMore).toBe(true)
+
+    const lastCredential = firstCredentialPage.items[firstCredentialPage.items.length - 1]!
+    const secondCredentialPage = await listCredentialsAccessiblePage(db, {
+      limit: 2,
+      roots: ['/org_alpha'],
+      after: {
+        createdAt: lastCredential.createdAt,
+        path: lastCredential.path,
+        host: lastCredential.host,
+      },
+    })
+    expect(secondCredentialPage.items).toHaveLength(1)
+    expect(secondCredentialPage.hasMore).toBe(false)
+
+    expect([
+      ...firstCredentialPage.items.map(credential => credential.path),
+      ...secondCredentialPage.items.map(credential => credential.path),
+    ]).toEqual(expect.arrayContaining(['/org_alpha/cred-a', '/org_alpha/cred-b', '/org_alpha/cred-c']))
   })
 
   it('resolves profile applicability from the active root cascade', async () => {

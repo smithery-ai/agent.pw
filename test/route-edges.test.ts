@@ -470,12 +470,10 @@ describe('route edge cases', () => {
   })
 
   it('re-throws non-pagination errors from list endpoints', async () => {
-    const paginationModule = await import('../packages/server/src/lib/pagination')
     const token = mintTestToken('org_alpha')
 
-    const spy = vi.spyOn(paginationModule, 'paginateItems').mockImplementation(() => {
-      throw new Error('unexpected error')
-    })
+    const credSpy = vi.spyOn(queryModule, 'listCredentialsAccessiblePage').mockRejectedValueOnce(new Error('unexpected error'))
+    const profileSpy = vi.spyOn(queryModule, 'listCredProfilesPage').mockRejectedValueOnce(new Error('unexpected error'))
 
     const credRes = await app.request('https://agent.pw/credentials', {
       headers: withToken(token),
@@ -487,7 +485,8 @@ describe('route edge cases', () => {
     })
     expect(profileRes.status).toBe(500)
 
-    spy.mockRestore()
+    credSpy.mockRestore()
+    profileSpy.mockRestore()
   })
 
   it('surfaces token route failures as 400 responses', async () => {
