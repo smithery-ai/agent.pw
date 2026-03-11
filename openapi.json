@@ -153,9 +153,23 @@
             ],
             "description": "Profile description"
           },
-          "hasOAuth": {
+          "authSchemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthScheme"
+            },
+            "description": "Supported authentication schemes from the profile auth config",
+            "example": [
+              {
+                "type": "oauth2",
+                "authorizeUrl": "https://linear.app/oauth/authorize",
+                "tokenUrl": "https://api.linear.app/oauth/token"
+              }
+            ]
+          },
+          "managedOauthConfigured": {
             "type": "boolean",
-            "description": "Whether this profile can start a managed OAuth connection",
+            "description": "Whether this profile has enough managed OAuth config to start a managed connection",
             "example": true
           }
         },
@@ -165,7 +179,8 @@
           "path",
           "displayName",
           "description",
-          "hasOAuth"
+          "authSchemes",
+          "managedOauthConfigured"
         ],
         "additionalProperties": false
       },
@@ -214,9 +229,23 @@
             ],
             "description": "Profile description"
           },
-          "hasOAuth": {
+          "authSchemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthScheme"
+            },
+            "description": "Supported authentication schemes from the profile auth config",
+            "example": [
+              {
+                "type": "oauth2",
+                "authorizeUrl": "https://linear.app/oauth/authorize",
+                "tokenUrl": "https://api.linear.app/oauth/token"
+              }
+            ]
+          },
+          "managedOauthConfigured": {
             "type": "boolean",
-            "description": "Whether this profile can start a managed OAuth connection",
+            "description": "Whether this profile has enough managed OAuth config to start a managed connection",
             "example": true
           },
           "auth": {
@@ -235,7 +264,8 @@
           "path",
           "displayName",
           "description",
-          "hasOAuth",
+          "authSchemes",
+          "managedOauthConfigured",
           "auth"
         ],
         "additionalProperties": false
