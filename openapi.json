@@ -883,7 +883,7 @@
           "credentials"
         ],
         "summary": "List credentials",
-        "description": "List credentials accessible to this token with cursor-based pagination.",
+        "description": "List credentials accessible to this token with cursor-based pagination. Optionally filter by path prefix.",
         "responses": {
           "200": {
             "description": "Paginated list of credentials",
@@ -927,6 +927,15 @@
               "type": "string"
             },
             "description": "Opaque cursor returned by a previous list response"
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "example": "/org_ruzo",
+              "type": "string"
+            },
+            "description": "Filter to credentials under this path prefix"
           }
         ]
       }
