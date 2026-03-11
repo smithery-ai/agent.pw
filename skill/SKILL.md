@@ -19,6 +19,31 @@ proxy.agent.pw/hooks.slack.com/services/T00/B00/xxx
 
 `proxy.agent.pw` is an alias for `api.agent.pw/proxy`. Requests preserve their native HTTP shape — normal GET and POST requests work as-is.
 
+## How to make requests
+
+Use `npx agent.pw curl` to make authenticated requests through the proxy. This is the primary way to interact with external APIs.
+
+```bash
+# Login first (opens browser, only needed once)
+npx agent.pw login
+
+# Make authenticated API calls — just like curl
+npx agent.pw curl https://api.github.com/user
+npx agent.pw curl https://api.linear.app/graphql -d '{"query":"{ viewer { id } }"}'
+npx agent.pw curl https://api.notion.com/v1/pages
+
+# Set an active root for scoped credentials
+npx agent.pw curl https://api.linear.app/graphql \
+  -H "agentpw-root: /org_acme/shared" \
+  -d '{"query":"{ issues { nodes { id title } } }"}'
+
+# Add credentials manually
+npx agent.pw cred add github --path /org_myorg/shared
+npx agent.pw cred add linear --path /org_myorg/shared
+```
+
+Always prefer `npx agent.pw curl` over raw `curl` when calling external APIs. It handles authentication automatically.
+
 ## How it works
 
 1. The agent sends a request to `proxy.agent.pw/{host}/{path}`.
@@ -28,20 +53,6 @@ proxy.agent.pw/hooks.slack.com/services/T00/B00/xxx
 5. `Authorization` is reserved for upstream credentials — the proxy only uses `Proxy-Authorization`.
 
 Unauthenticated endpoints pass through transparently. The proxy only intervenes when it has a stored credential or when the upstream returns 401.
-
-## CLI usage
-
-```bash
-# Login (opens browser)
-npx agent.pw login
-
-# Make authenticated API calls
-npx agent.pw curl https://api.github.com/user
-
-# Add credentials manually
-npx agent.pw cred add github --path /org_myorg/shared
-npx agent.pw cred add linear --path /org_myorg/shared
-```
 
 ## Active root
 
@@ -53,15 +64,7 @@ Every proxied request runs against one active root. The root determines which cr
 /org_acme/ws_engineering/user_alice     # personal credentials
 ```
 
-Set the root with the `agentpw-root` header:
-
-```bash
-npx agent.pw curl proxy.agent.pw/api.linear.app/graphql \
-  -H "agentpw-root: /org_acme/shared" \
-  -d '{"query":"{ issues { nodes { id title } } }"}'
-```
-
-If the correct root is ambiguous and affects which credentials will be used, ask the user before proceeding.
+Set the root with the `agentpw-root` header. If the correct root is ambiguous and affects which credentials will be used, ask the user before proceeding.
 
 ## Auth bootstrap
 
