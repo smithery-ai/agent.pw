@@ -26,6 +26,10 @@ export const CredProfileSchema = z.object({
   path: z.string().meta({ description: 'Path in the hierarchy', example: '/' }),
   displayName: z.string().nullable().meta({ description: 'Human-readable display name' }),
   description: z.string().nullable().meta({ description: 'Profile description' }),
+  hasOAuth: z.boolean().meta({
+    description: 'Whether this profile can start a managed OAuth connection',
+    example: true,
+  }),
 }).meta({ id: 'CredProfile' })
 
 export const CredProfileDetailSchema = CredProfileSchema.extend({
@@ -61,6 +65,14 @@ const CredProfileCursorSchema = z.object({
   slug: z.string(),
 })
 
+function hasManagedOAuth(profile: { managedOauth: unknown }) {
+  return Boolean(
+    profile.managedOauth &&
+    typeof profile.managedOauth === 'object' &&
+    typeof (profile.managedOauth as { clientId?: unknown }).clientId === 'string',
+  )
+}
+
 credProfileRoutes.get('/', requireToken,
   describeRoute({
     tags: ['cred_profiles'],
@@ -95,6 +107,7 @@ credProfileRoutes.get('/', requireToken,
         path: p.path,
         displayName: p.displayName,
         description: p.description,
+        hasOAuth: hasManagedOAuth(p),
       }))
 
       return c.json({
@@ -148,6 +161,7 @@ credProfileRoutes.get('/:slug', requireToken,
       path: profile.path,
       displayName: profile.displayName,
       description: profile.description,
+      hasOAuth: hasManagedOAuth(profile),
       auth: profile.auth ?? null,
     })
   },

@@ -179,6 +179,39 @@ describe('Core Scenario Flows', () => {
     expect(((await creds.json()) as { data: unknown[] }).data).toHaveLength(1)
   })
 
+  it('reports managed OAuth availability in credential profile responses', async () => {
+    await registerProfile('linear', {
+      host: ['api.linear.app'],
+      displayName: 'Linear',
+      auth: {
+        authSchemes: [{
+          type: 'oauth2',
+          authorizeUrl: 'https://linear.app/oauth/authorize',
+          tokenUrl: 'https://api.linear.app/oauth/token',
+        }],
+      },
+      managedOauth: {
+        clientId: 'linear-client-id',
+      },
+    })
+
+    const listed = await mgmtReq('/cred_profiles')
+    expect(listed.status).toBe(200)
+    expect(((await listed.json()) as { data: unknown[] }).data).toContainEqual(
+      expect.objectContaining({
+        slug: `/${TEST_ORG_ID}/linear`,
+        hasOAuth: true,
+      }),
+    )
+
+    const detail = await mgmtReq(`/cred_profiles/linear?path=${encodeURIComponent(`/${TEST_ORG_ID}/linear`)}`)
+    expect(detail.status).toBe(200)
+    expect(await detail.json()).toMatchObject({
+      slug: `/${TEST_ORG_ID}/linear`,
+      hasOAuth: true,
+    })
+  })
+
   it('injects stored credentials on proxied requests and lets callers override Authorization', async () => {
     await registerProfile('github', {
       host: ['api.github.com'],
