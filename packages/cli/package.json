@@ -25,7 +25,7 @@
     "prepublishOnly": "bun run compile"
   },
   "devDependencies": {
-    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/cc9faf92bb24339b26be143cf95b4275566b7352/dist.tar.gz",
+    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/81f700c2e1cb502311f343261ee671a08d19677d/dist.tar.gz",
     "@smithery/biscuit": "^1.0.0",
     "@types/node": "^25.3.3",
     "commander": "^14.0.3",

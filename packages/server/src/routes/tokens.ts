@@ -3,7 +3,7 @@ import { describeRoute, resolver, validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
 import type { CoreHonoEnv } from '../core/types'
 import { requireToken } from '../core/middleware'
-import { getPublicKeyHex, getRevocationIds, restrictToken } from '../biscuit'
+import { extractTokenFacts, getPublicKeyHex, getRevocationIds, restrictToken } from '../biscuit'
 import { revokeToken } from '../db/queries'
 import { errorMessage } from '../lib/utils'
 
@@ -22,6 +22,9 @@ const MethodValueSchema = z.union([MethodSchema, z.array(MethodSchema)])
 
 export const RestrictTokenRequestSchema = z.object({
   constraints: z.array(z.object({
+    actions: ConstraintValueSchema.optional(),
+    hosts: ConstraintValueSchema.optional(),
+    roots: ConstraintValueSchema.optional(),
     services: ConstraintValueSchema.optional(),
     methods: MethodValueSchema.optional(),
     paths: ConstraintValueSchema.optional(),
@@ -33,6 +36,22 @@ export const RestrictTokenResponseSchema = z.object({
   ok: z.literal(true),
   token: z.string().meta({ description: 'Restricted child token' }),
 }).meta({ id: 'RestrictTokenResponse' })
+
+export const InspectTokenRequestSchema = z.object({
+  token: z.string().meta({ description: 'Token to inspect' }),
+}).meta({ id: 'InspectTokenRequest' })
+
+export const InspectTokenResponseSchema = z.object({
+  valid: z.literal(true),
+  userId: z.string().nullable(),
+  orgId: z.string().nullable(),
+  rights: z.array(z.object({
+    action: z.string(),
+    root: z.string(),
+  })),
+  homePath: z.string().nullable(),
+  scopes: z.array(z.string()),
+}).meta({ id: 'InspectTokenResponse' })
 
 export const tokenRoutes = new Hono<CoreHonoEnv>()
 
@@ -84,6 +103,41 @@ tokenRoutes.post('/revoke', requireToken,
       return c.json({ ok: true as const, revokedIds: revIds })
     } catch (e) {
       return c.json({ error: `Failed to revoke token: ${errorMessage(e)}` }, 400)
+    }
+  },
+)
+
+tokenRoutes.post('/inspect',
+  describeRoute({
+    tags: ['tokens'],
+    summary: 'Inspect token',
+    description: 'Inspect a Biscuit token and return its extracted facts.',
+    responses: {
+      200: { description: 'Token facts', content: { 'application/json': { schema: resolver(InspectTokenResponseSchema) } } },
+      400: { description: 'Token is invalid or unrecognized', content: { 'application/json': { schema: resolver(z.object({ error: z.string() }).meta({ id: 'TokenInspectError' })) } } },
+    },
+  }),
+  zValidator('json', InspectTokenRequestSchema),
+  async c => {
+    try {
+      const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
+      const body = c.req.valid('json')
+      const facts = extractTokenFacts(body.token, publicKeyHex)
+
+      if (!facts.userId && !facts.orgId) {
+        return c.json({ error: 'Invalid or unrecognized token' }, 400)
+      }
+
+      return c.json({
+        valid: true as const,
+        userId: facts.userId,
+        orgId: facts.orgId,
+        rights: facts.rights,
+        homePath: facts.homePath,
+        scopes: facts.scopes,
+      })
+    } catch {
+      return c.json({ error: 'Invalid or unrecognized token' }, 400)
     }
   },
 )

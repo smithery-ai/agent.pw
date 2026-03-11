@@ -65,11 +65,13 @@ resources:
       list:
         endpoint: get /credentials
         paginated: cursor_page
-      store: put /credentials/{slug}
-      delete: delete /credentials/{slug}
+      store: put /credentials/{name}
+      delete: delete /credentials/{name}
 
   tokens:
     methods:
+      restrict: post /tokens/restrict
+      inspect: post /tokens/inspect
       revoke: post /tokens/revoke
 
 settings:
@@ -83,7 +85,7 @@ client_settings:
       nullable: false
       auth:
         security_scheme: bearerAuth
-      description: agent.pw Biscuit token sent in the Proxy-Authorization header
+      description: agent.pw Biscuit token sent in the Authorization header
       read_env: AGENT_PW_API_KEY
 
 readme:

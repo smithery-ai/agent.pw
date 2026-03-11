@@ -35,7 +35,7 @@ afterEach(() => {
 })
 
 function withToken(token: string, headers: Record<string, string> = {}) {
-  return { 'Proxy-Authorization': `Bearer ${token}`, ...headers }
+  return { Authorization: `Bearer ${token}`, ...headers }
 }
 
 describe('route edge cases', () => {

@@ -53,6 +53,10 @@ function req(path: string, init?: RequestInit) {
 }
 
 function withToken(token: string, headers: Record<string, string> = {}) {
+  return { Authorization: `Bearer ${token}`, ...headers }
+}
+
+function withProxyToken(token: string, headers: Record<string, string> = {}) {
   return { 'Proxy-Authorization': `Bearer ${token}`, ...headers }
 }
 
@@ -216,12 +220,12 @@ describe('cross-org isolation', () => {
     mockUpstream(() => jsonResponse({ ok: true }))
 
     const implicit = await req('/proxy/api.example.com/test', {
-      headers: withToken(tokenA),
+      headers: withProxyToken(tokenA),
     })
     expect(implicit.status).toBe(200)
 
     const explicit = await req('/proxy/api.example.com/test', {
-      headers: withToken(tokenA, { 'agentpw-credential': 'cred-b' }),
+      headers: withProxyToken(tokenA, { 'agentpw-credential': 'cred-b' }),
     })
     expect(explicit.status).toBe(404)
   })
@@ -238,11 +242,11 @@ describe('credential use within descendant roots', () => {
       return jsonResponse({ auth: headers.get('Authorization') })
     })
 
-    const orgRes = await req('/proxy/api.example.com/test', { headers: withToken(token) })
+    const orgRes = await req('/proxy/api.example.com/test', { headers: withProxyToken(token) })
     expect(orgRes.status).toBe(200)
     expect(await orgRes.json()).toEqual({ auth: 'Bearer org-secret' })
 
-    const rootRes = await req('/proxy/api.global.com/test', { headers: withToken(token) })
+    const rootRes = await req('/proxy/api.global.com/test', { headers: withProxyToken(token) })
     expect(rootRes.status).toBe(200)
     expect(await rootRes.json()).toEqual({ auth: null })
   })
@@ -261,19 +265,19 @@ describe('credential use within descendant roots', () => {
     const token = mintTestToken('org_ruzo', ['credential.use'], ['/org_ruzo/ws_engineering'])
 
     const sharedRoot = await req('/proxy/api.github.com/user', {
-      headers: withToken(token, { 'agentpw-path': 'ws_engineering/shared' }),
+      headers: withProxyToken(token, { 'agentpw-path': 'ws_engineering/shared' }),
     })
     expect(sharedRoot.status).toBe(200)
     expect(await sharedRoot.json()).toEqual({ auth: 'Bearer engineering-shared-secret' })
 
     const personalRoot = await req('/proxy/api.github.com/user', {
-      headers: withToken(token, { 'agentpw-path': 'ws_engineering/user_alice' }),
+      headers: withProxyToken(token, { 'agentpw-path': 'ws_engineering/user_alice' }),
     })
     expect(personalRoot.status).toBe(200)
     expect(await personalRoot.json()).toEqual({ auth: 'Bearer engineering-personal-secret' })
 
     const wrongSelector = await req('/proxy/api.github.com/user', {
-      headers: withToken(token, {
+      headers: withProxyToken(token, {
         'agentpw-path': 'ws_engineering/shared',
         'agentpw-credential': '/org_ruzo/ws_engineering/user_alice/github_personal',
       }),
@@ -412,7 +416,7 @@ describe('profile resolution', () => {
     })
 
     const res = await req('/proxy/api.github.com/user', {
-      headers: withToken(mintTestToken(ORG_A)),
+      headers: withProxyToken(mintTestToken(ORG_A)),
     })
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ auth: 'Bearer gh-secret' })
@@ -433,11 +437,11 @@ describe('credential selection semantics', () => {
 
     const token = mintTestToken(ORG_A)
 
-    const deepest = await req('/proxy/api.github.com/test', { headers: withToken(token) })
+    const deepest = await req('/proxy/api.github.com/test', { headers: withProxyToken(token) })
     expect(deepest.status).toBe(200)
     expect(await deepest.json()).toEqual({ auth: 'Bearer org-token' })
 
-    const conflict = await req('/proxy/slack.com/api/test', { headers: withToken(token) })
+    const conflict = await req('/proxy/slack.com/api/test', { headers: withProxyToken(token) })
     expect(conflict.status).toBe(409)
     expect(await conflict.json()).toEqual(expect.objectContaining({
       credentialNames: expect.arrayContaining(['slack-1', 'slack-2']),
@@ -450,7 +454,7 @@ describe('credential selection semantics', () => {
     mockUpstream(() => jsonResponse({ ok: true }))
 
     const res = await req('/proxy/api.example.com/test', {
-      headers: withToken(mintTestToken('abc'), { 'agentpw-credential': 'partial-cred' }),
+      headers: withProxyToken(mintTestToken('abc'), { 'agentpw-credential': 'partial-cred' }),
     })
     expect(res.status).toBe(404)
   })
@@ -464,7 +468,7 @@ describe('token revocation', () => {
     mockUpstream(() => jsonResponse({ ok: true }))
 
     const first = await req('/proxy/api.example.com/test', {
-      headers: withToken(token),
+      headers: withProxyToken(token),
     })
     expect(first.status).toBe(200)
 
@@ -474,7 +478,7 @@ describe('token revocation', () => {
     }
 
     const second = await req('/proxy/api.example.com/test', {
-      headers: withToken(token),
+      headers: withProxyToken(token),
     })
     expect(second.status).toBe(403)
     expect(await second.json()).toEqual({ error: 'Token has been revoked' })
@@ -490,17 +494,17 @@ describe('token revocation', () => {
     mockUpstream(() => jsonResponse({ ok: true }))
 
     const parentOk = await req('/proxy/api.example.com/test', {
-      headers: withToken(parent),
+      headers: withProxyToken(parent),
     })
     expect(parentOk.status).toBe(200)
 
     const childAOk = await req('/proxy/api.example.com/test', {
-      headers: withToken(childA),
+      headers: withProxyToken(childA),
     })
     expect(childAOk.status).toBe(200)
 
     const childBOk = await req('/proxy/api.example.com/test', {
-      headers: withToken(childB),
+      headers: withProxyToken(childB),
     })
     expect(childBOk.status).toBe(200)
 
@@ -509,30 +513,30 @@ describe('token revocation', () => {
     await revokeTokenById(db, childARevocationId)
 
     const parentAfterChildRevoke = await req('/proxy/api.example.com/test', {
-      headers: withToken(parent),
+      headers: withProxyToken(parent),
     })
     expect(parentAfterChildRevoke.status).toBe(200)
 
     const childAAfterRevoke = await req('/proxy/api.example.com/test', {
-      headers: withToken(childA),
+      headers: withProxyToken(childA),
     })
     expect(childAAfterRevoke.status).toBe(403)
     expect(await childAAfterRevoke.json()).toEqual({ error: 'Token has been revoked' })
 
     const childBAfterSiblingRevoke = await req('/proxy/api.example.com/test', {
-      headers: withToken(childB),
+      headers: withProxyToken(childB),
     })
     expect(childBAfterSiblingRevoke.status).toBe(200)
 
     await revokeTokenById(db, getRevocationIds(parent, publicKey)[0])
 
     const parentAfterAuthorityRevoke = await req('/proxy/api.example.com/test', {
-      headers: withToken(parent),
+      headers: withProxyToken(parent),
     })
     expect(parentAfterAuthorityRevoke.status).toBe(403)
 
     const childBAfterAuthorityRevoke = await req('/proxy/api.example.com/test', {
-      headers: withToken(childB),
+      headers: withProxyToken(childB),
     })
     expect(childBAfterAuthorityRevoke.status).toBe(403)
     expect(await childBAfterAuthorityRevoke.json()).toEqual({ error: 'Token has been revoked' })

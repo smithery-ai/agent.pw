@@ -39,21 +39,25 @@ function req(path: string, init?: RequestInit) {
   return app.request(url, init)
 }
 
-function withAgentPwToken(token: string, headers: Record<string, string> = {}) {
+function withProxyToken(token: string, headers: Record<string, string> = {}) {
   return { 'Proxy-Authorization': `Bearer ${token}`, ...headers }
+}
+
+function withManagementToken(token: string, headers: Record<string, string> = {}) {
+  return { Authorization: `Bearer ${token}`, ...headers }
 }
 
 function mgmtReq(path: string, init: RequestInit = {}) {
   return req(path, {
     ...init,
-    headers: { ...withAgentPwToken(ROOT_TOKEN), ...init.headers },
+    headers: { ...withManagementToken(ROOT_TOKEN), ...init.headers },
   })
 }
 
 function credReq(path: string, init: RequestInit = {}) {
   return req(path, {
     ...init,
-    headers: { ...withAgentPwToken(ORG_TOKEN), ...init.headers },
+    headers: { ...withManagementToken(ORG_TOKEN), ...init.headers },
   })
 }
 
@@ -195,13 +199,13 @@ describe('Core Scenario Flows', () => {
     })
 
     const injected = await req('/proxy/api.github.com/user', {
-      headers: withAgentPwToken(ORG_TOKEN),
+      headers: withProxyToken(ORG_TOKEN),
     })
     expect(injected.status).toBe(200)
     expect(await injected.json()).toEqual({ authorization: 'Bearer ghp_test123' })
 
     const explicit = await req('/proxy/api.github.com/user', {
-      headers: withAgentPwToken(ORG_TOKEN, { Authorization: 'Bearer caller-specified' }),
+      headers: withProxyToken(ORG_TOKEN, { Authorization: 'Bearer caller-specified' }),
     })
     expect(explicit.status).toBe(200)
     expect(await explicit.json()).toEqual({ authorization: 'Bearer caller-specified' })
@@ -228,7 +232,7 @@ describe('Core Scenario Flows', () => {
     mockUpstream(async () => new Response('unauthorized', { status: 401 }))
 
     const bootstrap = await req('/proxy/api.github.com/user', {
-      headers: withAgentPwToken(ORG_TOKEN),
+      headers: withProxyToken(ORG_TOKEN),
     })
     expect(bootstrap.status).toBe(401)
     expect(bootstrap.headers.get('www-authenticate')).toContain('AgentPW')
@@ -239,7 +243,7 @@ describe('Core Scenario Flows', () => {
     )
 
     const privateTarget = await req('/proxy/127.0.0.1/admin', {
-      headers: withAgentPwToken(ORG_TOKEN),
+      headers: withProxyToken(ORG_TOKEN),
     })
     expect(privateTarget.status).toBe(403)
   })
@@ -265,14 +269,14 @@ describe('Core Scenario Flows', () => {
     })
 
     const proxied = await req('/proxy/api.linear.app/graphql', {
-      headers: withAgentPwToken(ORG_TOKEN),
+      headers: withProxyToken(ORG_TOKEN),
     })
     expect(proxied.status).toBe(200)
     expect(await proxied.json()).toEqual({ authorization: 'Bearer lin_api_test' })
 
     const restrictedRes = await req('/tokens/restrict', {
       method: 'POST',
-      headers: withAgentPwToken(ORG_TOKEN, { 'Content-Type': 'application/json' }),
+      headers: withManagementToken(ORG_TOKEN, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         constraints: [{ services: 'api.linear.app', methods: 'GET', paths: '/graphql' }],
       }),
@@ -281,25 +285,25 @@ describe('Core Scenario Flows', () => {
     const restricted = (await restrictedRes.json()) as { token: string }
 
     const restrictedGet = await req('/proxy/api.linear.app/graphql', {
-      headers: withAgentPwToken(restricted.token),
+      headers: withProxyToken(restricted.token),
     })
     expect(restrictedGet.status).toBe(200)
 
     const restrictedPost = await req('/proxy/api.linear.app/graphql', {
       method: 'POST',
-      headers: withAgentPwToken(restricted.token),
+      headers: withProxyToken(restricted.token),
     })
     expect(restrictedPost.status).toBe(403)
 
     const revoked = await req('/tokens/revoke', {
       method: 'POST',
-      headers: withAgentPwToken(ORG_TOKEN, { 'Content-Type': 'application/json' }),
+      headers: withManagementToken(ORG_TOKEN, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ reason: 'no longer needed' }),
     })
     expect(revoked.status).toBe(200)
 
     const revokedProxy = await req('/proxy/api.linear.app/graphql', {
-      headers: withAgentPwToken(ORG_TOKEN),
+      headers: withProxyToken(ORG_TOKEN),
     })
     expect(revokedProxy.status).toBe(403)
   })
@@ -324,7 +328,7 @@ describe('Core Scenario Flows', () => {
     })
 
     const ambiguous = await req('/proxy/slack.com/api/auth.test', {
-      headers: withAgentPwToken(ORG_TOKEN),
+      headers: withProxyToken(ORG_TOKEN),
     })
     expect(ambiguous.status).toBe(409)
     expect(await ambiguous.json()).toMatchObject({
@@ -332,7 +336,7 @@ describe('Core Scenario Flows', () => {
     })
 
     const selected = await req('/proxy/slack.com/api/auth.test', {
-      headers: withAgentPwToken(ORG_TOKEN, { 'agentpw-credential': 'personal-slack' }),
+      headers: withProxyToken(ORG_TOKEN, { 'agentpw-credential': 'personal-slack' }),
     })
     expect(selected.status).toBe(200)
     expect(await selected.json()).toEqual({

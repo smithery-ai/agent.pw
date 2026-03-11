@@ -224,7 +224,7 @@ This lets agents temporarily operate with reduced permissions (e.g. restrict to 
 
 Each block in a Biscuit has a unique revocation ID. The server stores revoked IDs in the `revocations` table. On every request, the middleware checks all block IDs against this table.
 
-`POST /tokens/revoke` revokes the caller's own token (the one in the `Proxy-Authorization` header).
+`POST /tokens/revoke` revokes the caller's own token (the one in the `Authorization` header).
 
 ## Key Management
 
