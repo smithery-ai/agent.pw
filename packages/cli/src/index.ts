@@ -7,6 +7,28 @@ const program = new Command()
   .description('Authenticated proxy for APIs')
   .version('0.1.0')
 
+function parsePositiveInt(value: string) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid limit: ${value}`)
+  }
+  return parsed
+}
+
+function addPaginationOptions(command: Command) {
+  return command
+    .option('--limit <n>', 'Maximum number of results to return', parsePositiveInt)
+    .option('--cursor <cursor>', 'Resume from a prior nextCursor value')
+    .option('--all', 'Fetch and print every page')
+}
+
+function assertValidPaginationOptions(command: Command) {
+  const opts = command.optsWithGlobals() as { all?: boolean; cursor?: string }
+  if (opts.all && opts.cursor) {
+    throw new Error('--all cannot be combined with --cursor')
+  }
+}
+
 program
   .command('login')
   .description('Log in to agent.pw')
@@ -42,18 +64,22 @@ program
 const profileCmd = program
   .command('profile')
   .description('Manage credential profiles')
-  .action(async () => {
+addPaginationOptions(profileCmd)
+profileCmd
+  .action(async (_, cmd) => {
+    assertValidPaginationOptions(cmd)
     const { listProfiles } = await import('./commands/profile')
-    return listProfiles()
+    return listProfiles(cmd.optsWithGlobals())
   })
 
-profileCmd
+addPaginationOptions(profileCmd
   .command('list')
   .description('List profiles')
-  .action(async () => {
+  .action(async (_, cmd) => {
+    assertValidPaginationOptions(cmd)
     const { listProfiles } = await import('./commands/profile')
-    return listProfiles()
-  })
+    return listProfiles(cmd.optsWithGlobals())
+  }))
 
 profileCmd
   .command('get <slug>')
@@ -115,10 +141,22 @@ const credCmd = program
   .alias('credential')
   .alias('creds')
   .description('Manage stored credentials')
-  .action(async () => {
+addPaginationOptions(credCmd)
+credCmd
+  .action(async (_, cmd) => {
+    assertValidPaginationOptions(cmd)
     const { listCreds } = await import('./commands/cred')
-    return listCreds()
+    return listCreds(cmd.optsWithGlobals())
   })
+
+addPaginationOptions(credCmd
+  .command('list')
+  .description('List credentials')
+  .action(async (_, cmd) => {
+    assertValidPaginationOptions(cmd)
+    const { listCreds } = await import('./commands/cred')
+    return listCreds(cmd.optsWithGlobals())
+  }))
 
 credCmd
   .command('add <slug-or-host>')

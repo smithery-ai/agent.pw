@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline'
-import { request, requestAllPages, requestJson } from '../http'
-import { output, outputList } from '../output'
+import { request, requestAllPages, requestJson, requestPage, type PaginatedResponse } from '../http'
+import { output, outputList, outputListPage } from '../output'
 
 interface ListedCredential {
   name: string
@@ -26,6 +26,12 @@ interface RemoveCredOptions {
   profile?: string
 }
 
+export interface ListCredsOptions {
+  limit?: number
+  cursor?: string
+  all?: boolean
+}
+
 function relativeTime(date: string) {
   const diff = Date.now() - new Date(date).getTime()
   const seconds = Math.floor(diff / 1000)
@@ -38,11 +44,18 @@ function relativeTime(date: string) {
   return `${days}d ago`
 }
 
-export async function listCreds() {
-  const creds = await requestAllPages<ListedCredential>('/credentials')
+function paginatedPath(path: string, options: { limit?: number; cursor?: string }) {
+  const url = new URL(path, 'https://agent.pw')
+  if (options.limit !== undefined) {
+    url.searchParams.set('limit', options.limit.toString())
+  }
+  if (options.cursor) {
+    url.searchParams.set('cursor', options.cursor)
+  }
+  return `${url.pathname}${url.search}`
+}
 
-  if (outputList(creds)) return
-
+function printCredTable(creds: ListedCredential[]) {
   if (creds.length === 0) {
     console.log('No credentials stored. Add one with `agent.pw cred add <profile-or-host>`.')
     return
@@ -53,6 +66,31 @@ export async function listCreds() {
     const added = cr.createdAt ? relativeTime(cr.createdAt) : ''
     console.log(`${cr.host.padEnd(28)}${cr.name.padEnd(20)}${cr.path.padEnd(32)}${added}`)
   }
+}
+
+function printNextPageHint(page: PaginatedResponse<unknown>) {
+  if (!page.hasMore || !page.nextCursor) return
+  console.log(`\nNext cursor: ${page.nextCursor}`)
+  console.log('More results available. Re-run with `--cursor <cursor>` or `--all`.')
+}
+
+export async function listCreds(options: ListCredsOptions = {}) {
+  if (options.all) {
+    const creds = await requestAllPages<ListedCredential>(paginatedPath('/credentials', { limit: options.limit }))
+
+    if (outputList(creds)) return
+    printCredTable(creds)
+    return
+  }
+
+  const page = await requestPage<ListedCredential>(paginatedPath('/credentials', {
+    limit: options.limit,
+    cursor: options.cursor,
+  }))
+
+  if (outputListPage(page)) return
+  printCredTable(page.data)
+  printNextPageHint(page)
 }
 
 async function resolveProfile(target: string): Promise<CredProfile | null> {

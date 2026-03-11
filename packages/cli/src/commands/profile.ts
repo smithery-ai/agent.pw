@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { requestAllPages, requestJson, request } from '../http'
-import { output, outputList } from '../output'
+import { requestAllPages, requestJson, request, requestPage, type PaginatedResponse } from '../http'
+import { output, outputList, outputListPage } from '../output'
 
 interface CredProfile {
   path: string
@@ -16,6 +16,12 @@ interface CreateCredProfileRequest {
   managedOauth?: Record<string, unknown>
   displayName?: string
   description?: string
+}
+
+export interface ListProfilesOptions {
+  limit?: number
+  cursor?: string
+  all?: boolean
 }
 
 export interface AddProfileOptions {
@@ -106,11 +112,18 @@ function buildAuthExtras(options: AddProfileOptions) {
   return extras
 }
 
-export async function listProfiles() {
-  const profiles = await requestAllPages<CredProfile>('/cred_profiles')
+function paginatedPath(path: string, options: { limit?: number; cursor?: string }) {
+  const url = new URL(path, 'https://agent.pw')
+  if (options.limit !== undefined) {
+    url.searchParams.set('limit', options.limit.toString())
+  }
+  if (options.cursor) {
+    url.searchParams.set('cursor', options.cursor)
+  }
+  return `${url.pathname}${url.search}`
+}
 
-  if (outputList(profiles)) return
-
+function printProfileTable(profiles: CredProfile[]) {
   if (profiles.length === 0) {
     console.log('No credential profiles configured.')
     return
@@ -126,6 +139,31 @@ export async function listProfiles() {
     const desc = profile.description ? profile.description.slice(0, 40) : ''
     console.log(`${profile.path.padEnd(24)}${hosts.padEnd(40)}${desc}`)
   }
+}
+
+function printNextPageHint(page: PaginatedResponse<unknown>) {
+  if (!page.hasMore || !page.nextCursor) return
+  console.log(`\nNext cursor: ${page.nextCursor}`)
+  console.log('More results available. Re-run with `--cursor <cursor>` or `--all`.')
+}
+
+export async function listProfiles(options: ListProfilesOptions = {}) {
+  if (options.all) {
+    const profiles = await requestAllPages<CredProfile>(paginatedPath('/cred_profiles', { limit: options.limit }))
+
+    if (outputList(profiles)) return
+    printProfileTable(profiles)
+    return
+  }
+
+  const page = await requestPage<CredProfile>(paginatedPath('/cred_profiles', {
+    limit: options.limit,
+    cursor: options.cursor,
+  }))
+
+  if (outputListPage(page)) return
+  printProfileTable(page.data)
+  printNextPageHint(page)
 }
 
 export async function getProfileCmd(slug: string) {
