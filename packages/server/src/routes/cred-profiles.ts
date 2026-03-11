@@ -19,6 +19,7 @@ import {
   InvalidPaginationCursorError,
   PaginationQuerySchema,
 } from '../lib/pagination'
+import { AuthScheme, parseAuthSchemes } from '../auth-schemes'
 
 export const CredProfileSchema = z.object({
   slug: z.string().meta({ description: 'Unique profile identifier', example: 'linear' }),
@@ -26,6 +27,14 @@ export const CredProfileSchema = z.object({
   path: z.string().meta({ description: 'Path in the hierarchy', example: '/' }),
   displayName: z.string().nullable().meta({ description: 'Human-readable display name' }),
   description: z.string().nullable().meta({ description: 'Profile description' }),
+  authSchemes: z.array(AuthScheme).meta({
+    description: 'Supported authentication schemes from the profile auth config',
+    example: [{ type: 'oauth2', authorizeUrl: 'https://linear.app/oauth/authorize', tokenUrl: 'https://api.linear.app/oauth/token' }],
+  }),
+  managedOauthConfigured: z.boolean().meta({
+    description: 'Whether this profile has enough managed OAuth config to start a managed connection',
+    example: true,
+  }),
 }).meta({ id: 'CredProfile' })
 
 export const CredProfileDetailSchema = CredProfileSchema.extend({
@@ -61,6 +70,20 @@ const CredProfileCursorSchema = z.object({
   slug: z.string(),
 })
 
+function hasManagedOAuth(profile: { managedOauth: unknown }) {
+  return Boolean(
+    profile.managedOauth &&
+    typeof profile.managedOauth === 'object' &&
+    typeof (profile.managedOauth as { clientId?: unknown }).clientId === 'string',
+  )
+}
+
+function getAuthSchemes(profile: { auth: unknown }) {
+  if (!profile.auth || typeof profile.auth !== 'object') return []
+  const authSchemes = (profile.auth as { authSchemes?: unknown }).authSchemes
+  return parseAuthSchemes(authSchemes ? JSON.stringify(authSchemes) : null)
+}
+
 credProfileRoutes.get('/', requireToken,
   describeRoute({
     tags: ['cred_profiles'],
@@ -95,6 +118,8 @@ credProfileRoutes.get('/', requireToken,
         path: p.path,
         displayName: p.displayName,
         description: p.description,
+        authSchemes: getAuthSchemes(p),
+        managedOauthConfigured: hasManagedOAuth(p),
       }))
 
       return c.json({
@@ -148,6 +173,8 @@ credProfileRoutes.get('/:slug', requireToken,
       path: profile.path,
       displayName: profile.displayName,
       description: profile.description,
+      authSchemes: getAuthSchemes(profile),
+      managedOauthConfigured: hasManagedOAuth(profile),
       auth: profile.auth ?? null,
     })
   },
