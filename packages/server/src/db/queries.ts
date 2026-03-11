@@ -19,20 +19,6 @@ import {
   pathDepth,
 } from '../paths'
 
-interface LegacyServiceRecord {
-  slug: string
-  allowedHosts: string
-  authSchemes: string | null
-  displayName: string | null
-  description: string | null
-  oauthClientId: string | null
-  encryptedOauthClientSecret: Buffer | null
-  docsUrl: string | null
-  authConfig: string | null
-  createdAt: Date
-  updatedAt: Date
-}
-
 function normalizeHostList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
@@ -101,40 +87,6 @@ function isRootLevelProfile(path: string) {
 
 function appliesToRoot(profilePath: string, root: string) {
   return isAncestorOrEqual(credentialParentPath(profilePath), root)
-}
-
-function parseJsonArray(value: unknown): unknown[] | null {
-  return Array.isArray(value) ? value : null
-}
-
-function decodeClientSecret(value: unknown): Buffer | null {
-  if (typeof value !== 'string' || value.length === 0) return null
-  return Buffer.from(value, 'base64')
-}
-
-function toLegacyServiceRecord(profile: typeof credProfiles.$inferSelect): LegacyServiceRecord {
-  const auth = profile.auth ?? null
-  const managedOauth = profile.managedOauth ?? null
-  const authSchemes = parseJsonArray(auth?.authSchemes)
-  const authConfig = auth?.authConfig
-  const host = normalizeHostList(profile.host)
-
-  return {
-    slug: profile.path,
-    allowedHosts: JSON.stringify(host),
-    authSchemes: authSchemes ? JSON.stringify(authSchemes) : null,
-    displayName: profile.displayName,
-    description: profile.description,
-    oauthClientId:
-      typeof managedOauth?.clientId === 'string' ? managedOauth.clientId : null,
-    encryptedOauthClientSecret: decodeClientSecret(
-      managedOauth?.encryptedClientSecret,
-    ),
-    docsUrl: typeof auth?.docsUrl === 'string' ? auth.docsUrl : null,
-    authConfig: authConfig ? JSON.stringify(authConfig) : null,
-    createdAt: profile.createdAt,
-    updatedAt: profile.updatedAt,
-  }
 }
 
 // ─── Cred Profiles ──────────────────────────────────────────────────────────
@@ -288,84 +240,6 @@ export async function upsertCredProfile(
 export async function deleteCredProfile(db: Database, path: string) {
   const result = await db.delete(credProfiles).where(eq(credProfiles.path, path)).returning()
   return result.length > 0
-}
-
-// ─── Legacy Services Compatibility ──────────────────────────────────────────
-
-// Keep the legacy service API compiling on merged PR builds while the product
-// migrates from /services to /cred_profiles.
-export async function getService(db: Database, path: string) {
-  const profile = await getCredProfile(db, path)
-  return profile ? toLegacyServiceRecord(profile) : null
-}
-
-export async function listServices(db: Database) {
-  const profiles = await listCredProfiles(db)
-  return profiles.map(toLegacyServiceRecord)
-}
-
-export async function listServicesPage(
-  db: Database,
-  options: {
-    limit: number
-    afterSlug?: string | null
-  },
-) {
-  const rows = await db
-    .select()
-    .from(credProfiles)
-    .where(options.afterSlug ? gt(credProfiles.path, options.afterSlug) : sql`true`)
-    .orderBy(asc(credProfiles.path))
-    .limit(options.limit + 1)
-
-  return takePage(rows.map(toLegacyServiceRecord), options.limit)
-}
-
-export async function listServicesWithCredentialCounts(db: Database) {
-  const profiles = await listCredProfilesWithCredentialCounts(db)
-  return profiles.map(profile => ({
-    ...toLegacyServiceRecord(profile),
-    credentialCount: profile.credentialCount,
-  }))
-}
-
-export async function upsertService(
-  db: Database,
-  path: string,
-  data: {
-    allowedHosts: string[]
-    authSchemes?: unknown
-    displayName?: string
-    description?: string
-    oauthClientId?: string
-    encryptedOauthClientSecret?: Buffer | null
-    docsUrl?: string
-    authConfig?: unknown
-  },
-) {
-  const auth: Record<string, unknown> = {}
-  if (data.authSchemes !== undefined) auth.authSchemes = data.authSchemes
-  if (data.authConfig !== undefined) auth.authConfig = data.authConfig
-  if (data.docsUrl !== undefined) auth.docsUrl = data.docsUrl
-
-  const managedOauth: Record<string, unknown> = {}
-  if (data.oauthClientId !== undefined) managedOauth.clientId = data.oauthClientId
-  if (data.encryptedOauthClientSecret) {
-    managedOauth.encryptedClientSecret = data.encryptedOauthClientSecret.toString('base64')
-  }
-
-  await upsertCredProfile(db, path, {
-    host: data.allowedHosts,
-    auth: Object.keys(auth).length > 0 ? auth : undefined,
-    managedOauth:
-      Object.keys(managedOauth).length > 0 ? managedOauth : undefined,
-    displayName: data.displayName,
-    description: data.description,
-  })
-}
-
-export async function deleteService(db: Database, path: string) {
-  return deleteCredProfile(db, path)
 }
 
 // ─── Credentials ─────────────────────────────────────────────────────────────

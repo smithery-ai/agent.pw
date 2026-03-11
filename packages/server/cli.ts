@@ -63,7 +63,13 @@ program
     const db = await createLocalDb(DATA_DIR)
     await migrateLocal(db)
 
-    const masterToken = mintToken(keypair.privateKey, 'local', ['manage_services'])
+    const masterToken = mintToken(keypair.privateKey, 'local', [
+      { action: 'credential.use', root: '/' },
+      { action: 'credential.bootstrap', root: '/' },
+      { action: 'credential.manage', root: '/' },
+      { action: 'profile.manage', root: '/' },
+      { action: 'token.mint', root: '/' },
+    ])
     const port = 9315
 
     writeConfig({

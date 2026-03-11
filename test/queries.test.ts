@@ -3,7 +3,6 @@ import {
   completeAuthFlow,
   createAuthFlow,
   deleteCredential,
-  deleteService,
   getAuthFlow,
   getCredProfile,
   getCredProfileByHost,
@@ -12,7 +11,6 @@ import {
   getCredential,
   getCredentialsByHost,
   getCredentialsByHostWithinRoot,
-  getService,
   isRevoked,
   listCredProfilesWithCredentialCounts,
   listCredProfilesPage,
@@ -20,13 +18,9 @@ import {
   listCredentialsAccessible,
   listCredentialsAccessiblePage,
   listCredentialsWithinRoots,
-  listServices,
-  listServicesPage,
-  listServicesWithCredentialCounts,
   revokeToken,
   upsertCredProfile,
   upsertCredential,
-  upsertService,
 } from '@agent.pw/server/db/queries'
 import {
   buildCredentialHeaders,
@@ -61,7 +55,7 @@ beforeEach(async () => {
 })
 
 describe('db queries', () => {
-  it('handles profile lookups, visibility, and legacy service compatibility', async () => {
+  it('handles profile lookups and visibility', async () => {
     await upsertCredProfile(db, publicProfilePath('global'), {
       host: ['api.global.com', 'api.shared.com'],
       displayName: 'Global',
@@ -72,23 +66,9 @@ describe('db queries', () => {
       auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
       displayName: 'Team',
     })
-    await upsertService(db, '/compat', {
-      allowedHosts: ['api.compat.com'],
-      authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-Api-Key' }],
-      displayName: 'Compat',
-      description: 'legacy profile',
-      oauthClientId: 'client-id',
-      encryptedOauthClientSecret: Buffer.from('secret'),
-      docsUrl: 'https://docs.example.com',
-      authConfig: { token_auth: 'basic' },
-    })
-    await upsertService(db, '/plain', {
-      allowedHosts: ['api.plain.com'],
-    })
 
     await storeBearerCredential('api.global.com', '/global-cred', 'global-token')
     await storeBearerCredential('api.shared.com', '/shared-cred', 'shared-token')
-    await storeBearerCredential('api.compat.com', '/compat-cred', 'compat-token')
 
     expect(await getCredProfile(db, publicProfilePath('global'))).toEqual(
       expect.objectContaining({ path: publicProfilePath('global') }),
@@ -110,25 +90,6 @@ describe('db queries', () => {
 
     const countedProfiles = await listCredProfilesWithCredentialCounts(db)
     expect(countedProfiles.find(profile => profile.path === publicProfilePath('global'))?.credentialCount).toBe(2)
-
-    const service = await getService(db, '/compat')
-    expect(service).toEqual(expect.objectContaining({
-      slug: '/compat',
-      allowedHosts: '["api.compat.com"]',
-      oauthClientId: 'client-id',
-      docsUrl: 'https://docs.example.com',
-      authConfig: '{"token_auth":"basic"}',
-    }))
-    expect(JSON.parse(service?.authSchemes ?? '[]')).toEqual([
-      { type: 'apiKey', in: 'header', name: 'X-Api-Key' },
-    ])
-
-    expect((await listServices(db)).map(service => service.slug)).toEqual(
-      expect.arrayContaining([publicProfilePath('global'), '/org_alpha/team/service', '/compat', '/plain']),
-    )
-    expect((await listServicesWithCredentialCounts(db)).find(service => service.slug === '/compat')?.credentialCount).toBe(1)
-    expect(await deleteService(db, '/compat')).toBe(true)
-    expect(await deleteService(db, '/compat')).toBe(false)
   })
 
   it('handles credential queries within explicit descendant roots', async () => {
@@ -161,7 +122,7 @@ describe('db queries', () => {
     expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(false)
   })
 
-  it('pages profile, service, and credential listings at the query layer', async () => {
+  it('pages profile and credential listings at the query layer', async () => {
     for (const slug of ['aaa', 'bbb', 'ccc']) {
       await upsertCredProfile(db, `/${slug}`, {
         host: [`api.${slug}.com`],
@@ -182,19 +143,6 @@ describe('db queries', () => {
     })
     expect(secondProfilePage.items.map(profile => profile.path)).toEqual(['/ccc'])
     expect(secondProfilePage.hasMore).toBe(false)
-
-    const firstServicePage = await listServicesPage(db, {
-      limit: 2,
-    })
-    expect(firstServicePage.items.map(service => service.slug)).toEqual(['/aaa', '/bbb'])
-    expect(firstServicePage.hasMore).toBe(true)
-
-    const secondServicePage = await listServicesPage(db, {
-      limit: 2,
-      afterSlug: firstServicePage.items[firstServicePage.items.length - 1]!.slug,
-    })
-    expect(secondServicePage.items.map(service => service.slug)).toEqual(['/ccc'])
-    expect(secondServicePage.hasMore).toBe(false)
 
     await storeBearerCredential('api.example.com', '/org_alpha/cred-a', 'token-a')
     await storeBearerCredential('api.example.com', '/org_alpha/cred-b', 'token-b')
