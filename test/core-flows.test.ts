@@ -118,11 +118,13 @@ describe('Core Scenario Flows', () => {
 
     const listed = await mgmtReq('/cred_profiles')
     expect(listed.status).toBe(200)
-    expect(await listed.json()).toContainEqual(expect.objectContaining({
+    const { data: profiles } = await listed.json() as { data: unknown[] }
+    expect(profiles).toContainEqual(expect.objectContaining({
       slug: '/legacy',
       host: ['api.legacy.example'],
     }))
-    expect(await mgmtReq('/cred_profiles').then(r => r.json())).toContainEqual(expect.objectContaining({
+    const { data: profiles2 } = await mgmtReq('/cred_profiles').then(r => r.json()) as { data: unknown[] }
+    expect(profiles2).toContainEqual(expect.objectContaining({
       slug: '/null-host',
       host: [],
     }))
