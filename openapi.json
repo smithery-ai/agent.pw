@@ -152,6 +152,11 @@
               }
             ],
             "description": "Profile description"
+          },
+          "hasOAuth": {
+            "type": "boolean",
+            "description": "Whether this profile can start a managed OAuth connection",
+            "example": true
           }
         },
         "required": [
@@ -159,7 +164,8 @@
           "host",
           "path",
           "displayName",
-          "description"
+          "description",
+          "hasOAuth"
         ],
         "additionalProperties": false
       },
@@ -208,6 +214,11 @@
             ],
             "description": "Profile description"
           },
+          "hasOAuth": {
+            "type": "boolean",
+            "description": "Whether this profile can start a managed OAuth connection",
+            "example": true
+          },
           "auth": {
             "anyOf": [
               {},
@@ -224,6 +235,7 @@
           "path",
           "displayName",
           "description",
+          "hasOAuth",
           "auth"
         ],
         "additionalProperties": false
