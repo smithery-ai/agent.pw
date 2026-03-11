@@ -28,7 +28,7 @@ import {
   validateCredentialName,
   validatePath,
 } from '@agent.pw/server/paths'
-import { getPublicKeyHex, getRevocationIds } from '@agent.pw/server/biscuit'
+import { getPublicKeyHex, getRevocationIds, restrictToken } from '@agent.pw/server/biscuit'
 
 let db: TestDb
 let app: ReturnType<typeof createCoreApp>
@@ -246,6 +246,43 @@ describe('credential use within descendant roots', () => {
     expect(rootRes.status).toBe(200)
     expect(await rootRes.json()).toEqual({ auth: null })
   })
+
+  it('allows a broader right to select a narrower active root and keeps sibling credentials out', async () => {
+    await storeCredentialAtPath('github_main', 'api.github.com', 'root-shared-secret', '/org_ruzo/shared')
+    await storeCredentialAtPath('github_eng', 'api.github.com', 'engineering-shared-secret', '/org_ruzo/ws_engineering/shared')
+    await storeCredentialAtPath('github_personal', 'api.github.com', 'engineering-personal-secret', '/org_ruzo/ws_engineering/user_alice')
+    await storeCredentialAtPath('github_design', 'api.github.com', 'design-shared-secret', '/org_ruzo/ws_design/shared')
+
+    mockUpstream((_input, init) => {
+      const headers = new Headers(init?.headers)
+      return jsonResponse({ auth: headers.get('Authorization') })
+    })
+
+    const token = mintTestToken('org_ruzo', ['credential.use'], ['/org_ruzo/ws_engineering'])
+
+    const sharedRoot = await req('/proxy/api.github.com/user', {
+      headers: withToken(token, { 'agentpw-root': '/org_ruzo/ws_engineering/shared' }),
+    })
+    expect(sharedRoot.status).toBe(200)
+    expect(await sharedRoot.json()).toEqual({ auth: 'Bearer engineering-shared-secret' })
+
+    const personalRoot = await req('/proxy/api.github.com/user', {
+      headers: withToken(token, { 'agentpw-root': '/org_ruzo/ws_engineering/user_alice' }),
+    })
+    expect(personalRoot.status).toBe(200)
+    expect(await personalRoot.json()).toEqual({ auth: 'Bearer engineering-personal-secret' })
+
+    const wrongSelector = await req('/proxy/api.github.com/user', {
+      headers: withToken(token, {
+        'agentpw-root': '/org_ruzo/ws_engineering/shared',
+        'agentpw-credential': '/org_ruzo/ws_engineering/user_alice/github_personal',
+      }),
+    })
+    expect(wrongSelector.status).toBe(403)
+    expect(await wrongSelector.json()).toEqual({
+      error: "Token cannot use credential '/org_ruzo/ws_engineering/user_alice/github_personal'",
+    })
+  })
 })
 
 describe('credential management within descendant roots', () => {
@@ -333,6 +370,25 @@ describe('creation at own path or deeper', () => {
       }),
     })
     expect(invalid.status).toBe(400)
+  })
+
+  it('does not treat profile management as credential bootstrap authority', async () => {
+    const token = mintTestToken(ORG_A, ['profile.manage'])
+
+    const response = await req('/credentials/github', {
+      method: 'PUT',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        token: 'my-secret',
+        host: 'api.github.com',
+        path: `/${ORG_A}/github`,
+      }),
+    })
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      error: `Forbidden: requires "credential.bootstrap" for '/${ORG_A}/github'`,
+    })
   })
 })
 
@@ -422,6 +478,64 @@ describe('token revocation', () => {
     })
     expect(second.status).toBe(403)
     expect(await second.json()).toEqual({ error: 'Token has been revoked' })
+  })
+
+  it('revokes a child branch without affecting siblings until the authority id is revoked', async () => {
+    const parent = mintTestToken(ORG_A)
+    const publicKey = getPublicKeyHex(BISCUIT_PRIVATE_KEY)
+    const childA = restrictToken(parent, publicKey, [{ services: 'api.example.com' }])
+    const childB = restrictToken(parent, publicKey, [{ services: 'api.example.com', methods: 'GET' }])
+
+    await storeCredentialAtPath('cred', 'api.example.com', 'secret', `/${ORG_A}`)
+    mockUpstream(() => jsonResponse({ ok: true }))
+
+    const parentOk = await req('/proxy/api.example.com/test', {
+      headers: withToken(parent),
+    })
+    expect(parentOk.status).toBe(200)
+
+    const childAOk = await req('/proxy/api.example.com/test', {
+      headers: withToken(childA),
+    })
+    expect(childAOk.status).toBe(200)
+
+    const childBOk = await req('/proxy/api.example.com/test', {
+      headers: withToken(childB),
+    })
+    expect(childBOk.status).toBe(200)
+
+    const childARevocationId = getRevocationIds(childA, publicKey)[1]
+    expect(childARevocationId).toBeTruthy()
+    await revokeTokenById(db, childARevocationId)
+
+    const parentAfterChildRevoke = await req('/proxy/api.example.com/test', {
+      headers: withToken(parent),
+    })
+    expect(parentAfterChildRevoke.status).toBe(200)
+
+    const childAAfterRevoke = await req('/proxy/api.example.com/test', {
+      headers: withToken(childA),
+    })
+    expect(childAAfterRevoke.status).toBe(403)
+    expect(await childAAfterRevoke.json()).toEqual({ error: 'Token has been revoked' })
+
+    const childBAfterSiblingRevoke = await req('/proxy/api.example.com/test', {
+      headers: withToken(childB),
+    })
+    expect(childBAfterSiblingRevoke.status).toBe(200)
+
+    await revokeTokenById(db, getRevocationIds(parent, publicKey)[0])
+
+    const parentAfterAuthorityRevoke = await req('/proxy/api.example.com/test', {
+      headers: withToken(parent),
+    })
+    expect(parentAfterAuthorityRevoke.status).toBe(403)
+
+    const childBAfterAuthorityRevoke = await req('/proxy/api.example.com/test', {
+      headers: withToken(childB),
+    })
+    expect(childBAfterAuthorityRevoke.status).toBe(403)
+    expect(await childBAfterAuthorityRevoke.json()).toEqual({ error: 'Token has been revoked' })
   })
 })
 

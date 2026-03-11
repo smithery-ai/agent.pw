@@ -258,7 +258,7 @@ export async function handleProxy(
         return c.json({ error: `Invalid requested root '${requestedRootHeader}'` }, 400)
       }
     }
-    if (!useRoots.includes(requestedRootHeader)) {
+    if (coveringRootsForPath(useRoots, requestedRootHeader).length === 0) {
       return c.json({ error: `Forbidden: token cannot use requested root '${requestedRootHeader}'` }, 403)
     }
     requestedRoot = requestedRootHeader

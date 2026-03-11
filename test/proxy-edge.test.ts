@@ -265,6 +265,35 @@ describe('proxy routes and proxy handler edges', () => {
     expect(selectorOutsideGrantedRoots.status).toBe(403)
   })
 
+  it('accepts descendant requested roots under a broader granted use root', async () => {
+    const app = await createApp()
+    await upsertCredential(db, {
+      host: 'api.github.com',
+      path: '/org_alpha/team/shared/github',
+      auth: { kind: 'headers' },
+      secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
+        headers: { Authorization: 'Bearer team-shared-token' },
+      }),
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+      const headers = new Headers(init?.headers)
+      return new Response(JSON.stringify({ authorization: headers.get('Authorization') }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+
+    const response = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(
+        mintTestToken('org_alpha', ['credential.use'], ['/org_alpha/team']),
+        { 'agentpw-root': '/org_alpha/team/shared' },
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ authorization: 'Bearer team-shared-token' })
+  })
+
   it('accepts the root path as an explicit requested root', async () => {
     const app = await createApp()
     await upsertCredProfile(db, publicProfilePath('root-svc'), {
