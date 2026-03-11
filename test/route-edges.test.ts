@@ -70,6 +70,15 @@ describe('route edge cases', () => {
     })
     expect(nameMismatch.status).toBe(400)
 
+    const ambiguousBootstrapRoot = await app.request('https://agent.pw/credentials/github', {
+      method: 'PUT',
+      headers: withToken(mintTestToken('org_alpha', ['credential.bootstrap'], ['/org_alpha', '/org_alpha/team']), {
+        'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify({ token: 'secret', host: 'api.github.com' }),
+    })
+    expect(ambiguousBootstrapRoot.status).toBe(409)
+
     const missingProfile = await app.request('https://agent.pw/credentials/github', {
       method: 'PUT',
       headers: withToken(token, { 'Content-Type': 'application/json' }),
@@ -123,14 +132,6 @@ describe('route edge cases', () => {
     })
     expect(ambiguousProfileRoot.status).toBe(409)
 
-    const ambiguousBootstrapRoot = await app.request('https://agent.pw/credentials/needs-path', {
-      method: 'PUT',
-      headers: withToken(mintTestToken('org_alpha', ['credential.bootstrap'], ['/org_alpha', '/org_alpha/team']), {
-        'Content-Type': 'application/json',
-      }),
-      body: JSON.stringify({ token: 'secret', host: 'api.github.com' }),
-    })
-    expect(ambiguousBootstrapRoot.status).toBe(409)
   })
 
   it('validates credential deletes across query combinations', async () => {

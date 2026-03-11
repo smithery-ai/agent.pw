@@ -14,6 +14,7 @@ import {
   BISCUIT_PRIVATE_KEY,
   createTestDb,
   mintTestToken,
+  ROOT_TOKEN,
   type TestDb,
 } from './setup'
 
@@ -262,6 +263,37 @@ describe('proxy routes and proxy handler edges', () => {
       ),
     })
     expect(selectorOutsideGrantedRoots.status).toBe(403)
+  })
+
+  it('accepts the root path as an explicit requested root', async () => {
+    const app = await createApp()
+    await upsertCredProfile(db, publicProfilePath('root-svc'), {
+      host: ['api.root.example'],
+      auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredential(db, {
+      host: 'api.root.example',
+      path: '/root-svc',
+      auth: { kind: 'headers' },
+      secret: await encryptCredentials(await deriveEncryptionKey(BISCUIT_PRIVATE_KEY), {
+        headers: { Authorization: 'Bearer root-token' },
+      }),
+    })
+
+    const fetchMock = vi.fn(async (_input, init) => {
+      const headers = new Headers(init?.headers)
+      return new Response(JSON.stringify({ authorization: headers.get('Authorization') }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await app.request('https://agent.pw/proxy/root-svc/api.root.example/user', {
+      headers: withToken(ROOT_TOKEN, { 'agentpw-root': '/' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ authorization: 'Bearer root-token' })
   })
 
   it('refreshes OAuth credentials, forwards request bodies, and strips proxy-only headers', async () => {

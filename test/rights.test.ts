@@ -23,7 +23,7 @@ describe('rights helpers', () => {
     ])
   })
 
-  it('sorts same-depth roots lexically after depth', () => {
+  it('sorts same-depth roots lexicographically', () => {
     expect(uniqueRoots(['/org_beta', '/org_alpha'])).toEqual([
       '/org_alpha',
       '/org_beta',

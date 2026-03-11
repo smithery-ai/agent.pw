@@ -247,6 +247,7 @@ credentialRoutes.delete('/:name', requireToken,
   }),
   async c => {
     const facts = c.get('tokenFacts')
+    /* v8 ignore next -- requireToken always populates tokenFacts before this handler runs */
     if (!facts) {
       return c.json({ error: 'Forbidden' }, 403)
     }
