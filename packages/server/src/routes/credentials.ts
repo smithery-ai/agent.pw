@@ -7,6 +7,7 @@ import {
   getCredProfilesBySlugWithPublicFallback,
   getCredential,
   listCredentialsAccessiblePage,
+  moveCredential,
   upsertCredential,
   deleteCredential,
 } from '../db/queries'
@@ -49,6 +50,12 @@ export const CreateCredentialRequestSchema = z.object({
   profile: z.string().optional().meta({ description: 'Credential profile slug to derive the target host from', example: 'linear' }),
   path: z.string().optional().meta({ description: 'Full credential path (defaults to token path + name)', example: '/org_ruzo/linear' }),
 }).meta({ id: 'CreateCredentialRequest' })
+
+export const MoveCredentialRequestSchema = z.object({
+  path: z.string().meta({ description: 'New full credential path', example: '/org_ruzo/production/linear' }),
+  host: z.string().optional().meta({ description: 'Target hostname for the credential', example: 'api.linear.app' }),
+  profile: z.string().optional().meta({ description: 'Profile slug to resolve the hostname when host is omitted', example: 'linear' }),
+}).meta({ id: 'MoveCredentialRequest' })
 
 export const DeleteCredentialQuerySchema = z.object({
   path: z.string().optional().meta({ description: 'Full credential path to delete', example: '/org_ruzo/linear' }),
@@ -260,6 +267,95 @@ credentialRoutes.put('/:name', requireToken,
       secret: encrypted,
     })
     return c.json({ ok: true as const, name, path: credPath })
+  },
+)
+
+credentialRoutes.patch('/:name', requireToken,
+  describeRoute({
+    tags: ['credentials'],
+    summary: 'Move credential',
+    description: 'Move a credential to a new path.',
+    responses: {
+      200: { description: 'Credential moved', content: { 'application/json': { schema: resolver(z.object({ ok: z.literal(true), path: z.string() }).meta({ id: 'CredentialMoved' })) } } },
+      400: { description: 'Invalid request', content: { 'application/json': { schema: resolver(CredentialErrorSchema) } } },
+      404: { description: 'Credential not found', content: { 'application/json': { schema: resolver(z.object({ error: z.string() })) } } },
+    },
+  }),
+  zValidator('json', MoveCredentialRequestSchema),
+  async c => {
+    const facts = c.get('tokenFacts')
+    /* v8 ignore next */
+    if (!facts) return c.json({ error: 'Forbidden' }, 403)
+
+    const name = c.req.param('name')
+    if (!validateCredentialName(name)) {
+      return c.json({ error: 'Invalid credential name' }, 400)
+    }
+
+    const body = c.req.valid('json')
+    const newPath = body.path
+
+    if (!validatePath(newPath) || newPath === '/') {
+      return c.json({ error: 'Invalid target path' }, 400)
+    }
+    if (credentialName(newPath) !== name) {
+      return c.json({ error: 'Target path must end with the credential name' }, 400)
+    }
+
+    const db = c.get('db')
+    const manageRoots = rootsForAction(facts.rights, 'credential.manage')
+
+    // Resolve current path from single management root
+    let oldPath: string
+    if (manageRoots.length === 0) {
+      return c.json({ error: 'Forbidden: requires "credential.manage" right' }, 403)
+    }
+    if (manageRoots.length > 1) {
+      return c.json({
+        error: 'Credential path is required when multiple management roots are granted',
+        roots: manageRoots,
+      }, 409)
+    }
+    oldPath = joinCredentialPath(manageRoots[0], name)
+
+    // Resolve host
+    const queryHost = body.host
+    const queryProfile = body.profile ?? name
+    let host = queryHost ?? null
+    if (!host) {
+      const profileRoots = coveringRootsForPath(
+        rootsForActions(facts.rights, ['credential.bootstrap', 'credential.manage']),
+        oldPath,
+      )
+      const profileRoot = profileRoots[0] ?? credentialParentPath(oldPath)
+      const matches = await getCredProfilesBySlugWithPublicFallback(db, queryProfile, profileRoot)
+      const { selected } = pickDeepestProfile(matches)
+      host = selected?.host[0] ?? null
+    }
+    if (!host) return c.json({ error: 'host or profile is required to identify the credential' }, 400)
+
+    // Verify source credential exists
+    const existing = await getCredential(db, host, oldPath)
+    if (!existing) return c.json({ error: 'Credential not found' }, 404)
+
+    // Check manage rights on both old and new paths
+    if (!hasRightForPath(facts.rights, 'credential.manage', oldPath)) {
+      return c.json({ error: `Forbidden: requires "credential.manage" for '${oldPath}'` }, 403)
+    }
+    if (!hasRightForPath(facts.rights, 'credential.manage', newPath)) {
+      return c.json({ error: `Forbidden: requires "credential.manage" for '${newPath}'` }, 403)
+    }
+
+    // Check no credential already exists at target path
+    const targetExists = await getCredential(db, host, newPath)
+    if (targetExists) {
+      return c.json({ error: 'A credential already exists at the target path' }, 409)
+    }
+
+    const moved = await moveCredential(db, host, oldPath, newPath)
+    if (!moved) return c.json({ error: 'Credential not found' }, 404)
+
+    return c.json({ ok: true as const, path: newPath })
   },
 )
 
