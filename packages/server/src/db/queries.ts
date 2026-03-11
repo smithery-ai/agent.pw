@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { credProfiles, credentials, revocations, authFlows } from './schema'
 import type { Database } from './index'
 import {
+  credentialName,
   credentialParentPath,
   isAncestorOrEqual,
   pathDepth,
@@ -29,6 +30,18 @@ function normalizeHostList(value: unknown): string[] {
     return [value]
   }
   return []
+}
+
+function compareByDeepestPath<T extends { path: string }>(a: T, b: T) {
+  return pathDepth(b.path) - pathDepth(a.path) || a.path.localeCompare(b.path)
+}
+
+function isRootLevelProfile(path: string) {
+  return credentialParentPath(path) === '/'
+}
+
+function appliesToRoot(profilePath: string, root: string) {
+  return isAncestorOrEqual(credentialParentPath(profilePath), root)
 }
 
 function parseJsonArray(value: unknown): unknown[] | null {
@@ -79,24 +92,51 @@ export async function getCredProfileByHost(db: Database, host: string) {
   return profiles.find(profile => profile.host.includes(host)) ?? null
 }
 
-/**
- * Find the best profile for a host at the given token path.
- * Walks up the tree: picks the nearest ancestor profile.
- */
-export async function getCredProfileByHostForPath(db: Database, host: string, tokenPath: string) {
+export async function getCredProfilesByHostWithinRoot(db: Database, host: string, root: string) {
   const profiles = await listCredProfiles(db)
-  const matching = profiles.filter(p => p.host.includes(host))
-  // Find the best profile: prefer deepest ancestor, then nearest visible profile
-  let best: (typeof matching)[number] | null = null
-  for (const p of matching) {
-    const profileParent = credentialParentPath(p.path)
-    const visible = isAncestorOrEqual(p.path, tokenPath)
-      || isAncestorOrEqual(tokenPath, p.path)
-      || isAncestorOrEqual(profileParent, tokenPath)
-    if (!visible) continue
-    if (!best || pathDepth(p.path) > pathDepth(best.path)) best = p
+  return profiles
+    .filter(profile => profile.host.includes(host) && appliesToRoot(profile.path, root))
+    .sort(compareByDeepestPath)
+}
+
+export async function getCredProfilesBySlugWithinRoot(db: Database, slug: string, root: string) {
+  const profiles = await listCredProfiles(db)
+  return profiles
+    .filter(profile => credentialName(profile.path) === slug && appliesToRoot(profile.path, root))
+    .sort(compareByDeepestPath)
+}
+
+export async function getCredProfilesBySlugAndHost(db: Database, slug: string, host: string) {
+  const profiles = await listCredProfiles(db)
+  return profiles
+    .filter(profile => credentialName(profile.path) === slug && profile.host.includes(host))
+    .sort(compareByDeepestPath)
+}
+
+export async function getCredProfilesByHostWithPublicFallback(
+  db: Database,
+  host: string,
+  root: string,
+) {
+  const matches = await getCredProfilesByHostWithinRoot(db, host, root)
+  const local = matches.filter(profile => !isRootLevelProfile(profile.path))
+  if (local.length > 0) {
+    return local
   }
-  return best
+  return matches.filter(profile => isRootLevelProfile(profile.path))
+}
+
+export async function getCredProfilesBySlugWithPublicFallback(
+  db: Database,
+  slug: string,
+  root: string,
+) {
+  const matches = await getCredProfilesBySlugWithinRoot(db, slug, root)
+  const local = matches.filter(profile => !isRootLevelProfile(profile.path))
+  if (local.length > 0) {
+    return local
+  }
+  return matches.filter(profile => isRootLevelProfile(profile.path))
 }
 
 export async function listCredProfiles(db: Database) {
@@ -245,50 +285,32 @@ export async function listCredentials(db: Database) {
   return db.select().from(credentials)
 }
 
-/**
- * List credentials the token can manage (admin flows downward).
- * Returns credentials at the token's path or deeper.
- */
-export async function listCredentialsAdminAccessible(
+export async function listCredentialsWithinRoots(
   db: Database,
-  tokenPath: string,
+  roots: string[],
 ) {
   const all = await listCredentials(db)
   return all.filter(credential =>
-    isAncestorOrEqual(tokenPath, credentialParentPath(credential.path)),
+    roots.some(root => isAncestorOrEqual(root, credential.path)),
   )
 }
 
-
-/**
- * List all credentials the token can see: admin-accessible (at path or deeper)
- * plus usage-accessible (at ancestor paths).
- */
 export async function listCredentialsAccessible(
   db: Database,
-  tokenPath: string,
+  roots: string[],
 ) {
-  const all = await listCredentials(db)
-  return all.filter(credential => {
-    const parentPath = credentialParentPath(credential.path)
-    return isAncestorOrEqual(parentPath, tokenPath) || isAncestorOrEqual(tokenPath, parentPath)
-  })
+  return listCredentialsWithinRoots(db, roots)
 }
 
-/**
- * Find credentials for a host that the token can use (usage flows upward).
- * Returns credentials where credential.path is an ancestor of tokenPath,
- * ordered by path depth descending (deepest ancestor first).
- */
-export async function getCredentialsByHostForUsage(
+export async function getCredentialsByHostWithinRoot(
   db: Database,
   host: string,
-  tokenPath: string,
+  root: string,
 ) {
   const candidates = await getCredentialsByHost(db, host)
   return candidates
-    .filter(credential => isAncestorOrEqual(credentialParentPath(credential.path), tokenPath))
-    .sort((a, b) => pathDepth(b.path) - pathDepth(a.path))
+    .filter(credential => isAncestorOrEqual(root, credential.path))
+    .sort(compareByDeepestPath)
 }
 
 export async function upsertCredential(

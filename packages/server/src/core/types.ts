@@ -10,11 +10,15 @@ export interface CoreEnv {
   DATABASE_URL?: string
 }
 
+export interface TokenRight {
+  action: string
+  root: string
+}
+
 export interface TokenFacts {
-  rights: string[]
+  rights: TokenRight[]
   userId: string | null
   orgId: string | null
-  path: string | null
   scopes: string[]
 }
 
@@ -26,14 +30,15 @@ export interface CoreHonoEnv {
     token?: string
     userId?: string
     logger: Logger
-    /** Optional filter applied to credential candidates during proxy resolution. */
-    credentialFilter?: (cred: { path: string }) => boolean
   }
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
 
 export interface TokenConstraint {
+  actions?: string | string[]
+  hosts?: string | string[]
+  roots?: string | string[]
   services?: string | string[]
   methods?: HttpMethod | HttpMethod[]
   paths?: string | string[]

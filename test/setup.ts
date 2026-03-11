@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/pglite'
 import { sql } from 'drizzle-orm'
 import * as schema from '@agent.pw/server/db/schema'
 import { mintToken } from '@agent.pw/server/biscuit'
+import type { TokenRight } from '@agent.pw/server/types'
 
 export const BISCUIT_PRIVATE_KEY =
   'ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad'
@@ -14,23 +15,37 @@ function escapeDatalog(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-export const ROOT_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'local', ['manage_services'])
+function rightsAtRoot(root: string, actions: string[]): TokenRight[] {
+  return actions.map(action => ({ action, root }))
+}
 
-export const ORG_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', undefined, [
-  `apw:org_id("${escapeDatalog(TEST_ORG_ID)}")`,
-  `apw:path("${escapeDatalog(`/${TEST_ORG_ID}`)}")`,
+export const ROOT_TOKEN = mintToken(
+  BISCUIT_PRIVATE_KEY,
+  'local',
+  rightsAtRoot('/', ['credential.use', 'credential.manage', 'credential.bootstrap', 'profile.manage']),
+)
+
+export const ORG_TOKEN = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', rightsAtRoot(`/${TEST_ORG_ID}`, [
+  'credential.use',
+  'credential.bootstrap',
+  'credential.manage',
+  'profile.manage',
+]), [
+  `org_id("${escapeDatalog(TEST_ORG_ID)}")`,
 ])
 
 export function mintTestToken(
   orgId: string,
-  rights?: string[],
-  path?: string,
+  actions: string[] = ['credential.use'],
+  roots: string[] = [`/${orgId}`],
 ) {
-  const extraFacts = [`apw:org_id("${escapeDatalog(orgId)}")`]
-  if (path) {
-    extraFacts.push(`apw:path("${escapeDatalog(path)}")`)
-  }
-  return mintToken(BISCUIT_PRIVATE_KEY, orgId, rights, extraFacts)
+  const extraFacts = [`org_id("${escapeDatalog(orgId)}")`]
+  return mintToken(
+    BISCUIT_PRIVATE_KEY,
+    orgId,
+    roots.flatMap(root => rightsAtRoot(root, actions)),
+    extraFacts,
+  )
 }
 
 export async function createTestDb() {

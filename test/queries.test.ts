@@ -7,16 +7,16 @@ import {
   getAuthFlow,
   getCredProfile,
   getCredProfileByHost,
-  getCredProfileByHostForPath,
+  getCredProfilesByHostWithinRoot,
   getCredential,
   getCredentialsByHost,
-  getCredentialsByHostForUsage,
+  getCredentialsByHostWithinRoot,
   getService,
   isRevoked,
   listCredProfilesWithCredentialCounts,
   listCredentials,
   listCredentialsAccessible,
-  listCredentialsAdminAccessible,
+  listCredentialsWithinRoots,
   listServices,
   listServicesWithCredentialCounts,
   revokeToken,
@@ -29,6 +29,7 @@ import {
   deriveEncryptionKey,
   encryptCredentials,
 } from '@agent.pw/server/crypto'
+import { publicProfilePath } from '@agent.pw/server/paths'
 import {
   BISCUIT_PRIVATE_KEY,
   createTestDb,
@@ -57,7 +58,7 @@ beforeEach(async () => {
 
 describe('db queries', () => {
   it('handles profile lookups, visibility, and legacy service compatibility', async () => {
-    await upsertCredProfile(db, '/global', {
+    await upsertCredProfile(db, publicProfilePath('global'), {
       host: ['api.global.com', 'api.shared.com'],
       displayName: 'Global',
       description: 'root profile',
@@ -85,16 +86,20 @@ describe('db queries', () => {
     await storeBearerCredential('api.shared.com', '/shared-cred', 'shared-token')
     await storeBearerCredential('api.compat.com', '/compat-cred', 'compat-token')
 
-    expect(await getCredProfile(db, '/global')).toEqual(expect.objectContaining({ path: '/global' }))
-    expect(await getCredProfileByHost(db, 'api.global.com')).toEqual(expect.objectContaining({ path: '/global' }))
-    expect(await getCredProfileByHost(db, 'missing.example.com')).toBeNull()
-    expect(await getCredProfileByHostForPath(db, 'api.team.com', '/org_alpha')).toEqual(
-      expect.objectContaining({ path: '/org_alpha/team/service' }),
+    expect(await getCredProfile(db, publicProfilePath('global'))).toEqual(
+      expect.objectContaining({ path: publicProfilePath('global') }),
     )
-    expect(await getCredProfileByHostForPath(db, 'api.team.com', '/org_beta')).toBeNull()
+    expect(await getCredProfileByHost(db, 'api.global.com')).toEqual(
+      expect.objectContaining({ path: publicProfilePath('global') }),
+    )
+    expect(await getCredProfileByHost(db, 'missing.example.com')).toBeNull()
+    expect((await getCredProfilesByHostWithinRoot(db, 'api.team.com', '/org_alpha/team')).map(profile => profile.path)).toEqual([
+      '/org_alpha/team/service',
+    ])
+    expect(await getCredProfilesByHostWithinRoot(db, 'api.team.com', '/org_beta')).toEqual([])
 
     const countedProfiles = await listCredProfilesWithCredentialCounts(db)
-    expect(countedProfiles.find(profile => profile.path === '/global')?.credentialCount).toBe(2)
+    expect(countedProfiles.find(profile => profile.path === publicProfilePath('global'))?.credentialCount).toBe(2)
 
     const service = await getService(db, '/compat')
     expect(service).toEqual(expect.objectContaining({
@@ -109,14 +114,14 @@ describe('db queries', () => {
     ])
 
     expect((await listServices(db)).map(service => service.slug)).toEqual(
-      expect.arrayContaining(['/global', '/org_alpha/team/service', '/compat', '/plain']),
+      expect.arrayContaining([publicProfilePath('global'), '/org_alpha/team/service', '/compat', '/plain']),
     )
     expect((await listServicesWithCredentialCounts(db)).find(service => service.slug === '/compat')?.credentialCount).toBe(1)
     expect(await deleteService(db, '/compat')).toBe(true)
     expect(await deleteService(db, '/compat')).toBe(false)
   })
 
-  it('handles credential access queries for admin and usage flows', async () => {
+  it('handles credential queries within explicit descendant roots', async () => {
     await storeBearerCredential('api.example.com', '/root-cred', 'root-token')
     await storeBearerCredential('api.example.com', '/org_alpha/org-cred', 'org-token')
     await storeBearerCredential('api.example.com', '/org_alpha/team/team-cred', 'team-token')
@@ -128,22 +133,18 @@ describe('db queries', () => {
     expect((await getCredentialsByHost(db, 'api.example.com')).length).toBe(4)
     expect((await listCredentials(db)).length).toBe(4)
 
-    const adminAccessible = await listCredentialsAdminAccessible(db, '/org_alpha')
+    const adminAccessible = await listCredentialsWithinRoots(db, ['/org_alpha'])
     expect(adminAccessible.map(credential => credential.path)).toEqual(
       expect.arrayContaining(['/org_alpha/org-cred', '/org_alpha/team/team-cred']),
     )
     expect(adminAccessible.map(credential => credential.path)).not.toContain('/root-cred')
 
-    const accessible = await listCredentialsAccessible(db, '/org_alpha/team')
-    expect(accessible.map(credential => credential.path)).toEqual(
-      expect.arrayContaining(['/root-cred', '/org_alpha/org-cred', '/org_alpha/team/team-cred']),
-    )
-    expect(accessible.map(credential => credential.path)).not.toContain('/org_beta/other-cred')
+    const accessible = await listCredentialsAccessible(db, ['/org_alpha/team'])
+    expect(accessible.map(credential => credential.path)).toEqual(['/org_alpha/team/team-cred'])
 
-    expect((await getCredentialsByHostForUsage(db, 'api.example.com', '/org_alpha/team')).map(credential => credential.path)).toEqual([
+    expect((await getCredentialsByHostWithinRoot(db, 'api.example.com', '/org_alpha')).map(credential => credential.path)).toEqual([
       '/org_alpha/team/team-cred',
       '/org_alpha/org-cred',
-      '/root-cred',
     ])
 
     expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(true)
@@ -157,7 +158,7 @@ describe('db queries', () => {
 
     await createAuthFlow(db, {
       id: 'flow-1',
-      profilePath: '/github',
+      profilePath: publicProfilePath('github'),
       method: 'oauth',
       codeVerifier: 'verifier',
       scopePath: '/org_alpha',

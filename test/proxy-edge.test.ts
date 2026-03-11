@@ -4,6 +4,7 @@ import { createCoreApp } from '@agent.pw/server'
 import { deriveEncryptionKey, decryptCredentials, encryptCredentials } from '@agent.pw/server/crypto'
 import { createLogger } from '@agent.pw/server/logger'
 import { extractBearerToken, handleProxy } from '@agent.pw/server/proxy'
+import { publicProfilePath } from '@agent.pw/server/paths'
 import {
   getCredential,
   upsertCredProfile,
@@ -88,7 +89,7 @@ describe('proxy routes and proxy handler edges', () => {
 
   it('parses explicit profile routes and rejects missing hostnames', async () => {
     const app = await createApp()
-    await upsertCredProfile(db, '/github', {
+    await upsertCredProfile(db, publicProfilePath('github'), {
       host: ['api.github.com'],
       auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
     })
@@ -130,7 +131,7 @@ describe('proxy routes and proxy handler edges', () => {
 
   it('handles missing tokens, invalid selectors, unknown profiles, and host mismatches', async () => {
     const app = await createApp()
-    await upsertCredProfile(db, '/github', {
+    await upsertCredProfile(db, publicProfilePath('github'), {
       host: ['api.github.com'],
       auth: { authSchemes: [{ type: 'http', scheme: 'bearer' }] },
     })
@@ -448,7 +449,7 @@ describe('proxy routes and proxy handler edges', () => {
 
   it('adds bootstrap challenges without authorization URIs when CLI auth is disabled', async () => {
     const app = await createApp('')
-    await upsertCredProfile(db, '/notion', {
+    await upsertCredProfile(db, '/org_alpha/notion', {
       host: ['api.notion.so'],
       auth: { authSchemes: [{ type: 'oauth2', authorizeUrl: 'https://notion.so/oauth/authorize', tokenUrl: 'https://notion.so/oauth/token' }] },
     })
@@ -459,57 +460,7 @@ describe('proxy routes and proxy handler edges', () => {
       headers: withToken(mintTestToken('org_alpha')),
     })
     expect(response.status).toBe(401)
-    expect(response.headers.get('www-authenticate')).toBe('AgentPW target_host="api.notion.so", profile="/notion"')
-  })
-
-  it('applies credentialFilter to explicit selectors and auto-resolved credentials', async () => {
-    const app = await createManualProxyApp()
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-
-    // Store a credential that the token can normally access
-    await upsertCredential(db, {
-      host: 'api.filtered.com',
-      path: '/org_alpha/blocked-cred',
-      auth: { kind: 'headers' },
-      secret: await encryptCredentials(encryptionKey, {
-        headers: { Authorization: 'Bearer blocked-token' },
-      }),
-    })
-
-    const fetchMock = vi.fn(async (_input: unknown, init: any) => {
-      const headers = new Headers(init?.headers)
-      return new Response(JSON.stringify({
-        authorization: headers.get('Authorization'),
-      }), { headers: { 'content-type': 'application/json' } })
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    // Register both routes before making any requests
-    app.get('/explicit', async (c, next) => {
-      c.set('credentialFilter', () => false)
-      return next()
-    }, c => handleProxy(c, undefined, 'api.filtered.com', '/data'))
-
-    app.get('/auto', async (c, next) => {
-      c.set('credentialFilter', () => false)
-      return next()
-    }, c => handleProxy(c, undefined, 'api.filtered.com', '/data'))
-
-    // Explicit selector: credentialFilter rejects the credential
-    const explicitBlocked = await app.request('https://agent.pw/explicit', {
-      headers: withToken(mintTestToken('org_alpha'), { 'agentpw-credential': 'blocked-cred' }),
-    })
-    expect(explicitBlocked.status).toBe(403)
-    expect(await explicitBlocked.json()).toEqual({
-      error: "Token cannot use credential 'blocked-cred'",
-    })
-
-    const autoFiltered = await app.request('https://agent.pw/auto', {
-      headers: withToken(mintTestToken('org_alpha')),
-    })
-    expect(autoFiltered.status).toBe(200)
-    // No credential injected — upstream sees no Authorization header
-    expect(await autoFiltered.json()).toEqual({ authorization: null })
+    expect(response.headers.get('www-authenticate')).toBe('AgentPW target_host="api.notion.so", profile="/org_alpha/notion"')
   })
 
   it('adds a manual authorization URI when no profile matches the upstream host', async () => {

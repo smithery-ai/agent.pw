@@ -76,7 +76,10 @@ async function registerProfile(slug: string, body: Record<string, unknown>) {
   const res = await mgmtReq(`/cred_profiles/${slug}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      path: `/${TEST_ORG_ID}/${slug}`,
+      ...body,
+    }),
   })
   expect(res.status).toBe(200)
 }
@@ -153,12 +156,16 @@ describe('Core Scenario Flows', () => {
       },
     })
 
-    await storeCredential('github', { token: 'ghp_test123' })
+    await storeCredential('github', {
+      token: 'ghp_test123',
+      host: 'api.github.com',
+      path: `/${TEST_ORG_ID}/github`,
+    })
 
     const health = await req('/')
     expect(health.status).toBe(200)
     expect(await health.json()).toEqual({
-      profiles: [{ slug: '/github', credentialCount: 1 }],
+      profiles: [{ slug: `/${TEST_ORG_ID}/github`, credentialCount: 1 }],
     })
 
     const profiles = await mgmtReq('/cred_profiles')
@@ -176,7 +183,11 @@ describe('Core Scenario Flows', () => {
         authSchemes: [{ type: 'http', scheme: 'bearer' }],
       },
     })
-    await storeCredential('github', { token: 'ghp_test123' })
+    await storeCredential('github', {
+      token: 'ghp_test123',
+      host: 'api.github.com',
+      path: `/${TEST_ORG_ID}/github`,
+    })
 
     const fetchMock = mockUpstream(async (_input, init) => {
       const headers = new Headers(init?.headers)
@@ -221,9 +232,11 @@ describe('Core Scenario Flows', () => {
     })
     expect(bootstrap.status).toBe(401)
     expect(bootstrap.headers.get('www-authenticate')).toContain('AgentPW')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('profile="/github"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain(`profile="/${TEST_ORG_ID}/github"`)
     expect(bootstrap.headers.get('www-authenticate')).toContain('target_host="api.github.com"')
-    expect(bootstrap.headers.get('www-authenticate')).toContain('authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2F%252Fgithub"')
+    expect(bootstrap.headers.get('www-authenticate')).toContain(
+      `authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2F%252F${TEST_ORG_ID}%252Fgithub"`,
+    )
 
     const privateTarget = await req('/proxy/127.0.0.1/admin', {
       headers: withAgentPwToken(ORG_TOKEN),

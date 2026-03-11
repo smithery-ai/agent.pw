@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { describeRoute, resolver, validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
 import type { CoreHonoEnv } from '../core/types'
-import { requireToken, requireRight } from '../core/middleware'
+import { requireToken } from '../core/middleware'
 import {
   listCredProfiles,
   getCredProfile,
@@ -10,7 +10,8 @@ import {
   deleteCredProfile,
 } from '../db/queries'
 import { RESERVED_PATHS } from '../lib/utils'
-import { pathFromTokenFacts, isAncestorOrEqual, validatePath, credentialParentPath } from '../paths'
+import { credentialName, isAncestorOrEqual, validatePath } from '../paths'
+import { hasRightForPath, rootsForAction, rootsForActions } from '../rights'
 import {
   buildListPageSchema,
   InvalidPaginationCursorError,
@@ -68,13 +69,15 @@ credProfileRoutes.get('/', requireToken,
   zValidator('query', PaginationQuerySchema),
   async c => {
     const db = c.get('db')
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
+    const facts = c.get('tokenFacts')
+    const roots = facts
+      ? rootsForActions(facts.rights, ['credential.use', 'credential.bootstrap', 'profile.manage'])
+      : []
     const query = c.req.valid('query')
     const allProfiles = await listCredProfiles(db)
 
-    // Show profiles at ancestors (usable as config) and descendants (manageable)
-    const visible = allProfiles.filter(p =>
-      isAncestorOrEqual(credentialParentPath(p.path), tokenPath) || isAncestorOrEqual(tokenPath, p.path),
+    const visible = allProfiles.filter(profile =>
+      roots.some(root => isAncestorOrEqual(root, profile.path)),
     ).map(p => ({
         slug: p.path,
         host: p.host,
@@ -114,9 +117,21 @@ credProfileRoutes.get('/:slug', requireToken,
   async c => {
     const slug = c.req.param('slug')
     const db = c.get('db')
+    const requestedPath = c.req.query('path') ?? `/${slug}`
 
-    const profile = await getCredProfile(db, `/${slug}`)
+    if (!validatePath(requestedPath)) {
+      return c.json({ error: 'Invalid path' }, 400)
+    }
+
+    const profile = await getCredProfile(db, requestedPath)
     if (!profile) return c.json({ error: 'Profile not found' }, 404)
+
+    const facts = c.get('tokenFacts')
+    if (!facts) return c.json({ error: 'Forbidden' }, 403)
+    const visibleRoots = rootsForActions(facts.rights, ['credential.use', 'credential.bootstrap', 'profile.manage'])
+    if (!visibleRoots.some(root => isAncestorOrEqual(root, profile.path))) {
+      return c.json({ error: 'Profile not found' }, 404)
+    }
 
     return c.json({
       slug: profile.path,
@@ -129,7 +144,7 @@ credProfileRoutes.get('/:slug', requireToken,
   },
 )
 
-credProfileRoutes.put('/:slug', requireToken, requireRight('manage_services'),
+credProfileRoutes.put('/:slug', requireToken,
   describeRoute({
     tags: ['cred_profiles'],
     summary: 'Create or update credential profile',
@@ -141,30 +156,45 @@ credProfileRoutes.put('/:slug', requireToken, requireRight('manage_services'),
   }),
   zValidator('json', CreateCredProfileRequestSchema),
   async c => {
+    const facts = c.get('tokenFacts')
+    if (!facts) return c.json({ error: 'Forbidden' }, 403)
     const slug = c.req.param('slug')
     if (RESERVED_PATHS.has(slug)) {
       return c.json({ error: `'${slug}' is a reserved name` }, 400)
     }
 
     const body = c.req.valid('json')
+    const manageRoots = rootsForAction(facts.rights, 'profile.manage')
 
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
-    const profilePath = body.path ?? (tokenPath === '/' ? `/${slug}` : `${tokenPath}/${slug}`)
+    let profilePath = body.path
+    if (!profilePath) {
+      if (manageRoots.length === 0) {
+        return c.json({ error: 'Forbidden: requires "profile.manage" right' }, 403)
+      }
+      if (manageRoots.length > 1) {
+        return c.json({
+          error: 'Profile path is required when multiple management roots are granted',
+          roots: manageRoots,
+        }, 409)
+      }
+      profilePath = `${manageRoots[0] === '/' ? '' : manageRoots[0]}/${slug}`
+    }
 
     if (!validatePath(profilePath)) {
       return c.json({ error: 'Invalid path' }, 400)
     }
-
-    // Creation: token can only create at its own path or deeper
-    if (!isAncestorOrEqual(tokenPath, profilePath)) {
-      return c.json({ error: 'Cannot create profiles above your path' }, 403)
+    if (credentialName(profilePath) !== slug) {
+      return c.json({ error: 'Profile path must end with the route slug' }, 400)
     }
 
-    // Admin check for updates: must be at or above existing profile's path
+    if (!hasRightForPath(facts.rights, 'profile.manage', profilePath)) {
+      return c.json({ error: `Forbidden: requires "profile.manage" for '${profilePath}'` }, 403)
+    }
+
     const db = c.get('db')
-    const existing = await getCredProfile(db, `/${slug}`)
-    if (existing && !isAncestorOrEqual(tokenPath, existing.path)) {
-      return c.json({ error: `Token cannot update profile '${slug}'` }, 403)
+    const existing = await getCredProfile(db, profilePath)
+    if (existing && !hasRightForPath(facts.rights, 'profile.manage', existing.path)) {
+      return c.json({ error: `Forbidden: requires "profile.manage" for '${existing.path}'` }, 403)
     }
 
     const displayName = body.displayName ?? slug.charAt(0).toUpperCase() + slug.slice(1)
@@ -181,7 +211,7 @@ credProfileRoutes.put('/:slug', requireToken, requireRight('manage_services'),
   },
 )
 
-credProfileRoutes.delete('/:slug', requireToken, requireRight('manage_services'),
+credProfileRoutes.delete('/:slug', requireToken,
   describeRoute({
     tags: ['cred_profiles'],
     summary: 'Delete credential profile',
@@ -192,18 +222,35 @@ credProfileRoutes.delete('/:slug', requireToken, requireRight('manage_services')
     },
   }),
   async c => {
+    const facts = c.get('tokenFacts')
+    if (!facts) return c.json({ error: 'Forbidden' }, 403)
     const db = c.get('db')
     const slug = c.req.param('slug')
-    const existing = await getCredProfile(db, `/${slug}`)
+    const manageRoots = rootsForAction(facts.rights, 'profile.manage')
+    let requestedPath = c.req.query('path')
+    if (!requestedPath) {
+      if (manageRoots.length === 0) {
+        return c.json({ error: 'Forbidden: requires "profile.manage" right' }, 403)
+      }
+      if (manageRoots.length > 1) {
+        return c.json({
+          error: 'Profile path is required when multiple management roots are granted',
+          roots: manageRoots,
+        }, 409)
+      }
+      requestedPath = `${manageRoots[0] === '/' ? '' : manageRoots[0]}/${slug}`
+    }
+    if (!validatePath(requestedPath)) {
+      return c.json({ error: 'Invalid path' }, 400)
+    }
+    const existing = await getCredProfile(db, requestedPath)
     if (!existing) return c.json({ error: 'Profile not found' }, 404)
 
-    // Admin check: must be at or above the profile's path
-    const tokenPath = pathFromTokenFacts(c.get('tokenFacts') as { orgId?: string | null })
-    if (!isAncestorOrEqual(tokenPath, existing.path)) {
-      return c.json({ error: `Token cannot delete profile '${slug}'` }, 403)
+    if (!hasRightForPath(facts.rights, 'profile.manage', existing.path)) {
+      return c.json({ error: `Forbidden: requires "profile.manage" for '${existing.path}'` }, 403)
     }
 
-    const deleted = await deleteCredProfile(db, `/${slug}`)
+    const deleted = await deleteCredProfile(db, requestedPath)
     if (!deleted) return c.json({ error: 'Profile not found' }, 404)
     return c.json({ ok: true as const })
   },

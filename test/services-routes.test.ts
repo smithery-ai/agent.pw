@@ -45,7 +45,7 @@ beforeEach(async () => {
 describe('service routes', () => {
   it('supports create, list, get, and delete flows', async () => {
     const app = await buildApp()
-    const managerToken = mintTestToken('org_alpha', ['manage_services'])
+    const managerToken = mintTestToken('org_alpha', ['profile.manage'])
 
     const create = await app.request('https://agent.pw/services/github', {
       method: 'PUT',
@@ -118,20 +118,20 @@ describe('service routes', () => {
 
     const reserved = await app.request('https://agent.pw/services/auth', {
       method: 'PUT',
-      headers: withToken(mintTestToken('org_alpha', ['manage_services']), { 'Content-Type': 'application/json' }),
+      headers: withToken(mintTestToken('org_alpha', ['profile.manage']), { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ allowedHosts: ['api.auth.app'] }),
     })
     expect(reserved.status).toBe(400)
 
     const missing = await app.request('https://agent.pw/services/missing', {
       method: 'DELETE',
-      headers: withToken(mintTestToken('org_alpha', ['manage_services'])),
+      headers: withToken(mintTestToken('org_alpha', ['profile.manage'])),
     })
     expect(missing.status).toBe(404)
 
     const createWithoutSecret = await app.request('https://agent.pw/services/plain', {
       method: 'PUT',
-      headers: withToken(mintTestToken('org_alpha', ['manage_services']), { 'Content-Type': 'application/json' }),
+      headers: withToken(mintTestToken('org_alpha', ['profile.manage']), { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ allowedHosts: ['api.plain.app'] }),
     })
     expect(createWithoutSecret.status).toBe(200)
@@ -152,7 +152,7 @@ describe('service routes', () => {
 
   it('paginates legacy service listings and rejects malformed cursors', async () => {
     const app = await buildApp()
-    const managerToken = mintTestToken('org_alpha', ['manage_services'])
+    const managerToken = mintTestToken('org_alpha', ['profile.manage'])
 
     for (const slug of ['github', 'gitlab']) {
       const res = await app.request(`https://agent.pw/services/${slug}`, {

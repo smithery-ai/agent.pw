@@ -24,6 +24,7 @@ import {
   joinCredentialPath,
   pathDepth,
   pathFromTokenFacts,
+  publicProfilePath,
   validateCredentialName,
   validatePath,
 } from '@agent.pw/server/paths'
@@ -226,8 +227,8 @@ describe('cross-org isolation', () => {
   })
 })
 
-describe('usage flows upward', () => {
-  it('lets org tokens use ancestor credentials, including root credentials', async () => {
+describe('credential use within descendant roots', () => {
+  it('uses credentials inside the granted root and ignores credentials above it', async () => {
     await storeCredentialAtPath('org-cred', 'api.example.com', 'org-secret', `/${ORG_A}`)
     await storeCredentialAtPath('global-cred', 'api.global.com', 'global-secret', '/')
     const token = mintTestToken(ORG_A)
@@ -243,22 +244,22 @@ describe('usage flows upward', () => {
 
     const rootRes = await req('/proxy/api.global.com/test', { headers: withToken(token) })
     expect(rootRes.status).toBe(200)
-    expect(await rootRes.json()).toEqual({ auth: 'Bearer global-secret' })
+    expect(await rootRes.json()).toEqual({ auth: null })
   })
 })
 
-describe('admin flows downward', () => {
-  it('lets org tokens manage descendant credentials but not ancestors', async () => {
+describe('credential management within descendant roots', () => {
+  it('lists and deletes descendant credentials but not ancestors', async () => {
     await storeCredentialAtPath('ws-cred', 'api.example.com', 'ws-secret', `/${ORG_A}/ws/eng`)
     await storeCredentialAtPath('root-cred', 'api.example.com', 'root-secret', '/')
 
-    const orgToken = mintTestToken(ORG_A)
+    const orgToken = mintTestToken(ORG_A, ['credential.use', 'credential.manage'])
 
     const list = await req('/credentials', { headers: withToken(orgToken) })
     expect(list.status).toBe(200)
     const names = ((await list.json()) as { data: { name: string }[] }).data.map(credential => credential.name)
     expect(names).toContain('ws-cred')
-    expect(names).toContain('root-cred')
+    expect(names).not.toContain('root-cred')
 
     const deleteDescendant = await req(`/credentials/ws-cred?host=api.example.com&path=${encodeURIComponent(`/${ORG_A}/ws/eng/ws-cred`)}`, {
       method: 'DELETE',
@@ -276,7 +277,7 @@ describe('admin flows downward', () => {
 
 describe('creation at own path or deeper', () => {
   it('allows creation at the caller path or deeper and blocks creation above it', async () => {
-    const token = mintTestToken(ORG_A)
+    const token = mintTestToken(ORG_A, ['credential.bootstrap'])
 
     const ownPath = await req('/credentials/new-cred', {
       method: 'PUT',
@@ -337,7 +338,7 @@ describe('creation at own path or deeper', () => {
 
 describe('profile resolution', () => {
   it('chooses the nearest visible profile for a host', async () => {
-    await upsertCredProfile(db, '/github-global', {
+    await upsertCredProfile(db, publicProfilePath('github-global'), {
       host: ['api.github.com'],
       displayName: 'GitHub Global',
       auth: { kind: 'headers', authSchemes: [{ type: 'http', scheme: 'bearer' }] },
@@ -426,7 +427,7 @@ describe('token revocation', () => {
 
 describe('credential profile path-based access control', () => {
   it('allows profile creation at the caller path and blocks creation above it', async () => {
-    const token = mintTestToken(ORG_A, ['manage_services'])
+    const token = mintTestToken(ORG_A, ['profile.manage'])
 
     const allowed = await req('/cred_profiles/my-service', {
       method: 'PUT',
@@ -450,8 +451,8 @@ describe('credential profile path-based access control', () => {
     expect(blocked.status).toBe(403)
   })
 
-  it('lists only visible profiles across ancestors and descendants', async () => {
-    await upsertCredProfile(db, '/global-svc', {
+  it('lists only profiles inside granted descendant roots', async () => {
+    await upsertCredProfile(db, publicProfilePath('global-svc'), {
       host: ['api.global.com'],
       displayName: 'Global',
     })
@@ -469,8 +470,8 @@ describe('credential profile path-based access control', () => {
     expect(res.status).toBe(200)
 
     const paths = ((await res.json()) as { data: { path: string }[] }).data.map(profile => profile.path)
-    expect(paths).toContain('/global-svc')
     expect(paths).toContain(`/${ORG_A}/org-svc`)
+    expect(paths).not.toContain(publicProfilePath('global-svc'))
     expect(paths).not.toContain(`/${ORG_B}/other-org-svc`)
   })
 })

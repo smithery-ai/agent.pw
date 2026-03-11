@@ -15,6 +15,7 @@ import {
   mintTestToken,
   type TestDb,
 } from './setup'
+import { publicProfilePath } from '../packages/server/src/paths'
 
 let db: TestDb
 let app: ReturnType<typeof createCoreApp>
@@ -39,7 +40,7 @@ function withToken(token: string, headers: Record<string, string> = {}) {
 
 describe('route edge cases', () => {
   it('validates credential writes and derives hosts from profiles', async () => {
-    const token = mintTestToken('org_alpha')
+    const token = mintTestToken('org_alpha', ['credential.bootstrap'])
 
     const missingSecret = await app.request('https://agent.pw/credentials/github', {
       method: 'PUT',
@@ -76,7 +77,7 @@ describe('route edge cases', () => {
     })
     expect(missingProfile.status).toBe(404)
 
-    await upsertCredProfile(db, '/oauth-only', {
+    await upsertCredProfile(db, publicProfilePath('oauth-only'), {
       host: ['api.oauth-only.com'],
       auth: { kind: 'oauth' },
     })
@@ -87,7 +88,7 @@ describe('route edge cases', () => {
     })
     expect(oauthCredential.status).toBe(200)
 
-    await upsertCredProfile(db, '/empty-host', {
+    await upsertCredProfile(db, publicProfilePath('empty-host'), {
       host: [],
     })
     const missingHost = await app.request('https://agent.pw/credentials/empty-host', {
@@ -97,7 +98,7 @@ describe('route edge cases', () => {
     })
     expect(missingHost.status).toBe(400)
 
-    await upsertCredProfile(db, '/api-key', {
+    await upsertCredProfile(db, publicProfilePath('api-key'), {
       host: ['api.keys.example'],
       auth: { authSchemes: [{ type: 'apiKey', in: 'header', name: 'X-Api-Key' }] },
     })
@@ -116,7 +117,7 @@ describe('route edge cases', () => {
   })
 
   it('validates credential deletes across query combinations', async () => {
-    const token = mintTestToken('org_alpha')
+    const token = mintTestToken('org_alpha', ['credential.manage', 'credential.bootstrap'])
 
     const invalidName = await app.request('https://agent.pw/credentials/a.b', {
       method: 'DELETE',
@@ -148,7 +149,7 @@ describe('route edge cases', () => {
     })
     expect(missingDeleteProfile.status).toBe(404)
 
-    await upsertCredProfile(db, '/empty-delete', {
+    await upsertCredProfile(db, publicProfilePath('empty-delete'), {
       host: [],
     })
     const emptyProfileHost = await app.request('https://agent.pw/credentials/empty-delete?profile=empty-delete', {
@@ -157,7 +158,7 @@ describe('route edge cases', () => {
     })
     expect(emptyProfileHost.status).toBe(400)
 
-    await upsertCredProfile(db, '/delete-me', {
+    await upsertCredProfile(db, publicProfilePath('delete-me'), {
       host: ['api.delete.me'],
     })
     const missingCredential = await app.request('https://agent.pw/credentials/delete-me?profile=delete-me', {
@@ -182,38 +183,38 @@ describe('route edge cases', () => {
   })
 
   it('supports profile reads and profile mutation edge cases', async () => {
-    const manager = mintTestToken('org_alpha', ['manage_services'])
+    const manager = mintTestToken('org_alpha', ['profile.manage'])
 
-    await upsertCredProfile(db, '/visible', {
+    await upsertCredProfile(db, publicProfilePath('visible'), {
       host: ['api.visible.com'],
       auth: { kind: 'headers' },
       displayName: 'Visible',
     })
 
-    const detail = await app.request('https://agent.pw/cred_profiles/visible', {
+    const detail = await app.request(`https://agent.pw/cred_profiles/visible?path=${encodeURIComponent(publicProfilePath('visible'))}`, {
       headers: withToken(ROOT_TOKEN),
     })
     expect(detail.status).toBe(200)
     expect(await detail.json()).toEqual({
-      slug: '/visible',
+      slug: publicProfilePath('visible'),
       host: ['api.visible.com'],
-      path: '/visible',
+      path: publicProfilePath('visible'),
       displayName: 'Visible',
       description: null,
       auth: { kind: 'headers' },
     })
 
-    await upsertCredProfile(db, '/no-auth', {
+    await upsertCredProfile(db, publicProfilePath('no-auth'), {
       host: ['api.no-auth.com'],
     })
-    const detailWithoutAuth = await app.request('https://agent.pw/cred_profiles/no-auth', {
+    const detailWithoutAuth = await app.request(`https://agent.pw/cred_profiles/no-auth?path=${encodeURIComponent(publicProfilePath('no-auth'))}`, {
       headers: withToken(ROOT_TOKEN),
     })
     expect(detailWithoutAuth.status).toBe(200)
     expect(await detailWithoutAuth.json()).toEqual({
-      slug: '/no-auth',
+      slug: publicProfilePath('no-auth'),
       host: ['api.no-auth.com'],
-      path: '/no-auth',
+      path: publicProfilePath('no-auth'),
       displayName: null,
       description: null,
       auth: null,
@@ -244,7 +245,7 @@ describe('route edge cases', () => {
     const forbiddenUpdate = await app.request('https://agent.pw/cred_profiles/root-svc', {
       method: 'PUT',
       headers: withToken(manager, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ host: ['api.org.com'] }),
+      body: JSON.stringify({ host: ['api.org.com'], path: '/root-svc' }),
     })
     expect(forbiddenUpdate.status).toBe(403)
 
@@ -254,7 +255,7 @@ describe('route edge cases', () => {
     })
     expect(missingDelete.status).toBe(404)
 
-    const forbiddenDelete = await app.request('https://agent.pw/cred_profiles/root-svc', {
+    const forbiddenDelete = await app.request('https://agent.pw/cred_profiles/root-svc?path=%2Froot-svc', {
       method: 'DELETE',
       headers: withToken(manager),
     })
@@ -305,8 +306,8 @@ describe('route edge cases', () => {
   })
 
   it('paginates credentials and profiles with cursor continuation', async () => {
-    const manager = mintTestToken('org_alpha', ['manage_services'])
-    const token = mintTestToken('org_alpha')
+    const manager = mintTestToken('org_alpha', ['profile.manage'])
+    const token = mintTestToken('org_alpha', ['credential.use', 'credential.bootstrap'])
 
     // Create two profiles for pagination
     for (const slug of ['aaa-svc', 'bbb-svc']) {

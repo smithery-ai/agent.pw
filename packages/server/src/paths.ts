@@ -4,9 +4,7 @@
  * Every credential and profile lives at a canonical path in a tree that
  * encodes organizational hierarchy (e.g. /org_ruzo/ws/engineering).
  *
- * Two directions of access:
- * - Usage flows upward: credentials at ancestor paths are inherited
- * - Admin flows downward: tokens manage objects at their path or deeper
+ * Tokens grant explicit rights over descendant subtrees.
  */
 
 /** Check if `ancestor` is a path ancestor of (or equal to) `descendant`. */
@@ -37,6 +35,11 @@ export function credentialName(path: string) {
   return path.split('/').pop()!
 }
 
+/** Build the canonical root-level default profile path from a profile slug. */
+export function publicProfilePath(slug: string) {
+  return joinCredentialPath('/', slug)
+}
+
 /** Extract the containing node path for a full credential path. */
 export function credentialParentPath(path: string) {
   const i = path.lastIndexOf('/')
@@ -60,8 +63,7 @@ export function pathDepth(path: string) {
 }
 
 /**
- * From a list of candidates with paths, find the deepest ancestor of
- * `tokenPath` (longest prefix match). Returns null if none match.
+ * From a list of candidates with paths, find the deepest ancestor match.
  */
 export function deepestAncestor<T extends { path: string }>(
   candidates: T[],

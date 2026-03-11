@@ -1,11 +1,11 @@
 /**
  * Biscuit token operations for the auth proxy.
  *
- * Identity-based model:
- * - Authority block: namespaced apw:* identity and rights facts
+ * Identity and descendant-rights model:
+ * - Authority block: identity and rights facts
  * - Attenuation blocks: checks that narrow service/method/path/TTL
  * - Authorizer: ambient request facts plus namespaced identity checks
- * - Credentials DB: source of truth for what services a userId can access
+ * - Route handlers evaluate right(root, operation) against canonical object paths
  */
 
 import {
@@ -16,7 +16,7 @@ import {
   KeyPair,
   SignatureAlgorithm,
 } from '@smithery/biscuit'
-import type { TokenConstraint } from './core/types'
+import type { TokenConstraint, TokenRight } from './core/types'
 
 export const TOKEN_PREFIX = 'apw_'
 
@@ -75,11 +75,29 @@ function buildAttenuationCode(constraints: TokenConstraint[]): string {
   const alternatives: string[] = []
 
   for (const c of constraints) {
+    const actions = toArray(c.actions)
+    const hosts = toArray(c.hosts)
+    const roots = toArray(c.roots)
     const services = toArray(c.services)
     const methods = toArray(c.methods)
     const paths = toArray(c.paths)
 
     const parts: string[] = []
+
+    if (actions.length > 0) {
+      const list = actions.map(action => `"${escapeDatalog(action)}"`).join(', ')
+      parts.push(`action($action), [${list}].contains($action)`)
+    }
+
+    if (hosts.length > 0) {
+      const list = hosts.map(host => `"${escapeDatalog(host)}"`).join(', ')
+      parts.push(`host($host), [${list}].contains($host)`)
+    }
+
+    if (roots.length > 0) {
+      const list = roots.map(root => `"${escapeDatalog(root)}"`).join(', ')
+      parts.push(`requested_root($root), [${list}].contains($root)`)
+    }
 
     if (services.length > 0) {
       const list = services.map(s => `"${escapeDatalog(s)}"`).join(', ')
@@ -128,16 +146,37 @@ function buildAttenuationCode(constraints: TokenConstraint[]): string {
 /**
  * Build the authorizer code with ambient facts from the HTTP request.
  */
-function buildAuthorizerCode(service: string, method: string, path: string): string {
-  return [
+function buildAuthorizerCode(
+  service: string,
+  method: string,
+  path: string,
+  context: {
+    action?: string
+    host?: string
+    requestedRoot?: string
+  } = {},
+): string {
+  const lines = [
     `resource("${escapeDatalog(service)}");`,
     `operation("${escapeDatalog(method.toUpperCase())}");`,
     `path("${escapeDatalog(path)}");`,
     `time(${new Date().toISOString()});`,
-    'allow if apw:user_id($u);',
-    'allow if apw:org_id($o);',
+  ]
+  if (context.action) {
+    lines.push(`action("${escapeDatalog(context.action)}");`)
+  }
+  if (context.host) {
+    lines.push(`host("${escapeDatalog(context.host)}");`)
+  }
+  if (context.requestedRoot) {
+    lines.push(`requested_root("${escapeDatalog(context.requestedRoot)}");`)
+  }
+  lines.push(
+    'allow if user_id($u);',
+    'allow if org_id($o);',
     'deny if true;',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -164,20 +203,20 @@ export function getPublicKeyHex(privateKeyHex: string): string {
  * Mint a token with identity, optional rights, and optional extra facts.
  *
  * Authority block contains:
- * - apw:user_id("userId") — identity
- * - apw:right("name") — capabilities (optional)
+ * - user_id("userId") — identity
+ * - right("root", "operation") — descendant rights (optional)
  * - arbitrary extra facts (optional)
  */
 export function mintToken(
   privateKeyHex: string,
   userId: string,
-  rights?: string[],
+  rights?: TokenRight[],
   extraFacts?: string[],
 ): string {
   const lines: string[] = []
-  lines.push(`apw:user_id("${escapeDatalog(userId)}");`)
-  for (const r of (rights ?? [])) {
-    lines.push(`apw:right("${escapeDatalog(r)}");`)
+  lines.push(`user_id("${escapeDatalog(userId)}");`)
+  for (const right of (rights ?? [])) {
+    lines.push(`right("${escapeDatalog(right.root)}", "${escapeDatalog(right.action)}");`)
   }
   for (const fact of (extraFacts ?? []).map(normalizeFactStatement)) {
     if (fact) lines.push(fact)
@@ -213,16 +252,23 @@ export interface AuthorizationResult {
   error?: string
 }
 
+export interface AuthorizationContext {
+  action?: string
+  host?: string
+  requestedRoot?: string
+}
+
 export function authorizeRequest(
   tokenBase64: string,
   publicKeyHex: string,
   service: string,
   method: string,
-  path: string
+  path: string,
+  context: AuthorizationContext = {},
 ): AuthorizationResult {
   const raw = stripPrefix(tokenBase64)
   const publicKey = parsePublicKey(publicKeyHex)
-  const code = buildAuthorizerCode(service, method, path)
+  const code = buildAuthorizerCode(service, method, path, context)
 
   // Retry loop: the first authorizeWithLimits call on a cold worker may timeout
   // because WASM JIT compilation is counted against the time limit. The retry
@@ -250,7 +296,7 @@ export function authorizeRequest(
 
 /**
  * Extract token facts from the authority block.
- * Returns namespaced identity, rights, org, audit path, and scopes when present.
+ * Returns identity, descendant rights, org, and scopes when present.
  */
 export function extractTokenFacts(
   tokenBase64: string,
@@ -262,40 +308,44 @@ export function extractTokenFacts(
     const token = Biscuit.fromBase64(raw, publicKey)
     const source = token.getBlockSource(0)
 
-    const rights: string[] = []
+    const rights: TokenRight[] = []
     let userId: string | null = null
     let orgId: string | null = null
-    let path: string | null = null
     const scopes: string[] = []
 
     for (const line of source.split('\n')) {
       const trimmed = line.trim().replace(/;$/, '')
-      const rightMatch = trimmed.match(/(?:^|[\s,])apw:right\("([^"]+)"\)/)
-      if (rightMatch) rights.push(rightMatch[1])
-      const userMatch = trimmed.match(/(?:^|[\s,])apw:user_id\("([^"]+)"\)/)
+      const rightMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?right\("([^"]+)",\s*"([^"]+)"\)/)
+      if (rightMatch) {
+        const [first, second] = [rightMatch[1], rightMatch[2]]
+        rights.push({
+          action: first.startsWith('/') ? second : first,
+          root: first.startsWith('/') ? first : second,
+        })
+      }
+      const userMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?user_id\("([^"]+)"\)/)
       if (userMatch) userId = userMatch[1]
-      const orgMatch = trimmed.match(/(?:^|[\s,])apw:org_id\("([^"]+)"\)/)
+      const orgMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?org_id\("([^"]+)"\)/)
       if (orgMatch) orgId = orgMatch[1]
-      const pathMatch = trimmed.match(/(?:^|[\s,])apw:path\("([^"]+)"\)/)
-      if (pathMatch) path = pathMatch[1]
-      const scopeMatch = trimmed.match(/(?:^|[\s,])apw:scope\("([^"]+)"\)/)
+      const scopeMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?scope\("([^"]+)"\)/)
       if (scopeMatch) scopes.push(scopeMatch[1])
     }
 
     return {
-      rights: [...new Set(rights)],
+      rights: rights.filter((right, index, all) =>
+        all.findIndex(candidate => candidate.action === right.action && candidate.root === right.root) === index,
+      ),
       userId,
       orgId,
-      path,
       scopes: [...new Set(scopes)],
     }
   } catch {
-    return { rights: [], userId: null, orgId: null, path: null, scopes: [] }
+    return { rights: [], userId: null, orgId: null, scopes: [] }
   }
 }
 
 /**
- * Extract the userId from the token's apw:user_id fact.
+ * Extract the userId from the token's user_id fact.
  */
 export function extractUserId(
   tokenBase64: string,

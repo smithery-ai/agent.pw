@@ -35,20 +35,21 @@ describe('biscuit helpers', () => {
   })
 
   it('mints tokens, extracts facts, and derives public metadata', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', ['admin'], [
-      `apw:org_id("${TEST_ORG_ID}")`,
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', [
+      { action: 'credential.use', root: `/${TEST_ORG_ID}` },
+    ], [
+      `org_id("${TEST_ORG_ID}")`,
       '  ',
-      'apw:scope("repo");',
-      'apw:scope("write")',
+      'scope("repo");',
+      'scope("write")',
       'custom("value")',
     ])
 
     const facts = extractTokenFacts(token, PUBLIC_KEY_HEX)
     expect(facts).toEqual({
-      rights: ['admin'],
+      rights: [{ action: 'credential.use', root: `/${TEST_ORG_ID}` }],
       userId: 'user_test_123',
       orgId: TEST_ORG_ID,
-      path: null,
       scopes: ['repo', 'write'],
     })
     expect(extractUserId(token, PUBLIC_KEY_HEX)).toBe('user_test_123')
@@ -83,7 +84,6 @@ describe('biscuit helpers', () => {
       rights: [],
       userId: null,
       orgId: null,
-      path: null,
       scopes: [],
     })
 
@@ -92,19 +92,19 @@ describe('biscuit helpers', () => {
     expect(pair.publicKey).toMatch(/^ed25519\//)
   })
 
-  it('only extracts apw: namespaced facts, ignoring bare and underscore variants', () => {
+  it('extracts bare facts, tolerates legacy prefixed facts, and ignores underscore variants', () => {
     const bareToken = buildCustomToken([
-      'user("legacy-user");',
-      'right("admin");',
+      'user_id("legacy-user");',
+      'org_id("legacy-org");',
+      'right("/legacy-org", "credential.use");',
       'scope("repo");',
     ].join('\n'))
 
     expect(extractTokenFacts(bareToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: [],
-      userId: null,
-      orgId: null,
-      path: null,
-      scopes: [],
+      rights: [{ action: 'credential.use', root: '/legacy-org' }],
+      userId: 'legacy-user',
+      orgId: 'legacy-org',
+      scopes: ['repo'],
     })
 
     const underscoreToken = buildCustomToken([
@@ -118,43 +118,42 @@ describe('biscuit helpers', () => {
       rights: [],
       userId: null,
       orgId: null,
-      path: null,
       scopes: [],
     })
 
     const colonToken = buildCustomToken([
       'apw:user_id("colon-user");',
       'apw:org_id("colon-org");',
-      'apw:right("admin");',
+      'apw:right("/colon-org", "credential.use");',
       'apw:scope("repo");',
     ].join('\n'))
 
     expect(extractTokenFacts(colonToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: ['admin'],
+      rights: [{ action: 'credential.use', root: '/colon-org' }],
       userId: 'colon-user',
       orgId: 'colon-org',
-      path: null,
       scopes: ['repo'],
     })
 
-    const orgOnlyToken = buildCustomToken('apw:org_id("org-only");')
+    const orgOnlyToken = buildCustomToken('org_id("org-only");')
     expect(extractUserId(orgOnlyToken, PUBLIC_KEY_HEX)).toBe('org-only')
   })
 
-  it('uses only namespaced identity facts and plain ambient request facts', () => {
-    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', ['manage_services'], [
-      `apw:org_id("${TEST_ORG_ID}")`,
-      `apw:path("/${TEST_ORG_ID}")`,
+  it('emits bare identity facts and plain ambient request facts', () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', [
+      { action: 'credential.manage', root: `/${TEST_ORG_ID}` },
+    ], [
+      `org_id("${TEST_ORG_ID}")`,
     ])
     const publicKey = getPublicKey(BISCUIT_PRIVATE_KEY)
     const biscuit = Biscuit.fromBase64(stripPrefix(token), publicKey)
     const authority = biscuit.getBlockSource(0)
     const authorityLines = authority.split('\n').map(line => line.trim()).filter(Boolean)
 
-    expect(authorityLines).toContain('apw:user_id("user_test_123");')
-    expect(authorityLines).toContain('apw:right("manage_services");')
-    expect(authorityLines).not.toContain('user("user_test_123");')
-    expect(authorityLines).not.toContain('right("manage_services");')
+    expect(authorityLines).toContain('user_id("user_test_123");')
+    expect(authorityLines).toContain(`right("/${TEST_ORG_ID}", "credential.manage");`)
+    expect(authorityLines).not.toContain('apw:user_id("user_test_123");')
+    expect(authorityLines).not.toContain('right("credential.manage");')
 
     const restricted = restrictToken(token, PUBLIC_KEY_HEX, [
       { services: 'github', methods: 'GET', paths: '/user' },
@@ -167,7 +166,7 @@ describe('biscuit helpers', () => {
     expect(block).toContain('path($p)')
     expect(block).not.toContain('apw:resource')
     expect(block).not.toContain('apw:operation')
-    expect(block).not.toContain('apw:path')
+    expect(block).not.toContain('requested_root')
   })
 
 })

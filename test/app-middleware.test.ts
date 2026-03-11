@@ -130,8 +130,8 @@ describe('core middleware', () => {
 
   it('enforces rights and resolves user identity from tokens', async () => {
     const app = await buildHarness()
-    app.get('/needs-admin', requireRight('admin'), c => c.json({ ok: true }))
-    app.get('/admin', requireToken, requireRight('admin'), resolveUserId, c => c.json({ userId: c.get('userId') }))
+    app.get('/needs-admin', requireRight('profile.manage'), c => c.json({ ok: true }))
+    app.get('/admin', requireToken, requireRight('profile.manage'), resolveUserId, c => c.json({ userId: c.get('userId') }))
     app.get('/user', requireToken, resolveUserId, c => c.json({ userId: c.get('userId') }))
     app.get('/missing-facts', (c, next) => resolveUserId(c, next), c => c.json({ userId: c.get('userId') }))
     app.get('/identityless', async (c, next) => {
@@ -147,7 +147,9 @@ describe('core middleware', () => {
     })
     expect(noRight.status).toBe(403)
 
-    const adminToken = mintToken(BISCUIT_PRIVATE_KEY, 'admin-user', ['admin'])
+    const adminToken = mintToken(BISCUIT_PRIVATE_KEY, 'admin-user', [
+      { action: 'profile.manage', root: '/' },
+    ])
     const admin = await app.request(makeUrl('/admin'), {
       headers: { 'Proxy-Authorization': `Bearer ${adminToken}` },
     })
