@@ -176,12 +176,18 @@ describe('db queries', () => {
     ]).toEqual(expect.arrayContaining(['/org_alpha/cred-a', '/org_alpha/cred-b', '/org_alpha/cred-c']))
   })
 
-  it('includes public root profiles when paging org-scoped profile listings', async () => {
+  it('includes ancestor fallback profiles when paging descendant-scoped profile listings', async () => {
     await upsertCredProfile(db, publicProfilePath('global'), {
       host: ['api.global.com'],
     })
-    await upsertCredProfile(db, '/org_alpha/team', {
+    await upsertCredProfile(db, '/org_alpha/linear', {
+      host: ['api.org.com'],
+    })
+    await upsertCredProfile(db, '/org_alpha/team/notion', {
       host: ['api.team.com'],
+    })
+    await upsertCredProfile(db, '/org_alpha/ws_design/figma', {
+      host: ['api.design.com'],
     })
     await upsertCredProfile(db, '/org_beta/other', {
       host: ['api.other.com'],
@@ -189,12 +195,13 @@ describe('db queries', () => {
 
     const page = await listCredProfilesPage(db, {
       limit: 10,
-      visibleRoots: ['/org_alpha'],
+      visibleRoots: ['/org_alpha/team'],
     })
 
     expect(page.items.map(profile => profile.path)).toEqual([
       publicProfilePath('global'),
-      '/org_alpha/team',
+      '/org_alpha/linear',
+      '/org_alpha/team/notion',
     ])
   })
 

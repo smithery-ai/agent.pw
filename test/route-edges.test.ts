@@ -295,15 +295,20 @@ describe('route edge cases', () => {
       auth: { kind: 'headers' },
     })
 
-    const orgScopedDetail = await app.request(`https://agent.pw/cred_profiles/visible?path=${encodeURIComponent(publicProfilePath('visible'))}`, {
-      headers: withToken(mintTestToken('org_alpha')),
+    await upsertCredProfile(db, '/org_alpha/linear', {
+      host: ['api.linear.app'],
+      auth: { kind: 'headers' },
+      displayName: 'Org Linear',
     })
-    expect(orgScopedDetail.status).toBe(200)
-    expect(await orgScopedDetail.json()).toEqual({
-      slug: publicProfilePath('visible'),
-      host: ['api.visible.com'],
-      path: publicProfilePath('visible'),
-      displayName: 'Visible',
+    const ancestorDetail = await app.request('https://agent.pw/cred_profiles/linear?path=%2Forg_alpha%2Flinear', {
+      headers: withToken(mintTestToken('org_alpha', ['credential.use'], ['/org_alpha/team'])),
+    })
+    expect(ancestorDetail.status).toBe(200)
+    expect(await ancestorDetail.json()).toEqual({
+      slug: '/org_alpha/linear',
+      host: ['api.linear.app'],
+      path: '/org_alpha/linear',
+      displayName: 'Org Linear',
       description: null,
       auth: { kind: 'headers' },
     })
