@@ -134,6 +134,52 @@ describe('route edge cases', () => {
 
   })
 
+  it('derives bootstrap profiles from the active root instead of deeper descendants or siblings', async () => {
+    const token = mintTestToken('org_alpha', ['credential.bootstrap'], ['/org_alpha/ws_engineering'])
+
+    await upsertCredProfile(db, '/linear', {
+      host: ['api.linear.global'],
+      displayName: 'Global Linear',
+      auth: { kind: 'headers', authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredProfile(db, '/org_alpha/linear', {
+      host: ['api.linear.org'],
+      displayName: 'Org Linear',
+      auth: { kind: 'headers', authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredProfile(db, '/org_alpha/ws_engineering/linear', {
+      host: ['api.linear.engineering'],
+      displayName: 'Engineering Linear',
+      auth: { kind: 'headers', authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredProfile(db, '/org_alpha/ws_engineering/user_alice/linear', {
+      host: ['api.linear.alice'],
+      displayName: 'Alice Linear',
+      auth: { kind: 'headers', authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+    await upsertCredProfile(db, '/org_alpha/ws_design/linear', {
+      host: ['api.linear.design'],
+      displayName: 'Design Linear',
+      auth: { kind: 'headers', authSchemes: [{ type: 'http', scheme: 'bearer' }] },
+    })
+
+    const response = await app.request('https://agent.pw/credentials/linear', {
+      method: 'PUT',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        token: 'secret',
+        path: '/org_alpha/ws_engineering/user_bob/linear',
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await getCredential(db, 'api.linear.engineering', '/org_alpha/ws_engineering/user_bob/linear')).toEqual(
+      expect.objectContaining({ path: '/org_alpha/ws_engineering/user_bob/linear' }),
+    )
+    expect(await getCredential(db, 'api.linear.alice', '/org_alpha/ws_engineering/user_bob/linear')).toBeNull()
+    expect(await getCredential(db, 'api.linear.design', '/org_alpha/ws_engineering/user_bob/linear')).toBeNull()
+  })
+
   it('validates credential deletes across query combinations', async () => {
     const token = mintTestToken('org_alpha', ['credential.manage', 'credential.bootstrap'])
 

@@ -158,6 +158,59 @@ describe('db queries', () => {
     expect(await deleteCredential(db, 'api.example.com', '/org_alpha/org-cred')).toBe(false)
   })
 
+  it('resolves profile applicability from the active root cascade', async () => {
+    await upsertCredProfile(db, '/linear', {
+      host: ['api.linear.global'],
+      displayName: 'Global Linear',
+    })
+    await upsertCredProfile(db, '/org_abc/linear', {
+      host: ['api.linear.org'],
+      displayName: 'Org Linear',
+    })
+    await upsertCredProfile(db, '/org_abc/ws_engineering/linear', {
+      host: ['api.linear.engineering'],
+      displayName: 'Engineering Linear',
+    })
+    await upsertCredProfile(db, '/org_abc/ws_design/linear', {
+      host: ['api.linear.design'],
+      displayName: 'Design Linear',
+    })
+    await upsertCredProfile(db, '/org_abc/ws_engineering/user_alice/linear', {
+      host: ['api.linear.alice'],
+      displayName: 'Alice Linear',
+    })
+
+    expect(
+      (await getCredProfilesBySlugWithPublicFallback(db, 'linear', '/org_abc/ws_engineering'))
+        .map(profile => profile.path),
+    ).toEqual([
+      '/org_abc/ws_engineering/linear',
+      '/org_abc/linear',
+    ])
+
+    expect(
+      (await getCredProfilesBySlugWithPublicFallback(db, 'linear', '/org_abc/ws_engineering/service'))
+        .map(profile => profile.path),
+    ).toEqual([
+      '/org_abc/ws_engineering/linear',
+      '/org_abc/linear',
+    ])
+
+    expect(
+      (await getCredProfilesBySlugWithPublicFallback(db, 'linear', '/org_abc/ws_support'))
+        .map(profile => profile.path),
+    ).toEqual([
+      '/org_abc/linear',
+    ])
+
+    expect(
+      (await getCredProfilesBySlugWithPublicFallback(db, 'linear', '/org_xyz/ws_support'))
+        .map(profile => profile.path),
+    ).toEqual([
+      '/linear',
+    ])
+  })
+
   it('records revocations and manages auth flow lifecycle', async () => {
     expect(await isRevoked(db, 'rev-1')).toBe(false)
     await revokeToken(db, 'rev-1', 'user request')
