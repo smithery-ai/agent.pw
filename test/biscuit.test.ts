@@ -92,7 +92,7 @@ describe('biscuit helpers', () => {
     expect(pair.publicKey).toMatch(/^ed25519\//)
   })
 
-  it('extracts bare facts and maps legacy capability tokens to root rights', () => {
+  it('extracts bare facts only', () => {
     const bareToken = buildCustomToken([
       'user_id("legacy-user");',
       'org_id("legacy-org");',
@@ -107,68 +107,19 @@ describe('biscuit helpers', () => {
       scopes: ['repo'],
     })
 
-    const underscoreToken = buildCustomToken([
-      'apw_user_id("underscore-user");',
-      'apw_org_id("underscore-org");',
-      'apw_right("manage_services");',
-      'apw_scope("write");',
-    ].join('\n'))
-
-    expect(extractTokenFacts(underscoreToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: [
-        { action: 'credential.use', root: '/' },
-        { action: 'credential.bootstrap', root: '/' },
-        { action: 'credential.manage', root: '/' },
-        { action: 'profile.manage', root: '/' },
-      ],
-      userId: null,
-      orgId: null,
-      scopes: [],
-    })
-
-    const colonToken = buildCustomToken([
-      'apw:user_id("colon-user");',
-      'apw:org_id("colon-org");',
-      'apw:right("/colon-org", "credential.use");',
-      'apw:scope("repo");',
-    ].join('\n'))
-
-    expect(extractTokenFacts(colonToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: [{ action: 'credential.use', root: '/colon-org' }],
-      userId: 'colon-user',
-      orgId: 'colon-org',
-      scopes: ['repo'],
-    })
-
     const orgOnlyToken = buildCustomToken('org_id("org-only");')
     expect(extractUserId(orgOnlyToken, PUBLIC_KEY_HEX)).toBe('org-only')
   })
 
-  it('deduplicates legacy root-management capability tokens', () => {
-    const legacyManagementToken = buildCustomToken([
-      'user("legacy-admin");',
-      'apw_user_id("legacy-admin");',
-      'right("admin");',
-      'apw_right("manage_services");',
-    ].join('\n'))
-
-    expect(extractTokenFacts(legacyManagementToken, PUBLIC_KEY_HEX).rights).toEqual([
-      { action: 'credential.use', root: '/' },
-      { action: 'credential.bootstrap', root: '/' },
-      { action: 'credential.manage', root: '/' },
-      { action: 'profile.manage', root: '/' },
-    ])
-  })
-
-  it('authorizes legacy prefixed identity facts', () => {
-    const legacyToken = buildCustomToken([
-      'apw:user_id("legacy-user");',
-      'apw:org_id("legacy-org");',
-      'apw:right("/legacy-org", "profile.manage");',
+  it('authorizes bare identity facts', () => {
+    const bareToken = buildCustomToken([
+      'user_id("legacy-user");',
+      'org_id("legacy-org");',
+      'right("/legacy-org", "profile.manage");',
     ].join('\n'))
 
     expect(authorizeRequest(
-      legacyToken,
+      bareToken,
       PUBLIC_KEY_HEX,
       'api.example.com',
       'PUT',
@@ -189,7 +140,6 @@ describe('biscuit helpers', () => {
 
     expect(authorityLines).toContain('user_id("user_test_123");')
     expect(authorityLines).toContain(`right("/${TEST_ORG_ID}", "credential.manage");`)
-    expect(authorityLines).not.toContain('apw:user_id("user_test_123");')
     expect(authorityLines).not.toContain('right("credential.manage");')
 
     const restricted = restrictToken(token, PUBLIC_KEY_HEX, [
@@ -201,8 +151,6 @@ describe('biscuit helpers', () => {
     expect(block).toContain('resource($r)')
     expect(block).toContain('operation($op)')
     expect(block).toContain('path($p)')
-    expect(block).not.toContain('apw:resource')
-    expect(block).not.toContain('apw:operation')
     expect(block).not.toContain('requested_root')
   })
 

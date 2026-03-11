@@ -4,7 +4,7 @@
  * Identity and descendant-rights model:
  * - Authority block: identity and rights facts
  * - Attenuation blocks: checks that narrow service/method/path/TTL
- * - Authorizer: ambient request facts plus namespaced identity checks
+ * - Authorizer: ambient request facts plus bare identity checks
  * - Route handlers evaluate right(root, operation) against canonical object paths
  */
 
@@ -27,13 +27,6 @@ const RUN_LIMITS = {
 }
 
 const MAX_AUTHORIZE_RETRIES = 2 // first call may trigger WASM JIT and timeout; retry succeeds
-const LEGACY_MANAGEMENT_ACTIONS = [
-  'credential.use',
-  'credential.bootstrap',
-  'credential.manage',
-  'profile.manage',
-] as const
-
 function addPrefix(base64: string): string {
   return TOKEN_PREFIX + base64
 }
@@ -56,14 +49,6 @@ function normalizeFactStatement(fact: string): string {
   const trimmed = fact.trim()
   if (!trimmed) return ''
   return trimmed.endsWith(';') ? trimmed : `${trimmed};`
-}
-
-function legacyRightsForCapability(capability: string): TokenRight[] {
-  if (!['admin', 'manage_services'].includes(capability)) {
-    return []
-  }
-
-  return LEGACY_MANAGEMENT_ACTIONS.map(action => ({ action, root: '/' }))
 }
 
 export function parseTtlSeconds(ttl: string | number): number {
@@ -187,9 +172,7 @@ function buildAuthorizerCode(
   }
   lines.push(
     'allow if user_id($u);',
-    'allow if apw:user_id($u);',
     'allow if org_id($o);',
-    'allow if apw:org_id($o);',
     'deny if true;',
   )
   return lines.join('\n')
@@ -325,38 +308,29 @@ export function extractTokenFacts(
     const source = token.getBlockSource(0)
 
     const rights: TokenRight[] = []
-    const legacyCapabilities: string[] = []
     let userId: string | null = null
     let orgId: string | null = null
     const scopes: string[] = []
 
     for (const line of source.split('\n')) {
       const trimmed = line.trim().replace(/;$/, '')
-      const rightMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?right\("([^"]+)",\s*"([^"]+)"\)/)
+      const rightMatch = trimmed.match(/(?:^|[\s,])right\("([^"]+)",\s*"([^"]+)"\)/)
       if (rightMatch) {
-        const [first, second] = [rightMatch[1], rightMatch[2]]
         rights.push({
-          action: first.startsWith('/') ? second : first,
-          root: first.startsWith('/') ? first : second,
+          root: rightMatch[1],
+          action: rightMatch[2],
         })
       }
-      const legacyRightMatch = trimmed.match(/(?:^|[\s,])(?:apw:right|apw_right|right)\("([^"]+)"\)/)
-      if (legacyRightMatch) {
-        legacyCapabilities.push(legacyRightMatch[1])
-      }
-      const userMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?user_id\("([^"]+)"\)/)
+      const userMatch = trimmed.match(/(?:^|[\s,])user_id\("([^"]+)"\)/)
       if (userMatch) userId = userMatch[1]
-      const orgMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?org_id\("([^"]+)"\)/)
+      const orgMatch = trimmed.match(/(?:^|[\s,])org_id\("([^"]+)"\)/)
       if (orgMatch) orgId = orgMatch[1]
-      const scopeMatch = trimmed.match(/(?:^|[\s,])(?:apw:)?scope\("([^"]+)"\)/)
+      const scopeMatch = trimmed.match(/(?:^|[\s,])scope\("([^"]+)"\)/)
       if (scopeMatch) scopes.push(scopeMatch[1])
     }
 
     return {
-      rights: [
-        ...rights,
-        ...legacyCapabilities.flatMap(legacyRightsForCapability),
-      ].filter((right, index, all) =>
+      rights: rights.filter((right, index, all) =>
         all.findIndex(candidate => candidate.action === right.action && candidate.root === right.root) === index,
       ),
       userId,

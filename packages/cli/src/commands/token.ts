@@ -36,17 +36,16 @@ export async function inspectTokenCmd() {
 
   for (const line of authority.split('\n')) {
     const t = line.trim().replace(/;$/, '')
-    const userMatch = t.match(/(?:apw:)?user_id\("([^"]+)"\)/)
+    const userMatch = t.match(/user_id\("([^"]+)"\)/)
     if (userMatch) userId = userMatch[1]
-    const orgMatch = t.match(/(?:apw:)?org_id\("([^"]+)"\)/)
+    const orgMatch = t.match(/org_id\("([^"]+)"\)/)
     if (orgMatch) orgId = orgMatch[1]
-    const rightMatch = t.match(/(?:apw:)?right\("([^"]+)",\s*"([^"]+)"\)/)
+    const rightMatch = t.match(/right\("([^"]+)",\s*"([^"]+)"\)/)
     if (rightMatch) {
-      const [first, second] = [rightMatch[1], rightMatch[2]]
-      const right = first.startsWith('/') ? `${second}@${first}` : `${first}@${second}`
+      const right = `${rightMatch[2]}@${rightMatch[1]}`
       if (!rights.includes(right)) rights.push(right)
     }
-    const scopeMatch = t.match(/(?:apw:)?scope\("([^"]+)"\)/)
+    const scopeMatch = t.match(/scope\("([^"]+)"\)/)
     if (scopeMatch && !scopes.includes(scopeMatch[1])) scopes.push(scopeMatch[1])
   }
 
