@@ -316,6 +316,97 @@ describe('credential management within descendant roots', () => {
   })
 })
 
+describe('Move credential (PATCH)', () => {
+  it('can move credential to a deeper path within own org', async () => {
+    await storeCredentialAtPath('move-cred', 'api.example.com', 'secret', `/${ORG_A}`)
+
+    const token = mintTestToken(ORG_A, ['credential.manage'])
+    const res = await req('/credentials/move-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/production/move-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as { ok: true; path: string }
+    expect(data.path).toBe(`/${ORG_A}/production/move-cred`)
+  })
+
+  it('rejects move to another orgs path', async () => {
+    await storeCredentialAtPath('cross-cred', 'api.example.com', 'secret', `/${ORG_A}`)
+
+    const token = mintTestToken(ORG_A, ['credential.manage'])
+    const res = await req('/credentials/cross-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_B}/cross-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('rejects move when credential does not exist', async () => {
+    const token = mintTestToken(ORG_A, ['credential.manage'])
+    const res = await req('/credentials/ghost-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/new/ghost-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('rejects move with invalid target path', async () => {
+    const token = mintTestToken(ORG_A, ['credential.manage'])
+    const res = await req('/credentials/bad-move', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: 'no-leading-slash/bad-move',
+        host: 'api.example.com',
+      }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects move when target path name does not match', async () => {
+    await storeCredentialAtPath('mismatch-cred', 'api.example.com', 'secret', `/${ORG_A}`)
+
+    const token = mintTestToken(ORG_A, ['credential.manage'])
+    const res = await req('/credentials/mismatch-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/other-name`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects move when target already has a credential', async () => {
+    await storeCredentialAtPath('dup-cred', 'api.example.com', 'secret-1', `/${ORG_A}`)
+    await storeCredentialAtPath('dup-cred', 'api.example.com', 'secret-2', `/${ORG_A}/production`)
+
+    const token = mintTestToken(ORG_A, ['credential.manage'])
+    const res = await req('/credentials/dup-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/production/dup-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(res.status).toBe(409)
+  })
+})
+
 describe('list credentials with path filter', () => {
   it('filters results to a specific path prefix', async () => {
     await storeCredentialAtPath('top-cred', 'api.example.com', 'top-secret', `/${ORG_A}`)
