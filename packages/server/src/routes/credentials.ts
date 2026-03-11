@@ -78,17 +78,24 @@ function pickDeepestProfile<T extends { path: string }>(matches: T[]) {
   return { selected: matches[0], conflicts: [] as T[] }
 }
 
+const CredentialListQuerySchema = PaginationQuerySchema.extend({
+  path: z.string().optional().meta({
+    description: 'Filter to credentials under this path prefix',
+    example: '/org_ruzo',
+  }),
+})
+
 credentialRoutes.get('/', requireToken,
   describeRoute({
     tags: ['credentials'],
     summary: 'List credentials',
-    description: 'List credentials accessible to this token with cursor-based pagination.',
+    description: 'List credentials accessible to this token with cursor-based pagination. Optionally filter by path prefix.',
     responses: {
       200: { description: 'Paginated list of credentials', content: { 'application/json': { schema: resolver(CredentialListPageSchema) } } },
       400: { description: 'Invalid pagination cursor', content: { 'application/json': { schema: resolver(CredentialErrorSchema) } } },
     },
   }),
-  zValidator('query', PaginationQuerySchema),
+  zValidator('query', CredentialListQuerySchema),
   async c => {
     const db = c.get('db')
     const facts = c.get('tokenFacts')
@@ -104,6 +111,7 @@ credentialRoutes.get('/', requireToken,
       const page = await listCredentialsAccessiblePage(db, {
         limit: query.limit,
         roots,
+        pathPrefix: query.path,
         after: cursor
           ? {
             createdAt: new Date(cursor.createdAt),

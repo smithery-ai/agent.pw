@@ -316,6 +316,27 @@ describe('credential management within descendant roots', () => {
   })
 })
 
+describe('list credentials with path filter', () => {
+  it('filters results to a specific path prefix', async () => {
+    await storeCredentialAtPath('top-cred', 'api.example.com', 'top-secret', `/${ORG_A}`)
+    await storeCredentialAtPath('sub-cred', 'api.example.com', 'sub-secret', `/${ORG_A}/team`)
+
+    const token = mintTestToken(ORG_A, ['credential.use', 'credential.manage'])
+
+    // Without filter — both visible
+    const all = await req('/credentials', { headers: withToken(token) })
+    const allNames = ((await all.json()) as { data: { name: string }[] }).data.map(c => c.name)
+    expect(allNames).toContain('top-cred')
+    expect(allNames).toContain('sub-cred')
+
+    // With path filter — only sub-cred
+    const filtered = await req(`/credentials?path=${encodeURIComponent(`/${ORG_A}/team`)}`, { headers: withToken(token) })
+    expect(filtered.status).toBe(200)
+    const filteredNames = ((await filtered.json()) as { data: { name: string }[] }).data.map(c => c.name)
+    expect(filteredNames).toEqual(['sub-cred'])
+  })
+})
+
 describe('creation at own path or deeper', () => {
   it('allows creation at the caller path or deeper and blocks creation above it', async () => {
     const token = mintTestToken(ORG_A, ['credential.bootstrap'])

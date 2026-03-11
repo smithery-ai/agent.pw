@@ -282,6 +282,7 @@ export async function listCredentialsAccessiblePage(
   options: {
     limit: number
     roots: string[]
+    pathPrefix?: string
     after?: {
       createdAt: Date
       path: string
@@ -293,13 +294,20 @@ export async function listCredentialsAccessiblePage(
     return takePage([], options.limit)
   }
 
+  const conditions: SQL<unknown>[] = [
+    pathWithinAnyRootCondition(credentials.path, options.roots),
+  ]
+  if (options.pathPrefix) {
+    conditions.push(pathWithinRootCondition(credentials.path, options.pathPrefix))
+  }
+  if (options.after) {
+    conditions.push(afterCredentialCursorCondition(options.after))
+  }
+
   const rows = await db
     .select()
     .from(credentials)
-    .where(and(
-      pathWithinAnyRootCondition(credentials.path, options.roots),
-      options.after ? afterCredentialCursorCondition(options.after) : sql`true`,
-    ))
+    .where(and(...conditions))
     .orderBy(desc(credentials.createdAt), asc(credentials.path), asc(credentials.host))
     .limit(options.limit + 1)
 
