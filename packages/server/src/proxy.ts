@@ -7,6 +7,7 @@ import {
   getRevocationIds,
 } from './biscuit'
 import {
+  createAuthFlow,
   getCredProfilesByHostWithPublicFallback,
   getCredProfilesBySlugWithPublicFallback,
   getCredential,
@@ -31,6 +32,7 @@ import {
   validatePath,
 } from './paths'
 import { coveringRootsForPath, rootsForAction } from './rights'
+import { randomId } from './lib/utils'
 
 function pickDeepestMatches<T extends { path: string }>(matches: T[]) {
   if (matches.length === 0) {
@@ -79,14 +81,21 @@ function buildAuthorizationUri(
   authBaseUrl: string | undefined,
   profileSlug: string | undefined,
   hostname: string,
+  flowId?: string,
 ) {
   if (!authBaseUrl) return undefined
 
-  const returnTo = profileSlug
+  const path = profileSlug
     ? `/auth/${encodeURIComponent(profileSlug)}`
-    : `/auth/manual?target=${encodeURIComponent(hostname)}`
-
-  return `${authBaseUrl.replace(/\/$/, '')}/auth/login?return_to=${encodeURIComponent(returnTo)}`
+    : '/auth/manual'
+  const target = new URL(`${authBaseUrl.replace(/\/$/, '')}${path}`)
+  if (!profileSlug) {
+    target.searchParams.set('target', hostname)
+  }
+  if (flowId) {
+    target.searchParams.set('flow_id', flowId)
+  }
+  return target.toString()
 }
 
 export function extractBearerToken(header: string | undefined): string | null {
@@ -428,11 +437,25 @@ export async function handleProxy(
   }
 
   if (upstream.status === 401 && !cred && !explicitAuthorization) {
+    const flowId = randomId()
+    await createAuthFlow(db, {
+      id: flowId,
+      profilePath: profile?.path,
+      method: 'api_key',
+      scopePath: requestedRoot,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    })
+
     const responseHeaders = new Headers(upstream.headers)
     responseHeaders.append('WWW-Authenticate', buildAgentPwChallenge({
       target_host: hostname,
       profile: profile?.path,
-      authorization_uri: buildAuthorizationUri(c.env.CLI_AUTH_BASE_URL, profile?.path, hostname),
+      authorization_uri: buildAuthorizationUri(
+        c.env.CLI_AUTH_BASE_URL,
+        profile ? credentialName(profile.path) : undefined,
+        hostname,
+        flowId,
+      ),
     }))
 
     return new Response(upstream.body, {

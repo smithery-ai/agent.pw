@@ -238,8 +238,8 @@ describe('Core Scenario Flows', () => {
     expect(bootstrap.headers.get('www-authenticate')).toContain('AgentPW')
     expect(bootstrap.headers.get('www-authenticate')).toContain(`profile="/${TEST_ORG_ID}/github"`)
     expect(bootstrap.headers.get('www-authenticate')).toContain('target_host="api.github.com"')
-    expect(bootstrap.headers.get('www-authenticate')).toContain(
-      `authorization_uri="https://agent.pw/auth/login?return_to=%2Fauth%2F%252F${TEST_ORG_ID}%252Fgithub"`,
+    expect(bootstrap.headers.get('www-authenticate')).toMatch(
+      /authorization_uri="https:\/\/agent\.pw\/auth\/github\?flow_id=[0-9a-f]+"/,
     )
 
     const privateTarget = await req('/proxy/127.0.0.1/admin', {
