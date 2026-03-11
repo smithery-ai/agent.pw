@@ -25,8 +25,15 @@ type WorkOsAuthResponse = {
   }
 }
 
-export async function login(host?: string) {
+export async function login(host?: string, token?: string) {
   const targetHost = (host ?? DEFAULT_MANAGED_HOST).replace(/\/$/, '')
+
+  // Direct token login — skip device flow
+  if (token) {
+    writeManagedSession({ host: targetHost, token })
+    console.log(`Logged in to ${targetHost}`)
+    return
+  }
   const config = await fetchCliAuthConfig(targetHost)
   if (config.provider !== 'workos_device') {
     console.error(`This host does not support cloud login.`)

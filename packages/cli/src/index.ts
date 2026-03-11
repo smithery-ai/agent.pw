@@ -33,9 +33,10 @@ program
   .command('login')
   .description('Log in to agent.pw')
   .option('--host <url>', 'Target host')
+  .option('--token <token>', 'Use a pre-minted token instead of browser login')
   .action(async (opts) => {
     const { login } = await import('./commands/login')
-    return login(opts.host)
+    return login(opts.host, opts.token)
   })
 
 program
