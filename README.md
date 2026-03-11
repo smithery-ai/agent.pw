@@ -1,5 +1,7 @@
 # agent.pw
 
+[![npm version](https://img.shields.io/npm/v/agent.pw)](https://www.npmjs.com/package/agent.pw)
+
 The password manager for AI agents. An authenticated proxy that stores credentials and injects them on matching requests — agents never see raw secrets.
 
 <p>
