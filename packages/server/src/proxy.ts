@@ -25,7 +25,6 @@ import { refreshOAuthToken } from './lib/oauth-refresh'
 import { isDnsError } from './lib/dns'
 import {
   credentialName,
-  joinCredentialPath,
   pathDepth,
   resolvePathReference,
   isAncestorOrEqual,
