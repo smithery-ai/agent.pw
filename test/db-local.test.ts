@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { createDb, createLocalDb } from '@agent.pw/server/db'
 
@@ -26,22 +26,27 @@ describe('db entrypoints', () => {
     }
   })
 
-  it('runs local drizzle migrations from the repo root', async () => {
+  it('bootstraps the local schema for PGlite', async () => {
     let db: Awaited<ReturnType<typeof createLocalDb>> | undefined
     const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-migrate-'))
     try {
-      vi.resetModules()
-      vi.doMock('drizzle-orm/pglite/migrator', () => ({
-        migrate: vi.fn().mockResolvedValue(undefined),
-      }))
-
       const { migrateLocal } = await import('@agent.pw/server/db/migrate-local')
-      const { migrate } = await import('drizzle-orm/pglite/migrator')
       db = await createLocalDb(dataDir)
       await migrateLocal(db)
-      expect(migrate).toHaveBeenCalledWith(expect.anything(), {
-        migrationsFolder: expect.stringMatching(/[\\/]drizzle$/),
-      })
+
+      const result = await db.execute(sql`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'agentpw'
+        ORDER BY table_name
+      `)
+
+      expect(result.rows.map(row => row.table_name)).toEqual([
+        'auth_flows',
+        'cred_profiles',
+        'credentials',
+        'revocations',
+      ])
     } finally {
       await closeLocalDb(db)
       await rm(dataDir, { recursive: true, force: true })

@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/pglite'
-import { sql } from 'drizzle-orm'
 import * as schema from '@agent.pw/server/db/schema'
+import { bootstrapLocalSchema } from '../packages/server/src/db/bootstrap-local'
 import { mintToken } from '@agent.pw/server/biscuit'
 import type { TokenRight } from '@agent.pw/server/types'
 
@@ -55,56 +55,7 @@ export function mintTestToken(
 
 export async function createTestDb() {
   const db = drizzle({ connection: { dataDir: 'memory://' }, schema })
-
-  await db.execute(sql`CREATE SCHEMA IF NOT EXISTS agentpw`)
-
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.cred_profiles (
-      path TEXT PRIMARY KEY,
-      host JSONB NOT NULL,
-      auth JSONB,
-      managed_oauth JSONB,
-      display_name TEXT,
-      description TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      updated_at TIMESTAMP NOT NULL DEFAULT now()
-    )
-  `)
-
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.credentials (
-      host TEXT NOT NULL,
-      path TEXT NOT NULL,
-      auth JSONB NOT NULL,
-      secret BYTEA NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      updated_at TIMESTAMP NOT NULL DEFAULT now(),
-      PRIMARY KEY (host, path)
-    )
-  `)
-
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.revocations (
-      revocation_id TEXT PRIMARY KEY,
-      revoked_at TIMESTAMP NOT NULL DEFAULT now(),
-      reason TEXT
-    )
-  `)
-
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.auth_flows (
-      id TEXT PRIMARY KEY,
-      profile_path TEXT,
-      method TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      code_verifier TEXT,
-      scope_path TEXT,
-      token TEXT,
-      identity TEXT,
-      expires_at TIMESTAMP NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT now()
-    )
-  `)
+  await bootstrapLocalSchema(db)
 
   return db
 }
