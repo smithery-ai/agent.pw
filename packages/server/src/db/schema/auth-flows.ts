@@ -1,6 +1,6 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
-import { agentpwSchema } from './agentpw-schema'
-import { credProfiles } from './cred-profiles'
+import { agentpwSchema } from './agentpw-schema.js'
+import { credProfiles } from './cred-profiles.js'
 
 export const authFlowMethodEnum = agentpwSchema.enum('auth_flow_method', ['oauth', 'api_key'])
 export const authFlowStatusEnum = agentpwSchema.enum('auth_flow_status', ['pending', 'completed'])

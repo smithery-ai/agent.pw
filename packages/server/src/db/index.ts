@@ -1,7 +1,7 @@
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js'
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
 import postgres from 'postgres'
-import * as schema from './schema'
+import * as schema from './schema/index.js'
 
 type PostgresDatabase = ReturnType<typeof drizzlePg<typeof schema>>
 type PgliteDatabase = ReturnType<typeof drizzlePglite<typeof schema>>
