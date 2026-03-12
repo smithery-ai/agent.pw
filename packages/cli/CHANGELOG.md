@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.1.0...agent.pw-v0.1.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* inherit profile visibility from ancestors ([#69](https://github.com/smithery-ai/agent.pw/issues/69)) ([e5f6ed8](https://github.com/smithery-ai/agent.pw/commit/e5f6ed8d2b462479d531bad82752c91f42303088))
+* ship biscuit wasm with cli ([#78](https://github.com/smithery-ai/agent.pw/issues/78)) ([c17b330](https://github.com/smithery-ai/agent.pw/commit/c17b3309587e38af3a2895a2de2bfee1adc0536d))
+
 ## 0.1.0 (2026-03-11)
 
 
