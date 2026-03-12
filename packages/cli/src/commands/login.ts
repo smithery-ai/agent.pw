@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import { writeManagedSession } from '../config'
 import { DEFAULT_MANAGED_HOST } from '../resolve'
 
@@ -29,16 +30,20 @@ type LoginOptions = {
   skipNextSteps?: boolean
 }
 
+const canColor = process.stderr.isTTY ?? false
+const bold = (s: string) => canColor ? `\x1b[1m${s}\x1b[0m` : s
+const underline = (s: string) => canColor ? `\x1b[4m${s}\x1b[0m` : s
+const dim = (s: string) => canColor ? `\x1b[2m${s}\x1b[0m` : s
+
 export async function login(host?: string, token?: string, options: LoginOptions = {}) {
   const targetHost = (host ?? DEFAULT_MANAGED_HOST).replace(/\/$/, '')
+  const { skipNextSteps = false } = options
 
   // Direct token login — skip device flow
   if (token) {
     writeManagedSession({ host: targetHost, token })
-    console.log(`Logged in to ${targetHost}`)
-    if (!options.skipNextSteps) {
-      printNextSteps()
-    }
+    console.error(`Logged in to ${targetHost}`)
+    printNextSteps(skipNextSteps)
     return
   }
   const config = await fetchCliAuthConfig(targetHost)
@@ -49,14 +54,31 @@ export async function login(host?: string, token?: string, options: LoginOptions
   }
 
   const device = await requestDeviceAuthorization(config.clientId)
-  printDeviceInstructions(device)
-  await openBrowser(device.verification_uri_complete ?? device.verification_uri)
+  const verificationUrl = device.verification_uri_complete ?? device.verification_uri
+  const browserOpened = tryOpenBrowser(verificationUrl)
+  printDeviceInstructions(device, browserOpened)
+
+  const interactiveStderr = process.stderr.isTTY ?? false
+  if (interactiveStderr) {
+    process.stderr.write(dim('Waiting for authentication...'))
+  } else {
+    console.error('Waiting for authentication...')
+  }
 
   const auth = await pollForTokens({
     clientId: config.clientId,
     deviceCode: device.device_code,
     expiresIn: device.expires_in ?? 300,
     interval: device.interval ?? 5,
+    onPoll: () => {
+      if (interactiveStderr) {
+        process.stderr.write('.')
+      }
+    },
+  }).finally(() => {
+    if (interactiveStderr) {
+      process.stderr.write('\r\x1b[2K')
+    }
   })
 
   const exchangeUrl = config.exchangeUrl ?? `${targetHost}/auth/cli/exchange`
@@ -74,10 +96,8 @@ export async function login(host?: string, token?: string, options: LoginOptions
 
   const data = await exchange.json() as { token: string }
   writeManagedSession({ host: targetHost, token: data.token })
-  console.log(`Logged in to ${targetHost}`)
-  if (!options.skipNextSteps) {
-    printNextSteps()
-  }
+  console.error(`Logged in to ${targetHost}`)
+  printNextSteps(skipNextSteps)
 }
 
 async function fetchCliAuthConfig(targetHost: string): Promise<CliAuthConfig> {
@@ -111,16 +131,19 @@ async function pollForTokens({
   deviceCode,
   expiresIn,
   interval,
+  onPoll,
 }: {
   clientId: string
   deviceCode: string
   expiresIn: number
   interval: number
+  onPoll?: () => void
 }): Promise<WorkOsAuthResponse> {
   const startedAt = Date.now()
   let delaySeconds = interval
 
   while (Date.now() - startedAt < expiresIn * 1000) {
+    onPoll?.()
     const res = await fetch('https://api.workos.com/user_management/authenticate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -156,24 +179,56 @@ async function pollForTokens({
   throw new Error('Authentication timed out before it was completed.')
 }
 
-function printDeviceInstructions(device: DeviceAuthorizationResponse) {
-  console.log('Open the browser to authenticate with agent.pw.')
-  console.log(`Code: ${device.user_code}`)
-  console.log(`Verify at: ${device.verification_uri}`)
-  if (device.verification_uri_complete) {
-    console.log(`Or open directly: ${device.verification_uri_complete}`)
+function printDeviceInstructions(device: DeviceAuthorizationResponse, browserOpened: boolean) {
+  const verificationUrl = device.verification_uri_complete ?? device.verification_uri
+
+  console.error('')
+  console.error(
+    browserOpened
+      ? "A browser window should have opened. If it didn't, open the link below:"
+      : 'Open the link below in your browser to log in:',
+  )
+  console.error(bold(underline(verificationUrl)))
+  console.error(`Code: ${bold(device.user_code)}`)
+  console.error('')
+}
+
+function tryOpenBrowser(url: string) {
+  if (
+    process.env.SSH_CLIENT
+    || process.env.SSH_TTY
+    || process.env.CODESPACES
+    || process.env.REMOTE_CONTAINERS
+    || !process.stdout.isTTY
+  ) {
+    return false
+  }
+
+  const quotedUrl = JSON.stringify(url)
+  const openCommand = process.platform === 'darwin'
+    ? `open ${quotedUrl}`
+    : process.platform === 'win32'
+      ? `start "" ${quotedUrl}`
+      : `xdg-open ${quotedUrl}`
+
+  try {
+    execSync(openCommand, {
+      stdio: 'ignore',
+      timeout: 5000,
+    })
+    return true
+  } catch {
+    return false
   }
 }
 
-async function openBrowser(url: string) {
-  const { exec } = await import('node:child_process')
-  const open = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open'
-  exec(`${open} "${url}"`)
-}
+function printNextSteps(skipNextSteps = false) {
+  if (skipNextSteps) {
+    return
+  }
 
-function printNextSteps() {
-  console.log('')
-  console.log('Tip: run `npx agent.pw init` in your project to install the agent skill.')
+  console.error('')
+  console.error('Tip: run `npx agent.pw init` in your project to install the agent skill.')
 }
 
 function sleep(ms: number) {
