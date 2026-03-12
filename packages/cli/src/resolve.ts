@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readConfig, getPidFile, readManagedSession, readTokenStack } from './config'
 
-export interface ResolvedEndpoint {
+interface ResolvedEndpoint {
   url: string
   token: string
 }

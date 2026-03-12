@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from '
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
-export interface AgentPwConfig {
+interface AgentPwConfig {
   biscuitPrivateKey: string
   masterToken: string
   port: number
@@ -28,7 +28,7 @@ export function readConfig(): AgentPwConfig | null {
 
 // ─── Managed Session ──────────────────────────────────────────────────────
 
-export interface ManagedSession {
+interface ManagedSession {
   host: string
   token: string
 }
