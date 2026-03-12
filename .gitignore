@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.dev.vars
+.env
+.env.*
+.env*.local
+.context/
+.infisical.json
+drizzle/

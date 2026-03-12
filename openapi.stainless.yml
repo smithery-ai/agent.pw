@@ -1,0 +1,105 @@
+# yaml-language-server: $schema=https://app.stainless.com/config.schema.json
+
+edition: 2025-10-10
+
+organization:
+  name: agent.pw
+  docs: 'https://agent.pw/docs'
+  contact: 'contact@smithery.ai'
+
+targets:
+  typescript:
+    edition: typescript.2025-10-10
+    package_name: '@agent.pw/sdk'
+    production_repo: null
+    staging_repo: 'stainless-sdks/agent.pw-typescript'
+    publish:
+      npm:
+        auth_method: oidc
+
+environments:
+  production: https://api.agent.pw
+
+pagination:
+  - name: cursor_page
+    type: cursor
+    request:
+      cursor:
+        type: string
+        x-stainless-pagination-property:
+          purpose: next_cursor_param
+      limit:
+        type: integer
+    response:
+      data:
+        type: array
+        items:
+          type: unknown
+        x-stainless-pagination-property:
+          purpose: items
+      nextCursor:
+        type: string
+        x-stainless-pagination-property:
+          purpose: next_cursor_field
+      hasMore:
+        type: boolean
+        x-stainless-pagination-property:
+          purpose: has_next_page
+
+resources:
+  health:
+    methods:
+      check: get /
+
+  profiles:
+    methods:
+      list:
+        endpoint: get /cred_profiles
+        paginated: cursor_page
+      get: get /cred_profiles/{slug}
+      create: put /cred_profiles/{slug}
+      delete: delete /cred_profiles/{slug}
+
+  credentials:
+    methods:
+      list:
+        endpoint: get /credentials
+        paginated: cursor_page
+      store: put /credentials/{name}
+      delete: delete /credentials/{name}
+
+  tokens:
+    methods:
+      restrict: post /tokens/restrict
+      inspect: post /tokens/inspect
+      revoke: post /tokens/revoke
+
+settings:
+  disable_mock_tests: true
+  license: Apache-2.0
+
+client_settings:
+  opts:
+    api_key:
+      type: string
+      nullable: false
+      auth:
+        security_scheme: bearerAuth
+      description: agent.pw Biscuit token sent in the Authorization header
+      read_env: AGENT_PW_API_KEY
+
+readme:
+  example_requests:
+    default:
+      type: request
+      endpoint: get /
+      params: {}
+    headline:
+      type: request
+      endpoint: get /cred_profiles
+      params: {}
+    pagination:
+      type: request
+      endpoint: get /cred_profiles
+      params:
+        limit: 30

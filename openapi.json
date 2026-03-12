@@ -1,0 +1,1456 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "agent.pw API",
+    "description": "API for managing credential profiles, credentials, tokens, and proxying authenticated requests.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.agent.pw"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Biscuit bearer token"
+      }
+    },
+    "schemas": {
+      "ApiKeyScheme": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "apiKey"
+          },
+          "in": {
+            "default": "header",
+            "type": "string",
+            "enum": [
+              "header",
+              "query",
+              "cookie"
+            ]
+          },
+          "name": {
+            "default": "Authorization",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "in",
+          "name"
+        ],
+        "additionalProperties": false,
+        "id": "ApiKeyScheme"
+      },
+      "HttpScheme": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "http"
+          },
+          "scheme": {
+            "type": "string",
+            "enum": [
+              "bearer",
+              "basic"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "scheme"
+        ],
+        "additionalProperties": false,
+        "id": "HttpScheme"
+      },
+      "OAuth2Scheme": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "oauth2"
+          },
+          "authorizeUrl": {
+            "type": "string"
+          },
+          "tokenUrl": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "authorizeUrl",
+          "tokenUrl"
+        ],
+        "additionalProperties": false,
+        "id": "OAuth2Scheme"
+      },
+      "AuthScheme": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ApiKeyScheme"
+          },
+          {
+            "$ref": "#/components/schemas/HttpScheme"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2Scheme"
+          }
+        ]
+      },
+      "CredProfile": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Unique profile identifier",
+            "example": "linear"
+          },
+          "host": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Hostnames this profile applies to",
+            "example": [
+              "api.linear.app"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Path in the hierarchy",
+            "example": "/"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable display name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Profile description"
+          },
+          "authSchemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthScheme"
+            },
+            "description": "Supported authentication schemes from the profile auth config",
+            "example": [
+              {
+                "type": "oauth2",
+                "authorizeUrl": "https://linear.app/oauth/authorize",
+                "tokenUrl": "https://api.linear.app/oauth/token"
+              }
+            ]
+          },
+          "managedOauthConfigured": {
+            "type": "boolean",
+            "description": "Whether this profile has enough managed OAuth config to start a managed connection",
+            "example": true
+          }
+        },
+        "required": [
+          "slug",
+          "host",
+          "path",
+          "displayName",
+          "description",
+          "authSchemes",
+          "managedOauthConfigured"
+        ],
+        "additionalProperties": false
+      },
+      "CredProfileDetail": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Unique profile identifier",
+            "example": "linear"
+          },
+          "host": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Hostnames this profile applies to",
+            "example": [
+              "api.linear.app"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Path in the hierarchy",
+            "example": "/"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable display name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Profile description"
+          },
+          "authSchemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthScheme"
+            },
+            "description": "Supported authentication schemes from the profile auth config",
+            "example": [
+              {
+                "type": "oauth2",
+                "authorizeUrl": "https://linear.app/oauth/authorize",
+                "tokenUrl": "https://api.linear.app/oauth/token"
+              }
+            ]
+          },
+          "managedOauthConfigured": {
+            "type": "boolean",
+            "description": "Whether this profile has enough managed OAuth config to start a managed connection",
+            "example": true
+          },
+          "auth": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Auth configuration (OAuth or headers)"
+          }
+        },
+        "required": [
+          "slug",
+          "host",
+          "path",
+          "displayName",
+          "description",
+          "authSchemes",
+          "managedOauthConfigured",
+          "auth"
+        ],
+        "additionalProperties": false
+      },
+      "CredProfileListPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CredProfile"
+            }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether more items remain after this page"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor to request the next page"
+          }
+        },
+        "required": [
+          "data",
+          "hasMore",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "CreateCredProfileRequest": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Hostnames this profile applies to"
+          },
+          "path": {
+            "description": "Path for this profile (defaults to token path)",
+            "example": "/",
+            "type": "string"
+          },
+          "auth": {
+            "description": "Auth configuration",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "managedOauth": {
+            "description": "Managed OAuth config",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "displayName": {
+            "description": "Human-readable display name",
+            "type": "string"
+          },
+          "description": {
+            "description": "Profile description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Profile not found"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Ok": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      },
+      "OkWithSlug": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "slug"
+        ],
+        "additionalProperties": false
+      },
+      "Credential": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Credential name",
+            "example": "linear"
+          },
+          "host": {
+            "type": "string",
+            "description": "Target hostname",
+            "example": "api.linear.app"
+          },
+          "path": {
+            "type": "string",
+            "description": "Full credential path",
+            "example": "/org_ruzo/linear"
+          },
+          "authKind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credential auth kind",
+            "example": "headers"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp"
+          }
+        },
+        "required": [
+          "name",
+          "host",
+          "path",
+          "authKind",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "CredentialError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "CredentialListPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether more items remain after this page"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor to request the next page"
+          }
+        },
+        "required": [
+          "data",
+          "hasMore",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "CreateCredentialRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "description": "API token or secret",
+            "type": "string"
+          },
+          "headers": {
+            "description": "Explicit header map to send on proxied requests",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "host": {
+            "description": "Target hostname for this credential",
+            "example": "api.linear.app",
+            "type": "string"
+          },
+          "profile": {
+            "description": "Credential profile slug to derive the target host from",
+            "example": "linear",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full credential path (defaults to token path + name)",
+            "example": "/org_ruzo/linear",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeleteCredentialQuery": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Full credential path to delete",
+            "example": "/org_ruzo/linear",
+            "type": "string"
+          },
+          "host": {
+            "description": "Target hostname for the credential",
+            "example": "api.linear.app",
+            "type": "string"
+          },
+          "profile": {
+            "description": "Profile slug to resolve the hostname when host is omitted",
+            "example": "linear",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "InspectTokenRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Token to inspect"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "InspectTokenResponse": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "const": true
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "orgId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rights": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "root": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action",
+                "root"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "homePath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "valid",
+          "userId",
+          "orgId",
+          "rights",
+          "homePath",
+          "scopes"
+        ],
+        "additionalProperties": false
+      },
+      "RestrictTokenRequest": {
+        "type": "object",
+        "properties": {
+          "constraints": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actions": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "hosts": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "roots": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "services": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "methods": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "DELETE",
+                        "PATCH",
+                        "HEAD",
+                        "OPTIONS"
+                      ]
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "GET",
+                          "POST",
+                          "PUT",
+                          "DELETE",
+                          "PATCH",
+                          "HEAD",
+                          "OPTIONS"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "paths": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "ttl": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Attenuation constraints to append to the current token"
+          }
+        },
+        "required": [
+          "constraints"
+        ],
+        "additionalProperties": false
+      },
+      "RestrictTokenResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "token": {
+            "type": "string",
+            "description": "Restricted child token"
+          }
+        },
+        "required": [
+          "ok",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "RevokeTokenRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "description": "Reason for revoking the token",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RevokeTokenResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "revokedIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of revoked token block IDs"
+          }
+        },
+        "required": [
+          "ok",
+          "revokedIds"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "health",
+      "description": "Health check"
+    },
+    {
+      "name": "cred_profiles",
+      "description": "Credential profile management"
+    },
+    {
+      "name": "credentials",
+      "description": "Credential storage and retrieval"
+    },
+    {
+      "name": "tokens",
+      "description": "Token management"
+    },
+    {
+      "name": "proxy",
+      "description": "Authenticated proxy"
+    },
+    {
+      "name": "auth",
+      "description": "Authentication endpoints"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "getIndex",
+        "tags": [
+          "health"
+        ],
+        "summary": "Health check",
+        "description": "Returns a list of configured credential profiles with credential counts.",
+        "responses": {
+          "200": {
+            "description": "Health status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "credentialCount": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "credentialCount"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "profiles"
+                  ],
+                  "id": "HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/credentials": {
+      "get": {
+        "operationId": "getCredentials",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "List credentials",
+        "description": "List credentials accessible to this token with cursor-based pagination. Optionally filter by path prefix.",
+        "responses": {
+          "200": {
+            "description": "Paginated list of credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialListPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "example": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum number of items to return (1-100)"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "example": "eyJzbHVnIjoiL2dpdGh1YiJ9",
+              "type": "string"
+            },
+            "description": "Opaque cursor returned by a previous list response"
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "example": "/org_ruzo",
+              "type": "string"
+            },
+            "description": "Filter to credentials under this path prefix"
+          }
+        ]
+      }
+    },
+    "/credentials/{name}": {
+      "put": {
+        "operationId": "putCredentialsByName",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Store credential",
+        "description": "Create or update a credential for a service. Provide either a token or explicit headers.",
+        "responses": {
+          "200": {
+            "description": "Credential stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "name",
+                    "path"
+                  ],
+                  "id": "CredentialStored"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Profile not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCredentialRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "deleteCredentialsByName",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Delete credential",
+        "description": "Delete a credential by name plus host/path context.",
+        "responses": {
+          "200": {
+            "description": "Credential deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Credential not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "example": "/org_ruzo/linear",
+              "type": "string"
+            },
+            "description": "Full credential path to delete"
+          },
+          {
+            "in": "query",
+            "name": "host",
+            "schema": {
+              "example": "api.linear.app",
+              "type": "string"
+            },
+            "description": "Target hostname for the credential"
+          },
+          {
+            "in": "query",
+            "name": "profile",
+            "schema": {
+              "example": "linear",
+              "type": "string"
+            },
+            "description": "Profile slug to resolve the hostname when host is omitted"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ]
+      }
+    },
+    "/cred_profiles": {
+      "get": {
+        "operationId": "getCredProfiles",
+        "tags": [
+          "cred_profiles"
+        ],
+        "summary": "List credential profiles",
+        "description": "List credential profiles visible to this token with cursor-based pagination.",
+        "responses": {
+          "200": {
+            "description": "Paginated list of profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredProfileListPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "example": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum number of items to return (1-100)"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "example": "eyJzbHVnIjoiL2dpdGh1YiJ9",
+              "type": "string"
+            },
+            "description": "Opaque cursor returned by a previous list response"
+          }
+        ]
+      }
+    },
+    "/cred_profiles/{slug}": {
+      "get": {
+        "operationId": "getCredProfilesBySlug",
+        "tags": [
+          "cred_profiles"
+        ],
+        "summary": "Get credential profile",
+        "description": "Get a credential profile by slug.",
+        "responses": {
+          "200": {
+            "description": "Profile details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredProfileDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Profile not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "slug",
+            "required": true
+          }
+        ]
+      },
+      "put": {
+        "operationId": "putCredProfilesBySlug",
+        "tags": [
+          "cred_profiles"
+        ],
+        "summary": "Create or update credential profile",
+        "description": "Register a new credential profile or update an existing one by slug.",
+        "responses": {
+          "200": {
+            "description": "Profile created or updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWithSlug"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCredProfileRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "slug",
+            "required": true
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "deleteCredProfilesBySlug",
+        "tags": [
+          "cred_profiles"
+        ],
+        "summary": "Delete credential profile",
+        "description": "Remove a credential profile by slug.",
+        "responses": {
+          "200": {
+            "description": "Profile deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Profile not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "slug",
+            "required": true
+          }
+        ]
+      }
+    },
+    "/tokens/restrict": {
+      "post": {
+        "operationId": "postTokensRestrict",
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Restrict token",
+        "description": "Create an attenuated child token from the current bearer token.",
+        "responses": {
+          "200": {
+            "description": "Restricted token minted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestrictTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restriction failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "id": "TokenRestrictError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestrictTokenRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tokens/revoke": {
+      "post": {
+        "operationId": "postTokensRevoke",
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Revoke token",
+        "description": "Revoke the current bearer token, preventing further use.",
+        "responses": {
+          "200": {
+            "description": "Token revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Revocation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "id": "TokenError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeTokenRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tokens/inspect": {
+      "post": {
+        "operationId": "postTokensInspect",
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Inspect token",
+        "description": "Inspect a Biscuit token and return its extracted facts.",
+        "responses": {
+          "200": {
+            "description": "Token facts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Token is invalid or unrecognized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "id": "TokenInspectError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectTokenRequest"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
