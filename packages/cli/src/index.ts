@@ -3,7 +3,7 @@ import pkg from '../package.json'
 
 const program = new Command()
   .name('agent.pw')
-  .description('Authenticated proxy for APIs')
+  .description('Authenticated proxy for APIs\n\nGet started:  npx agent.pw init')
   .version(pkg.version)
 
 function parsePositiveInt(value: string) {
@@ -29,26 +29,8 @@ function assertValidPaginationOptions(command: Command) {
 }
 
 program
-  .command('login')
-  .description('Log in to agent.pw')
-  .option('--host <url>', 'Target host')
-  .option('--token <token>', 'Use a pre-minted token instead of browser login')
-  .action(async (opts) => {
-    const { login } = await import('./commands/login')
-    return login(opts.host, opts.token)
-  })
-
-program
-  .command('logout')
-  .description('Log out')
-  .action(async () => {
-    const { logout } = await import('./commands/logout')
-    return logout()
-  })
-
-program
   .command('init')
-  .description('Log in and install the agent.pw skill')
+  .description('Set up agent.pw (login + install skill)')
   .action(async () => {
     const { init } = await import('./commands/init')
     return init()
@@ -65,6 +47,24 @@ program
     } catch {
       // resolve() already prints error message and exits
     }
+  })
+
+program
+  .command('login')
+  .description('Authenticate with agent.pw (auth only)')
+  .option('--host <url>', 'Target host')
+  .option('--token <token>', 'Use a pre-minted token instead of browser login')
+  .action(async (opts) => {
+    const { login } = await import('./commands/login')
+    return login(opts.host, opts.token)
+  })
+
+program
+  .command('logout')
+  .description('Log out')
+  .action(async () => {
+    const { logout } = await import('./commands/logout')
+    return logout()
   })
 
 // ─── profile ─────────────────────────────────────────────────────────────────

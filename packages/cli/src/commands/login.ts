@@ -25,14 +25,20 @@ type WorkOsAuthResponse = {
   }
 }
 
-export async function login(host?: string, token?: string) {
+type LoginOptions = {
+  skipNextSteps?: boolean
+}
+
+export async function login(host?: string, token?: string, options: LoginOptions = {}) {
   const targetHost = (host ?? DEFAULT_MANAGED_HOST).replace(/\/$/, '')
 
   // Direct token login — skip device flow
   if (token) {
     writeManagedSession({ host: targetHost, token })
     console.log(`Logged in to ${targetHost}`)
-    printNextSteps()
+    if (!options.skipNextSteps) {
+      printNextSteps()
+    }
     return
   }
   const config = await fetchCliAuthConfig(targetHost)
@@ -69,7 +75,9 @@ export async function login(host?: string, token?: string) {
   const data = await exchange.json() as { token: string }
   writeManagedSession({ host: targetHost, token: data.token })
   console.log(`Logged in to ${targetHost}`)
-  printNextSteps()
+  if (!options.skipNextSteps) {
+    printNextSteps()
+  }
 }
 
 async function fetchCliAuthConfig(targetHost: string): Promise<CliAuthConfig> {
@@ -165,7 +173,7 @@ async function openBrowser(url: string) {
 
 function printNextSteps() {
   console.log('')
-  console.log('Next: run `npx agent.pw init` in your project to install the agent skill.')
+  console.log('Tip: run `npx agent.pw init` in your project to install the agent skill.')
 }
 
 function sleep(ms: number) {
