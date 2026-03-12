@@ -8,7 +8,7 @@ export async function init() {
     console.log('Not logged in. Starting login...')
     console.log('')
     const { login } = await import('./login')
-    await login()
+    await login(undefined, undefined, { skipNextSteps: true })
     console.log('')
   }
 
