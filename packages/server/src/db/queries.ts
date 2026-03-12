@@ -4,20 +4,27 @@ import {
   desc,
   eq,
   gt,
+  type InferSelectModel,
   like,
   lt,
   or,
   sql,
   type SQL,
 } from 'drizzle-orm'
-import { credProfiles, credentials, revocations, authFlows } from './schema'
-import type { Database } from './index'
+import { credProfiles, credentials, revocations, authFlows } from './schema/index.js'
+import type { Database } from './index.js'
 import {
   credentialName,
   credentialParentPath,
   isAncestorOrEqual,
   pathDepth,
-} from '../paths'
+} from '../paths.js'
+
+type CredProfileRow = Omit<InferSelectModel<typeof credProfiles>, 'host'> & {
+  host: string[]
+}
+
+type CredentialRow = InferSelectModel<typeof credentials>
 
 function normalizeHostList(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -154,7 +161,7 @@ export async function getCredProfilesBySlugWithPublicFallback(
   return matches.filter(profile => isRootLevelProfile(profile.path))
 }
 
-export async function listCredProfiles(db: Database) {
+export async function listCredProfiles(db: Database): Promise<CredProfileRow[]> {
   const rows = await db.select().from(credProfiles)
   return rows.map(row => ({ ...row, host: normalizeHostList(row.host) }))
 }
@@ -256,7 +263,7 @@ export async function getCredentialsByHost(db: Database, host: string) {
   return db.select().from(credentials).where(eq(credentials.host, host))
 }
 
-export async function listCredentials(db: Database) {
+export async function listCredentials(db: Database): Promise<CredentialRow[]> {
   return db.select().from(credentials)
 }
 

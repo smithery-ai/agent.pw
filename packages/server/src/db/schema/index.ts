@@ -1,4 +1,4 @@
-export { credProfiles } from './cred-profiles'
-export { credentials } from './credentials'
-export { revocations } from './revocations'
-export { authFlows } from './auth-flows'
+export { credProfiles } from './cred-profiles.js'
+export { credentials } from './credentials.js'
+export { revocations } from './revocations.js'
+export { authFlows } from './auth-flows.js'

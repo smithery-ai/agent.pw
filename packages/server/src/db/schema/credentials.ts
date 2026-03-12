@@ -1,6 +1,6 @@
 import { index, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
-import { agentpwSchema } from './agentpw-schema'
-import { bytea, jsonb, ltree } from './types'
+import { agentpwSchema } from './agentpw-schema.js'
+import { bytea, jsonb, ltree } from './types.js'
 
 export const credentials = agentpwSchema.table('credentials', {
   host: text('host').notNull(),
