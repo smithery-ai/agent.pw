@@ -1,4 +1,4 @@
-export type AgentPwChallenge = {
+type AgentPwChallenge = {
   scheme: 'AgentPW'
   authorizationUri?: string
   profile?: string

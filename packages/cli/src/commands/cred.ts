@@ -26,7 +26,7 @@ interface RemoveCredOptions {
   profile?: string
 }
 
-export interface ListCredsOptions {
+interface ListCredsOptions {
   limit?: number
   cursor?: string
   all?: boolean

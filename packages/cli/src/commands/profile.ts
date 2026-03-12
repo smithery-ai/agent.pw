@@ -18,13 +18,13 @@ interface CreateCredProfileRequest {
   description?: string
 }
 
-export interface ListProfilesOptions {
+interface ListProfilesOptions {
   limit?: number
   cursor?: string
   all?: boolean
 }
 
-export interface AddProfileOptions {
+interface AddProfileOptions {
   filePath?: string
   auth?: string
   headers?: string[]
