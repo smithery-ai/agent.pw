@@ -20,8 +20,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
-    "compile": "bun build src/index.ts --outdir dist --target node --format esm --external @smithery/biscuit --banner '#!/usr/bin/env node'",
-    "compile:bin": "bun build --compile src/index.ts --outfile dist/agent.pw",
+    "compile": "node scripts/compile.mjs",
+    "compile:bin": "node scripts/compile.mjs --binary",
+    "smoke:package": "node scripts/smoke-package.mjs",
     "prepublishOnly": "bun run compile"
   },
   "dependencies": {

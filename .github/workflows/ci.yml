@@ -28,6 +28,8 @@ jobs:
         run: pnpm build && pnpm --filter agent.pw build
       - name: Bundle CLI
         run: pnpm --filter agent.pw compile
+      - name: Smoke test packaged CLI
+        run: pnpm --filter agent.pw smoke:package
       - name: Lint
         run: pnpm lint
       - name: Test

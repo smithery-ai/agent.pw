@@ -1,4 +1,4 @@
-import { Biscuit, PublicKey, SignatureAlgorithm } from '@smithery/biscuit'
+import { loadBiscuit } from '../biscuit'
 import { getClient, requestJson } from '../http'
 import { resolve } from '../resolve'
 import { readTokenStack, writeTokenStack } from '../config'
@@ -20,6 +20,7 @@ async function fetchPublicKeyHex(serverUrl: string) {
 }
 
 export async function inspectTokenCmd() {
+  const { Biscuit, PublicKey, SignatureAlgorithm } = await loadBiscuit()
   const { url, token } = await resolve()
   const publicKeyHex = await fetchPublicKeyHex(url)
 
