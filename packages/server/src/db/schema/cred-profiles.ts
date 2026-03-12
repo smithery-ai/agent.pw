@@ -1,6 +1,6 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
-import { agentpwSchema } from './agentpw-schema'
-import { jsonb } from './types'
+import { agentpwSchema } from './agentpw-schema.js'
+import { jsonb } from './types.js'
 
 export const credProfiles = agentpwSchema.table('cred_profiles', {
   path: text('path').primaryKey(),

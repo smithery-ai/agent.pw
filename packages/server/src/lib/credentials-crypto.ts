@@ -1,4 +1,4 @@
-import type { AuthScheme } from '../auth-schemes'
+import type { AuthScheme } from '../auth-schemes.js'
 
 /**
  * Derive a 32-byte AES-256 encryption key from the biscuit private key.
@@ -86,6 +86,7 @@ export function buildCredentialHeaders(
     case 'oauth2':
       return { Authorization: `Bearer ${token}` }
   }
+  throw new Error('Unsupported auth scheme')
 }
 
 /**

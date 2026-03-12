@@ -1,5 +1,5 @@
 import { text, timestamp } from 'drizzle-orm/pg-core'
-import { agentpwSchema } from './agentpw-schema'
+import { agentpwSchema } from './agentpw-schema.js'
 
 export const revocations = agentpwSchema.table('revocations', {
   revocationId: text('revocation_id').primaryKey(),
