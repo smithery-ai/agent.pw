@@ -81,8 +81,23 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
     return c.json({ error: 'Internal Server Error' }, 500)
   })
 
+  app.use('*', async (c, next) => {
+    await next()
+
+    if (c.req.header('Origin')) {
+      c.res.headers.append('Vary', 'Origin')
+    }
+
+    if (
+      c.req.method === 'OPTIONS'
+      && c.req.header('Access-Control-Request-Private-Network') === 'true'
+    ) {
+      c.res.headers.set('Access-Control-Allow-Private-Network', 'true')
+      c.res.headers.append('Vary', 'Access-Control-Request-Private-Network')
+    }
+  })
   app.use('*', cors({
-    origin: '*',
+    origin: origin => origin || '*',
     allowHeaders: [
       'Authorization',
       'Proxy-Authorization',

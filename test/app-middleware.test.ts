@@ -72,6 +72,30 @@ describe('createCoreApp', () => {
     }))
   })
 
+  it('reflects browser origins and allows local-network preflights', async () => {
+    const app = createCoreApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY })
+
+    const health = await app.request(makeUrl('/', 'http://127.0.0.1:9315'), {
+      headers: { Origin: 'https://agent.pw' },
+    })
+    expect(health.headers.get('Access-Control-Allow-Origin')).toBe('https://agent.pw')
+    expect(health.headers.get('Vary')).toContain('Origin')
+
+    const preflight = await app.request(makeUrl('/credentials', 'http://127.0.0.1:9315'), {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://agent.pw',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'Authorization',
+        'Access-Control-Request-Private-Network': 'true',
+      },
+    })
+    expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('https://agent.pw')
+    expect(preflight.headers.get('Access-Control-Allow-Private-Network')).toBe('true')
+    expect(preflight.headers.get('Vary')).toContain('Origin')
+    expect(preflight.headers.get('Vary')).toContain('Access-Control-Request-Private-Network')
+  })
+
   it('returns a 500 response when a route throws', async () => {
     const app = createCoreApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY })
     app.get('/boom', () => {
