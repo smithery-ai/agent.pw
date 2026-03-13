@@ -22,7 +22,12 @@ const DATA_DIR = join(CONFIG_DIR, 'data')
 function readConfig(): AgentPwConfig | null {
   if (!existsSync(CONFIG_FILE)) return null
   try {
-    return JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'))
+    const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')) as AgentPwConfig
+    if (config.masterToken.startsWith('wdn_')) {
+      config.masterToken = `apw_${config.masterToken.slice(4)}`
+      writeConfig(config)
+    }
+    return config
   } catch {
     return null
   }
