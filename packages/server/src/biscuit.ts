@@ -19,7 +19,6 @@ import {
 import type { TokenConstraint, TokenRight } from './core/types'
 
 export const TOKEN_PREFIX = 'apw_'
-const LEGACY_TOKEN_PREFIX = 'wdn_'
 
 const RUN_LIMITS = {
   max_facts: 1000,
@@ -34,7 +33,6 @@ function addPrefix(base64: string): string {
 
 export function stripPrefix(token: string): string {
   if (token.startsWith(TOKEN_PREFIX)) return token.slice(TOKEN_PREFIX.length)
-  if (token.startsWith(LEGACY_TOKEN_PREFIX)) return token.slice(LEGACY_TOKEN_PREFIX.length)
   return token
 }
 

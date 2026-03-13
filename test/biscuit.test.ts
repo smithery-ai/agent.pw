@@ -24,7 +24,6 @@ function buildCustomToken(code: string) {
 describe('biscuit helpers', () => {
   it('strips prefixes and parses TTL values', () => {
     expect(stripPrefix('apw_abc')).toBe('abc')
-    expect(stripPrefix('wdn_abc')).toBe('abc')
     expect(stripPrefix('plain')).toBe('plain')
     expect(parseTtlSeconds(60)).toBe(60)
     expect(parseTtlSeconds('30')).toBe(30)
