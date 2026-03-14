@@ -39,15 +39,10 @@ program
 
 program
   .command('status')
-  .description('Show the active agent.pw endpoint')
+  .description('Show agent.pw connection status')
   .action(async () => {
-    try {
-      const { resolve } = await import('./resolve')
-      const { url } = await resolve()
-      console.log(`agent.pw available at ${url}`)
-    } catch {
-      // resolve() already prints error message and exits
-    }
+    const { statusCmd } = await import('./commands/status')
+    return statusCmd()
   })
 
 const serverCmd = program
