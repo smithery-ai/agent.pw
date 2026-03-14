@@ -32,27 +32,29 @@ Agent ──▶ proxy.agent.pw/api.github.com/user ──▶ api.github.com/user
 - **Biscuit tokens** — cryptographic attenuation by host, method, path, and TTL; tokens can only be narrowed, never expanded ([details](docs/security-model.md))
 - **Token stack** — `token push` / `token pop` for temporary privilege narrowing during agent tasks
 - **Write-only credentials** — agents use credentials through the proxy but cannot read the raw secret material
-- **Self-hosted or cloud** — same core, run locally with PGlite or use agent.pw Cloud
+- **Local-first OSS** — run a self-hosted instance with PGlite in one command, then use the hosted vault as an optional browser shell
 
 ## Getting Started
 
-### Cloud
-
 ```bash
-agent.pw login
-agent.pw curl proxy.agent.pw/api.github.com/user
+npx agent.pw init
 ```
 
-Services are pre-configured. If no credential exists, agent.pw opens a browser flow and retries automatically.
+That command:
 
-### Self-Hosted
+- creates `~/.agent.pw/`
+- initializes a local PGlite database
+- mints a local root token
+- downloads the matching local server binary
+- starts the daemon in the background
+- installs the Smithery `agentpw` skill
+- opens [agent.pw/vault](https://agent.pw/vault) already connected to your local instance
 
-```bash
-agent.pw-server setup    # generate keys, init local DB, mint root token
-agent.pw-server start    # start the proxy
-```
+The hosted vault is optional. Your local daemon is the source of truth, and you can keep working entirely through the CLI.
 
-Add a credential profile and connect:
+### Local CLI Flow
+
+Add a credential profile and use the proxy:
 
 ```bash
 agent.pw profile add linear --host api.linear.app \
@@ -62,6 +64,15 @@ agent.pw profile add linear --host api.linear.app \
 agent.pw cred add linear
 agent.pw curl http://localhost:9315/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
+```
+
+### Local Daemon Controls
+
+```bash
+agent.pw server status
+agent.pw server stop
+agent.pw server start
+agent.pw server logs
 ```
 
 ## API
@@ -105,7 +116,7 @@ pnpm run db:generate # generate Drizzle migrations from schema changes
 ```
 packages/
   server/src/        @agent.pw/server — proxy, credential store, tokens, routes
-  cli/src/           agent.pw CLI — cloud + self-hosted management
+  cli/src/           agent.pw CLI — local init flow, daemon controls, and management commands
 docs/
   security-model.md  Biscuit tokens, path-based access model, revocation
 ```

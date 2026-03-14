@@ -42,12 +42,54 @@ jobs:
           manifest-file: '.release-please-manifest.json'
           config-file: 'release-please-config.json'
 
-  publish-cli:
+  build-local-server-binaries:
     needs: release-please
+    if: github.event_name == 'push' && needs.release-please.outputs.cli_release_created == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: darwin-arm64
+            runner: macos-15
+            file_name: agentpw-local-server-darwin-arm64
+          - key: darwin-x64
+            runner: macos-15-intel
+            file_name: agentpw-local-server-darwin-x64
+          - key: linux-arm64
+            runner: ubuntu-24.04-arm
+            file_name: agentpw-local-server-linux-arm64
+          - key: linux-x64
+            runner: ubuntu-24.04
+            file_name: agentpw-local-server-linux-x64
+          - key: win32-x64
+            runner: windows-2025
+            file_name: agentpw-local-server-windows-x64.exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.cli_tag_name }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/build-local-server-binary.mjs --outfile release-assets/${{ matrix.file_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-server-${{ matrix.key }}
+          path: release-assets/${{ matrix.file_name }}
+
+  publish-cli:
+    needs:
+      - release-please
+      - build-local-server-binaries
     if: github.event_name == 'push' && needs.release-please.outputs.cli_release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -61,15 +103,79 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: local-server-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate local server manifest
+        run: |
+          VERSION="${TAG#agent.pw-v}"
+          node packages/cli/scripts/generate-server-binary-manifest.mjs \
+            --version "$VERSION" \
+            --asset darwin-arm64=release-assets/agentpw-local-server-darwin-arm64 \
+            --asset darwin-x64=release-assets/agentpw-local-server-darwin-x64 \
+            --asset linux-arm64=release-assets/agentpw-local-server-linux-arm64 \
+            --asset linux-x64=release-assets/agentpw-local-server-linux-x64 \
+            --asset win32-x64=release-assets/agentpw-local-server-windows-x64.exe
+        env:
+          TAG: ${{ needs.release-please.outputs.cli_tag_name }}
       - run: pnpm --filter agent.pw compile
       - run: npm publish --provenance --access public
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Upload local server binaries to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.cli_tag_name }}
+        run: gh release upload "$TAG" release-assets/* --clobber
+
+  build-local-server-binaries-manual:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: darwin-arm64
+            runner: macos-15
+            file_name: agentpw-local-server-darwin-arm64
+          - key: darwin-x64
+            runner: macos-15-intel
+            file_name: agentpw-local-server-darwin-x64
+          - key: linux-arm64
+            runner: ubuntu-24.04-arm
+            file_name: agentpw-local-server-linux-arm64
+          - key: linux-x64
+            runner: ubuntu-24.04
+            file_name: agentpw-local-server-linux-x64
+          - key: win32-x64
+            runner: windows-2025
+            file_name: agentpw-local-server-windows-x64.exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/build-local-server-binary.mjs --outfile release-assets/${{ matrix.file_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-server-manual-${{ matrix.key }}
+          path: release-assets/${{ matrix.file_name }}
 
   publish-cli-manual:
+    needs: build-local-server-binaries-manual
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -83,10 +189,37 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: local-server-manual-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate local server manifest
+        run: |
+          VERSION="${TAG#agent.pw-v}"
+          node packages/cli/scripts/generate-server-binary-manifest.mjs \
+            --version "$VERSION" \
+            --asset darwin-arm64=release-assets/agentpw-local-server-darwin-arm64 \
+            --asset darwin-x64=release-assets/agentpw-local-server-darwin-x64 \
+            --asset linux-arm64=release-assets/agentpw-local-server-linux-arm64 \
+            --asset linux-x64=release-assets/agentpw-local-server-linux-x64 \
+            --asset win32-x64=release-assets/agentpw-local-server-windows-x64.exe
+        env:
+          TAG: ${{ inputs.release_ref }}
       - run: pnpm --filter agent.pw compile
       - if: ${{ inputs.dry_run }}
         run: npm publish --provenance --access public --dry-run
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - if: ${{ !inputs.dry_run }}
         run: npm publish --provenance --access public
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - if: ${{ !inputs.dry_run }}
+        name: Upload local server binaries to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_ref }}
+        run: gh release upload "$TAG" release-assets/* --clobber

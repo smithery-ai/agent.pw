@@ -1,0 +1,129 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+
+export interface LocalAgentPwConfig {
+  biscuitPrivateKey: string
+  masterToken: string
+  port: number
+  dataDir: string
+}
+
+export interface LocalAgentPwPaths {
+  homeDir: string
+  configFile: string
+  pidFile: string
+  dataDir: string
+  logsDir: string
+  logFile: string
+  runtimeDir: string
+  serverRuntimeDir: string
+}
+
+export const DEFAULT_LOCAL_PORT = 9315
+
+export function resolveAgentPwHome() {
+  const configured = process.env.AGENTPW_HOME?.trim()
+  return configured || join(homedir(), '.agent.pw')
+}
+
+export function localAgentPwPaths(homeDir = resolveAgentPwHome()): LocalAgentPwPaths {
+  return {
+    homeDir,
+    configFile: join(homeDir, 'config.json'),
+    pidFile: join(homeDir, 'agent.pw.pid'),
+    dataDir: join(homeDir, 'data'),
+    logsDir: join(homeDir, 'logs'),
+    logFile: join(homeDir, 'logs', 'server.log'),
+    runtimeDir: join(homeDir, 'runtime'),
+    serverRuntimeDir: join(homeDir, 'runtime', 'server'),
+  }
+}
+
+export function ensureLocalAgentPwDirs(paths = localAgentPwPaths()) {
+  mkdirSync(paths.homeDir, { recursive: true })
+  mkdirSync(paths.dataDir, { recursive: true })
+  mkdirSync(paths.logsDir, { recursive: true })
+  mkdirSync(paths.runtimeDir, { recursive: true })
+  mkdirSync(paths.serverRuntimeDir, { recursive: true })
+}
+
+export function readLocalConfig(paths = localAgentPwPaths()) {
+  if (!existsSync(paths.configFile)) return null
+
+  try {
+    return JSON.parse(readFileSync(paths.configFile, 'utf8')) as LocalAgentPwConfig
+  } catch {
+    return null
+  }
+}
+
+export function writeLocalConfig(
+  config: LocalAgentPwConfig,
+  paths = localAgentPwPaths(),
+) {
+  ensureLocalAgentPwDirs(paths)
+  writeFileSync(
+    paths.configFile,
+    `${JSON.stringify(config, null, 2)}\n`,
+    { mode: 0o600 },
+  )
+}
+
+export function readLocalPid(paths = localAgentPwPaths()) {
+  if (!existsSync(paths.pidFile)) return null
+
+  try {
+    const raw = readFileSync(paths.pidFile, 'utf8').trim()
+    const pid = Number.parseInt(raw, 10)
+    return Number.isInteger(pid) && pid > 0 ? pid : null
+  } catch {
+    return null
+  }
+}
+
+export function writeLocalPid(pid: number, paths = localAgentPwPaths()) {
+  ensureLocalAgentPwDirs(paths)
+  writeFileSync(paths.pidFile, `${pid}\n`)
+}
+
+export function removeLocalPid(paths = localAgentPwPaths()) {
+  if (!existsSync(paths.pidFile)) return
+  unlinkSync(paths.pidFile)
+}
+
+export function isProcessAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function clearStaleLocalPid(paths = localAgentPwPaths()) {
+  const pid = readLocalPid(paths)
+  if (!pid) return false
+  if (isProcessAlive(pid)) return false
+
+  removeLocalPid(paths)
+  return true
+}
+
+export function buildLocalBaseUrl(port: number) {
+  return `http://127.0.0.1:${port}`
+}
+
+export function writeExecutableFile(
+  filePath: string,
+  contents: string | Uint8Array,
+) {
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(filePath, contents, { mode: 0o755 })
+}

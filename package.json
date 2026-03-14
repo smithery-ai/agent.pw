@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
+    "build:local-server-binary": "node scripts/build-local-server-binary.mjs",
     "knip": "knip",
     "lint": "biome lint .",
     "test": "vitest run --coverage",

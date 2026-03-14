@@ -9,7 +9,7 @@ export interface PaginatedResponse<T> {
   nextCursor: string | null
 }
 
-/** Get an authenticated AgentPw SDK client, resolved from env/config/session. */
+/** Get an authenticated AgentPw SDK client, resolved from env or local config. */
 export async function getClient() {
   if (_client) return _client
   const { url, token } = await resolve()

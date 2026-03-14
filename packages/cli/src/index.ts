@@ -30,15 +30,16 @@ function assertValidPaginationOptions(command: Command) {
 
 program
   .command('init')
-  .description('Set up agent.pw (login + install skill)')
-  .action(async () => {
+  .description('Create and launch your local agent.pw instance')
+  .option('--no-browser', 'Print the vault URL instead of opening it')
+  .action(async opts => {
     const { init } = await import('./commands/init')
-    return init()
+    return init({ noBrowser: Boolean(opts.noBrowser) })
   })
 
 program
   .command('status')
-  .description('Show connection status')
+  .description('Show the active agent.pw endpoint')
   .action(async () => {
     try {
       const { resolve } = await import('./resolve')
@@ -49,22 +50,41 @@ program
     }
   })
 
-program
-  .command('login')
-  .description('Authenticate with agent.pw (auth only)')
-  .option('--host <url>', 'Target host')
-  .option('--token <token>', 'Use a pre-minted token instead of browser login')
-  .action(async (opts) => {
-    const { login } = await import('./commands/login')
-    return login(opts.host, opts.token)
+const serverCmd = program
+  .command('server')
+  .description('Manage the local agent.pw daemon')
+
+serverCmd
+  .command('start')
+  .description('Start the local server')
+  .action(async () => {
+    const { startServerCmd } = await import('./commands/init')
+    return startServerCmd()
   })
 
-program
-  .command('logout')
-  .description('Log out')
+serverCmd
+  .command('stop')
+  .description('Stop the local server')
   .action(async () => {
-    const { logout } = await import('./commands/logout')
-    return logout()
+    const { stopServerCmd } = await import('./commands/init')
+    return stopServerCmd()
+  })
+
+serverCmd
+  .command('status')
+  .description('Show local server status')
+  .action(async () => {
+    const { statusServerCmd } = await import('./commands/init')
+    return statusServerCmd()
+  })
+
+serverCmd
+  .command('logs')
+  .description('Print recent local server logs')
+  .option('--tail <n>', 'Number of log lines to print', parsePositiveInt)
+  .action(async opts => {
+    const { logsServerCmd } = await import('./commands/init')
+    return logsServerCmd(opts.tail)
   })
 
 // ─── profile ─────────────────────────────────────────────────────────────────
