@@ -1,163 +1,109 @@
 #!/usr/bin/env bun
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs'
-import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { Command } from 'commander'
-
-// ─── Config ──────────────────────────────────────────────────────────────────
-
-interface AgentPwConfig {
-  biscuitPrivateKey: string
-  masterToken: string
-  port: number
-  dataDir: string
-}
-
-const CONFIG_DIR = join(homedir(), '.agent.pw')
-const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
-const PID_FILE = join(CONFIG_DIR, 'agent.pw.pid')
-const DATA_DIR = join(CONFIG_DIR, 'data')
-
-function readConfig(): AgentPwConfig | null {
-  if (!existsSync(CONFIG_FILE)) return null
-  try {
-    return JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'))
-  } catch {
-    return null
-  }
-}
-
-function writeConfig(config: AgentPwConfig) {
-  mkdirSync(CONFIG_DIR, { recursive: true })
-  writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
-}
-
-// ─── Program ─────────────────────────────────────────────────────────────────
+import { localAgentPwPaths, readLocalConfig } from './src/local/config'
+import { ensureLocalConfig } from './src/local/setup'
+import {
+  getLocalServerStatus,
+  serveLocalServerProcess,
+  stopLocalServer,
+} from './src/local/runtime'
 
 const program = new Command()
   .name('agent.pw-server')
-  .description('Self-hosted agent.pw server')
+  .description('Legacy local wrapper for agent.pw')
   .version('0.1.0')
 
+program.addHelpText(
+  'beforeAll',
+  [
+    'Note: `npx .` at the repo root runs the local server wrapper package (`@agent.pw/server`).',
+    'For the published OSS CLI, run `cd packages/cli && npx . init`.',
+    '',
+  ].join('\n'),
+)
+
+async function initLocalInstance() {
+  const config = await ensureLocalConfig()
+  const paths = localAgentPwPaths()
+  console.log('agent.pw is initialized.')
+  console.log(`Config: ${paths.configFile}`)
+  console.log(`Data:   ${config.dataDir}`)
+  console.log(`URL:    http://127.0.0.1:${config.port}`)
+  console.log('Next step: run `npx agent.pw init` or `agent.pw-server start`.')
+}
+
 program
-  .command('setup')
-  .description('Set up a local instance (keys, database)')
-  .action(async () => {
-    if (existsSync(CONFIG_FILE)) {
-      console.log('agent.pw is already set up. Config at:', CONFIG_DIR)
-      console.log('Run `agent.pw-server start` to start the local server.')
-      return
-    }
-
-    console.log('Setting up agent.pw...\n')
-
-    const { generateKeyPairHex, mintToken } = await import('./src/biscuit')
-    const { createLocalDb } = await import('./src/db/index')
-    const { migrateLocal } = await import('./src/db/migrate-local')
-
-    const keypair = generateKeyPairHex()
-
-    mkdirSync(DATA_DIR, { recursive: true })
-    console.log('Initializing database at', DATA_DIR)
-    const db = await createLocalDb(DATA_DIR)
-    await migrateLocal(db)
-
-    const masterToken = mintToken(keypair.privateKey, 'local', [
-      { action: 'credential.use', root: '/' },
-      { action: 'credential.bootstrap', root: '/' },
-      { action: 'credential.manage', root: '/' },
-      { action: 'profile.manage', root: '/' },
-      { action: 'token.mint', root: '/' },
-    ])
-    const port = 9315
-
-    writeConfig({
-      biscuitPrivateKey: keypair.privateKey,
-      masterToken,
-      port,
-      dataDir: DATA_DIR,
-    })
-
-    console.log('\nagent.pw is set up!\n')
-    console.log('Config saved to:', CONFIG_DIR)
-    console.log('Master token:', masterToken)
-    console.log('\nNext steps:')
-    console.log('  agent.pw-server start   Start the local proxy server')
-    console.log('  agent.pw cred add       Add API credentials')
-    console.log('  agent.pw curl <url>     Make authenticated API calls')
-  })
+  .command('init')
+  .description('Initialize a local instance')
+  .action(initLocalInstance)
 
 program
   .command('start')
-  .description('Start the local proxy server')
+  .description('Start the local server in the foreground')
   .action(async () => {
-    const config = readConfig()
+    const config = readLocalConfig()
     if (!config) {
-      console.error('Not set up. Run `agent.pw-server setup` first.')
+      console.error('agent.pw is not initialized. Run `npx agent.pw init` first.')
       process.exit(1)
     }
 
-    if (existsSync(PID_FILE)) {
-      const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10)
-      try {
-        process.kill(pid, 0)
-        console.error(`agent.pw is already running (PID ${pid}). Stop it with \`agent.pw-server stop\`.`)
-        process.exit(1)
-      } catch {
-        unlinkSync(PID_FILE)
-      }
+    const status = getLocalServerStatus()
+    if (status.running) {
+      console.error(`agent.pw is already running at ${status.baseUrl} (PID ${status.pid}).`)
+      process.exit(1)
     }
 
-    const { createCoreApp } = await import('./src/core/app')
-    const { createLocalDb } = await import('./src/db/index')
-    const { migrateLocal } = await import('./src/db/migrate-local')
-
-    const db = await createLocalDb(config.dataDir)
-    await migrateLocal(db)
-
-    const app = createCoreApp({
-      db,
-      biscuitPrivateKey: config.biscuitPrivateKey,
-      baseUrl: `http://local.agent.pw:${config.port}`,
-    })
-
-    writeFileSync(PID_FILE, process.pid.toString())
-
-    const cleanup = () => {
-      try { unlinkSync(PID_FILE) } catch { /* already removed */ }
-    }
-    process.on('SIGINT', () => { cleanup(); process.exit(0) })
-    process.on('SIGTERM', () => { cleanup(); process.exit(0) })
-
-    Bun.serve({
-      fetch: app.fetch,
-      port: config.port,
-      hostname: '0.0.0.0',
-    })
-
-    console.log(`agent.pw running at http://local.agent.pw:${config.port}`)
-    console.log('Press Ctrl+C to stop.')
+    await serveLocalServerProcess(config)
+    console.log(`agent.pw local server running on http://127.0.0.1:${config.port}`)
   })
 
 program
   .command('stop')
-  .description('Stop the local proxy server')
-  .action(async () => {
-    if (!existsSync(PID_FILE)) {
+  .description('Stop the local server')
+  .action(() => {
+    const stopped = stopLocalServer()
+    if (!stopped) {
       console.log('agent.pw is not running.')
       return
     }
 
-    const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10)
-    try {
-      process.kill(pid, 'SIGTERM')
-      console.log(`Stopped agent.pw (PID ${pid}).`)
-    } catch {
-      console.log('agent.pw process not found. Cleaning up PID file.')
-    }
-    try { unlinkSync(PID_FILE) } catch { /* ignore */ }
+    console.log('Stopped local agent.pw server.')
   })
+
+program
+  .command('status')
+  .description('Show local server status')
+  .action(() => {
+    const status = getLocalServerStatus()
+    if (!status.configured) {
+      console.log('agent.pw is not initialized.')
+      console.log('Run `npx agent.pw init` first.')
+      return
+    }
+
+    console.log(`URL:    ${status.baseUrl}`)
+    console.log(status.running ? `State:  running (PID ${status.pid})` : 'State:  stopped')
+  })
+
+program
+  .command('logs')
+  .description('Print the local server log file')
+  .action(() => {
+    const paths = localAgentPwPaths()
+    try {
+      const logs = readFileSync(paths.logFile, 'utf8')
+      process.stdout.write(logs)
+    } catch {
+      console.error(`No log file found at ${paths.logFile}.`)
+      process.exit(1)
+    }
+  })
+
+if (process.argv[2] === 'setup') {
+  process.argv[2] = 'init'
+}
 
 program.parseAsync().catch(err => {
   console.error(err.message ?? err)

@@ -16,12 +16,15 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.2.17
         version: 0.2.17
+      '@hono/node-server':
+        specifier: ^1.19.11
+        version: 1.19.11(hono@4.12.0)
       '@hono/standard-validator':
         specifier: ^0.2.2
         version: 0.2.2(@standard-schema/spec@1.1.0)(hono@4.12.0)
       '@smithery/biscuit':
-        specifier: ^1.0.0
-        version: 1.0.0
+        specifier: ^1.0.1
+        version: 1.0.1
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -75,8 +78,8 @@ importers:
   packages/cli:
     dependencies:
       '@smithery/biscuit':
-        specifier: ^1.0.0
-        version: 1.0.0
+        specifier: ^1.0.1
+        version: 1.0.1
     devDependencies:
       '@agent.pw/sdk':
         specifier: https://pkg.stainless.com/s/agent.pw-typescript/81f700c2e1cb502311f343261ee671a08d19677d/dist.tar.gz
@@ -631,6 +634,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@hono/node-server@1.19.11':
+    resolution: {integrity: sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
+
   '@hono/standard-validator@0.2.2':
     resolution: {integrity: sha512-mJ7W84Bt/rSvoIl63Ynew+UZOHAzzRAoAXb3JaWuxAkM/Lzg+ZHTCUiz77KOtn2e623WNN8LkD57Dk0szqUrIw==}
     peerDependencies:
@@ -909,8 +918,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@smithery/biscuit@1.0.0':
-    resolution: {integrity: sha512-/bHqpjbwYNKEcsrrjUoKMzB9jI630NxcXacDqG0mHLXOZHColfXpfm+dHM1ebC1V8Exex5NVOilIr1R9uyRLdw==}
+  '@smithery/biscuit@1.0.1':
+    resolution: {integrity: sha512-lFmxdJG+R8+nugQt/KuBN6T317uznjkRpuEwzZ/OPn49puSO6aCC9yYQayV0L8nV9Dgo6322pLWEimYPFwNMog==}
 
   '@standard-community/standard-json@0.3.5':
     resolution: {integrity: sha512-4+ZPorwDRt47i+O7RjyuaxHRK/37QY/LmgxlGrRrSTLYoFatEOzvqIc85GTlM18SFZ5E91C+v0o/M37wZPpUHA==}
@@ -2061,6 +2070,10 @@ snapshots:
   '@esbuild/win32-x64@0.27.3':
     optional: true
 
+  '@hono/node-server@1.19.11(hono@4.12.0)':
+    dependencies:
+      hono: 4.12.0
+
   '@hono/standard-validator@0.2.2(@standard-schema/spec@1.1.0)(hono@4.12.0)':
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -2255,7 +2268,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
 
-  '@smithery/biscuit@1.0.0':
+  '@smithery/biscuit@1.0.1':
     dependencies:
       '@biscuit-auth/biscuit-wasm': 0.6.0(patch_hash=b16ff56178a0667ad3ce87c39082e75d16ef16064ae1fe22f9c06b9d122bab25)
 

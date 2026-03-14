@@ -1,26 +1,107 @@
-import { execSync } from 'node:child_process'
-import { resolveOptional } from '../resolve'
+import { localAgentPwPaths, readLocalConfig } from '../../../server/src/local/config'
+import {
+  buildVaultLaunchUrl,
+  describeLocalServer,
+  printServerSummary,
+  readLocalServerLogs,
+  resolveLocalDaemonRunner,
+  runLocalServerDaemonCommand,
+  startLocalServerDaemon,
+  stopLocalServerDaemon,
+} from '../local/server-runtime'
+import {
+  installAgentPwSkill,
+  openBrowser,
+  printBinarySource,
+  printOnboardingHeader,
+  printOnboardingSuccess,
+} from '../local/onboarding'
 
-export async function init() {
-  // Step 1: Ensure logged in
-  const endpoint = await resolveOptional()
-  if (!endpoint) {
-    console.log('Not logged in. Starting login...')
-    console.log('')
-    const { login } = await import('./login')
-    await login(undefined, undefined, { skipNextSteps: true })
-    console.log('')
+interface InitOptions {
+  noBrowser?: boolean
+}
+
+export async function init(options: InitOptions = {}) {
+  const { noBrowser = false } = options
+  const paths = localAgentPwPaths()
+
+  printOnboardingHeader()
+
+  const daemon = resolveLocalDaemonRunner()
+  printBinarySource(daemon.source, daemon.displayPath)
+
+  await runLocalServerDaemonCommand(daemon, ['init'], paths)
+
+  const config = readLocalConfig(paths)
+  if (!config) {
+    throw new Error('Local agent.pw setup did not produce a config file.')
   }
 
-  // Step 2: Install the skill from the Smithery registry
-  console.log('Installing agent.pw skill...')
+  console.log(`Config: ${paths.configFile}`)
+  console.log(`Data:   ${config.dataDir}`)
+  console.log(`URL:    http://127.0.0.1:${config.port}`)
+
+  const server = await startLocalServerDaemon(daemon, paths)
+  console.log(server.started ? `Started local server at ${server.baseUrl}` : `Local server already running at ${server.baseUrl}`)
+
+  console.log('Installing or updating the Smithery skill...')
   try {
-    execSync('npx @smithery/cli@latest skill add smithery-ai/agentpw', {
-      stdio: 'inherit',
-    })
+    installAgentPwSkill()
   } catch {
-    console.error('Failed to install skill. You can install it manually:')
-    console.error('  npx @smithery/cli@latest skill add smithery-ai/agentpw')
+    console.error('')
+    console.error('Failed to install the Smithery skill automatically.')
+    console.error('Run `npx -y @smithery/cli@latest skill add smithery-ai/agentpw` and then re-run `npx agent.pw init`.')
     process.exit(1)
   }
+
+  const bootstrapToken = await runLocalServerDaemonCommand(
+    daemon,
+    ['bootstrap-token', '--ttl', '10m'],
+    paths,
+  )
+  const vaultUrl = buildVaultLaunchUrl(server.baseUrl, bootstrapToken)
+
+  const browserOpened = !noBrowser && openBrowser(vaultUrl)
+  printOnboardingSuccess(vaultUrl, browserOpened)
+}
+
+export async function startServerCmd() {
+  const paths = localAgentPwPaths()
+  const daemon = resolveLocalDaemonRunner()
+  await runLocalServerDaemonCommand(daemon, ['init'], paths)
+  const server = await startLocalServerDaemon(daemon, paths)
+
+  if (server.started) {
+    console.log(`Started agent.pw at ${server.baseUrl}`)
+    console.log(`Logs: ${server.logFile}`)
+    return
+  }
+
+  console.log(`agent.pw is already running at ${server.baseUrl}`)
+}
+
+export function stopServerCmd() {
+  const stopped = stopLocalServerDaemon()
+  if (!stopped) {
+    console.log('agent.pw is not running.')
+    return
+  }
+
+  console.log('Stopped local agent.pw server.')
+}
+
+export function statusServerCmd() {
+  printServerSummary()
+}
+
+export async function logsServerCmd(tail = 200) {
+  const status = describeLocalServer()
+  const logs = await readLocalServerLogs(undefined, tail)
+
+  if (!logs) {
+    console.log(`No server logs found at ${status.logFile}.`)
+    return
+  }
+
+  console.log(logs)
 }

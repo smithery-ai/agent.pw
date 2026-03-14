@@ -1,72 +1,43 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { readConfig, getPidFile, readManagedSession, readTokenStack } from './config'
+import { buildLocalBaseUrl } from '../../server/src/local/config'
+import { readConfig, readTokenStack } from './config'
 
 interface ResolvedEndpoint {
   url: string
   token: string
 }
 
-export const DEFAULT_MANAGED_HOST = 'https://api.agent.pw'
-
 /**
  * Resolve the agent.pw endpoint. Priority:
  * 1. AGENT_PW_HOST + AGENT_PW_TOKEN env vars
- * 2. Local config + running server
- * 3. Managed session (~/.agent.pw/session.json)
+ * 2. Local config + local daemon
  */
 export async function resolveOptional(): Promise<ResolvedEndpoint | null> {
-  // 1. Environment variables
-  const envHost = process.env.AGENT_PW_HOST
-  const envToken = process.env.AGENT_PW_TOKEN
+  const envHost = process.env.AGENT_PW_HOST?.trim()
+  const envToken = process.env.AGENT_PW_TOKEN?.trim()
   if (envHost && envToken) {
     return { url: envHost.replace(/\/$/, ''), token: envToken }
   }
 
-  // 2. Local instance
   const config = readConfig()
-  if (config) {
-    const pidFile = getPidFile()
-    if (existsSync(pidFile)) {
-      const pid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10)
-      try {
-        process.kill(pid, 0)
-        return {
-          url: `http://local.agent.pw:${config.port}`,
-          token: config.masterToken,
-        }
-      } catch {
-        // Process not running, fall through to managed
-      }
-    }
+  if (!config) {
+    return null
   }
 
-  // 3. Managed session
-  const session = readManagedSession()
-  if (session) {
-    return { url: session.host.replace(/\/$/, ''), token: session.token }
+  return {
+    url: buildLocalBaseUrl(config.port),
+    token: config.masterToken,
   }
-
-  // 4. Local config exists but server not running — use it anyway
-  if (config) {
-    return {
-      url: `http://local.agent.pw:${config.port}`,
-      token: config.masterToken,
-    }
-  }
-
-  return null
 }
 
 export async function resolve(): Promise<ResolvedEndpoint> {
   const resolved = await resolveOptional()
   if (!resolved) {
-    console.error('No agent.pw instance available.')
-    console.error(`  Run \`agent.pw login\` to connect to ${DEFAULT_MANAGED_HOST}`)
-    console.error('  Or set AGENT_PW_HOST and AGENT_PW_TOKEN environment variables')
+    console.error('No agent.pw instance is configured.')
+    console.error('  Run `npx agent.pw init` to create and start a local instance')
+    console.error('  Or set AGENT_PW_HOST and AGENT_PW_TOKEN for a remote self-hosted deployment')
     process.exit(1)
   }
 
-  // Override with token stack top if present
   const stack = readTokenStack()
   if (stack.length > 0) {
     resolved.token = stack[stack.length - 1]
