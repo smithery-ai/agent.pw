@@ -1,8 +1,6 @@
-import { createHash } from 'node:crypto'
 import { existsSync, openSync } from 'node:fs'
-import { chmod, mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import {
   buildLocalBaseUrl,
@@ -13,13 +11,14 @@ import {
   readLocalConfig,
   readLocalPid,
   removeLocalPid,
-  writeExecutableFile,
 } from '../../../server/src/local/config'
-import { SERVER_BINARY_MANIFEST } from './server-binary-manifest.generated'
 
-export interface EnsureServerBinaryResult {
-  binaryPath: string
-  source: 'env' | 'cache' | 'download' | 'source'
+export interface LocalDaemonRunner {
+  command: string
+  args: string[]
+  cwd?: string
+  displayPath: string
+  source: 'bundle' | 'source'
 }
 
 interface LocalServerStatus {
@@ -29,66 +28,13 @@ interface LocalServerStatus {
   baseUrl: string | null
 }
 
-function binaryKey() {
-  return `${process.platform}-${process.arch}`
-}
-
-function binaryFileName() {
-  return SERVER_BINARY_MANIFEST[binaryKey()]?.fileName
-    ?? `agentpw-local-server-${binaryKey()}${process.platform === 'win32' ? '.exe' : ''}`
-}
-
-function sha256Hex(contents: Uint8Array) {
-  return createHash('sha256').update(contents).digest('hex')
-}
-
-function binaryCachePath(paths = localAgentPwPaths()) {
-  return join(paths.serverRuntimeDir, binaryFileName())
-}
-
-async function verifyExistingBinary(filePath: string, sha256: string) {
-  if (!existsSync(filePath)) {
-    return false
-  }
-
-  const bytes = await readFile(filePath)
-  return sha256Hex(bytes) === sha256
-}
-
-async function downloadBinary(
-  url: string,
-  expectedSha256: string,
-  outputPath: string,
-) {
-  const res = await fetch(url)
-  if (!res.ok) {
-    throw new Error(`Failed to download local server binary from ${url} (${res.status})`)
-  }
-
-  const bytes = new Uint8Array(await res.arrayBuffer())
-  const actualSha256 = sha256Hex(bytes)
-  if (actualSha256 !== expectedSha256) {
-    throw new Error(
-      `Downloaded local server binary checksum mismatch. Expected ${expectedSha256}, got ${actualSha256}.`,
-    )
-  }
-
-  writeExecutableFile(outputPath, bytes)
-}
-
-function hasPublishedChecksum(sha256: string) {
-  return /^[a-f0-9]{64}$/i.test(sha256)
-}
-
-function findRepoCheckoutRootFrom(startDir: string) {
+function findFileUpward(startDir: string, relativePath: string) {
   let currentDir = startDir
 
   while (true) {
-    if (
-      existsSync(join(currentDir, 'packages/server/entry.local.ts'))
-      && existsSync(join(currentDir, 'scripts/build-local-server-binary.mjs'))
-    ) {
-      return currentDir
+    const candidate = join(currentDir, relativePath)
+    if (existsSync(candidate)) {
+      return candidate
     }
 
     const parentDir = dirname(currentDir)
@@ -99,89 +45,48 @@ function findRepoCheckoutRootFrom(startDir: string) {
   }
 }
 
-function findRepoCheckoutRoot() {
-  const moduleDir = dirname(fileURLToPath(import.meta.url))
-
-  return (
-    findRepoCheckoutRootFrom(process.cwd())
-    ?? findRepoCheckoutRootFrom(moduleDir)
-  )
+function commandErrorMessage() {
+  return [
+    'Unable to find the local agent.pw daemon.',
+    'Reinstall `agent.pw` to restore `dist/local-daemon.js`, or run from a source checkout with dependencies installed.',
+  ].join(' ')
 }
 
-function ensureBunAvailable() {
-  const result = spawnSync('bun', ['--version'], {
-    stdio: 'ignore',
-  })
-
-  if (result.status === 0) {
-    return
-  }
-
-  throw new Error(
-    'A local source checkout was detected, but Bun is not installed. Install Bun or set AGENTPW_SERVER_BINARY_PATH to a compatible executable.',
-  )
+export function resolveLocalDaemonRunner(): LocalDaemonRunner {
+  return resolveLocalDaemonRunnerFrom(fileURLToPath(import.meta.url))
 }
 
-async function writeLocalSourceRunner(
-  outputPath: string,
-  repoRoot: string,
-) {
-  ensureBunAvailable()
-
-  const entryPath = join(repoRoot, 'packages/server/entry.local.ts')
-  const contents = process.platform === 'win32'
-    ? `@echo off\r\nbun "${entryPath}" %*\r\n`
-    : `#!/bin/sh\nexec bun "${entryPath}" "$@"\n`
-
-  await mkdir(dirname(outputPath), { recursive: true })
-  writeExecutableFile(outputPath, contents)
-
-  if (process.platform !== 'win32') {
-    await chmod(outputPath, 0o755)
-  }
-}
-
-export async function ensureLocalServerBinary(
-  paths = localAgentPwPaths(),
-): Promise<EnsureServerBinaryResult> {
-  const overridePath = process.env.AGENTPW_SERVER_BINARY_PATH?.trim()
-  if (overridePath) {
-    if (!existsSync(overridePath)) {
-      throw new Error(`AGENTPW_SERVER_BINARY_PATH does not exist: ${overridePath}`)
+export function resolveLocalDaemonRunnerFrom(
+  moduleFilePath: string,
+  cwd = process.cwd(),
+): LocalDaemonRunner {
+  const currentModuleDir = dirname(moduleFilePath)
+  const bundledDaemon = join(currentModuleDir, 'local-daemon.js')
+  if (existsSync(bundledDaemon)) {
+    return {
+      command: process.execPath,
+      args: [bundledDaemon],
+      displayPath: bundledDaemon,
+      source: 'bundle',
     }
-
-    return { binaryPath: overridePath, source: 'env' }
   }
 
-  ensureLocalAgentPwDirs(paths)
-
-  const asset = SERVER_BINARY_MANIFEST[binaryKey()] ?? null
-  const outputPath = binaryCachePath(paths)
-
-  if (asset && hasPublishedChecksum(asset.sha256)) {
-    if (await verifyExistingBinary(outputPath, asset.sha256)) {
-      return { binaryPath: outputPath, source: 'cache' }
-    }
-
-    await mkdir(dirname(outputPath), { recursive: true })
-    await downloadBinary(asset.url, asset.sha256, outputPath)
-    await chmod(outputPath, 0o755)
-    return { binaryPath: outputPath, source: 'download' }
-  }
-
-  const repoRoot = findRepoCheckoutRoot()
-  if (repoRoot) {
-    await writeLocalSourceRunner(outputPath, repoRoot)
-    return { binaryPath: outputPath, source: 'source' }
-  }
-
-  if (existsSync(outputPath)) {
-    return { binaryPath: outputPath, source: 'cache' }
-  }
-
-  throw new Error(
-    `The published CLI does not have a local server checksum for ${binaryKey()} yet, and no source checkout was found to build one locally. Set AGENTPW_SERVER_BINARY_PATH to a compatible executable.`,
+  const sourceDaemon = join(currentModuleDir, '..', 'local-daemon.ts')
+  const tsxBinary = (
+    findFileUpward(cwd, join('node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx'))
+    ?? findFileUpward(currentModuleDir, join('node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx'))
   )
+  if (existsSync(sourceDaemon) && tsxBinary) {
+    return {
+      command: process.execPath,
+      args: ['--no-warnings=ExperimentalWarning', '--loader', 'tsx', sourceDaemon],
+      cwd: dirname(dirname(dirname(dirname(sourceDaemon)))),
+      displayPath: sourceDaemon,
+      source: 'source',
+    }
+  }
+
+  throw new Error(commandErrorMessage())
 }
 
 export function getLocalServerStatus(paths = localAgentPwPaths()): LocalServerStatus {
@@ -213,22 +118,46 @@ export async function probeLocalServer(baseUrl: string, timeoutMs = 1_000) {
   }
 }
 
-async function waitForLocalServer(baseUrl: string, timeoutMs = 15_000, intervalMs = 250) {
+async function waitForDaemonStartup(
+  child: ChildProcess,
+  baseUrl: string,
+  paths = localAgentPwPaths(),
+  timeoutMs = 15_000,
+  intervalMs = 250,
+) {
   const startedAt = Date.now()
+  let exitCode: number | null = null
+  let spawnError: Error | null = null
+
+  child.once('error', error => {
+    spawnError = error
+  })
+  child.once('exit', code => {
+    exitCode = code ?? 1
+  })
 
   while (Date.now() - startedAt < timeoutMs) {
-    if (await probeLocalServer(baseUrl)) {
+    if (spawnError) {
+      throw spawnError
+    }
+
+    if (exitCode !== null) {
+      throw new Error(`Local agent.pw daemon exited before startup. Check ${paths.logFile}.`)
+    }
+
+    const localPid = readLocalPid(paths)
+    if (localPid && isProcessAlive(localPid) && (await probeLocalServer(baseUrl))) {
       return
     }
 
     await new Promise(resolve => setTimeout(resolve, intervalMs))
   }
 
-  throw new Error(`Timed out waiting for agent.pw at ${baseUrl}`)
+  throw new Error(`Timed out waiting for agent.pw at ${baseUrl}. Check ${paths.logFile}.`)
 }
 
 export async function startLocalServerDaemon(
-  binaryPath: string,
+  runner: LocalDaemonRunner,
   paths = localAgentPwPaths(),
 ) {
   const config = readLocalConfig(paths)
@@ -255,7 +184,8 @@ export async function startLocalServerDaemon(
   ensureLocalAgentPwDirs(paths)
 
   const logFd = openSync(paths.logFile, 'a')
-  const child = spawn(binaryPath, ['serve'], {
+  const child = spawn(runner.command, [...runner.args, 'serve'], {
+    cwd: runner.cwd,
     detached: true,
     stdio: ['ignore', logFd, logFd],
     env: {
@@ -265,7 +195,7 @@ export async function startLocalServerDaemon(
   })
 
   child.unref()
-  await waitForLocalServer(baseUrl)
+  await waitForDaemonStartup(child, baseUrl, paths)
 
   return {
     started: true,
@@ -275,12 +205,13 @@ export async function startLocalServerDaemon(
   }
 }
 
-export async function runLocalServerBinaryCommand(
-  binaryPath: string,
+export async function runLocalServerDaemonCommand(
+  runner: LocalDaemonRunner,
   args: string[],
   paths = localAgentPwPaths(),
 ) {
-  const child = spawn(binaryPath, args, {
+  const child = spawn(runner.command, [...runner.args, ...args], {
+    cwd: runner.cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
@@ -304,7 +235,11 @@ export async function runLocalServerBinaryCommand(
   })
 
   if (exitCode !== 0) {
-    throw new Error(stderr.trim() || stdout.trim() || `${binaryPath} ${args.join(' ')} exited with code ${exitCode}`)
+    throw new Error(
+      stderr.trim()
+      || stdout.trim()
+      || `${runner.displayPath} ${args.join(' ')} exited with code ${exitCode}`,
+    )
   }
 
   return stdout.trim()

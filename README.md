@@ -45,8 +45,7 @@ That command:
 - creates `~/.agent.pw/`
 - initializes a local PGlite database
 - mints a local root token
-- downloads the matching local server binary
-- starts the daemon in the background
+- starts the local daemon in the background
 - installs the Smithery `agentpw` skill
 - opens [agent.pw/vault](https://agent.pw/vault) already connected to your local instance
 
@@ -105,7 +104,7 @@ List endpoints accept `limit` and `cursor` query params and return:
 
 ```bash
 pnpm install
-pnpm build           # typecheck
+pnpm build           # typecheck root package + bundle the CLI package
 pnpm test            # run tests (in-memory PGlite)
 pnpm run lint        # lint
 pnpm run db:generate # generate Drizzle migrations from schema changes

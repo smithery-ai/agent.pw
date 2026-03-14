@@ -1,3 +1,4 @@
+import { serve } from '@hono/node-server'
 import { createCoreApp } from '../core/app'
 import { createLocalDb } from '../db/index'
 import { migrateLocal } from '../db/migrate-local'
@@ -20,7 +21,7 @@ export async function serveLocalServer(
 ) {
   const app = await createLocalServerApp(config)
 
-  return Bun.serve({
+  return serve({
     fetch: app.fetch,
     port: config.port,
     hostname,

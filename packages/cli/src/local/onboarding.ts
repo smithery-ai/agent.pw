@@ -56,16 +56,12 @@ export function printOnboardingSuccess(url: string, browserOpened: boolean) {
 }
 
 export function printBinarySource(
-  source: 'env' | 'cache' | 'download' | 'source',
-  binaryPath: string,
+  source: 'bundle' | 'source',
+  displayPath: string,
 ) {
-  const label = source === 'download'
-    ? 'Downloaded local server binary'
-    : source === 'source'
-      ? 'Using local server source runner'
-    : source === 'cache'
-      ? 'Using cached local server binary'
-      : 'Using local server binary override'
+  const label = source === 'bundle'
+    ? 'Using bundled local daemon'
+    : 'Using source-checkout local daemon'
 
-  console.log(`${label}: ${binaryPath}`)
+  console.log(`${label}: ${displayPath}`)
 }

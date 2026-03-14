@@ -33,6 +33,20 @@ export function resolveAgentPwHome() {
   return configured || join(homedir(), '.agent.pw')
 }
 
+export function resolveLocalPort(defaultPort = DEFAULT_LOCAL_PORT) {
+  const configured = process.env.AGENTPW_LOCAL_PORT?.trim()
+  if (!configured) {
+    return defaultPort
+  }
+
+  const parsed = Number.parseInt(configured, 10)
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65_535) {
+    throw new Error(`Invalid AGENTPW_LOCAL_PORT: ${configured}`)
+  }
+
+  return parsed
+}
+
 export function localAgentPwPaths(homeDir = resolveAgentPwHome()): LocalAgentPwPaths {
   return {
     homeDir,

@@ -9,6 +9,7 @@ import {
   ensureLocalAgentPwDirs,
   localAgentPwPaths,
   readLocalConfig,
+  resolveLocalPort,
   writeLocalConfig,
 } from './config'
 
@@ -24,7 +25,7 @@ const ROOT_FACTS = ['home_path("/")']
 
 export async function initializeLocalConfig(
   paths = localAgentPwPaths(),
-  port = DEFAULT_LOCAL_PORT,
+  port = resolveLocalPort(DEFAULT_LOCAL_PORT),
 ) {
   const existing = readLocalConfig(paths)
   if (existing) return existing

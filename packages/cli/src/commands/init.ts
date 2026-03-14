@@ -2,10 +2,10 @@ import { localAgentPwPaths, readLocalConfig } from '../../../server/src/local/co
 import {
   buildVaultLaunchUrl,
   describeLocalServer,
-  ensureLocalServerBinary,
   printServerSummary,
   readLocalServerLogs,
-  runLocalServerBinaryCommand,
+  resolveLocalDaemonRunner,
+  runLocalServerDaemonCommand,
   startLocalServerDaemon,
   stopLocalServerDaemon,
 } from '../local/server-runtime'
@@ -27,10 +27,10 @@ export async function init(options: InitOptions = {}) {
 
   printOnboardingHeader()
 
-  const binary = await ensureLocalServerBinary(paths)
-  printBinarySource(binary.source, binary.binaryPath)
+  const daemon = resolveLocalDaemonRunner()
+  printBinarySource(daemon.source, daemon.displayPath)
 
-  await runLocalServerBinaryCommand(binary.binaryPath, ['setup'], paths)
+  await runLocalServerDaemonCommand(daemon, ['init'], paths)
 
   const config = readLocalConfig(paths)
   if (!config) {
@@ -41,7 +41,7 @@ export async function init(options: InitOptions = {}) {
   console.log(`Data:   ${config.dataDir}`)
   console.log(`URL:    http://127.0.0.1:${config.port}`)
 
-  const server = await startLocalServerDaemon(binary.binaryPath, paths)
+  const server = await startLocalServerDaemon(daemon, paths)
   console.log(server.started ? `Started local server at ${server.baseUrl}` : `Local server already running at ${server.baseUrl}`)
 
   console.log('Installing or updating the Smithery skill...')
@@ -54,8 +54,8 @@ export async function init(options: InitOptions = {}) {
     process.exit(1)
   }
 
-  const bootstrapToken = await runLocalServerBinaryCommand(
-    binary.binaryPath,
+  const bootstrapToken = await runLocalServerDaemonCommand(
+    daemon,
     ['bootstrap-token', '--ttl', '10m'],
     paths,
   )
@@ -67,9 +67,9 @@ export async function init(options: InitOptions = {}) {
 
 export async function startServerCmd() {
   const paths = localAgentPwPaths()
-  const binary = await ensureLocalServerBinary(paths)
-  await runLocalServerBinaryCommand(binary.binaryPath, ['setup'], paths)
-  const server = await startLocalServerDaemon(binary.binaryPath, paths)
+  const daemon = resolveLocalDaemonRunner()
+  await runLocalServerDaemonCommand(daemon, ['init'], paths)
+  const server = await startLocalServerDaemon(daemon, paths)
 
   if (server.started) {
     console.log(`Started agent.pw at ${server.baseUrl}`)

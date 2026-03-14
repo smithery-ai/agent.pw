@@ -13,6 +13,7 @@ import {
   readLocalPid,
   removeLocalPid,
   resolveAgentPwHome,
+  resolveLocalPort,
   writeExecutableFile,
   writeLocalConfig,
   writeLocalPid,
@@ -103,6 +104,16 @@ describe('local config helpers', () => {
 
   it('falls back to ~/.agent.pw when no home override is set', () => {
     expect(resolveAgentPwHome()).toContain('.agent.pw')
+  })
+
+  it('supports overriding the default local port via env', () => {
+    expect(resolveLocalPort()).toBe(9315)
+
+    vi.stubEnv('AGENTPW_LOCAL_PORT', '19415')
+    expect(resolveLocalPort()).toBe(19415)
+
+    vi.stubEnv('AGENTPW_LOCAL_PORT', '70000')
+    expect(() => resolveLocalPort()).toThrow('Invalid AGENTPW_LOCAL_PORT: 70000')
   })
 })
 
@@ -285,7 +296,7 @@ describe('local serve wrapper', () => {
     const createLocalDb = vi.fn().mockResolvedValue('db-handle')
     const migrateLocal = vi.fn().mockResolvedValue(undefined)
     const createCoreApp = vi.fn(() => ({ fetch: vi.fn() }))
-    const bunServe = vi.fn().mockReturnValue({ stop: vi.fn() })
+    const nodeServe = vi.fn().mockReturnValue({ close: vi.fn() })
 
     vi.doMock('../packages/server/src/db/index', () => ({
       createLocalDb,
@@ -296,7 +307,9 @@ describe('local serve wrapper', () => {
     vi.doMock('../packages/server/src/core/app', () => ({
       createCoreApp,
     }))
-    vi.stubGlobal('Bun', { serve: bunServe })
+    vi.doMock('@hono/node-server', () => ({
+      serve: nodeServe,
+    }))
 
     const serveModule = await import('../packages/server/src/local/serve')
     const config = {
@@ -317,7 +330,7 @@ describe('local serve wrapper', () => {
     })
 
     await serveModule.serveLocalServer(config, '127.0.0.1')
-    expect(bunServe).toHaveBeenCalledWith({
+    expect(nodeServe).toHaveBeenCalledWith({
       fetch: expect.any(Function),
       port: 9315,
       hostname: '127.0.0.1',

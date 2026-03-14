@@ -19,11 +19,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/compile.mjs",
     "compile": "node scripts/compile.mjs",
-    "compile:bin": "node scripts/compile.mjs --binary",
-    "generate:server-binary-manifest": "node scripts/generate-server-binary-manifest.mjs",
-    "prepublishOnly": "bun run compile"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "@smithery/biscuit": "^1.0.1"

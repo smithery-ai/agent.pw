@@ -1,6 +1,11 @@
-import { localConfigSummary, ensureLocalConfig, mintBootstrapToken } from './src/local/setup'
-import { readLocalConfig } from './src/local/config'
-import { serveLocalServerProcess } from './src/local/runtime'
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { localConfigSummary, ensureLocalConfig, mintBootstrapToken } from '../../server/src/local/setup'
+import { readLocalConfig } from '../../server/src/local/config'
+import { serveLocalServerProcess } from '../../server/src/local/runtime'
+
+configureBundledPGliteAssets()
 
 if (process.argv[2] === 'setup') {
   process.argv[2] = 'init'
@@ -23,10 +28,23 @@ switch (command) {
     process.exit(1)
 }
 
+function configureBundledPGliteAssets() {
+  const modulePath = fileURLToPath(import.meta.url)
+  const vendorDir = join(dirname(modulePath), 'vendor', 'pglite')
+  const wasmPath = join(vendorDir, 'postgres.wasm')
+  const dataPath = join(vendorDir, 'postgres.data')
+
+  if (!existsSync(wasmPath) || !existsSync(dataPath)) {
+    return
+  }
+
+  process.env.AGENTPW_PGLITE_WASM_PATH ??= wasmPath
+  process.env.AGENTPW_PGLITE_DATA_PATH ??= dataPath
+}
+
 async function init() {
   const config = await ensureLocalConfig()
-  const summary = localConfigSummary(config)
-  console.log(JSON.stringify(summary))
+  console.log(JSON.stringify(localConfigSummary(config)))
 }
 
 async function bootstrapToken(argv: string[]) {
