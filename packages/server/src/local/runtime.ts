@@ -87,8 +87,9 @@ export async function serveLocalServerProcess(
   hostname = '0.0.0.0',
   paths = localAgentPwPaths(),
 ) {
+  const server = await serveLocalServer(config, hostname)
   registerLocalServerProcess(paths)
-  return serveLocalServer(config, hostname)
+  return server
 }
 
 export function stopLocalServer(paths = localAgentPwPaths()) {

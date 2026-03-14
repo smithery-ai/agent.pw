@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -246,7 +247,7 @@ describe('local runtime helpers', () => {
     expect(runtime.stopLocalServer(paths)).toBe(false)
   })
 
-  it('writes the pid before serving the local app process', async () => {
+  it('writes the pid after the local app starts', async () => {
     const homeDir = createTempHome()
     vi.resetModules()
 
@@ -286,6 +287,32 @@ describe('local runtime helpers', () => {
     expect(configModule.readLocalPid(paths)).toBeNull()
     expect(exitSpy).toHaveBeenCalledWith(0)
   })
+
+  it('does not leave a pid file behind when startup fails', async () => {
+    const homeDir = createTempHome()
+    vi.resetModules()
+
+    const serveLocalServer = vi.fn().mockRejectedValue(new Error('Failed to start server. Is port 9315 in use?'))
+    vi.doMock('../packages/server/src/local/serve', () => ({
+      serveLocalServer,
+    }))
+
+    const configModule = await import('../packages/server/src/local/config')
+    const runtime = await import('../packages/server/src/local/runtime')
+    const paths = configModule.localAgentPwPaths(homeDir)
+
+    const config = {
+      biscuitPrivateKey: 'test-private-key',
+      masterToken: 'apw_root',
+      port: 9315,
+      dataDir: paths.dataDir,
+    }
+
+    await expect(runtime.serveLocalServerProcess(config, '127.0.0.1', paths)).rejects.toThrow(
+      'Failed to start server. Is port 9315 in use?',
+    )
+    expect(configModule.readLocalPid(paths)).toBeNull()
+  })
 })
 
 describe('local serve wrapper', () => {
@@ -296,7 +323,13 @@ describe('local serve wrapper', () => {
     const createLocalDb = vi.fn().mockResolvedValue('db-handle')
     const migrateLocal = vi.fn().mockResolvedValue(undefined)
     const createCoreApp = vi.fn(() => ({ fetch: vi.fn() }))
-    const nodeServe = vi.fn().mockReturnValue({ close: vi.fn() })
+    const server = new EventEmitter()
+    const nodeServe = vi.fn().mockImplementation((_options, onListening) => {
+      queueMicrotask(() => {
+        onListening?.({ port: 9315 })
+      })
+      return server
+    })
 
     vi.doMock('../packages/server/src/db/index', () => ({
       createLocalDb,
@@ -329,11 +362,52 @@ describe('local serve wrapper', () => {
       baseUrl: 'http://127.0.0.1:9315',
     })
 
-    await serveModule.serveLocalServer(config, '127.0.0.1')
+    expect(await serveModule.serveLocalServer(config, '127.0.0.1')).toBe(server)
     expect(nodeServe).toHaveBeenCalledWith({
       fetch: expect.any(Function),
       port: 9315,
       hostname: '127.0.0.1',
+    }, expect.any(Function))
+  })
+
+  it('surfaces listen failures before reporting success', async () => {
+    vi.resetModules()
+    vi.doUnmock('../packages/server/src/local/serve')
+
+    const createLocalDb = vi.fn().mockResolvedValue('db-handle')
+    const migrateLocal = vi.fn().mockResolvedValue(undefined)
+    const createCoreApp = vi.fn(() => ({ fetch: vi.fn() }))
+    const server = new EventEmitter()
+    const nodeServe = vi.fn().mockImplementation(() => {
+      queueMicrotask(() => {
+        server.emit('error', Object.assign(new Error('listen EADDRINUSE'), { code: 'EADDRINUSE' }))
+      })
+      return server
     })
+
+    vi.doMock('../packages/server/src/db/index', () => ({
+      createLocalDb,
+    }))
+    vi.doMock('../packages/server/src/db/migrate-local', () => ({
+      migrateLocal,
+    }))
+    vi.doMock('../packages/server/src/core/app', () => ({
+      createCoreApp,
+    }))
+    vi.doMock('@hono/node-server', () => ({
+      serve: nodeServe,
+    }))
+
+    const serveModule = await import('../packages/server/src/local/serve')
+    const config = {
+      biscuitPrivateKey: 'test-private-key',
+      masterToken: 'apw_root',
+      port: 9315,
+      dataDir: '/tmp/agentpw-data',
+    }
+
+    await expect(serveModule.serveLocalServer(config, '127.0.0.1')).rejects.toThrow(
+      'Failed to start server. Is port 9315 in use?',
+    )
   })
 })

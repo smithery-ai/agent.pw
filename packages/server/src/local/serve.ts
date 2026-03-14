@@ -21,9 +21,38 @@ export async function serveLocalServer(
 ) {
   const app = await createLocalServerApp(config)
 
-  return serve({
-    fetch: app.fetch,
-    port: config.port,
-    hostname,
+  return await new Promise((resolve, reject) => {
+    let settled = false
+
+    const server = serve({
+      fetch: app.fetch,
+      port: config.port,
+      hostname,
+    }, () => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      server.off('error', onError)
+      resolve(server)
+    })
+
+    const onError = (error: NodeJS.ErrnoException) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+
+      if (error.code === 'EADDRINUSE') {
+        reject(new Error(`Failed to start server. Is port ${config.port} in use?`))
+        return
+      }
+
+      reject(error)
+    }
+
+    server.once('error', onError)
   })
 }
