@@ -52,7 +52,7 @@ const lines = [
   '}',
   '',
   `const versionTag = 'agent.pw-v${version}'`,
-  "const baseUrl = `https://github.com/smithery-ai/agent.pw/releases/download/${versionTag}`",
+  `const baseUrl = \`https://github.com/smithery-ai/agent.pw/releases/download/\${versionTag}\``,
   '',
   'export const SERVER_BINARY_MANIFEST: Record<string, ServerBinaryAsset> = {',
   ...entries.map(entry => `  '${entry.key}': { fileName: '${entry.fileName}', url: \`\${baseUrl}/${entry.fileName}\`, sha256: '${entry.sha256}' },`),

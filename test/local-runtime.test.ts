@@ -30,7 +30,9 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
-  tempDirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true }))
+  tempDirs.splice(0).forEach(dir => {
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 function createTempHome() {
@@ -75,7 +77,7 @@ describe('local config helpers', () => {
     expect(readLocalPid(paths)).toBe(4321)
 
     const killSpy = vi.spyOn(process, 'kill')
-    killSpy.mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
+    killSpy.mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
       if (signal === 0) return true
       return true
     }) as typeof process.kill)
@@ -214,7 +216,7 @@ describe('local runtime helpers', () => {
     ).rejects.toThrow('Timed out waiting for agent.pw')
 
     const killSpy = vi.spyOn(process, 'kill')
-    killSpy.mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
+    killSpy.mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
       if (signal === 0) return true
       return true
     }) as typeof process.kill)
