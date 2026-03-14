@@ -15,18 +15,29 @@ const program = new Command()
   .description('Legacy local wrapper for agent.pw')
   .version('0.1.0')
 
+program.addHelpText(
+  'beforeAll',
+  [
+    'Note: `npx .` at the repo root runs the local server wrapper package (`@agent.pw/server`).',
+    'For the published OSS CLI, run `cd packages/cli && npx . init`.',
+    '',
+  ].join('\n'),
+)
+
+async function initLocalInstance() {
+  const config = await ensureLocalConfig()
+  const paths = localAgentPwPaths()
+  console.log('agent.pw is initialized.')
+  console.log(`Config: ${paths.configFile}`)
+  console.log(`Data:   ${config.dataDir}`)
+  console.log(`URL:    http://127.0.0.1:${config.port}`)
+  console.log('Next step: run `npx agent.pw init` or `agent.pw-server start`.')
+}
+
 program
-  .command('setup')
+  .command('init')
   .description('Initialize a local instance')
-  .action(async () => {
-    const config = await ensureLocalConfig()
-    const paths = localAgentPwPaths()
-    console.log('agent.pw is initialized.')
-    console.log(`Config: ${paths.configFile}`)
-    console.log(`Data:   ${config.dataDir}`)
-    console.log(`URL:    http://127.0.0.1:${config.port}`)
-    console.log('Next step: run `npx agent.pw init` or `agent.pw-server start`.')
-  })
+  .action(initLocalInstance)
 
 program
   .command('start')
@@ -89,6 +100,10 @@ program
       process.exit(1)
     }
   })
+
+if (process.argv[2] === 'setup') {
+  process.argv[2] = 'init'
+}
 
 program.parseAsync().catch(err => {
   console.error(err.message ?? err)
