@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { existsSync, openSync } from 'node:fs'
 import { chmod, mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import {
   buildLocalBaseUrl,
   clearStaleLocalPid,
@@ -18,7 +19,7 @@ import { SERVER_BINARY_MANIFEST } from './server-binary-manifest.generated'
 
 export interface EnsureServerBinaryResult {
   binaryPath: string
-  source: 'env' | 'cache' | 'download'
+  source: 'env' | 'cache' | 'download' | 'source'
 }
 
 interface LocalServerStatus {
@@ -32,17 +33,9 @@ function binaryKey() {
   return `${process.platform}-${process.arch}`
 }
 
-function resolveBinaryAsset() {
-  const key = binaryKey()
-  const asset = SERVER_BINARY_MANIFEST[key]
-
-  if (!asset) {
-    throw new Error(
-      `No local agent.pw server binary is published for ${key}. Set AGENTPW_SERVER_BINARY_PATH to a compatible executable.`,
-    )
-  }
-
-  return asset
+function binaryFileName() {
+  return SERVER_BINARY_MANIFEST[binaryKey()]?.fileName
+    ?? `agentpw-local-server-${binaryKey()}${process.platform === 'win32' ? '.exe' : ''}`
 }
 
 function sha256Hex(contents: Uint8Array) {
@@ -50,8 +43,7 @@ function sha256Hex(contents: Uint8Array) {
 }
 
 function binaryCachePath(paths = localAgentPwPaths()) {
-  const asset = resolveBinaryAsset()
-  return join(paths.serverRuntimeDir, asset.fileName)
+  return join(paths.serverRuntimeDir, binaryFileName())
 }
 
 async function verifyExistingBinary(filePath: string, sha256: string) {
@@ -84,6 +76,71 @@ async function downloadBinary(
   writeExecutableFile(outputPath, bytes)
 }
 
+function hasPublishedChecksum(sha256: string) {
+  return /^[a-f0-9]{64}$/i.test(sha256)
+}
+
+function findRepoCheckoutRootFrom(startDir: string) {
+  let currentDir = startDir
+
+  while (true) {
+    if (
+      existsSync(join(currentDir, 'packages/server/entry.local.ts'))
+      && existsSync(join(currentDir, 'scripts/build-local-server-binary.mjs'))
+    ) {
+      return currentDir
+    }
+
+    const parentDir = dirname(currentDir)
+    if (parentDir === currentDir) {
+      return null
+    }
+    currentDir = parentDir
+  }
+}
+
+function findRepoCheckoutRoot() {
+  const moduleDir = dirname(fileURLToPath(import.meta.url))
+
+  return (
+    findRepoCheckoutRootFrom(process.cwd())
+    ?? findRepoCheckoutRootFrom(moduleDir)
+  )
+}
+
+function ensureBunAvailable() {
+  const result = spawnSync('bun', ['--version'], {
+    stdio: 'ignore',
+  })
+
+  if (result.status === 0) {
+    return
+  }
+
+  throw new Error(
+    'A local source checkout was detected, but Bun is not installed. Install Bun or set AGENTPW_SERVER_BINARY_PATH to a compatible executable.',
+  )
+}
+
+async function writeLocalSourceRunner(
+  outputPath: string,
+  repoRoot: string,
+) {
+  ensureBunAvailable()
+
+  const entryPath = join(repoRoot, 'packages/server/entry.local.ts')
+  const contents = process.platform === 'win32'
+    ? `@echo off\r\nbun "${entryPath}" %*\r\n`
+    : `#!/bin/sh\nexec bun "${entryPath}" "$@"\n`
+
+  await mkdir(dirname(outputPath), { recursive: true })
+  writeExecutableFile(outputPath, contents)
+
+  if (process.platform !== 'win32') {
+    await chmod(outputPath, 0o755)
+  }
+}
+
 export async function ensureLocalServerBinary(
   paths = localAgentPwPaths(),
 ): Promise<EnsureServerBinaryResult> {
@@ -98,22 +155,33 @@ export async function ensureLocalServerBinary(
 
   ensureLocalAgentPwDirs(paths)
 
-  const asset = resolveBinaryAsset()
-  if (!/^[a-f0-9]{64}$/i.test(asset.sha256)) {
-    throw new Error(
-      `The published CLI does not have a local server checksum for ${binaryKey()} yet. Set AGENTPW_SERVER_BINARY_PATH to a compatible executable.`,
-    )
+  const asset = SERVER_BINARY_MANIFEST[binaryKey()] ?? null
+  const outputPath = binaryCachePath(paths)
+
+  if (asset && hasPublishedChecksum(asset.sha256)) {
+    if (await verifyExistingBinary(outputPath, asset.sha256)) {
+      return { binaryPath: outputPath, source: 'cache' }
+    }
+
+    await mkdir(dirname(outputPath), { recursive: true })
+    await downloadBinary(asset.url, asset.sha256, outputPath)
+    await chmod(outputPath, 0o755)
+    return { binaryPath: outputPath, source: 'download' }
   }
 
-  const outputPath = binaryCachePath(paths)
-  if (await verifyExistingBinary(outputPath, asset.sha256)) {
+  const repoRoot = findRepoCheckoutRoot()
+  if (repoRoot) {
+    await writeLocalSourceRunner(outputPath, repoRoot)
+    return { binaryPath: outputPath, source: 'source' }
+  }
+
+  if (existsSync(outputPath)) {
     return { binaryPath: outputPath, source: 'cache' }
   }
 
-  await mkdir(dirname(outputPath), { recursive: true })
-  await downloadBinary(asset.url, asset.sha256, outputPath)
-  await chmod(outputPath, 0o755)
-  return { binaryPath: outputPath, source: 'download' }
+  throw new Error(
+    `The published CLI does not have a local server checksum for ${binaryKey()} yet, and no source checkout was found to build one locally. Set AGENTPW_SERVER_BINARY_PATH to a compatible executable.`,
+  )
 }
 
 export function getLocalServerStatus(paths = localAgentPwPaths()): LocalServerStatus {

@@ -55,9 +55,14 @@ export function printOnboardingSuccess(url: string, browserOpened: boolean) {
   console.log(browserOpened ? 'Opened the vault in your browser.' : 'Open the vault URL above to continue.')
 }
 
-export function printBinarySource(source: 'env' | 'cache' | 'download', binaryPath: string) {
+export function printBinarySource(
+  source: 'env' | 'cache' | 'download' | 'source',
+  binaryPath: string,
+) {
   const label = source === 'download'
     ? 'Downloaded local server binary'
+    : source === 'source'
+      ? 'Using local server source runner'
     : source === 'cache'
       ? 'Using cached local server binary'
       : 'Using local server binary override'
