@@ -23,7 +23,6 @@
     "compile": "node scripts/compile.mjs",
     "compile:bin": "node scripts/compile.mjs --binary",
     "generate:server-binary-manifest": "node scripts/generate-server-binary-manifest.mjs",
-    "smoke:package": "node scripts/smoke-package.mjs",
     "prepublishOnly": "bun run compile"
   },
   "dependencies": {
