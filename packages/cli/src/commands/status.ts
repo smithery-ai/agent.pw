@@ -43,7 +43,7 @@ export async function statusCmd() {
     return
   }
 
-  const reachable = status.running ? await probeLocalServer(status.baseUrl) : false
+  const reachable = await probeLocalServer(status.baseUrl)
 
   console.log(`Config: ${status.configFile}`)
   console.log(`Data:   ${config.dataDir}`)
@@ -58,6 +58,11 @@ export async function statusCmd() {
   }
 
   if (!status.running) {
+    if (reachable) {
+      console.log('State:  reachable (unmanaged)')
+      return
+    }
+
     console.log('State:  stopped')
     return
   }

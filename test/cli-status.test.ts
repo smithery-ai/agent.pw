@@ -79,7 +79,40 @@ describe('CLI status', () => {
       ['Service: launchd (/tmp/LaunchAgents/ai.agentpw.daemon.plist)'],
       ['State:  stopped'],
     ])
-    expect(probeLocalServer).not.toHaveBeenCalled()
+    expect(probeLocalServer).toHaveBeenCalledWith('http://127.0.0.1:9315')
+  })
+
+  it('reports a reachable local instance as unmanaged when no tracked pid exists', async () => {
+    readLocalConfig.mockReturnValue({ dataDir: '/tmp/agent.pw/data' })
+    describeLocalServer.mockReturnValue({
+      baseUrl: 'http://127.0.0.1:9315',
+      configFile: '/tmp/agent.pw/config.json',
+      logFile: '/tmp/agent.pw/logs/server.log',
+      pid: null,
+      running: false,
+    })
+    describeLocalService.mockReturnValue({
+      supported: true,
+      installed: false,
+      kind: null,
+      label: null,
+      filePath: null,
+    })
+    probeLocalServer.mockResolvedValue(true)
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await statusCmd()
+
+    expect(logSpy.mock.calls).toEqual([
+      ['Config: /tmp/agent.pw/config.json'],
+      ['Data:   /tmp/agent.pw/data'],
+      ['URL:    http://127.0.0.1:9315'],
+      ['Log:    /tmp/agent.pw/logs/server.log'],
+      ['Service: not installed'],
+      ['State:  reachable (unmanaged)'],
+    ])
+    expect(probeLocalServer).toHaveBeenCalledWith('http://127.0.0.1:9315')
   })
 
   it('reports a reachable remote instance when env configuration is complete', async () => {

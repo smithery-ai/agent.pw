@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.8.0",
   "type": "module",
   "bin": {
-    "agentpw-dev": "./packages/cli/dist/index.js"
+    "agent.pw": "./packages/cli/dist/index.js"
   },
   "exports": {
     ".": "./packages/server/src/core/app.ts",
