@@ -1,11 +1,14 @@
 #!/usr/bin/env bun
 
+import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { Command } from 'commander'
-import { localAgentPwPaths, readLocalConfig } from './src/local/config'
+import { buildLocalBaseUrl, localAgentPwPaths, readLocalConfig } from './src/local/config'
+import { ensureLocalServerDaemon } from './src/local/daemon'
 import { ensureLocalConfig } from './src/local/setup'
 import {
   getLocalServerStatus,
+  probeLocalServer,
   serveLocalServerProcess,
   stopLocalServer,
 } from './src/local/runtime'
@@ -27,16 +30,24 @@ program.addHelpText(
 async function initLocalInstance() {
   const config = await ensureLocalConfig()
   const paths = localAgentPwPaths()
-  console.log('agent.pw is initialized.')
+  const cliPath = fileURLToPath(import.meta.url)
+  const server = await ensureLocalServerDaemon({
+    command: process.execPath,
+    args: [cliPath, 'start'],
+  }, paths)
+
+  console.log('agent.pw is ready.')
   console.log(`Config: ${paths.configFile}`)
   console.log(`Data:   ${config.dataDir}`)
-  console.log(`URL:    http://127.0.0.1:${config.port}`)
-  console.log('Next step: run `npx agent.pw init` or `agent.pw-server start`.')
+  console.log(`URL:    ${buildLocalBaseUrl(config.port)}`)
+  console.log(server.started ? `State:  started (PID ${server.pid})` : 'State:  running')
+  console.log(`Log:    ${server.logFile}`)
+  console.log('For the hosted vault onboarding flow, run `cd packages/cli && npx . init`.')
 }
 
 program
   .command('init')
-  .description('Initialize a local instance')
+  .description('Initialize, repair, and start a local instance')
   .action(initLocalInstance)
 
 program
@@ -62,7 +73,13 @@ program
 program
   .command('stop')
   .description('Stop the local server')
-  .action(() => {
+  .action(async () => {
+    const status = getLocalServerStatus()
+    if (status.baseUrl && !status.running && (await probeLocalServer(status.baseUrl))) {
+      console.log(`agent.pw is reachable at ${status.baseUrl}, but this wrapper is not managing that process.`)
+      return
+    }
+
     const stopped = stopLocalServer()
     if (!stopped) {
       console.log('agent.pw is not running.')
@@ -75,7 +92,7 @@ program
 program
   .command('status')
   .description('Show local server status')
-  .action(() => {
+  .action(async () => {
     const status = getLocalServerStatus()
     if (!status.configured) {
       console.log('agent.pw is not initialized.')
@@ -84,7 +101,23 @@ program
     }
 
     console.log(`URL:    ${status.baseUrl}`)
-    console.log(status.running ? `State:  running (PID ${status.pid})` : 'State:  stopped')
+    const reachable = status.baseUrl ? await probeLocalServer(status.baseUrl) : false
+    if (reachable && status.pid) {
+      console.log(`State:  running (PID ${status.pid})`)
+      return
+    }
+
+    if (reachable) {
+      console.log('State:  reachable (unmanaged)')
+      return
+    }
+
+    if (status.pid) {
+      console.log(`State:  unresponsive (PID ${status.pid})`)
+      return
+    }
+
+    console.log('State:  stopped')
   })
 
 program
