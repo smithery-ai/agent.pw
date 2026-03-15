@@ -62,6 +62,7 @@ export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
 export const REQUESTED_ROOT_HEADER = 'agentpw-path'
 export const UPSTREAM_URL_HEADER = 'agentpw-upstream-url'
 
+/* v8 ignore next -- requestedRoot is always resolved before relative credential selectors are evaluated */
 function missingHomePathResponse(c: Context<CoreHonoEnv>, header: string) {
   return c.json({
     error: `Relative ${header} requires token home_path metadata`,

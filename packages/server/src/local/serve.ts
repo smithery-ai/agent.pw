@@ -398,3 +398,17 @@ export async function serveLocalServer(
     })
   })
 }
+
+export const localServeTestUtils = {
+  buildHeadersFromIncoming,
+  isLoopbackAddress,
+  maybeInjectLocalProxyToken,
+  isForwardProxyRequest,
+  buildInternalProxyUrl,
+  writeFetchResponse,
+  handleForwardProxyRequest,
+  parseConnectTarget,
+  writeConnectResponse,
+  authorizeConnectRequest,
+  handleConnectTunnel,
+}

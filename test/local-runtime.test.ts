@@ -397,6 +397,10 @@ describe('local serve wrapper', () => {
     expect(getRequestListener).toHaveBeenCalledWith(expect.any(Function), { hostname: '127.0.0.1' })
     expect(createNodeServer).toHaveBeenCalledWith(expect.any(Function))
     expect(server.listen).toHaveBeenCalledWith(9315, '127.0.0.1', expect.any(Function))
+
+    const requestHandler = createNodeServer.mock.calls[0]?.[0]
+    await requestHandler?.({ url: '/health' }, 'response')
+    expect(requestListener).toHaveBeenCalledWith({ url: '/health' }, 'response')
   })
 
   it('surfaces listen failures before reporting success', async () => {
@@ -443,5 +447,50 @@ describe('local serve wrapper', () => {
     await expect(serveModule.serveLocalServer(config, '127.0.0.1')).rejects.toThrow(
       'Failed to start server. Is port 9315 in use?',
     )
+  })
+
+  it('surfaces unexpected listen failures and ignores late listen callbacks', async () => {
+    vi.resetModules()
+    vi.doUnmock('../packages/server/src/local/serve')
+
+    const createLocalDb = vi.fn().mockResolvedValue('db-handle')
+    const migrateLocal = vi.fn().mockResolvedValue(undefined)
+    const createCoreApp = vi.fn(() => ({ fetch: vi.fn() }))
+    const getRequestListener = vi.fn(() => vi.fn())
+    const server = Object.assign(new EventEmitter(), {
+      listen: vi.fn().mockImplementation((_port, _hostname, onListening) => {
+        queueMicrotask(() => {
+          server.emit('error', new Error('listen EACCES'))
+          onListening?.()
+        })
+        return server
+      }),
+    })
+    const createNodeServer = vi.fn().mockImplementation(() => server)
+
+    vi.doMock('../packages/server/src/db/index', () => ({
+      createLocalDb,
+    }))
+    vi.doMock('../packages/server/src/db/migrate-local', () => ({
+      migrateLocal,
+    }))
+    vi.doMock('../packages/server/src/core/app', () => ({
+      createCoreApp,
+    }))
+    vi.doMock('@hono/node-server', () => ({
+      getRequestListener,
+    }))
+    vi.doMock('node:http', () => ({
+      createServer: createNodeServer,
+    }))
+
+    const serveModule = await import('../packages/server/src/local/serve')
+    const config = {
+      biscuitPrivateKey: 'test-private-key',
+      port: 9315,
+      dataDir: '/tmp/agentpw-data',
+    }
+
+    await expect(serveModule.serveLocalServer(config, '127.0.0.1')).rejects.toThrow('listen EACCES')
   })
 })
