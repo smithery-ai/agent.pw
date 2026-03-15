@@ -260,7 +260,7 @@ export async function ensureLocalService(
 ) {
   const config = readLocalConfig(paths)
   if (!config) {
-    throw new Error('agent.pw is not installed. Run `npx agent.pw install` first.')
+    throw new Error('agent.pw is not configured. Run `npx agent.pw start` first.')
   }
 
   const definition = resolveServiceDefinition()
@@ -298,7 +298,7 @@ export async function ensureLocalService(
   }
 }
 
-export function uninstallLocalService(paths = localAgentPwPaths()) {
+export function stopLocalService(paths = localAgentPwPaths()) {
   const definition = resolveServiceDefinition()
   if (!definition) {
     throw new Error(unsupportedServiceMessage())

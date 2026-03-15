@@ -4,7 +4,7 @@ import { describeLocalServer, probeLocalServer } from '../local/server-runtime'
 
 function printUnconfigured() {
   console.log('No agent.pw instance is configured.')
-  console.log('Run `npx agent.pw install` to create and start a local instance.')
+  console.log('Run `npx agent.pw start` to create and start a local instance.')
   console.log('Or set AGENT_PW_HOST and AGENT_PW_TOKEN for a remote self-hosted deployment.')
 }
 

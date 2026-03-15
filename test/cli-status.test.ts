@@ -44,7 +44,7 @@ describe('CLI status', () => {
 
     expect(logSpy.mock.calls).toEqual([
       ['No agent.pw instance is configured.'],
-      ['Run `npx agent.pw install` to create and start a local instance.'],
+      ['Run `npx agent.pw start` to create and start a local instance.'],
       ['Or set AGENT_PW_HOST and AGENT_PW_TOKEN for a remote self-hosted deployment.'],
     ])
     expect(probeLocalServer).not.toHaveBeenCalled()

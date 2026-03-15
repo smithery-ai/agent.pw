@@ -6,7 +6,7 @@ import {
   resolveLocalDaemonRunner,
   runLocalServerDaemonCommand,
 } from '../local/server-runtime'
-import { ensureLocalService, uninstallLocalService } from '../local/service-manager'
+import { ensureLocalService, stopLocalService } from '../local/service-manager'
 import {
   confirmAgentPwSkillInstall,
   installAgentPwSkill,
@@ -17,11 +17,11 @@ import {
   printOnboardingSuccess,
 } from '../local/onboarding'
 
-interface InstallOptions {
+interface StartOptions {
   noBrowser?: boolean
 }
 
-export async function install(options: InstallOptions = {}) {
+export async function start(options: StartOptions = {}) {
   const { noBrowser = false } = options
   const paths = localAgentPwPaths()
 
@@ -30,7 +30,7 @@ export async function install(options: InstallOptions = {}) {
   const daemon = resolveLocalDaemonRunner()
   printBinarySource(daemon.source, daemon.displayPath)
 
-  await runLocalServerDaemonCommand(daemon, ['install'], paths)
+  await runLocalServerDaemonCommand(daemon, ['setup'], paths)
 
   const config = readLocalConfig(paths)
   if (!config) {
@@ -70,16 +70,16 @@ export async function install(options: InstallOptions = {}) {
   printOnboardingSuccess(vaultUrl, browserOpened)
 }
 
-export function uninstallCmd() {
+export function stopCmd() {
   const paths = localAgentPwPaths()
   const config = readLocalConfig(paths)
-  const stopped = uninstallLocalService()
+  const stopped = stopLocalService()
   if (!stopped) {
-    console.log('agent.pw is not installed.')
+    console.log('agent.pw is already stopped.')
     return
   }
 
-  console.log('Removed the local agent.pw service.')
+  console.log('Stopped the local agent.pw service.')
   if (config) {
     console.log(`Data remains at ${config.dataDir}.`)
   }

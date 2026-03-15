@@ -23,7 +23,7 @@ export async function curl(args: string[]) {
   const resolved = await resolveOptional()
   if (!resolved) {
     console.error('No agent.pw instance is configured.')
-    console.error('Run `npx agent.pw install` to create a local instance, or set AGENT_PW_HOST and AGENT_PW_TOKEN.')
+    console.error('Run `npx agent.pw start` to create a local instance, or set AGENT_PW_HOST and AGENT_PW_TOKEN.')
     process.exit(1)
   }
 

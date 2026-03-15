@@ -3,7 +3,7 @@ import pkg from '../package.json'
 
 const program = new Command()
   .name('agent.pw')
-  .description('Authenticated proxy for APIs\n\nGet started:  npx agent.pw install')
+  .description('Authenticated proxy for APIs\n\nGet started:  npx agent.pw start')
   .version(pkg.version)
 
 function parsePositiveInt(value: string) {
@@ -29,12 +29,12 @@ function assertValidPaginationOptions(command: Command) {
 }
 
 program
-  .command('install')
-  .description('Install or repair your local agent.pw service')
+  .command('start')
+  .description('Start or repair your local agent.pw service')
   .option('--no-browser', 'Print the vault URL instead of opening it')
   .action(async opts => {
-    const { install } = await import('./commands/install')
-    return install({ noBrowser: Boolean(opts.noBrowser) })
+    const { start } = await import('./commands/start')
+    return start({ noBrowser: Boolean(opts.noBrowser) })
   })
 
 program
@@ -50,16 +50,16 @@ program
   .description('Print recent local service logs')
   .option('--tail <n>', 'Number of log lines to print', parsePositiveInt)
   .action(async opts => {
-    const { logsCmd } = await import('./commands/install')
+    const { logsCmd } = await import('./commands/start')
     return logsCmd(opts.tail)
   })
 
 program
-  .command('uninstall')
-  .description('Stop and remove the local agent.pw service')
+  .command('stop')
+  .description('Stop and disable the local agent.pw service')
   .action(async () => {
-    const { uninstallCmd } = await import('./commands/install')
-    return uninstallCmd()
+    const { stopCmd } = await import('./commands/start')
+    return stopCmd()
   })
 
 // ─── profile ─────────────────────────────────────────────────────────────────

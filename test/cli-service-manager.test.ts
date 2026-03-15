@@ -84,7 +84,7 @@ describe('CLI service manager', () => {
     }
   })
 
-  it('uninstalls the managed local service without deleting local data', async () => {
+  it('stops the managed local service without deleting local data', async () => {
     const homeDir = createTempDir('agentpw-home')
     const serviceDir = createTempDir('agentpw-service')
     const paths = localAgentPwPaths(homeDir)
@@ -98,7 +98,7 @@ describe('CLI service manager', () => {
     vi.stubEnv('AGENTPW_SERVICE_DIR', serviceDir)
     probeLocalServer.mockResolvedValue(true)
 
-    const { ensureLocalService, uninstallLocalService, describeLocalService } = await import('../packages/cli/src/local/service-manager')
+    const { ensureLocalService, stopLocalService, describeLocalService } = await import('../packages/cli/src/local/service-manager')
     const runner = {
       command: process.execPath,
       args: ['/tmp/local-daemon.js'],
@@ -110,7 +110,7 @@ describe('CLI service manager', () => {
     const service = await ensureLocalService(runner, paths)
     expect(existsSync(service.servicePath)).toBe(true)
 
-    const removed = uninstallLocalService(paths)
+    const removed = stopLocalService(paths)
     expect(removed).toBe(true)
     expect(existsSync(service.servicePath)).toBe(false)
     expect(existsSync(paths.configFile)).toBe(true)
