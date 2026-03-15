@@ -1,19 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
+  localAgentPwPaths,
   readLocalConfig,
+  readCliConfig,
   describeLocalServer,
   describeLocalService,
   probeLocalServer,
 } = vi.hoisted(() => ({
+  localAgentPwPaths: vi.fn(),
   readLocalConfig: vi.fn(),
+  readCliConfig: vi.fn(),
   describeLocalServer: vi.fn(),
   describeLocalService: vi.fn(),
   probeLocalServer: vi.fn(),
 }))
 
 vi.mock('../packages/server/src/local/config', () => ({
+  localAgentPwPaths,
   readLocalConfig,
+}))
+
+vi.mock('../packages/cli/src/config', () => ({
+  readCliConfig,
 }))
 
 vi.mock('../packages/cli/src/local/server-runtime', () => ({
@@ -31,6 +40,9 @@ describe('CLI status', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.unstubAllEnvs()
+    localAgentPwPaths.mockReturnValue({
+      cliConfigFile: '/tmp/agent.pw/cli.json',
+    })
   })
 
   it('reports an unconfigured local instance', async () => {
@@ -60,9 +72,10 @@ describe('CLI status', () => {
 
   it('reports a configured local instance as stopped when the daemon is down', async () => {
     readLocalConfig.mockReturnValue({ dataDir: '/tmp/agent.pw/data' })
+    readCliConfig.mockReturnValue({ url: 'http://127.0.0.1:9315', token: 'apw_root' })
     describeLocalServer.mockReturnValue({
       baseUrl: 'http://127.0.0.1:9315',
-      configFile: '/tmp/agent.pw/config.json',
+      configFile: '/tmp/agent.pw/server.json',
       logFile: '/tmp/agent.pw/logs/server.log',
       pid: null,
       running: false,
@@ -82,7 +95,8 @@ describe('CLI status', () => {
     await statusCmd()
 
     expect(logSpy.mock.calls).toEqual([
-      ['Config: /tmp/agent.pw/config.json'],
+      ['Server: /tmp/agent.pw/server.json'],
+      ['CLI:    /tmp/agent.pw/cli.json'],
       ['Data:   /tmp/agent.pw/data'],
       ['URL:    http://127.0.0.1:9315'],
       ['Log:    /tmp/agent.pw/logs/server.log'],
@@ -94,9 +108,10 @@ describe('CLI status', () => {
 
   it('reports a managed local instance as running even without a tracked pid file', async () => {
     readLocalConfig.mockReturnValue({ dataDir: '/tmp/agent.pw/data' })
+    readCliConfig.mockReturnValue({ url: 'http://127.0.0.1:9315', token: 'apw_root' })
     describeLocalServer.mockReturnValue({
       baseUrl: 'http://127.0.0.1:9315',
-      configFile: '/tmp/agent.pw/config.json',
+      configFile: '/tmp/agent.pw/server.json',
       logFile: '/tmp/agent.pw/logs/server.log',
       pid: null,
       running: false,
@@ -117,7 +132,8 @@ describe('CLI status', () => {
     await statusCmd()
 
     expect(logSpy.mock.calls).toEqual([
-      ['Config: /tmp/agent.pw/config.json'],
+      ['Server: /tmp/agent.pw/server.json'],
+      ['CLI:    /tmp/agent.pw/cli.json'],
       ['Data:   /tmp/agent.pw/data'],
       ['URL:    http://127.0.0.1:9315'],
       ['Log:    /tmp/agent.pw/logs/server.log'],

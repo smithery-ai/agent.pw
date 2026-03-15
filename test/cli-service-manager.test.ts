@@ -52,7 +52,6 @@ describe('CLI service manager', () => {
     const paths = localAgentPwPaths(homeDir)
     writeLocalConfig({
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: paths.dataDir,
     }, paths)
@@ -98,7 +97,6 @@ describe('CLI service manager', () => {
     const paths = localAgentPwPaths(homeDir)
     writeLocalConfig({
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: paths.dataDir,
     }, paths)

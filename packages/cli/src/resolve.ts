@@ -1,5 +1,4 @@
-import { buildLocalBaseUrl } from '../../server/src/local/config'
-import { readConfig, readTokenStack } from './config'
+import { readCliConfig, readTokenStack } from './config'
 
 interface ResolvedEndpoint {
   url: string
@@ -18,14 +17,14 @@ export async function resolveOptional(): Promise<ResolvedEndpoint | null> {
     return { url: envHost.replace(/\/$/, ''), token: envToken }
   }
 
-  const config = readConfig()
+  const config = readCliConfig()
   if (!config) {
     return null
   }
 
   return {
-    url: buildLocalBaseUrl(config.port),
-    token: config.masterToken,
+    url: config.url.replace(/\/$/, ''),
+    token: config.token,
   }
 }
 

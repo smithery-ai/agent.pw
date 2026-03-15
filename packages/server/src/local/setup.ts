@@ -38,7 +38,6 @@ export async function initializeLocalConfig(
 
   const config: LocalAgentPwConfig = {
     biscuitPrivateKey: keypair.privateKey,
-    masterToken: mintToken(keypair.privateKey, 'local', ROOT_RIGHTS, ROOT_FACTS),
     port,
     dataDir: paths.dataDir,
   }
@@ -51,12 +50,16 @@ export async function ensureLocalConfig(paths = localAgentPwPaths()) {
   return initializeLocalConfig(paths)
 }
 
+export function mintLocalRootToken(config: LocalAgentPwConfig) {
+  return mintToken(config.biscuitPrivateKey, 'local', ROOT_RIGHTS, ROOT_FACTS)
+}
+
 export function mintBootstrapToken(
   config: LocalAgentPwConfig,
   ttl = '10m',
 ) {
   const publicKeyHex = getPublicKeyHex(config.biscuitPrivateKey)
-  return restrictToken(config.masterToken, publicKeyHex, [{
+  return restrictToken(mintLocalRootToken(config), publicKeyHex, [{
     actions: '_management',
     services: '_management',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],

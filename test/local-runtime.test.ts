@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readCliConfig } from '../packages/cli/src/config'
 import { authorizeRequest, getPublicKeyHex } from '../packages/server/src/biscuit'
 import {
   buildLocalBaseUrl,
@@ -24,6 +25,7 @@ import {
   initializeLocalConfig,
   localConfigSummary,
   mintBootstrapToken,
+  mintLocalRootToken,
 } from '../packages/server/src/local/setup'
 
 const tempDirs: string[] = []
@@ -64,7 +66,6 @@ describe('local config helpers', () => {
 
     const config = {
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: paths.dataDir,
     }
@@ -124,7 +125,7 @@ describe('local setup helpers', () => {
     const paths = localAgentPwPaths(homeDir)
 
     const config = await initializeLocalConfig(paths, 9410)
-    expect(config.masterToken.startsWith('apw_')).toBe(true)
+    expect(mintLocalRootToken(config).startsWith('apw_')).toBe(true)
     expect(config.port).toBe(9410)
     expect(readLocalConfig(paths)).toEqual(config)
 
@@ -184,6 +185,33 @@ describe('local setup helpers', () => {
       ).authorized,
     ).toBe(false)
   })
+
+  it('migrates legacy config.json into split server and cli configs', () => {
+    const homeDir = createTempHome()
+    const paths = localAgentPwPaths(homeDir)
+
+    writeFileSync(paths.legacyConfigFile, `${JSON.stringify({
+      biscuitPrivateKey: 'test-private-key',
+      masterToken: 'apw_root',
+      port: 9315,
+      dataDir: paths.dataDir,
+    }, null, 2)}\n`)
+
+    expect(readLocalConfig(paths)).toEqual({
+      biscuitPrivateKey: 'test-private-key',
+      port: 9315,
+      dataDir: paths.dataDir,
+    })
+
+    expect(readCliConfig(paths)).toEqual({
+      url: 'http://127.0.0.1:9315',
+      token: 'apw_root',
+    })
+
+    expect(existsSync(paths.serverConfigFile)).toBe(true)
+    expect(existsSync(paths.cliConfigFile)).toBe(true)
+    expect(existsSync(paths.legacyConfigFile)).toBe(false)
+  })
 })
 
 describe('local runtime helpers', () => {
@@ -193,7 +221,6 @@ describe('local runtime helpers', () => {
 
     const config = {
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: paths.dataDir,
     }
@@ -269,7 +296,6 @@ describe('local runtime helpers', () => {
 
     const config = {
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: paths.dataDir,
     }
@@ -303,7 +329,6 @@ describe('local runtime helpers', () => {
 
     const config = {
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: paths.dataDir,
     }
@@ -347,7 +372,6 @@ describe('local serve wrapper', () => {
     const serveModule = await import('../packages/server/src/local/serve')
     const config = {
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: '/tmp/agentpw-data',
     }
@@ -401,7 +425,6 @@ describe('local serve wrapper', () => {
     const serveModule = await import('../packages/server/src/local/serve')
     const config = {
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: '/tmp/agentpw-data',
     }

@@ -10,13 +10,19 @@ import { dirname, join } from 'node:path'
 
 export interface LocalAgentPwConfig {
   biscuitPrivateKey: string
-  masterToken: string
   port: number
   dataDir: string
 }
 
+export interface LegacyLocalAgentPwConfig extends LocalAgentPwConfig {
+  masterToken?: string
+}
+
 export interface LocalAgentPwPaths {
   homeDir: string
+  serverConfigFile: string
+  cliConfigFile: string
+  legacyConfigFile: string
   configFile: string
   pidFile: string
   dataDir: string
@@ -48,9 +54,14 @@ export function resolveLocalPort(defaultPort = DEFAULT_LOCAL_PORT) {
 }
 
 export function localAgentPwPaths(homeDir = resolveAgentPwHome()): LocalAgentPwPaths {
+  const serverConfigFile = join(homeDir, 'server.json')
+
   return {
     homeDir,
-    configFile: join(homeDir, 'config.json'),
+    serverConfigFile,
+    cliConfigFile: join(homeDir, 'cli.json'),
+    legacyConfigFile: join(homeDir, 'config.json'),
+    configFile: serverConfigFile,
     pidFile: join(homeDir, 'agent.pw.pid'),
     dataDir: join(homeDir, 'data'),
     logsDir: join(homeDir, 'logs'),
@@ -68,14 +79,39 @@ export function ensureLocalAgentPwDirs(paths = localAgentPwPaths()) {
   mkdirSync(paths.serverRuntimeDir, { recursive: true })
 }
 
-export function readLocalConfig(paths = localAgentPwPaths()) {
-  if (!existsSync(paths.configFile)) return null
+function readJsonFile<T>(filePath: string) {
+  if (!existsSync(filePath)) return null
 
   try {
-    return JSON.parse(readFileSync(paths.configFile, 'utf8')) as LocalAgentPwConfig
+    return JSON.parse(readFileSync(filePath, 'utf8')) as T
   } catch {
     return null
   }
+}
+
+export function readLegacyLocalConfig(paths = localAgentPwPaths()) {
+  return readJsonFile<LegacyLocalAgentPwConfig>(paths.legacyConfigFile)
+}
+
+export function migrateLegacyLocalServerConfig(paths = localAgentPwPaths()) {
+  const legacyConfig = readLegacyLocalConfig(paths)
+  if (!legacyConfig) {
+    return null
+  }
+
+  const config: LocalAgentPwConfig = {
+    biscuitPrivateKey: legacyConfig.biscuitPrivateKey,
+    port: legacyConfig.port,
+    dataDir: legacyConfig.dataDir,
+  }
+
+  writeLocalConfig(config, paths)
+  return config
+}
+
+export function readLocalConfig(paths = localAgentPwPaths()) {
+  return readJsonFile<LocalAgentPwConfig>(paths.serverConfigFile)
+    ?? migrateLegacyLocalServerConfig(paths)
 }
 
 export function writeLocalConfig(
@@ -84,10 +120,15 @@ export function writeLocalConfig(
 ) {
   ensureLocalAgentPwDirs(paths)
   writeFileSync(
-    paths.configFile,
+    paths.serverConfigFile,
     `${JSON.stringify(config, null, 2)}\n`,
     { mode: 0o600 },
   )
+}
+
+export function removeLegacyLocalConfig(paths = localAgentPwPaths()) {
+  if (!existsSync(paths.legacyConfigFile)) return
+  unlinkSync(paths.legacyConfigFile)
 }
 
 export function readLocalPid(paths = localAgentPwPaths()) {

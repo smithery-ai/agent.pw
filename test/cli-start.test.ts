@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   localAgentPwPaths,
   readLocalConfig,
+  ensureLocalCliConfig,
   buildVaultLaunchUrl,
   describeLocalServer,
   readLocalServerLogs,
@@ -23,6 +24,7 @@ const {
 } = vi.hoisted(() => ({
   localAgentPwPaths: vi.fn(),
   readLocalConfig: vi.fn(),
+  ensureLocalCliConfig: vi.fn(),
   buildVaultLaunchUrl: vi.fn(),
   describeLocalServer: vi.fn(),
   readLocalServerLogs: vi.fn(),
@@ -45,6 +47,10 @@ const {
 vi.mock('../packages/server/src/local/config', () => ({
   localAgentPwPaths,
   readLocalConfig,
+}))
+
+vi.mock('../packages/cli/src/config', () => ({
+  ensureLocalCliConfig,
 }))
 
 vi.mock('../packages/cli/src/local/server-runtime', () => ({
@@ -81,15 +87,19 @@ describe('CLI start', () => {
 
     localAgentPwPaths.mockReturnValue({
       homeDir: '/tmp/agent.pw',
-      configFile: '/tmp/agent.pw/config.json',
+      configFile: '/tmp/agent.pw/server.json',
+      cliConfigFile: '/tmp/agent.pw/cli.json',
       dataDir: '/tmp/agent.pw/data',
       logFile: '/tmp/agent.pw/logs/server.log',
     })
     readLocalConfig.mockReturnValue({
       biscuitPrivateKey: 'test-private-key',
-      masterToken: 'apw_root',
       port: 9315,
       dataDir: '/tmp/agent.pw/data',
+    })
+    ensureLocalCliConfig.mockReturnValue({
+      url: 'http://127.0.0.1:9315',
+      token: 'apw_root',
     })
     resolveLocalDaemonRunner.mockReturnValue({
       command: process.execPath,
@@ -122,6 +132,7 @@ describe('CLI start', () => {
       'A process is already responding at http://127.0.0.1:9315. Stop it manually or rerun interactively to let agent.pw take over.',
     )
 
+    expect(ensureLocalCliConfig).not.toHaveBeenCalled()
     expect(stopUnmanagedLocalServer).not.toHaveBeenCalled()
     expect(ensureLocalService).not.toHaveBeenCalled()
   })
@@ -139,6 +150,11 @@ describe('CLI start', () => {
       baseUrl: 'http://127.0.0.1:9315',
       pids: [1234],
     })
+    expect(ensureLocalCliConfig).toHaveBeenCalledWith({
+      biscuitPrivateKey: 'test-private-key',
+      port: 9315,
+      dataDir: '/tmp/agent.pw/data',
+    }, expect.anything())
     expect(ensureLocalService).toHaveBeenCalled()
   })
 })

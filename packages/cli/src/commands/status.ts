@@ -1,4 +1,5 @@
-import { readLocalConfig } from '../../../server/src/local/config'
+import { localAgentPwPaths, readLocalConfig } from '../../../server/src/local/config'
+import { readCliConfig } from '../config'
 import { describeLocalService } from '../local/service-manager'
 import { describeLocalServer, probeLocalServer } from '../local/server-runtime'
 
@@ -34,8 +35,10 @@ export async function statusCmd() {
     return
   }
 
-  const config = readLocalConfig()
-  const status = describeLocalServer()
+  const paths = localAgentPwPaths()
+  const config = readLocalConfig(paths)
+  const cliConfig = readCliConfig(paths)
+  const status = describeLocalServer(paths)
   const service = describeLocalService()
 
   if (!config || !status.baseUrl) {
@@ -43,7 +46,8 @@ export async function statusCmd() {
     return
   }
 
-  console.log(`Config: ${status.configFile}`)
+  console.log(`Server: ${status.configFile}`)
+  console.log(`CLI:    ${cliConfig ? paths.cliConfigFile : '(not configured)'}`)
   console.log(`Data:   ${config.dataDir}`)
   console.log(`URL:    ${status.baseUrl}`)
   console.log(`Log:    ${status.logFile}`)

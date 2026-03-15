@@ -1,4 +1,5 @@
 import { localAgentPwPaths, readLocalConfig } from '../../../server/src/local/config'
+import { ensureLocalCliConfig } from '../config'
 import {
   buildVaultLaunchUrl,
   describeLocalServer,
@@ -43,10 +44,6 @@ export async function start(options: StartOptions = {}) {
     throw new Error('Local agent.pw setup did not produce a config file.')
   }
 
-  console.log(`Config: ${paths.configFile}`)
-  console.log(`Data:   ${config.dataDir}`)
-  console.log(`URL:    http://127.0.0.1:${config.port}`)
-
   const unmanaged = await detectUnmanagedLocalServer(paths)
   if (unmanaged) {
     const confirmed = await confirmTakeoverRunningProcess(unmanaged.baseUrl)
@@ -60,6 +57,12 @@ export async function start(options: StartOptions = {}) {
   }
 
   const service = await ensureLocalService(daemon, paths)
+  ensureLocalCliConfig(config, paths)
+
+  console.log(`Server: ${paths.configFile}`)
+  console.log(`CLI:    ${paths.cliConfigFile}`)
+  console.log(`Data:   ${config.dataDir}`)
+  console.log(`URL:    ${service.baseUrl}`)
   console.log(`Local service is running at ${service.baseUrl}`)
   console.log(`Service: ${service.kind} (${service.servicePath})`)
 
