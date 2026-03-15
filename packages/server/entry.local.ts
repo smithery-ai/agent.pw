@@ -2,15 +2,15 @@ import { localConfigSummary, ensureLocalConfig, mintBootstrapToken } from './src
 import { readLocalConfig } from './src/local/config'
 import { serveLocalServerProcess } from './src/local/runtime'
 
-if (process.argv[2] === 'setup') {
-  process.argv[2] = 'init'
+if (process.argv[2] === 'setup' || process.argv[2] === 'init') {
+  process.argv[2] = 'install'
 }
 
 const [command = 'serve', ...args] = process.argv.slice(2)
 
 switch (command) {
-  case 'init':
-    await init()
+  case 'install':
+    await install()
     break
   case 'bootstrap-token':
     await bootstrapToken(args)
@@ -23,7 +23,7 @@ switch (command) {
     process.exit(1)
 }
 
-async function init() {
+async function install() {
   const config = await ensureLocalConfig()
   const summary = localConfigSummary(config)
   console.log(JSON.stringify(summary))
@@ -32,7 +32,7 @@ async function init() {
 async function bootstrapToken(argv: string[]) {
   const config = readLocalConfig()
   if (!config) {
-    console.error('agent.pw is not initialized. Run `npx agent.pw init` first.')
+    console.error('agent.pw is not installed. Run `npx agent.pw install` first.')
     process.exit(1)
   }
 
@@ -43,7 +43,7 @@ async function bootstrapToken(argv: string[]) {
 async function serve() {
   const config = readLocalConfig()
   if (!config) {
-    console.error('agent.pw is not initialized. Run `npx agent.pw init` first.')
+    console.error('agent.pw is not installed. Run `npx agent.pw install` first.')
     process.exit(1)
   }
 

@@ -3,7 +3,7 @@ import pkg from '../package.json'
 
 const program = new Command()
   .name('agent.pw')
-  .description('Authenticated proxy for APIs\n\nGet started:  npx agent.pw init')
+  .description('Authenticated proxy for APIs\n\nGet started:  npx agent.pw install')
   .version(pkg.version)
 
 function parsePositiveInt(value: string) {
@@ -29,12 +29,12 @@ function assertValidPaginationOptions(command: Command) {
 }
 
 program
-  .command('init')
-  .description('Create and launch your local agent.pw instance')
+  .command('install')
+  .description('Install or repair your local agent.pw service')
   .option('--no-browser', 'Print the vault URL instead of opening it')
   .action(async opts => {
-    const { init } = await import('./commands/init')
-    return init({ noBrowser: Boolean(opts.noBrowser) })
+    const { install } = await import('./commands/install')
+    return install({ noBrowser: Boolean(opts.noBrowser) })
   })
 
 program
@@ -45,41 +45,21 @@ program
     return statusCmd()
   })
 
-const serverCmd = program
-  .command('server')
-  .description('Manage the local agent.pw daemon')
-
-serverCmd
-  .command('start')
-  .description('Start the local server')
-  .action(async () => {
-    const { startServerCmd } = await import('./commands/init')
-    return startServerCmd()
-  })
-
-serverCmd
-  .command('stop')
-  .description('Stop the local server')
-  .action(async () => {
-    const { stopServerCmd } = await import('./commands/init')
-    return stopServerCmd()
-  })
-
-serverCmd
-  .command('status')
-  .description('Show local server status')
-  .action(async () => {
-    const { statusServerCmd } = await import('./commands/init')
-    return statusServerCmd()
-  })
-
-serverCmd
+program
   .command('logs')
-  .description('Print recent local server logs')
+  .description('Print recent local service logs')
   .option('--tail <n>', 'Number of log lines to print', parsePositiveInt)
   .action(async opts => {
-    const { logsServerCmd } = await import('./commands/init')
-    return logsServerCmd(opts.tail)
+    const { logsCmd } = await import('./commands/install')
+    return logsCmd(opts.tail)
+  })
+
+program
+  .command('uninstall')
+  .description('Stop and remove the local agent.pw service')
+  .action(async () => {
+    const { uninstallCmd } = await import('./commands/install')
+    return uninstallCmd()
   })
 
 // ─── profile ─────────────────────────────────────────────────────────────────

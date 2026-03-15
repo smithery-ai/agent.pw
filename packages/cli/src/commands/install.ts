@@ -2,13 +2,11 @@ import { localAgentPwPaths, readLocalConfig } from '../../../server/src/local/co
 import {
   buildVaultLaunchUrl,
   describeLocalServer,
-  printServerSummary,
   readLocalServerLogs,
   resolveLocalDaemonRunner,
   runLocalServerDaemonCommand,
-  startLocalServerDaemon,
-  stopLocalServerDaemon,
 } from '../local/server-runtime'
+import { ensureLocalService, uninstallLocalService } from '../local/service-manager'
 import {
   confirmAgentPwSkillInstall,
   installAgentPwSkill,
@@ -19,11 +17,11 @@ import {
   printOnboardingSuccess,
 } from '../local/onboarding'
 
-interface InitOptions {
+interface InstallOptions {
   noBrowser?: boolean
 }
 
-export async function init(options: InitOptions = {}) {
+export async function install(options: InstallOptions = {}) {
   const { noBrowser = false } = options
   const paths = localAgentPwPaths()
 
@@ -32,7 +30,7 @@ export async function init(options: InitOptions = {}) {
   const daemon = resolveLocalDaemonRunner()
   printBinarySource(daemon.source, daemon.displayPath)
 
-  await runLocalServerDaemonCommand(daemon, ['init'], paths)
+  await runLocalServerDaemonCommand(daemon, ['install'], paths)
 
   const config = readLocalConfig(paths)
   if (!config) {
@@ -43,8 +41,9 @@ export async function init(options: InitOptions = {}) {
   console.log(`Data:   ${config.dataDir}`)
   console.log(`URL:    http://127.0.0.1:${config.port}`)
 
-  const server = await startLocalServerDaemon(daemon, paths)
-  console.log(server.started ? `Started local server at ${server.baseUrl}` : `Local server already running at ${server.baseUrl}`)
+  const service = await ensureLocalService(daemon, paths)
+  console.log(`Local service is running at ${service.baseUrl}`)
+  console.log(`Service: ${service.kind} (${service.servicePath})`)
 
   const shouldInstallSkill = await confirmAgentPwSkillInstall()
   if (shouldInstallSkill) {
@@ -65,47 +64,33 @@ export async function init(options: InitOptions = {}) {
     ['bootstrap-token', '--ttl', '10m'],
     paths,
   )
-  const vaultUrl = buildVaultLaunchUrl(server.baseUrl, bootstrapToken)
+  const vaultUrl = buildVaultLaunchUrl(service.baseUrl, bootstrapToken)
 
   const browserOpened = !noBrowser && openBrowser(vaultUrl)
   printOnboardingSuccess(vaultUrl, browserOpened)
 }
 
-export async function startServerCmd() {
+export function uninstallCmd() {
   const paths = localAgentPwPaths()
-  const daemon = resolveLocalDaemonRunner()
-  await runLocalServerDaemonCommand(daemon, ['init'], paths)
-  const server = await startLocalServerDaemon(daemon, paths)
-
-  if (server.started) {
-    console.log(`Started agent.pw at ${server.baseUrl}`)
-    console.log(`Logs: ${server.logFile}`)
-    return
-  }
-
-  console.log(`agent.pw is already running at ${server.baseUrl}`)
-}
-
-export function stopServerCmd() {
-  const stopped = stopLocalServerDaemon()
+  const config = readLocalConfig(paths)
+  const stopped = uninstallLocalService()
   if (!stopped) {
-    console.log('agent.pw is not running.')
+    console.log('agent.pw is not installed.')
     return
   }
 
-  console.log('Stopped local agent.pw server.')
+  console.log('Removed the local agent.pw service.')
+  if (config) {
+    console.log(`Data remains at ${config.dataDir}.`)
+  }
 }
 
-export function statusServerCmd() {
-  printServerSummary()
-}
-
-export async function logsServerCmd(tail = 200) {
+export async function logsCmd(tail = 200) {
   const status = describeLocalServer()
   const logs = await readLocalServerLogs(undefined, tail)
 
   if (!logs) {
-    console.log(`No server logs found at ${status.logFile}.`)
+    console.log(`No service logs found at ${status.logFile}.`)
     return
   }
 

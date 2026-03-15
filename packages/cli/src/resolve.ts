@@ -33,7 +33,7 @@ export async function resolve(): Promise<ResolvedEndpoint> {
   const resolved = await resolveOptional()
   if (!resolved) {
     console.error('No agent.pw instance is configured.')
-    console.error('  Run `npx agent.pw init` to create and start a local instance')
+    console.error('  Run `npx agent.pw install` to create and start a local instance')
     console.error('  Or set AGENT_PW_HOST and AGENT_PW_TOKEN for a remote self-hosted deployment')
     process.exit(1)
   }

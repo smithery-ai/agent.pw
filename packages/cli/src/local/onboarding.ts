@@ -67,7 +67,7 @@ export function printAgentPwSkillInstallHint() {
 }
 
 export function printOnboardingHeader() {
-  console.log('Preparing your local agent.pw instance...')
+  console.log('Installing or repairing your local agent.pw service...')
   console.log('')
 }
 

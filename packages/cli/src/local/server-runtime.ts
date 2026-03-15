@@ -1,17 +1,15 @@
-import { existsSync, openSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import {
   buildLocalBaseUrl,
   clearStaleLocalPid,
-  ensureLocalAgentPwDirs,
   isProcessAlive,
   localAgentPwPaths,
   readLocalConfig,
   readLocalPid,
-  removeLocalPid,
 } from '../../../server/src/local/config'
 
 export interface LocalDaemonRunner {
@@ -119,93 +117,6 @@ export async function probeLocalServer(baseUrl: string, timeoutMs = 1_000) {
   }
 }
 
-async function waitForDaemonStartup(
-  child: ChildProcess,
-  baseUrl: string,
-  paths = localAgentPwPaths(),
-  timeoutMs = 15_000,
-  intervalMs = 250,
-) {
-  const startedAt = Date.now()
-  let exitCode: number | null = null
-  let spawnError: Error | null = null
-
-  child.once('error', error => {
-    spawnError = error
-  })
-  child.once('exit', code => {
-    exitCode = code ?? 1
-  })
-
-  while (Date.now() - startedAt < timeoutMs) {
-    if (spawnError) {
-      throw spawnError
-    }
-
-    if (exitCode !== null) {
-      throw new Error(`Local agent.pw daemon exited before startup. Check ${paths.logFile}.`)
-    }
-
-    const localPid = readLocalPid(paths)
-    if (localPid && isProcessAlive(localPid) && (await probeLocalServer(baseUrl))) {
-      return
-    }
-
-    await new Promise(resolve => setTimeout(resolve, intervalMs))
-  }
-
-  throw new Error(`Timed out waiting for agent.pw at ${baseUrl}. Check ${paths.logFile}.`)
-}
-
-export async function startLocalServerDaemon(
-  runner: LocalDaemonRunner,
-  paths = localAgentPwPaths(),
-) {
-  const config = readLocalConfig(paths)
-  if (!config) {
-    throw new Error('agent.pw is not initialized. Run `npx agent.pw init` first.')
-  }
-
-  const status = getLocalServerStatus(paths)
-  const baseUrl = buildLocalBaseUrl(config.port)
-
-  if (status.running && (await probeLocalServer(baseUrl, 1_000))) {
-    return {
-      started: false,
-      baseUrl,
-      pid: status.pid,
-      logFile: paths.logFile,
-    }
-  }
-
-  if (status.running) {
-    stopLocalServerDaemon(paths)
-  }
-
-  ensureLocalAgentPwDirs(paths)
-
-  const logFd = openSync(paths.logFile, 'a')
-  const child = spawn(runner.command, [...runner.args, 'serve'], {
-    cwd: runner.cwd,
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-    env: {
-      ...process.env,
-      AGENTPW_HOME: paths.homeDir,
-    },
-  })
-
-  child.unref()
-  await waitForDaemonStartup(child, baseUrl, paths)
-
-  return {
-    started: true,
-    baseUrl,
-    pid: child.pid ?? null,
-    logFile: paths.logFile,
-  }
-}
-
 export async function runLocalServerDaemonCommand(
   runner: LocalDaemonRunner,
   args: string[],
@@ -246,19 +157,6 @@ export async function runLocalServerDaemonCommand(
   return stdout.trim()
 }
 
-export function stopLocalServerDaemon(paths = localAgentPwPaths()) {
-  clearStaleLocalPid(paths)
-  const pid = readLocalPid(paths)
-
-  if (!pid) {
-    return false
-  }
-
-  process.kill(pid, 'SIGTERM')
-  removeLocalPid(paths)
-  return true
-}
-
 export function describeLocalServer(paths = localAgentPwPaths()) {
   const status = getLocalServerStatus(paths)
 
@@ -291,21 +189,4 @@ export function buildVaultLaunchUrl(
   url.searchParams.set('url', baseUrl)
   url.hash = `agentpw_token=${encodeURIComponent(bootstrapToken)}`
   return url.toString()
-}
-
-export function printServerSummary(paths = localAgentPwPaths()) {
-  const config = readLocalConfig(paths)
-  const status = describeLocalServer(paths)
-
-  if (!config) {
-    console.log('agent.pw is not initialized.')
-    console.log('Run `npx agent.pw init` to create a local instance.')
-    return
-  }
-
-  console.log(`Config: ${paths.configFile}`)
-  console.log(`Data:   ${config.dataDir}`)
-  console.log(`URL:    ${status.baseUrl}`)
-  console.log(`Log:    ${paths.logFile}`)
-  console.log(status.running ? `State:  running (PID ${status.pid})` : 'State:  stopped')
 }

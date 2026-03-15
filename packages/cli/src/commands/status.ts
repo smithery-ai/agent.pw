@@ -1,9 +1,10 @@
 import { readLocalConfig } from '../../../server/src/local/config'
+import { describeLocalService } from '../local/service-manager'
 import { describeLocalServer, probeLocalServer } from '../local/server-runtime'
 
 function printUnconfigured() {
   console.log('No agent.pw instance is configured.')
-  console.log('Run `npx agent.pw init` to create and start a local instance.')
+  console.log('Run `npx agent.pw install` to create and start a local instance.')
   console.log('Or set AGENT_PW_HOST and AGENT_PW_TOKEN for a remote self-hosted deployment.')
 }
 
@@ -35,6 +36,7 @@ export async function statusCmd() {
 
   const config = readLocalConfig()
   const status = describeLocalServer()
+  const service = describeLocalService()
 
   if (!config || !status.baseUrl) {
     printUnconfigured()
@@ -47,6 +49,13 @@ export async function statusCmd() {
   console.log(`Data:   ${config.dataDir}`)
   console.log(`URL:    ${status.baseUrl}`)
   console.log(`Log:    ${status.logFile}`)
+  if (!service.supported) {
+    console.log('Service: unsupported on this platform')
+  } else if (!service.installed) {
+    console.log('Service: not installed')
+  } else {
+    console.log(`Service: ${service.kind} (${service.filePath})`)
+  }
 
   if (!status.running) {
     console.log('State:  stopped')

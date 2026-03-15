@@ -37,7 +37,7 @@ Agent ──▶ proxy.agent.pw/api.github.com/user ──▶ api.github.com/user
 ## Getting Started
 
 ```bash
-npx agent.pw init
+npx agent.pw install
 ```
 
 That command:
@@ -45,11 +45,12 @@ That command:
 - creates `~/.agent.pw/`
 - initializes a local PGlite database
 - mints a local root token
-- starts the local daemon in the background
+- installs a local background service
 - offers to install the optional Smithery `agentpw` skill
 - opens [agent.pw/vault](https://agent.pw/vault) already connected to your local instance
 
 The hosted vault is optional. Your local daemon is the source of truth, and you can keep working entirely through the CLI.
+Running `install` again is safe: it repairs missing config and re-registers the local service if needed.
 
 ### Local CLI Flow
 
@@ -65,13 +66,12 @@ agent.pw curl http://localhost:9315/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
-### Local Daemon Controls
+### Local Service Controls
 
 ```bash
-agent.pw server status
-agent.pw server stop
-agent.pw server start
-agent.pw server logs
+agent.pw status
+agent.pw logs
+agent.pw uninstall
 ```
 
 ## API
@@ -115,7 +115,7 @@ pnpm run db:generate # generate Drizzle migrations from schema changes
 ```
 packages/
   server/src/        @agent.pw/server — proxy, credential store, tokens, routes
-  cli/src/           agent.pw CLI — local init flow, daemon controls, and management commands
+  cli/src/           agent.pw CLI — local install flow, service controls, and management commands
 docs/
   security-model.md  Biscuit tokens, path-based access model, revocation
 ```

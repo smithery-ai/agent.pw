@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   readLocalConfig,
   describeLocalServer,
+  describeLocalService,
   probeLocalServer,
 } = vi.hoisted(() => ({
   readLocalConfig: vi.fn(),
   describeLocalServer: vi.fn(),
+  describeLocalService: vi.fn(),
   probeLocalServer: vi.fn(),
 }))
 
@@ -17,6 +19,10 @@ vi.mock('../packages/server/src/local/config', () => ({
 vi.mock('../packages/cli/src/local/server-runtime', () => ({
   describeLocalServer,
   probeLocalServer,
+}))
+
+vi.mock('../packages/cli/src/local/service-manager', () => ({
+  describeLocalService,
 }))
 
 import { statusCmd } from '../packages/cli/src/commands/status'
@@ -30,6 +36,7 @@ describe('CLI status', () => {
   it('reports an unconfigured local instance', async () => {
     readLocalConfig.mockReturnValue(null)
     describeLocalServer.mockReturnValue({ baseUrl: null })
+    describeLocalService.mockReturnValue({ supported: true, installed: false })
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -37,7 +44,7 @@ describe('CLI status', () => {
 
     expect(logSpy.mock.calls).toEqual([
       ['No agent.pw instance is configured.'],
-      ['Run `npx agent.pw init` to create and start a local instance.'],
+      ['Run `npx agent.pw install` to create and start a local instance.'],
       ['Or set AGENT_PW_HOST and AGENT_PW_TOKEN for a remote self-hosted deployment.'],
     ])
     expect(probeLocalServer).not.toHaveBeenCalled()
@@ -52,6 +59,13 @@ describe('CLI status', () => {
       pid: null,
       running: false,
     })
+    describeLocalService.mockReturnValue({
+      supported: true,
+      installed: true,
+      kind: 'launchd',
+      label: 'ai.agentpw.daemon',
+      filePath: '/tmp/LaunchAgents/ai.agentpw.daemon.plist',
+    })
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -62,6 +76,7 @@ describe('CLI status', () => {
       ['Data:   /tmp/agent.pw/data'],
       ['URL:    http://127.0.0.1:9315'],
       ['Log:    /tmp/agent.pw/logs/server.log'],
+      ['Service: launchd (/tmp/LaunchAgents/ai.agentpw.daemon.plist)'],
       ['State:  stopped'],
     ])
     expect(probeLocalServer).not.toHaveBeenCalled()
