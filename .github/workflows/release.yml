@@ -47,7 +47,7 @@ jobs:
     if: github.event_name == 'push' && needs.release-please.outputs.cli_release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -61,15 +61,17 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter agent.pw compile
+      - run: pnpm --filter agent.pw build
       - run: npm publish --provenance --access public
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-cli-manual:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -83,10 +85,14 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter agent.pw compile
+      - run: pnpm --filter agent.pw build
       - if: ${{ inputs.dry_run }}
         run: npm publish --provenance --access public --dry-run
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - if: ${{ !inputs.dry_run }}
         run: npm publish --provenance --access public
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

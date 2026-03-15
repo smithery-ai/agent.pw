@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
 import { parseAgentPwChallenge } from '../auth-challenge'
-import { login } from './login'
-import { DEFAULT_MANAGED_HOST, resolveOptional } from '../resolve'
+import { openBrowser as launchBrowser } from '../local/onboarding'
+import { resolveOptional } from '../resolve'
 
 type CurlRunResult = {
   exitCode: number
@@ -20,15 +20,10 @@ export async function curl(args: string[]) {
     process.exit(1)
   }
 
-  let resolved = await resolveOptional()
+  const resolved = await resolveOptional()
   if (!resolved) {
-    console.error('No local instance or saved cloud session found. Starting cloud login...')
-    await login(DEFAULT_MANAGED_HOST)
-    resolved = await resolveOptional()
-  }
-
-  if (!resolved) {
-    console.error('Could not establish an agent.pw session.')
+    console.error('No agent.pw instance is configured.')
+    console.error('Run `npx agent.pw start` to create a local instance, or set AGENT_PW_HOST and AGENT_PW_TOKEN.')
     process.exit(1)
   }
 
@@ -163,9 +158,7 @@ async function handleAuthChallenge(
 }
 
 async function openBrowser(url: string) {
-  const { exec } = await import('node:child_process')
-  const open = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open'
-  exec(`${open} "${url}"`)
+  launchBrowser(url)
 }
 
 function writeCapturedOutput(result: CurlRunResult) {

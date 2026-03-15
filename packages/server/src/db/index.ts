@@ -1,5 +1,6 @@
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js'
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
+import { readFile } from 'node:fs/promises'
 import postgres from 'postgres'
 import * as schema from './schema/index.js'
 
@@ -15,9 +16,42 @@ export function createDb(connectionString: string): Database {
   return drizzlePg(client, { schema })
 }
 
+let bundledPGliteAssetsPromise: Promise<{
+  fsBundle: Blob
+  wasmModule: WebAssembly.Module
+} | null> | null = null
+
+async function loadBundledPGliteAssets() {
+  const wasmPath = process.env.AGENTPW_PGLITE_WASM_PATH?.trim()
+  const dataPath = process.env.AGENTPW_PGLITE_DATA_PATH?.trim()
+
+  if (!(wasmPath && dataPath)) {
+    return null
+  }
+
+  if (!bundledPGliteAssetsPromise) {
+    bundledPGliteAssetsPromise = (async () => {
+      const [wasmBytes, dataBytes] = await Promise.all([
+        readFile(wasmPath),
+        readFile(dataPath),
+      ])
+
+      return {
+        fsBundle: new Blob([dataBytes], { type: 'application/octet-stream' }),
+        wasmModule: await WebAssembly.compile(wasmBytes),
+      }
+    })()
+  }
+
+  return bundledPGliteAssetsPromise
+}
+
 /** Create a local database using PGlite (for CLI/local mode). */
 export async function createLocalDb(dataDir: string): Promise<Database> {
   const { PGlite } = await import('@electric-sql/pglite')
-  const client = new PGlite(dataDir)
+  const bundledAssets = await loadBundledPGliteAssets()
+  const client = bundledAssets
+    ? new PGlite({ dataDir, ...bundledAssets })
+    : new PGlite(dataDir)
   return drizzlePglite(client, { schema })
 }

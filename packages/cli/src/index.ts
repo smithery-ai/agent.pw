@@ -3,7 +3,7 @@ import pkg from '../package.json'
 
 const program = new Command()
   .name('agent.pw')
-  .description('Authenticated proxy for APIs\n\nGet started:  npx agent.pw init')
+  .description('Authenticated proxy for APIs\n\nGet started:  npx agent.pw start')
   .version(pkg.version)
 
 function parsePositiveInt(value: string) {
@@ -29,42 +29,37 @@ function assertValidPaginationOptions(command: Command) {
 }
 
 program
-  .command('init')
-  .description('Set up agent.pw (login + install skill)')
-  .action(async () => {
-    const { init } = await import('./commands/init')
-    return init()
+  .command('start')
+  .description('Start or repair your local agent.pw service')
+  .option('--no-browser', 'Print the vault URL instead of opening it')
+  .action(async opts => {
+    const { start } = await import('./commands/start')
+    return start({ noBrowser: Boolean(opts.noBrowser) })
   })
 
 program
   .command('status')
-  .description('Show connection status')
+  .description('Show agent.pw connection status')
   .action(async () => {
-    try {
-      const { resolve } = await import('./resolve')
-      const { url } = await resolve()
-      console.log(`agent.pw available at ${url}`)
-    } catch {
-      // resolve() already prints error message and exits
-    }
+    const { statusCmd } = await import('./commands/status')
+    return statusCmd()
   })
 
 program
-  .command('login')
-  .description('Authenticate with agent.pw (auth only)')
-  .option('--host <url>', 'Target host')
-  .option('--token <token>', 'Use a pre-minted token instead of browser login')
-  .action(async (opts) => {
-    const { login } = await import('./commands/login')
-    return login(opts.host, opts.token)
+  .command('logs')
+  .description('Print recent local service logs')
+  .option('--tail <n>', 'Number of log lines to print', parsePositiveInt)
+  .action(async opts => {
+    const { logsCmd } = await import('./commands/start')
+    return logsCmd(opts.tail)
   })
 
 program
-  .command('logout')
-  .description('Log out')
+  .command('stop')
+  .description('Stop and disable the local agent.pw service')
   .action(async () => {
-    const { logout } = await import('./commands/logout')
-    return logout()
+    const { stopCmd } = await import('./commands/start')
+    return stopCmd()
   })
 
 // ─── profile ─────────────────────────────────────────────────────────────────
