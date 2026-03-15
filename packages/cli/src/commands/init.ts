@@ -10,8 +10,10 @@ import {
   stopLocalServerDaemon,
 } from '../local/server-runtime'
 import {
+  confirmAgentPwSkillInstall,
   installAgentPwSkill,
   openBrowser,
+  printAgentPwSkillInstallHint,
   printBinarySource,
   printOnboardingHeader,
   printOnboardingSuccess,
@@ -44,14 +46,18 @@ export async function init(options: InitOptions = {}) {
   const server = await startLocalServerDaemon(daemon, paths)
   console.log(server.started ? `Started local server at ${server.baseUrl}` : `Local server already running at ${server.baseUrl}`)
 
-  console.log('Installing or updating the Smithery skill...')
-  try {
-    installAgentPwSkill()
-  } catch {
-    console.error('')
-    console.error('Failed to install the Smithery skill automatically.')
-    console.error('Run `npx -y @smithery/cli@latest skill add smithery-ai/agentpw` and then re-run `npx agent.pw init`.')
-    process.exit(1)
+  const shouldInstallSkill = await confirmAgentPwSkillInstall()
+  if (shouldInstallSkill) {
+    console.log('Installing the Smithery skill...')
+    try {
+      installAgentPwSkill()
+    } catch {
+      console.error('')
+      console.error('Failed to install the Smithery skill automatically.')
+      printAgentPwSkillInstallHint()
+    }
+  } else {
+    printAgentPwSkillInstallHint()
   }
 
   const bootstrapToken = await runLocalServerDaemonCommand(

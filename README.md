@@ -46,7 +46,7 @@ That command:
 - initializes a local PGlite database
 - mints a local root token
 - starts the local daemon in the background
-- installs the Smithery `agentpw` skill
+- offers to install the optional Smithery `agentpw` skill
 - opens [agent.pw/vault](https://agent.pw/vault) already connected to your local instance
 
 The hosted vault is optional. Your local daemon is the source of truth, and you can keep working entirely through the CLI.

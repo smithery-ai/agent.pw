@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process'
+import { createInterface } from 'node:readline/promises'
+import { stdin as input, stdout as output } from 'node:process'
 
 export function canOpenBrowser() {
   return Boolean(
@@ -34,13 +36,34 @@ export function openBrowser(url: string) {
 }
 
 export function installAgentPwSkill() {
-  if (process.env.AGENTPW_SKIP_SKILL_INSTALL === '1') {
-    return
-  }
-
   execSync('npx -y @smithery/cli@latest skill add smithery-ai/agentpw', {
     stdio: 'inherit',
   })
+}
+
+export async function confirmAgentPwSkillInstall() {
+  if (process.env.AGENTPW_SKIP_SKILL_INSTALL === '1') {
+    return false
+  }
+
+  if (!(process.stdin.isTTY && process.stdout.isTTY)) {
+    return false
+  }
+
+  const readline = createInterface({ input, output })
+
+  try {
+    const answer = await readline.question('Install the optional Smithery skill now? [y/N] ')
+    const normalized = answer.trim().toLowerCase()
+    return normalized === 'y' || normalized === 'yes'
+  } finally {
+    readline.close()
+  }
+}
+
+export function printAgentPwSkillInstallHint() {
+  console.log('Optional: install the Smithery skill later with:')
+  console.log('  npx -y @smithery/cli@latest skill add smithery-ai/agentpw')
 }
 
 export function printOnboardingHeader() {
