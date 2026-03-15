@@ -43,8 +43,6 @@ export async function statusCmd() {
     return
   }
 
-  const reachable = await probeLocalServer(status.baseUrl)
-
   console.log(`Config: ${status.configFile}`)
   console.log(`Data:   ${config.dataDir}`)
   console.log(`URL:    ${status.baseUrl}`)
@@ -57,20 +55,17 @@ export async function statusCmd() {
     console.log(`Service: ${service.kind} (${service.filePath})`)
   }
 
-  if (!status.running) {
-    if (reachable) {
-      console.log('State:  reachable (unmanaged)')
-      return
-    }
-
+  if (!service.installed || !service.running) {
     console.log('State:  stopped')
     return
   }
 
+  const reachable = await probeLocalServer(status.baseUrl)
+
   if (!reachable) {
-    console.log(`State:  unresponsive (PID ${status.pid})`)
+    console.log(`State:  unresponsive (PID ${service.pid})`)
     return
   }
 
-  console.log(`State:  running (PID ${status.pid})`)
+  console.log(`State:  running (PID ${service.pid})`)
 }

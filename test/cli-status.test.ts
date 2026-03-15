@@ -36,7 +36,15 @@ describe('CLI status', () => {
   it('reports an unconfigured local instance', async () => {
     readLocalConfig.mockReturnValue(null)
     describeLocalServer.mockReturnValue({ baseUrl: null })
-    describeLocalService.mockReturnValue({ supported: true, installed: false })
+    describeLocalService.mockReturnValue({
+      supported: true,
+      installed: false,
+      running: false,
+      kind: null,
+      label: null,
+      filePath: null,
+      pid: null,
+    })
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -62,9 +70,11 @@ describe('CLI status', () => {
     describeLocalService.mockReturnValue({
       supported: true,
       installed: true,
+      running: false,
       kind: 'launchd',
       label: 'ai.agentpw.daemon',
       filePath: '/tmp/LaunchAgents/ai.agentpw.daemon.plist',
+      pid: null,
     })
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -79,10 +89,10 @@ describe('CLI status', () => {
       ['Service: launchd (/tmp/LaunchAgents/ai.agentpw.daemon.plist)'],
       ['State:  stopped'],
     ])
-    expect(probeLocalServer).toHaveBeenCalledWith('http://127.0.0.1:9315')
+    expect(probeLocalServer).not.toHaveBeenCalled()
   })
 
-  it('reports a reachable local instance as unmanaged when no tracked pid exists', async () => {
+  it('reports a managed local instance as running even without a tracked pid file', async () => {
     readLocalConfig.mockReturnValue({ dataDir: '/tmp/agent.pw/data' })
     describeLocalServer.mockReturnValue({
       baseUrl: 'http://127.0.0.1:9315',
@@ -93,10 +103,12 @@ describe('CLI status', () => {
     })
     describeLocalService.mockReturnValue({
       supported: true,
-      installed: false,
-      kind: null,
-      label: null,
-      filePath: null,
+      installed: true,
+      running: true,
+      kind: 'launchd',
+      label: 'ai.agentpw.daemon',
+      filePath: '/tmp/LaunchAgents/ai.agentpw.daemon.plist',
+      pid: 4242,
     })
     probeLocalServer.mockResolvedValue(true)
 
@@ -109,8 +121,8 @@ describe('CLI status', () => {
       ['Data:   /tmp/agent.pw/data'],
       ['URL:    http://127.0.0.1:9315'],
       ['Log:    /tmp/agent.pw/logs/server.log'],
-      ['Service: not installed'],
-      ['State:  reachable (unmanaged)'],
+      ['Service: launchd (/tmp/LaunchAgents/ai.agentpw.daemon.plist)'],
+      ['State:  running (PID 4242)'],
     ])
     expect(probeLocalServer).toHaveBeenCalledWith('http://127.0.0.1:9315')
   })

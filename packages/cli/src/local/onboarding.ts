@@ -41,11 +41,7 @@ export function installAgentPwSkill() {
   })
 }
 
-export async function confirmAgentPwSkillInstall() {
-  if (process.env.AGENTPW_SKIP_SKILL_INSTALL === '1') {
-    return false
-  }
-
+async function promptYesNo(question: string) {
   if (!(process.stdin.isTTY && process.stdout.isTTY)) {
     return false
   }
@@ -53,12 +49,26 @@ export async function confirmAgentPwSkillInstall() {
   const readline = createInterface({ input, output })
 
   try {
-    const answer = await readline.question('Install the optional Smithery skill now? [y/N] ')
+    const answer = await readline.question(question)
     const normalized = answer.trim().toLowerCase()
     return normalized === 'y' || normalized === 'yes'
   } finally {
     readline.close()
   }
+}
+
+export async function confirmAgentPwSkillInstall() {
+  if (process.env.AGENTPW_SKIP_SKILL_INSTALL === '1') {
+    return false
+  }
+
+  return promptYesNo('Install the optional Smithery skill now? [y/N] ')
+}
+
+export async function confirmTakeoverRunningProcess(baseUrl: string) {
+  return promptYesNo(
+    `A process is already responding at ${baseUrl}, but agent.pw is not managing it. Kill it and continue with managed setup? [y/N] `,
+  )
 }
 
 export function printAgentPwSkillInstallHint() {

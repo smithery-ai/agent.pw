@@ -32,6 +32,12 @@ describe('CLI service manager', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.unstubAllEnvs()
+    execFileSync.mockImplementation((_command, _args, options) => {
+      if (options && typeof options === 'object' && 'encoding' in options) {
+        return ''
+      }
+      return undefined
+    })
   })
 
   afterEach(() => {
@@ -70,7 +76,9 @@ describe('CLI service manager', () => {
     expect(service.baseUrl).toBe('http://127.0.0.1:9315')
     expect(service.servicePath).toBe(described.filePath)
     expect(described.installed).toBe(true)
+    expect(described.running).toBe(false)
     expect(described.kind).toBe(process.platform === 'darwin' ? 'launchd' : 'systemd')
+    expect(described.pid).toBeNull()
     expect(existsSync(service.servicePath)).toBe(true)
 
     const contents = readFileSync(service.servicePath, 'utf8')

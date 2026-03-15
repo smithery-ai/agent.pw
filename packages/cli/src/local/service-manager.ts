@@ -25,9 +25,16 @@ interface LocalServiceDefinition {
 export interface LocalServiceStatus {
   supported: boolean
   installed: boolean
+  running: boolean
   kind: LocalServiceKind | null
   label: string | null
   filePath: string | null
+  pid: number | null
+}
+
+export interface UnmanagedLocalServer {
+  baseUrl: string
+  pids: number[]
 }
 
 const LAUNCHD_LABEL = 'ai.agentpw.daemon'
@@ -180,6 +187,88 @@ function runServiceCommand(command: string, args: string[], allowFailure = false
   }
 }
 
+function readServiceCommandOutput(command: string, args: string[]) {
+  try {
+    const output = execFileSync(command, args, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    })
+    return typeof output === 'string' ? output.trim() : String(output ?? '').trim()
+  } catch {
+    return null
+  }
+}
+
+function readLaunchdPid(label: string) {
+  const uid = process.getuid?.()
+  if (uid == null) {
+    return null
+  }
+
+  const output = readServiceCommandOutput('launchctl', ['print', `gui/${uid}/${label}`])
+  if (!output) {
+    return null
+  }
+
+  const match = output.match(/\bpid = (\d+)/)
+  if (!match) {
+    return null
+  }
+
+  const pid = Number.parseInt(match[1], 10)
+  return Number.isInteger(pid) && pid > 0 ? pid : null
+}
+
+function readSystemdPid() {
+  const output = readServiceCommandOutput(
+    'systemctl',
+    ['--user', 'show', SYSTEMD_UNIT, '--property', 'MainPID', '--value'],
+  )
+  if (!output) {
+    return null
+  }
+
+  const pid = Number.parseInt(output, 10)
+  return Number.isInteger(pid) && pid > 0 ? pid : null
+}
+
+function readManagedServicePid(definition: LocalServiceDefinition) {
+  if (definition.kind === 'launchd') {
+    return readLaunchdPid(definition.label)
+  }
+
+  return readSystemdPid()
+}
+
+function listListeningProcessIds(port: number) {
+  const output = readServiceCommandOutput(
+    'lsof',
+    ['-nP', '-tiTCP:%s'.replace('%s', String(port)), '-sTCP:LISTEN'],
+  )
+  if (!output) {
+    return []
+  }
+
+  return output
+    .split(/\r?\n/)
+    .map(line => Number.parseInt(line.trim(), 10))
+    .filter(pid => Number.isInteger(pid) && pid > 0)
+}
+
+async function waitForPortToClose(baseUrl: string, timeoutMs = 5_000, intervalMs = 200) {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!(await probeLocalServer(baseUrl))) {
+      return
+    }
+
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+  }
+
+  throw new Error(`Timed out waiting for ${baseUrl} to stop responding.`)
+}
+
 async function waitForManagedService(
   baseUrl: string,
   paths: LocalAgentPwPaths,
@@ -239,19 +328,70 @@ export function describeLocalService(): LocalServiceStatus {
     return {
       supported: false,
       installed: false,
+      running: false,
       kind: null,
       label: null,
       filePath: null,
+      pid: null,
     }
   }
 
+  const installed = existsSync(definition.filePath)
+  const pid = installed ? readManagedServicePid(definition) : null
+
   return {
     supported: true,
-    installed: existsSync(definition.filePath),
+    installed,
+    running: pid !== null,
     kind: definition.kind,
     label: definition.label,
     filePath: definition.filePath,
+    pid,
   }
+}
+
+export async function detectUnmanagedLocalServer(
+  paths = localAgentPwPaths(),
+): Promise<UnmanagedLocalServer | null> {
+  const config = readLocalConfig(paths)
+  if (!config) {
+    return null
+  }
+
+  const service = describeLocalService()
+  if (service.installed && service.running) {
+    return null
+  }
+
+  const baseUrl = buildLocalBaseUrl(config.port)
+  if (!(await probeLocalServer(baseUrl))) {
+    return null
+  }
+
+  return {
+    baseUrl,
+    pids: listListeningProcessIds(config.port),
+  }
+}
+
+export async function stopUnmanagedLocalServer(
+  server: UnmanagedLocalServer,
+) {
+  if (server.pids.length === 0) {
+    throw new Error(
+      `A process is already responding at ${server.baseUrl}, but its PID could not be determined. Stop it manually and rerun \`npx agent.pw start\`.`,
+    )
+  }
+
+  for (const pid of server.pids) {
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch {
+      // Ignore already-exited processes and wait for the port probe below.
+    }
+  }
+
+  await waitForPortToClose(server.baseUrl)
 }
 
 export async function ensureLocalService(

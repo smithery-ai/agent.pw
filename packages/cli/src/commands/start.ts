@@ -6,9 +6,15 @@ import {
   resolveLocalDaemonRunner,
   runLocalServerDaemonCommand,
 } from '../local/server-runtime'
-import { ensureLocalService, stopLocalService } from '../local/service-manager'
+import {
+  detectUnmanagedLocalServer,
+  ensureLocalService,
+  stopLocalService,
+  stopUnmanagedLocalServer,
+} from '../local/service-manager'
 import {
   confirmAgentPwSkillInstall,
+  confirmTakeoverRunningProcess,
   installAgentPwSkill,
   openBrowser,
   printAgentPwSkillInstallHint,
@@ -40,6 +46,18 @@ export async function start(options: StartOptions = {}) {
   console.log(`Config: ${paths.configFile}`)
   console.log(`Data:   ${config.dataDir}`)
   console.log(`URL:    http://127.0.0.1:${config.port}`)
+
+  const unmanaged = await detectUnmanagedLocalServer(paths)
+  if (unmanaged) {
+    const confirmed = await confirmTakeoverRunningProcess(unmanaged.baseUrl)
+    if (!confirmed) {
+      throw new Error(
+        `A process is already responding at ${unmanaged.baseUrl}. Stop it manually or rerun interactively to let agent.pw take over.`,
+      )
+    }
+
+    await stopUnmanagedLocalServer(unmanaged)
+  }
 
   const service = await ensureLocalService(daemon, paths)
   console.log(`Local service is running at ${service.baseUrl}`)
