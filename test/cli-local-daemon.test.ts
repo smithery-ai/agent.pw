@@ -2,7 +2,10 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolveLocalDaemonRunnerFrom } from '../packages/cli/src/local/server-runtime'
+import {
+  readLocalServerLogs,
+  resolveLocalDaemonRunnerFrom,
+} from '../packages/cli/src/local/server-runtime'
 
 const tempDirs: string[] = []
 
@@ -61,5 +64,17 @@ describe('CLI local daemon resolution', () => {
     ])
     expect(runner.cwd).toBe(repoRoot)
     expect(runner.displayPath).toBe(join(sourceDir, 'local-daemon.ts'))
+  })
+
+  it('reads recent local server logs from disk', async () => {
+    const homeDir = createTempDir('agentpw-home')
+    const logFile = join(homeDir, 'logs', 'server.log')
+
+    mkdirSync(join(homeDir, 'logs'), { recursive: true })
+    writeFileSync(logFile, ['line 1', 'line 2', 'line 3'].join('\n'))
+
+    const logs = await readLocalServerLogs({ logFile } as never, 2)
+
+    expect(logs).toBe('line 2\nline 3')
   })
 })
