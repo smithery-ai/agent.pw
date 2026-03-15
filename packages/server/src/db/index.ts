@@ -20,6 +20,13 @@ let bundledPGliteAssetsPromise: Promise<{
   fsBundle: Blob
   wasmModule: WebAssembly.Module
 } | null> | null = null
+type WasmByteSource = ArrayBuffer | Uint8Array
+const webAssemblyApi = WebAssembly as typeof WebAssembly & {
+  compile?: (bytes: WasmByteSource) => Promise<WebAssembly.Module>
+}
+const WebAssemblyModule = WebAssembly.Module as unknown as {
+  new(bytes: WasmByteSource): WebAssembly.Module
+}
 
 async function loadBundledPGliteAssets() {
   const wasmPath = process.env.AGENTPW_PGLITE_WASM_PATH?.trim()
@@ -38,7 +45,9 @@ async function loadBundledPGliteAssets() {
 
       return {
         fsBundle: new Blob([dataBytes], { type: 'application/octet-stream' }),
-        wasmModule: await WebAssembly.compile(wasmBytes),
+        wasmModule: webAssemblyApi.compile
+          ? await webAssemblyApi.compile(wasmBytes)
+          : new WebAssemblyModule(wasmBytes),
       }
     })()
   }

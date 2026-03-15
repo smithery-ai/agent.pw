@@ -60,6 +60,7 @@ function errorMessage(e: unknown): string {
 export const PROXY_TOKEN_HEADER = 'Proxy-Authorization'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
 export const REQUESTED_ROOT_HEADER = 'agentpw-path'
+export const UPSTREAM_URL_HEADER = 'agentpw-upstream-url'
 
 function missingHomePathResponse(c: Context<CoreHonoEnv>, header: string) {
   return c.json({
@@ -97,14 +98,41 @@ function buildAuthorizationUri(
   return target.toString()
 }
 
+function decodeBase64(value: string) {
+  if (typeof atob === 'function') {
+    return atob(value)
+  }
+  return Buffer.from(value, 'base64').toString('utf8')
+}
+
 export function extractBearerToken(header: string | undefined): string | null {
   if (!header) return null
-  return header.startsWith('Bearer ') ? header.slice(7) : header
+  const bearerMatch = header.match(/^Bearer\s+/i)
+  if (bearerMatch) {
+    return header.slice(bearerMatch[0].length)
+  }
+  return header
 }
 
 export function extractProxyToken(
   proxyAuthorizationHeader: string | undefined,
 ): string | null {
+  const basicMatch = proxyAuthorizationHeader?.match(/^Basic\s+(.+)$/i)
+  if (basicMatch) {
+    try {
+      const decoded = decodeBase64(basicMatch[1])
+      const separator = decoded.indexOf(':')
+      if (separator === -1) {
+        return decoded || null
+      }
+
+      const username = decoded.slice(0, separator)
+      const password = decoded.slice(separator + 1)
+      return password || username || null
+    } catch {
+      return null
+    }
+  }
   return extractBearerToken(proxyAuthorizationHeader)
 }
 
@@ -168,7 +196,7 @@ function isIpLiteral(hostname: string) {
   return v4.test(hostname) || v6.test(hostname)
 }
 
-function isPrivateOrLocalAddress(hostname: string) {
+export function isPrivateOrLocalAddress(hostname: string) {
   const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1')
   if (normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1') {
     return true
@@ -191,13 +219,26 @@ function isPrivateOrLocalAddress(hostname: string) {
 
 function buildUpstreamHeaders(c: Context<CoreHonoEnv>) {
   const headers = new Headers()
-  const proxyHeader = PROXY_TOKEN_HEADER.toLowerCase()
-  const requestedRootHeader = REQUESTED_ROOT_HEADER.toLowerCase()
+  const proxyOnlyHeaders = new Set([
+    PROXY_TOKEN_HEADER.toLowerCase(),
+    REQUESTED_ROOT_HEADER.toLowerCase(),
+    CREDENTIAL_SELECTOR_HEADER,
+    UPSTREAM_URL_HEADER.toLowerCase(),
+  ])
+  const hopByHopHeaders = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-connection',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+  ])
   c.req.raw.headers.forEach((value, key) => {
     const lower = key.toLowerCase()
     if (lower === 'host' || lower === 'act-as') return
-    if (lower === requestedRootHeader) return
-    if (lower === proxyHeader || lower === CREDENTIAL_SELECTOR_HEADER) return
+    if (proxyOnlyHeaders.has(lower) || hopByHopHeaders.has(lower)) return
     headers.set(key, value)
   })
   return headers
@@ -222,6 +263,84 @@ async function forwardUpstream(
     body,
     redirect: 'manual',
   })
+}
+
+export function resolveRequestedRoot({
+  tokenFacts,
+  useRoots,
+  requestedRootHeader,
+  selector,
+}: {
+  tokenFacts: ReturnType<typeof extractTokenFacts>
+  useRoots: string[]
+  requestedRootHeader?: string | null
+  selector?: string | null
+}) {
+  let requestedRoot: string | null = null
+
+  if (requestedRootHeader) {
+    const normalizedRequestedRoot = resolvePathReference(requestedRootHeader, tokenFacts.homePath)
+    if (!normalizedRequestedRoot) {
+      return {
+        status: 409,
+        body: {
+          error: `Relative ${REQUESTED_ROOT_HEADER} requires token home_path metadata`,
+          hint: `Send an absolute ${REQUESTED_ROOT_HEADER} that starts with '/' or mint a token with home_path(...).`,
+        },
+      }
+    }
+    if (!validatePath(normalizedRequestedRoot) || normalizedRequestedRoot === '/') {
+      if (normalizedRequestedRoot !== '/') {
+        return {
+          status: 400,
+          body: { error: `Invalid requested path '${requestedRootHeader}'` },
+        }
+      }
+    }
+    if (coveringRootsForPath(useRoots, normalizedRequestedRoot).length === 0) {
+      return {
+        status: 403,
+        body: {
+          error: `Forbidden: token cannot use requested path '${requestedRootHeader}'`,
+        },
+      }
+    }
+    requestedRoot = normalizedRequestedRoot
+  } else if (useRoots.length === 1) {
+    requestedRoot = useRoots[0]
+  } else if (selector?.startsWith('/')) {
+    const roots = coveringRootsForPath(useRoots, selector)
+    if (roots.length === 1) {
+      requestedRoot = roots[0]
+    } else if (roots.length === 0) {
+      return {
+        status: 403,
+        body: { error: `Token cannot use credential '${selector}'` },
+      }
+    } else if (roots.length > 1) {
+      return {
+        status: 409,
+        body: {
+          error: 'Multiple roots match the requested credential path',
+          roots,
+          hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
+        },
+      }
+    }
+  }
+
+  if (!requestedRoot) {
+    return {
+      status: 409,
+      body: {
+        error: 'Multiple credential roots are available',
+        roots: useRoots,
+        hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
+      },
+    }
+  }
+
+  return { requestedRoot }
 }
 
 export async function handleProxy(
@@ -266,46 +385,16 @@ export async function handleProxy(
 
   const selector = c.req.header(CREDENTIAL_SELECTOR_HEADER)
   const requestedRootHeader = c.req.header(REQUESTED_ROOT_HEADER)
-  let requestedRoot: string | null = null
-
-  if (requestedRootHeader) {
-    const normalizedRequestedRoot = resolvePathReference(requestedRootHeader, tokenFacts.homePath)
-    if (!normalizedRequestedRoot) {
-      return missingHomePathResponse(c, REQUESTED_ROOT_HEADER)
-    }
-    if (!validatePath(normalizedRequestedRoot) || normalizedRequestedRoot === '/') {
-      if (normalizedRequestedRoot !== '/') {
-        return c.json({ error: `Invalid requested path '${requestedRootHeader}'` }, 400)
-      }
-    }
-    if (coveringRootsForPath(useRoots, normalizedRequestedRoot).length === 0) {
-      return c.json({ error: `Forbidden: token cannot use requested path '${requestedRootHeader}'` }, 403)
-    }
-    requestedRoot = normalizedRequestedRoot
-  } else if (useRoots.length === 1) {
-    requestedRoot = useRoots[0]
-  } else if (selector?.startsWith('/')) {
-    const roots = coveringRootsForPath(useRoots, selector)
-    if (roots.length === 1) {
-      requestedRoot = roots[0]
-    } else if (roots.length === 0) {
-      return c.json({ error: `Token cannot use credential '${selector}'` }, 403)
-    } else if (roots.length > 1) {
-      return c.json({
-        error: 'Multiple roots match the requested credential path',
-        roots,
-        hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
-      }, 409)
-    }
+  const rootSelection = resolveRequestedRoot({
+    tokenFacts,
+    useRoots,
+    requestedRootHeader,
+    selector,
+  })
+  if ('status' in rootSelection) {
+    return c.json(rootSelection.body, rootSelection.status as 400 | 403 | 409)
   }
-
-  if (!requestedRoot) {
-    return c.json({
-      error: 'Multiple credential roots are available',
-      roots: useRoots,
-      hint: `Send the ${REQUESTED_ROOT_HEADER} header to choose a path explicitly.`,
-    }, 409)
-  }
+  const { requestedRoot } = rootSelection
 
   const resource = slug ?? hostname
   const result = authorizeRequest(token, publicKeyHex, resource, c.req.method, upstreamPath, {
@@ -389,7 +478,34 @@ export async function handleProxy(
 
   // Build upstream request — hostname comes from the URL, always HTTPS
   const url = new URL(c.req.url)
-  const upstreamUrl = `https://${hostname}${upstreamPath}${url.search}`
+  let upstreamUrl = `https://${hostname}${upstreamPath}${url.search}`
+  const requestedUpstreamUrl = c.req.header(UPSTREAM_URL_HEADER)
+  if (requestedUpstreamUrl) {
+    let candidate: URL
+    try {
+      candidate = new URL(requestedUpstreamUrl)
+    } catch {
+      return c.json({ error: `Invalid ${UPSTREAM_URL_HEADER} header` }, 400)
+    }
+
+    if (!['http:', 'https:'].includes(candidate.protocol)) {
+      return c.json({
+        error: `Unsupported upstream protocol '${candidate.protocol}'`,
+      }, 400)
+    }
+    if (candidate.hostname !== hostname) {
+      return c.json({
+        error: `Upstream host '${candidate.hostname}' does not match proxy host '${hostname}'`,
+      }, 400)
+    }
+    if (candidate.pathname !== upstreamPath || candidate.search !== url.search) {
+      return c.json({
+        error: `${UPSTREAM_URL_HEADER} must match the requested path and query`,
+      }, 400)
+    }
+
+    upstreamUrl = candidate.toString()
+  }
 
   const headers = buildUpstreamHeaders(c)
   const body = await readRequestBody(c)

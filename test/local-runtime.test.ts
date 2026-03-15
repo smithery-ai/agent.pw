@@ -348,13 +348,17 @@ describe('local serve wrapper', () => {
     const createLocalDb = vi.fn().mockResolvedValue('db-handle')
     const migrateLocal = vi.fn().mockResolvedValue(undefined)
     const createCoreApp = vi.fn(() => ({ fetch: vi.fn() }))
-    const server = new EventEmitter()
-    const nodeServe = vi.fn().mockImplementation((_options, onListening) => {
-      queueMicrotask(() => {
-        onListening?.({ port: 9315 })
-      })
-      return server
+    const requestListener = vi.fn()
+    const getRequestListener = vi.fn(() => requestListener)
+    const server = Object.assign(new EventEmitter(), {
+      listen: vi.fn().mockImplementation((_port, _hostname, onListening) => {
+        queueMicrotask(() => {
+          onListening?.()
+        })
+        return server
+      }),
     })
+    const createNodeServer = vi.fn().mockImplementation(() => server)
 
     vi.doMock('../packages/server/src/db/index', () => ({
       createLocalDb,
@@ -366,7 +370,10 @@ describe('local serve wrapper', () => {
       createCoreApp,
     }))
     vi.doMock('@hono/node-server', () => ({
-      serve: nodeServe,
+      getRequestListener,
+    }))
+    vi.doMock('node:http', () => ({
+      createServer: createNodeServer,
     }))
 
     const serveModule = await import('../packages/server/src/local/serve')
@@ -387,11 +394,9 @@ describe('local serve wrapper', () => {
     })
 
     expect(await serveModule.serveLocalServer(config, '127.0.0.1')).toBe(server)
-    expect(nodeServe).toHaveBeenCalledWith({
-      fetch: expect.any(Function),
-      port: 9315,
-      hostname: '127.0.0.1',
-    }, expect.any(Function))
+    expect(getRequestListener).toHaveBeenCalledWith(expect.any(Function), { hostname: '127.0.0.1' })
+    expect(createNodeServer).toHaveBeenCalledWith(expect.any(Function))
+    expect(server.listen).toHaveBeenCalledWith(9315, '127.0.0.1', expect.any(Function))
   })
 
   it('surfaces listen failures before reporting success', async () => {
@@ -401,13 +406,16 @@ describe('local serve wrapper', () => {
     const createLocalDb = vi.fn().mockResolvedValue('db-handle')
     const migrateLocal = vi.fn().mockResolvedValue(undefined)
     const createCoreApp = vi.fn(() => ({ fetch: vi.fn() }))
-    const server = new EventEmitter()
-    const nodeServe = vi.fn().mockImplementation(() => {
-      queueMicrotask(() => {
-        server.emit('error', Object.assign(new Error('listen EADDRINUSE'), { code: 'EADDRINUSE' }))
-      })
-      return server
+    const getRequestListener = vi.fn(() => vi.fn())
+    const server = Object.assign(new EventEmitter(), {
+      listen: vi.fn().mockImplementation(() => {
+        queueMicrotask(() => {
+          server.emit('error', Object.assign(new Error('listen EADDRINUSE'), { code: 'EADDRINUSE' }))
+        })
+        return server
+      }),
     })
+    const createNodeServer = vi.fn().mockImplementation(() => server)
 
     vi.doMock('../packages/server/src/db/index', () => ({
       createLocalDb,
@@ -419,7 +427,10 @@ describe('local serve wrapper', () => {
       createCoreApp,
     }))
     vi.doMock('@hono/node-server', () => ({
-      serve: nodeServe,
+      getRequestListener,
+    }))
+    vi.doMock('node:http', () => ({
+      createServer: createNodeServer,
     }))
 
     const serveModule = await import('../packages/server/src/local/serve')

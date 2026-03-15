@@ -4,7 +4,7 @@ import { createCoreApp } from '@agent.pw/server'
 import { mintToken } from '@agent.pw/server/biscuit'
 import { deriveEncryptionKey, decryptCredentials, encryptCredentials } from '@agent.pw/server/crypto'
 import { createLogger } from '@agent.pw/server/logger'
-import { extractBearerToken, handleProxy } from '@agent.pw/server/proxy'
+import { extractBearerToken, extractProxyToken, handleProxy } from '@agent.pw/server/proxy'
 import { publicProfilePath } from '@agent.pw/server/paths'
 import {
   getCredential,
@@ -87,6 +87,9 @@ describe('proxy routes and proxy handler edges', () => {
     expect(extractBearerToken(undefined)).toBeNull()
     expect(extractBearerToken('Bearer prefixed-token')).toBe('prefixed-token')
     expect(extractBearerToken('raw-token')).toBe('raw-token')
+    expect(extractBearerToken('bearer mixed-case-token')).toBe('mixed-case-token')
+    expect(extractProxyToken('Basic YXBlcmF0b3I6YXB3X3Rva2Vu')).toBe('apw_token')
+    expect(extractProxyToken('Basic YXB3X3Rva2VuOg==')).toBe('apw_token')
   })
 
   it('parses explicit profile routes and rejects missing hostnames', async () => {
