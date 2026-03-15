@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.1.0...agent.pw-v0.2.0) (2026-03-15)
+
+
+### Features
+
+* make init launch the bundled daemon ([#86](https://github.com/smithery-ai/agent.pw/issues/86)) ([4c9daff](https://github.com/smithery-ai/agent.pw/commit/4c9daffa4ad745d70bb8cf578e34cbf1ec042a0d))
+
 ## 0.1.0 (2026-03-11)
 
 
