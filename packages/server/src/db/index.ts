@@ -25,6 +25,7 @@ type WasmByteSource = ArrayBuffer | Uint8Array
 async function compileWasmModule(bytes: WasmByteSource): Promise<WebAssembly.Module> {
   return typeof WebAssembly.compile === 'function'
     ? WebAssembly.compile(bytes)
+    /* v8 ignore next -- retained only for runtimes without WebAssembly.compile */
     : Promise.resolve(new WebAssembly.Module(bytes))
 }
 

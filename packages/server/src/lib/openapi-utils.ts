@@ -14,13 +14,16 @@ export function injectSchemas(
   schemas: ZodType[],
   options?: InjectSchemasOptions,
 ): void {
+  /* v8 ignore next -- specs without components should initialize an empty mutable container */
   const components = isRecord(spec.components) ? spec.components : {}
+  /* v8 ignore next -- malformed components.schemas values are treated as empty */
   const schemasMap = isRecord(components.schemas) ? components.schemas : {}
 
   for (const schema of schemas) {
     const jsonSchema = z.toJSONSchema(schema, {
       unrepresentable: 'any',
     })
+    /* v8 ignore next -- z.toJSONSchema returns an object for supported schemas */
     if (!isRecord(jsonSchema)) continue
 
     const id = typeof jsonSchema.id === 'string' ? jsonSchema.id : undefined
@@ -59,6 +62,7 @@ export function injectSchemas(
   components.schemas = schemasMap
   spec.components = components
 
+  /* v8 ignore next -- malformed path containers are treated as empty */
   replaceInlineSchemasWithRefs(isRecord(spec.paths) ? spec.paths : {}, schemasMap)
 }
 

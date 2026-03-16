@@ -25,6 +25,7 @@ function resolveErrorStatus(status: number | undefined): 400 | 403 | 409 {
   if (status === 400 || status === 403 || status === 409) {
     return status
   }
+  /* v8 ignore next -- resolveRequestedRoot only returns 400/403/409 in the error branch */
   return 409
 }
 
