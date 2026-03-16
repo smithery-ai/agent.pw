@@ -1,5 +1,6 @@
 import AgentPw from '@agent.pw/sdk'
 import { resolve } from './resolve'
+import { HttpStatusError } from './type-utils'
 
 let _client: AgentPw | null = null
 
@@ -33,11 +34,9 @@ export async function requestJson<T>(path: string, init: RequestInit = {}): Prom
   const res = await request(path, init)
   if (!res.ok) {
     const body = await res.text()
-    const error = new Error(body || `${res.status} ${res.statusText}`) as Error & { status?: number }
-    error.status = res.status
-    throw error
+    throw new HttpStatusError(body || `${res.status} ${res.statusText}`, res.status)
   }
-  return res.json() as Promise<T>
+  return res.json()
 }
 
 export async function pageToPaginatedResponse<T>(pagePromise: Promise<{

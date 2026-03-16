@@ -60,7 +60,12 @@ function buildProxyCurlArgs(args: string[], proxyBase: string, token: string) {
     process.exit(1)
   }
 
-  const targetUrl = new URL(args[urlIndex] as string)
+  const target = args[urlIndex]
+  if (!target) {
+    throw new Error('No URL found in arguments.')
+  }
+
+  const targetUrl = new URL(target)
   const hostname = targetUrl.hostname
   const path = targetUrl.pathname + targetUrl.search
   const proxyUrl = `${proxyBase}/proxy/${hostname}${path}`

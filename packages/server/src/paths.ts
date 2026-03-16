@@ -12,7 +12,7 @@ export function isAncestorOrEqual(ancestor: string, descendant: string) {
   if (ancestor === descendant) return true
   if (ancestor === '/') return true
   // Ensure boundary match: /ab must NOT match /abc
-  const prefix = ancestor.endsWith('/') ? ancestor : ancestor + '/'
+  const prefix = ancestor.endsWith('/') ? ancestor : `${ancestor}/`
   return descendant.startsWith(prefix)
 }
 
@@ -32,7 +32,8 @@ export function validatePath(path: string) {
 
 /** Extract the leaf credential name from a full credential path. */
 export function credentialName(path: string) {
-  return path.split('/').pop()!
+  const name = path.split('/').pop()
+  return name ?? ''
 }
 
 /** Build the canonical root-level default profile path from a profile slug. */

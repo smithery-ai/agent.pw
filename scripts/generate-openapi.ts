@@ -14,6 +14,7 @@ import { generateSpecs } from 'hono-openapi'
 import { injectSchemas } from '../packages/server/src/lib/openapi-utils'
 import { createCoreApp } from '../packages/server/src/core/app'
 import { openAPIDocumentation, allSchemas } from '../packages/server/src/openapi'
+import { isRecord } from '../packages/server/src/lib/utils'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -27,14 +28,15 @@ async function main() {
     documentation: openAPIDocumentation,
   })
 
-  const result = { ...spec } as Record<string, unknown>
+  const result: Record<string, unknown> = { ...spec }
 
   injectSchemas(result, allSchemas)
 
   const outputPath = resolve(__dirname, '..', 'openapi.json')
   writeFileSync(outputPath, JSON.stringify(result, null, 2))
 
-  const pathCount = Object.keys((result.paths as Record<string, unknown>) ?? {}).length
+  const paths = isRecord(result.paths) ? result.paths : {}
+  const pathCount = Object.keys(paths).length
   console.log(`OpenAPI spec generated: ${outputPath} (${pathCount} paths)`)
 }
 

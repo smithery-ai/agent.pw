@@ -3,6 +3,7 @@ import { getClient, requestJson } from '../http'
 import { resolve } from '../resolve'
 import { readTokenStack, writeTokenStack } from '../config'
 import { output } from '../output'
+import { isRecord } from '../type-utils'
 
 const TOKEN_PREFIX = 'apw_'
 
@@ -12,10 +13,19 @@ function base64urlToHex(b64url: string) {
   return Array.from(bin, c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
 }
 
+function isJwksResponse(value: unknown): value is { keys: Array<{ x: string }> } {
+  return isRecord(value)
+    && Array.isArray(value.keys)
+    && value.keys.every(key => isRecord(key) && typeof key.x === 'string')
+}
+
 async function fetchPublicKeyHex(serverUrl: string) {
   const res = await fetch(`${serverUrl.replace(/\/$/, '')}/.well-known/jwks.json`)
   if (!res.ok) throw new Error(`Failed to fetch JWKS: ${res.status}`)
-  const jwks = await res.json() as { keys: Array<{ x: string }> }
+  const jwks = await res.json()
+  if (!isJwksResponse(jwks) || jwks.keys.length === 0) {
+    throw new Error('Failed to fetch JWKS: invalid response body')
+  }
   return base64urlToHex(jwks.keys[0].x)
 }
 

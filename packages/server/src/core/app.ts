@@ -109,6 +109,7 @@ export function createCoreApp(deps: CoreAppDeps = {}) {
   app.use('*', urlRedirectMiddleware)
 
   app.use('*', async (c, next) => {
+    // biome-ignore lint/plugin/no-type-assertion: Hono initializes env lazily, so we seed the mutable bindings object here.
     if (!c.env) c.env = {} as CoreHonoEnv['Bindings']
     if (deps.baseUrl) {
       c.env.BASE_URL = deps.baseUrl

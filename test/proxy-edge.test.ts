@@ -437,7 +437,7 @@ describe('proxy routes and proxy handler edges', () => {
     const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
     const stored = await getCredential(db, 'api.refresh.com', '/org_alpha/oauth-service')
     expect(stored).not.toBeNull()
-    expect(await decryptCredentials(encryptionKey, stored!.secret)).toEqual(expect.objectContaining({
+    expect(await decryptCredentials(encryptionKey, stored?.secret)).toEqual(expect.objectContaining({
       headers: { Authorization: 'Bearer new-access' },
       oauth: expect.objectContaining({
         accessToken: 'new-access',

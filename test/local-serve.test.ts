@@ -107,7 +107,7 @@ function makeIncomingRequest({
   return {
     url,
     method,
-    rawHeaders: rawHeaders ?? Object.entries(headers).flatMap(([key, value]) => [key, value]),
+    rawHeaders: rawHeaders ?? Object.entries(headers).flat(),
     socket: { remoteAddress },
   } as any
 }

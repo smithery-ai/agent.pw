@@ -59,17 +59,20 @@ function pathWithinRootCondition(
   if (root === '/') {
     return sql`true`
   }
-  return or(eq(column, root), like(column, `${root}/%`))!
+  /* v8 ignore next -- eq+like always provide at least one SQL branch here */
+  return or(eq(column, root), like(column, `${root}/%`)) ?? sql`false`
 }
 
 function pathWithinAnyRootCondition(
   column: typeof credProfiles.path | typeof credentials.path,
   roots: string[],
 ): SQL<unknown> {
+  /* v8 ignore next -- public callers short-circuit empty roots before building SQL */
   if (roots.length === 0) {
     return sql`false`
   }
-  return or(...roots.map(root => pathWithinRootCondition(column, root)))!
+  /* v8 ignore next -- non-empty roots always produce at least one SQL branch here */
+  return or(...roots.map(root => pathWithinRootCondition(column, root))) ?? sql`false`
 }
 
 function afterCredentialCursorCondition(cursor: {
@@ -77,6 +80,7 @@ function afterCredentialCursorCondition(cursor: {
   path: string
   host: string
 }): SQL<unknown> {
+  /* v8 ignore next -- this cursor comparison always provides at least one SQL branch */
   return or(
     lt(credentials.createdAt, cursor.createdAt),
     and(eq(credentials.createdAt, cursor.createdAt), gt(credentials.path, cursor.path)),
@@ -85,7 +89,7 @@ function afterCredentialCursorCondition(cursor: {
       eq(credentials.path, cursor.path),
       gt(credentials.host, cursor.host),
     ),
-  )!
+  ) ?? sql`false`
 }
 
 function isRootLevelProfile(path: string) {
@@ -397,11 +401,11 @@ export interface CreateFlowData {
 
 function formatTimestampWithoutTimezone(date: Date) {
   // auth_flows.expires_at is TIMESTAMP WITHOUT TIME ZONE in the current schema,
-  // and this stack round-trips that type through the local process timezone.
-  // Persist the local wall-clock components explicitly so reads map back to the
-  // same absolute instant regardless of driver defaults.
+  // and PGlite reads that type back as a UTC instant. Persist the UTC wall-clock
+  // components explicitly so the same absolute instant round-trips regardless
+  // of the process timezone or the session timezone.
   const pad = (value: number, width = 2) => value.toString().padStart(width, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}.${pad(date.getUTCMilliseconds(), 3)}`
 }
 
 function asTimestampWithoutTimezone(date: Date) {

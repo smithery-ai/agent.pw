@@ -27,6 +27,7 @@ import {
   InvalidPaginationCursorError,
   PaginationQuerySchema,
 } from '../lib/pagination'
+import { lastItem } from '../lib/utils'
 
 export const CredentialSchema = z.object({
   name: z.string().meta({ description: 'Credential name', example: 'linear' }),
@@ -66,7 +67,7 @@ const CredentialCursorSchema = z.object({
 
 function pickDeepestProfile<T extends { path: string }>(matches: T[]) {
   if (matches.length === 0) {
-    return { selected: null, conflicts: [] as T[] }
+    return { selected: null, conflicts: [] }
   }
 
   const topDepth = Math.max(...matches.map(match => match.path.split('/').filter(Boolean).length))
@@ -75,7 +76,7 @@ function pickDeepestProfile<T extends { path: string }>(matches: T[]) {
     return { selected: null, conflicts }
   }
 
-  return { selected: matches[0], conflicts: [] as T[] }
+  return { selected: matches[0], conflicts: [] }
 }
 
 const CredentialListQuerySchema = PaginationQuerySchema.extend({
@@ -134,12 +135,17 @@ credentialRoutes.get('/', requireToken,
       return c.json({
         data,
         hasMore: page.hasMore,
-        nextCursor: page.hasMore && data.length > 0
-          ? encodePageCursor({
-            createdAt: data[data.length - 1]!.createdAt,
-            path: data[data.length - 1]!.path,
-            host: data[data.length - 1]!.host,
-          })
+        nextCursor: page.hasMore
+          ? (() => {
+              const item = lastItem(data)
+              return item
+                ? encodePageCursor({
+                    createdAt: item.createdAt,
+                    path: item.path,
+                    host: item.host,
+                  })
+                : null
+            })()
           : null,
       })
     } catch (error) {
@@ -250,7 +256,11 @@ credentialRoutes.put('/:name', requireToken,
     const authConfig = profile?.auth ?? null
     const schemes = authConfig?.kind === 'oauth' ? [] : parseAuthSchemes(authConfig?.authSchemes ? JSON.stringify(authConfig.authSchemes) : null)
     const apiKeyScheme = getApiKeyScheme(schemes) ?? DEFAULT_API_KEY_SCHEME
-    const credHeaders = body.headers ?? buildCredentialHeaders(apiKeyScheme, body.token as string)
+    const token = body.token
+    const credHeaders = body.headers ?? (token ? buildCredentialHeaders(apiKeyScheme, token) : null)
+    if (!credHeaders) {
+      return c.json({ error: 'Either token or headers is required' }, 400)
+    }
     const encrypted = await encryptCredentials(c.env.ENCRYPTION_KEY, { headers: credHeaders })
 
     await upsertCredential(db, {
@@ -259,7 +269,7 @@ credentialRoutes.put('/:name', requireToken,
       auth: { kind: 'headers' },
       secret: encrypted,
     })
-    return c.json({ ok: true as const, name, path: credPath })
+    return c.json({ ok: true, name, path: credPath })
   },
 )
 
@@ -350,6 +360,6 @@ credentialRoutes.delete('/:name', requireToken,
 
     const deleted = await deleteCredential(db, host, resolvedPath)
     if (!deleted) return c.json({ error: 'Credential not found' }, 404)
-    return c.json({ ok: true as const })
+    return c.json({ ok: true })
   },
 )

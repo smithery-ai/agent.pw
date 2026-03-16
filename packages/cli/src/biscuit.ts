@@ -7,14 +7,13 @@ import type {
   PublicKey as PublicKeyClass,
   SignatureAlgorithm as SignatureAlgorithmEnum,
 } from '@smithery/biscuit'
+import { isRecord } from './type-utils'
 
 type BiscuitModule = {
   Biscuit: typeof BiscuitClass
   PublicKey: typeof PublicKeyClass
   SignatureAlgorithm: typeof SignatureAlgorithmEnum
 }
-
-type WasmImports = NonNullable<ConstructorParameters<typeof WebAssembly.Instance>[1]>
 
 type WasmGlueModule = BiscuitModule & {
   __wbg_set_wasm(wasm: WebAssembly.Instance['exports']): void
@@ -28,7 +27,7 @@ const SNIPPET_MODULES = [
   './snippets/biscuit-auth-da0d0cfccbdf8dc5/inline0.js',
   './snippets/biscuit-auth-e52d23e03c1c6188/inline0.js',
   './snippets/biscuit-auth-e5319c95bbe1e260/inline0.js',
-] as const
+]
 
 let biscuitModulePromise: Promise<BiscuitModule> | undefined
 
@@ -41,9 +40,13 @@ async function initBiscuit(): Promise<BiscuitModule> {
   const wasmUrl = getAssetUrl('biscuit_bg.wasm')
   const wasmModule = new WebAssembly.Module(readFileSync(wasmUrl))
 
-  const bg = await import(getAssetUrl('biscuit_bg.js').href) as WasmGlueModule
+  const importedBg = await import(getAssetUrl('biscuit_bg.js').href)
+  if (!isWasmGlueModule(importedBg)) {
+    throw new Error('Failed to load Biscuit WASM glue module')
+  }
+  const bg = importedBg
 
-  const wasmImports: Record<string, unknown> = {}
+  const wasmImports: WebAssembly.ModuleImports = {}
   for (const [key, value] of Object.entries(bg)) {
     if (key.startsWith('__wbg_') || key.startsWith('__wbindgen_')) {
       wasmImports[key] = value
@@ -51,7 +54,7 @@ async function initBiscuit(): Promise<BiscuitModule> {
   }
 
   const snippetExports = { performance_now: () => performance.now() }
-  const imports = { './biscuit_bg.js': wasmImports } as WasmImports & Record<string, unknown>
+  const imports: WebAssembly.Imports = { './biscuit_bg.js': wasmImports }
 
   for (const moduleName of SNIPPET_MODULES) {
     imports[moduleName] = snippetExports
@@ -78,4 +81,12 @@ function getAssetUrl(fileName: string) {
   }
 
   return new URL(`./vendor/biscuit-wasm/${fileName}`, import.meta.url)
+}
+
+function isWasmGlueModule(value: unknown): value is WasmGlueModule {
+  return isRecord(value)
+    && typeof value.Biscuit === 'function'
+    && typeof value.PublicKey === 'function'
+    && typeof value.SignatureAlgorithm === 'object'
+    && typeof value.__wbg_set_wasm === 'function'
 }

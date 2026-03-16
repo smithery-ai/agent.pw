@@ -35,7 +35,7 @@ export const openAPIDocumentation = {
   components: {
     securitySchemes: {
       bearerAuth: {
-        type: 'http' as const,
+        type: 'http',
         scheme: 'bearer',
         description: 'Biscuit bearer token',
       },

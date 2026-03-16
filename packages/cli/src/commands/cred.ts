@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline'
 import { collectAllPages, getClient, request, requestJson, pageToPaginatedResponse, type PaginatedResponse } from '../http'
 import { outputList, outputListPage } from '../output'
+import { HttpStatusError, getErrorStatus } from '../type-utils'
 
 interface ListedCredential {
   name: string
@@ -175,9 +176,7 @@ export async function removeCred(name: string, options: RemoveCredOptions = {}) 
       method: 'DELETE',
     })
     if (!res.ok) {
-      const error = new Error(await res.text()) as Error & { status?: number }
-      error.status = res.status
-      throw error
+      throw new HttpStatusError(await res.text(), res.status)
     }
     console.log(`Removed credential '${name}'.`)
   } catch (e: unknown) {
@@ -190,5 +189,5 @@ export async function removeCred(name: string, options: RemoveCredOptions = {}) 
 }
 
 function isNotFound(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && 'status' in e && (e as { status: number }).status === 404
+  return getErrorStatus(e) === 404
 }

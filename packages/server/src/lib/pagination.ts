@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { lastItem } from './utils'
 
 export const MAX_PAGE_SIZE = 100
 export const DEFAULT_PAGE_SIZE = MAX_PAGE_SIZE
@@ -44,9 +45,9 @@ export function encodePageCursor<T>(value: T) {
   return toBase64Url(JSON.stringify(value))
 }
 
-export function decodePageCursor<T>(cursor: string) {
+export function decodePageCursor<_T>(cursor: string) {
   try {
-    return JSON.parse(fromBase64Url(cursor)) as T
+    return JSON.parse(fromBase64Url(cursor))
   } catch {
     throw new InvalidPaginationCursorError()
   }
@@ -85,8 +86,11 @@ export function paginateSlice<T, Cursor>({
   return {
     data,
     hasMore,
-    nextCursor: hasMore && data.length > 0
-      ? encodePageCursor(toCursor(data[data.length - 1]!))
+    nextCursor: hasMore
+      ? (() => {
+          const item = lastItem(data)
+          return item ? encodePageCursor(toCursor(item)) : null
+        })()
       : null,
   }
 }

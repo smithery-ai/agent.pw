@@ -141,7 +141,7 @@ describe('db queries', () => {
     const secondProfilePage = await listCredProfilesPage(db, {
       limit: 2,
       visibleRoots: ['/'],
-      afterPath: firstProfilePage.items[firstProfilePage.items.length - 1]!.path,
+      afterPath: firstProfilePage.items[firstProfilePage.items.length - 1]?.path,
     })
     expect(secondProfilePage.items.map(profile => profile.path)).toEqual(['/ccc'])
     expect(secondProfilePage.hasMore).toBe(false)
@@ -174,6 +174,40 @@ describe('db queries', () => {
       ...firstCredentialPage.items.map(credential => credential.path),
       ...secondCredentialPage.items.map(credential => credential.path),
     ]).toEqual(expect.arrayContaining(['/org_alpha/cred-a', '/org_alpha/cred-b', '/org_alpha/cred-c']))
+  })
+
+  it('handles empty visibility filters and root-scoped credential pages', async () => {
+    await upsertCredProfile(db, publicProfilePath('global'), {
+      host: ['api.global.com'],
+    })
+
+    await storeBearerCredential('api.example.com', '/root-cred', 'root-token')
+    await storeBearerCredential('api.example.com', '/org_alpha/team-cred', 'team-token')
+
+    expect(await listCredProfilesPage(db, {
+      limit: 10,
+      visibleRoots: [],
+    })).toEqual({
+      items: [],
+      hasMore: false,
+    })
+
+    const rootCredentialPage = await listCredentialsAccessiblePage(db, {
+      limit: 10,
+      roots: ['/'],
+    })
+    expect(rootCredentialPage.items.map(credential => credential.path)).toEqual(
+      expect.arrayContaining(['/root-cred', '/org_alpha/team-cred']),
+    )
+    expect(rootCredentialPage.hasMore).toBe(false)
+
+    expect(await listCredentialsAccessiblePage(db, {
+      limit: 10,
+      roots: [],
+    })).toEqual({
+      items: [],
+      hasMore: false,
+    })
   })
 
   it('includes ancestor fallback profiles when paging descendant-scoped profile listings', async () => {

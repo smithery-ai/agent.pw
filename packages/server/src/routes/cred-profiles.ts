@@ -20,6 +20,7 @@ import {
   PaginationQuerySchema,
 } from '../lib/pagination'
 import { AuthScheme, parseAuthSchemes } from '../auth-schemes'
+import { isRecord, lastItem } from '../lib/utils'
 
 export const CredProfileSchema = z.object({
   slug: z.string().meta({ description: 'Unique profile identifier', example: 'linear' }),
@@ -71,16 +72,12 @@ const CredProfileCursorSchema = z.object({
 })
 
 function hasManagedOAuth(profile: { managedOauth: unknown }) {
-  return Boolean(
-    profile.managedOauth &&
-    typeof profile.managedOauth === 'object' &&
-    typeof (profile.managedOauth as { clientId?: unknown }).clientId === 'string',
-  )
+  return isRecord(profile.managedOauth) && typeof profile.managedOauth.clientId === 'string'
 }
 
 function getAuthSchemes(profile: { auth: unknown }) {
-  if (!profile.auth || typeof profile.auth !== 'object') return []
-  const authSchemes = (profile.auth as { authSchemes?: unknown }).authSchemes
+  if (!isRecord(profile.auth)) return []
+  const authSchemes = profile.auth.authSchemes
   return parseAuthSchemes(authSchemes ? JSON.stringify(authSchemes) : null)
 }
 
@@ -125,8 +122,11 @@ credProfileRoutes.get('/', requireToken,
       return c.json({
         data,
         hasMore: page.hasMore,
-        nextCursor: page.hasMore && data.length > 0
-          ? encodePageCursor({ slug: data[data.length - 1]!.slug })
+        nextCursor: page.hasMore
+          ? (() => {
+              const item = lastItem(data)
+              return item ? encodePageCursor({ slug: item.slug }) : null
+            })()
           : null,
       })
     } catch (error) {
@@ -247,7 +247,7 @@ credProfileRoutes.put('/:slug', requireToken,
       description: body.description,
     })
 
-    return c.json({ ok: true as const, slug })
+    return c.json({ ok: true, slug })
   },
 )
 
@@ -292,6 +292,6 @@ credProfileRoutes.delete('/:slug', requireToken,
 
     const deleted = await deleteCredProfile(db, requestedPath)
     if (!deleted) return c.json({ error: 'Profile not found' }, 404)
-    return c.json({ ok: true as const })
+    return c.json({ ok: true })
   },
 )

@@ -2,6 +2,7 @@
  * OAuth token refresh — shared between core proxy and managed OAuth flows.
  * Pure HTTP logic with no infrastructure dependencies.
  */
+import { isRecord } from './utils'
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
@@ -11,8 +12,8 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split('.')
   let current: unknown = obj
   for (const part of parts) {
-    if (current == null || typeof current !== 'object') return undefined
-    current = (current as Record<string, unknown>)[part]
+    if (!isRecord(current)) return undefined
+    current = current[part]
   }
   return current
 }
@@ -22,7 +23,8 @@ async function parseTokenPayload(tokenRes: Response): Promise<Record<string, unk
   const contentType = tokenRes.headers.get('content-type') ?? ''
 
   if (contentType.includes('application/json') || text.trim().startsWith('{')) {
-    return JSON.parse(text) as Record<string, unknown>
+    const parsed = JSON.parse(text)
+    return isRecord(parsed) ? parsed : {}
   }
 
   const params = new URLSearchParams(text)
@@ -103,19 +105,20 @@ export async function refreshOAuthToken(params: {
   const accessToken =
     (params.authConfig?.token_path
       ? getNestedValue(tokenData, params.authConfig.token_path)
-      : tokenData.access_token) as string
+      : tokenData.access_token)
+  const resolvedAccessToken = asString(accessToken)
 
-  if (!accessToken) {
+  if (!resolvedAccessToken) {
     throw new Error('No access token in refresh response')
   }
 
   const refreshToken =
     (params.authConfig?.refresh_token_path
       ? getNestedValue(tokenData, params.authConfig.refresh_token_path)
-      : tokenData.refresh_token) as string | undefined
+      : tokenData.refresh_token)
 
   return {
-    accessToken,
+    accessToken: resolvedAccessToken,
     refreshToken: asString(refreshToken) ?? params.refreshToken,
     expiresAt: resolveExpiresAt(tokenData),
   }

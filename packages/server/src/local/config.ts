@@ -79,11 +79,11 @@ export function ensureLocalAgentPwDirs(paths = localAgentPwPaths()) {
   mkdirSync(paths.serverRuntimeDir, { recursive: true })
 }
 
-function readJsonFile<T>(filePath: string) {
+function readJsonFile<_T>(filePath: string) {
   if (!existsSync(filePath)) return null
 
   try {
-    return JSON.parse(readFileSync(filePath, 'utf8')) as T
+    return JSON.parse(readFileSync(filePath, 'utf8'))
   } catch {
     return null
   }
