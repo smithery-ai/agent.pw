@@ -76,9 +76,9 @@ export function replaceInlineSchemasWithRefs(
   const record = obj
 
   for (const [key, value] of Object.entries(record)) {
-    if (!isRecord(value)) continue
+    if (!isRecord(value) && !Array.isArray(value)) continue
 
-    if (typeof value.id === 'string' && schemas[value.id]) {
+    if (isRecord(value) && typeof value.id === 'string' && schemas[value.id]) {
       record[key] = { $ref: `#/components/schemas/${value.id}` }
     } else {
       replaceInlineSchemasWithRefs(value, schemas)
