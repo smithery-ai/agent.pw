@@ -68,6 +68,20 @@ agent.pw curl http://localhost:9315/proxy/api.linear.app/graphql \
   -d '{"query":"{ issues { nodes { id title } } }"}'
 ```
 
+### Standard Proxy Mode
+
+The local daemon can also act as a standard forward proxy for loopback clients:
+
+```bash
+export HTTP_PROXY=http://127.0.0.1:9315
+export HTTPS_PROXY=http://127.0.0.1:9315
+```
+
+- Plain HTTP proxy-form requests are rewritten into the normal `agent.pw` proxy flow, so stored credentials can still be injected.
+- `CONNECT` requests are authenticated, policy-checked, and tunneled directly to the target host.
+- Because `CONNECT` carries opaque TLS bytes after the tunnel is established, agent.pw cannot inject HTTPS headers inside a `CONNECT` tunnel without full TLS interception.
+- Non-loopback clients should still send `Proxy-Authorization` explicitly. The proxy accepts both `Bearer <token>` and standard Basic proxy credentials.
+
 ### Local Service Controls
 
 ```bash

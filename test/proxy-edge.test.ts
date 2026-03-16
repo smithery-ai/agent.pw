@@ -4,7 +4,7 @@ import { createCoreApp } from '@agent.pw/server'
 import { mintToken } from '@agent.pw/server/biscuit'
 import { deriveEncryptionKey, decryptCredentials, encryptCredentials } from '@agent.pw/server/crypto'
 import { createLogger } from '@agent.pw/server/logger'
-import { extractBearerToken, handleProxy } from '@agent.pw/server/proxy'
+import { extractBearerToken, extractProxyToken, handleProxy } from '@agent.pw/server/proxy'
 import { publicProfilePath } from '@agent.pw/server/paths'
 import {
   getCredential,
@@ -87,6 +87,9 @@ describe('proxy routes and proxy handler edges', () => {
     expect(extractBearerToken(undefined)).toBeNull()
     expect(extractBearerToken('Bearer prefixed-token')).toBe('prefixed-token')
     expect(extractBearerToken('raw-token')).toBe('raw-token')
+    expect(extractBearerToken('bearer mixed-case-token')).toBe('mixed-case-token')
+    expect(extractProxyToken('Basic YXBlcmF0b3I6YXB3X3Rva2Vu')).toBe('apw_token')
+    expect(extractProxyToken('Basic YXB3X3Rva2VuOg==')).toBe('apw_token')
   })
 
   it('parses explicit profile routes and rejects missing hostnames', async () => {
@@ -675,5 +678,50 @@ describe('proxy routes and proxy handler edges', () => {
     expect(response.headers.get('www-authenticate')).toMatch(
       /^AgentPW target_host="api\.unknown\.example", authorization_uri="https:\/\/agent\.pw\/auth\/manual\?target=api\.unknown\.example&flow_id=[0-9a-f]+"$/,
     )
+  })
+
+  it('validates explicit upstream URL overrides before forwarding the request', async () => {
+    const app = await createApp()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })))
+
+    const invalidUrl = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha'), {
+        'agentpw-upstream-url': 'not a url',
+      }),
+    })
+    expect(invalidUrl.status).toBe(400)
+    expect(await invalidUrl.json()).toEqual({
+      error: 'Invalid agentpw-upstream-url header',
+    })
+
+    const invalidProtocol = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha'), {
+        'agentpw-upstream-url': 'ftp://api.github.com/user',
+      }),
+    })
+    expect(invalidProtocol.status).toBe(400)
+    expect(await invalidProtocol.json()).toEqual({
+      error: "Unsupported upstream protocol 'ftp:'",
+    })
+
+    const mismatchedHost = await app.request('https://agent.pw/proxy/api.github.com/user', {
+      headers: withToken(mintTestToken('org_alpha'), {
+        'agentpw-upstream-url': 'https://api.gitlab.com/user',
+      }),
+    })
+    expect(mismatchedHost.status).toBe(400)
+    expect(await mismatchedHost.json()).toEqual({
+      error: "Upstream host 'api.gitlab.com' does not match proxy host 'api.github.com'",
+    })
+
+    const mismatchedPath = await app.request('https://agent.pw/proxy/api.github.com/user?mode=1', {
+      headers: withToken(mintTestToken('org_alpha'), {
+        'agentpw-upstream-url': 'https://api.github.com/other?mode=1',
+      }),
+    })
+    expect(mismatchedPath.status).toBe(400)
+    expect(await mismatchedPath.json()).toEqual({
+      error: 'agentpw-upstream-url must match the requested path and query',
+    })
   })
 })
