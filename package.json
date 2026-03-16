@@ -32,7 +32,8 @@
     "lint": "biome lint .",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "NODE_OPTIONS='--import tsx' drizzle-kit generate",
+    "db:migrate": "NODE_OPTIONS='--import tsx' drizzle-kit migrate",
     "openapi:generate": "tsx scripts/generate-openapi.ts"
   },
   "dependencies": {
