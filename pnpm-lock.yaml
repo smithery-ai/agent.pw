@@ -59,6 +59,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^3.2.4
         version: 3.2.4(vitest@3.2.4(@types/node@25.3.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
+      biome-plugin-no-type-assertion:
+        specifier: ^1.0.2
+        version: 1.0.2
       drizzle-kit:
         specifier: ^0.30.5
         version: 0.30.6
@@ -1076,6 +1079,9 @@ packages:
   balanced-match@4.0.4:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
+
+  biome-plugin-no-type-assertion@1.0.2:
+    resolution: {integrity: sha512-YGVXDQ67cOM79gA/lPdyndMYZ/vKO39T0rv8DYKsiKwr3bAPZy0PdbC834tvlOXzgRJf2ie6rEFwBg7axdJnEg==}
 
   brace-expansion@2.0.2:
     resolution: {integrity: sha512-Jt0vHyM+jmUBqojB7E1NIYadt0vI0Qxjxd2TErW94wDz+E2LAm5vKMXXwg6ZZBTHPuUlDgQHKXvjGBdfcF1ZDQ==}
@@ -2402,6 +2408,8 @@ snapshots:
   balanced-match@1.0.2: {}
 
   balanced-match@4.0.4: {}
+
+  biome-plugin-no-type-assertion@1.0.2: {}
 
   brace-expansion@2.0.2:
     dependencies:
