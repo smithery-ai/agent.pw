@@ -9,6 +9,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROXY_TOKEN_HEADER } from '../packages/server/src/proxy'
 import { localServeTestUtils } from '../packages/server/src/local/serve'
 import {
+  attachConnectProxySupport,
+  authorizeConnectRequest,
+  handleConnectTunnel,
+  parseConnectTarget,
+  writeConnectResponse,
+} from '../packages/server/src/local/connect-proxy'
+import {
+  buildHeadersFromIncoming,
+  isLoopbackAddress,
+  maybeInjectLocalProxyToken,
+} from '../packages/server/src/local/proxy-support'
+import {
   BISCUIT_PRIVATE_KEY,
   PUBLIC_KEY_HEX,
   createTestDb,
@@ -225,27 +237,27 @@ function waitForSocketText(socket: Socket, predicate: (text: string) => boolean)
 describe('local serve helpers', () => {
   it('extracts incoming headers, detects loopback clients, and identifies proxy-form requests', () => {
     const config = createConfig()
-    const headers = localServeTestUtils.buildHeadersFromIncoming(
+    const headers = buildHeadersFromIncoming(
       makeIncomingRequest({ rawHeaders: ['X-Test', 'ok', 'X-Skipped'] }),
     )
     expect(headers.get('x-test')).toBe('ok')
     expect(headers.get('x-skipped')).toBeNull()
 
-    expect(localServeTestUtils.isLoopbackAddress(undefined)).toBe(false)
-    expect(localServeTestUtils.isLoopbackAddress('::ffff:127.0.0.1')).toBe(true)
-    expect(localServeTestUtils.isLoopbackAddress('::1')).toBe(true)
-    expect(localServeTestUtils.isLoopbackAddress('10.0.0.5')).toBe(false)
+    expect(isLoopbackAddress(undefined)).toBe(false)
+    expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true)
+    expect(isLoopbackAddress('::1')).toBe(true)
+    expect(isLoopbackAddress('10.0.0.5')).toBe(false)
 
     const existingAuth = new Headers({ [PROXY_TOKEN_HEADER]: 'Bearer explicit-token' })
-    localServeTestUtils.maybeInjectLocalProxyToken(existingAuth, config, '127.0.0.1')
+    maybeInjectLocalProxyToken(existingAuth, config, '127.0.0.1')
     expect(existingAuth.get(PROXY_TOKEN_HEADER)).toBe('Bearer explicit-token')
 
     const remoteHeaders = new Headers()
-    localServeTestUtils.maybeInjectLocalProxyToken(remoteHeaders, config, '10.0.0.5')
+    maybeInjectLocalProxyToken(remoteHeaders, config, '10.0.0.5')
     expect(remoteHeaders.has(PROXY_TOKEN_HEADER)).toBe(false)
 
     const loopbackHeaders = new Headers()
-    localServeTestUtils.maybeInjectLocalProxyToken(loopbackHeaders, config, '127.0.0.1')
+    maybeInjectLocalProxyToken(loopbackHeaders, config, '127.0.0.1')
     expect(loopbackHeaders.get(PROXY_TOKEN_HEADER)).toMatch(/^Bearer apw_/)
 
     expect(
@@ -329,17 +341,17 @@ describe('local serve helpers', () => {
   })
 
   it('parses CONNECT targets and formats HTTP error responses', async () => {
-    expect(localServeTestUtils.parseConnectTarget(undefined)).toBeNull()
-    expect(localServeTestUtils.parseConnectTarget('example.com')).toEqual({
+    expect(parseConnectTarget(undefined)).toBeNull()
+    expect(parseConnectTarget('example.com')).toEqual({
       hostname: 'example.com',
       port: 443,
     })
-    expect(localServeTestUtils.parseConnectTarget('example.com/path')).toBeNull()
-    expect(localServeTestUtils.parseConnectTarget('example.com:65536')).toBeNull()
-    expect(localServeTestUtils.parseConnectTarget('[')).toBeNull()
+    expect(parseConnectTarget('example.com/path')).toBeNull()
+    expect(parseConnectTarget('example.com:65536')).toBeNull()
+    expect(parseConnectTarget('[')).toBeNull()
 
     const socket = new PassThrough()
-    localServeTestUtils.writeConnectResponse(
+    writeConnectResponse(
       socket,
       407,
       'Proxy Authentication Required',
@@ -359,7 +371,7 @@ describe('local serve helpers', () => {
     const db = await createTestDb()
 
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest({ remoteAddress: '10.0.0.5' }),
@@ -371,7 +383,7 @@ describe('local serve helpers', () => {
     }))
 
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest({
@@ -388,7 +400,7 @@ describe('local serve helpers', () => {
     const revokedToken = mintTestToken('org_alpha')
     await revokeToken(db as any, getRevocationIds(revokedToken, PUBLIC_KEY_HEX)[0], 'test')
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest({
@@ -409,7 +421,7 @@ describe('local serve helpers', () => {
       'home_path("/org_alpha")',
     ])
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest({
@@ -429,7 +441,7 @@ describe('local serve helpers', () => {
       'org_id("org_alpha")',
     ])
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest({
@@ -447,7 +459,7 @@ describe('local serve helpers', () => {
     })
 
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest({
@@ -465,7 +477,7 @@ describe('local serve helpers', () => {
     })
 
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest({
@@ -487,7 +499,7 @@ describe('local serve helpers', () => {
       PUBLIC_KEY_HEX,
       [{ methods: 'GET' }],
     )
-    const denied = await localServeTestUtils.authorizeConnectRequest(
+    const denied = await authorizeConnectRequest(
       config,
       db as any,
       makeIncomingRequest({
@@ -502,7 +514,7 @@ describe('local serve helpers', () => {
     expect(denied?.body.length).toBeGreaterThan(0)
 
     await expect(
-      localServeTestUtils.authorizeConnectRequest(
+      authorizeConnectRequest(
         config,
         db as any,
         makeIncomingRequest(),
@@ -516,7 +528,7 @@ describe('local serve helpers', () => {
     const db = await createTestDb()
 
     const invalidTargetSocket = new PassThrough()
-    await localServeTestUtils.handleConnectTunnel(
+    await handleConnectTunnel(
       config,
       db as any,
       makeIncomingRequest({ url: 'not a target/path' }),
@@ -526,7 +538,7 @@ describe('local serve helpers', () => {
     expect(await readStreamBody(invalidTargetSocket)).toContain('400 Bad Request')
 
     const privateTargetSocket = new PassThrough()
-    await localServeTestUtils.handleConnectTunnel(
+    await handleConnectTunnel(
       config,
       db as any,
       makeIncomingRequest({ url: '127.0.0.1:443' }),
@@ -536,7 +548,7 @@ describe('local serve helpers', () => {
     expect(await readStreamBody(privateTargetSocket)).toContain('403 Forbidden')
 
     const invalidAuthSocket = new PassThrough()
-    await localServeTestUtils.handleConnectTunnel(
+    await handleConnectTunnel(
       config,
       db as any,
       makeIncomingRequest({
@@ -559,7 +571,7 @@ describe('local serve helpers', () => {
     activeServers.push(echoServer as TcpServer)
 
     const successfulPair = await createSocketPair()
-    await localServeTestUtils.handleConnectTunnel(
+    await handleConnectTunnel(
       config,
       db as any,
       makeIncomingRequest({ url: `proxy-target.localhost:${echoPort}` }),
@@ -583,7 +595,7 @@ describe('local serve helpers', () => {
 
     const refusedPort = await getFreePort()
     const refusedPair = await createSocketPair()
-    await localServeTestUtils.handleConnectTunnel(
+    await handleConnectTunnel(
       config,
       db as any,
       makeIncomingRequest({ url: `proxy-target.localhost:${refusedPort}` }),
@@ -593,5 +605,27 @@ describe('local serve helpers', () => {
     expect(
       await waitForSocketText(refusedPair.clientSocket, text => text.includes('502 Bad Gateway')),
     ).toContain(`Could not connect to proxy-target.localhost:${refusedPort}`)
+  })
+
+  it('attaches CONNECT handling only when the feature is enabled', () => {
+    const server = {
+      on: vi.fn(),
+    }
+
+    expect(
+      attachConnectProxySupport(server as any, {
+        config: createConfig(),
+        db: {} as any,
+      }, false),
+    ).toBe(false)
+    expect(server.on).not.toHaveBeenCalled()
+
+    expect(
+      attachConnectProxySupport(server as any, {
+        config: createConfig(),
+        db: {} as any,
+      }, true),
+    ).toBe(true)
+    expect(server.on).toHaveBeenCalledWith('connect', expect.any(Function))
   })
 })
