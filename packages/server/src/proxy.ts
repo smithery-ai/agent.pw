@@ -35,7 +35,7 @@ import { randomId } from './lib/utils'
 
 function pickDeepestMatches<T extends { path: string }>(matches: T[]) {
   if (matches.length === 0) {
-    return { selected: null, conflicts: [] as T[] }
+    return { selected: null, conflicts: [] }
   }
 
   const topDepth = pathDepth(matches[0].path)
@@ -44,7 +44,7 @@ function pickDeepestMatches<T extends { path: string }>(matches: T[]) {
     return { selected: null, conflicts }
   }
 
-  return { selected: matches[0], conflicts: [] as T[] }
+  return { selected: matches[0], conflicts: [] }
 }
 
 function errorMessage(e: unknown): string {
@@ -61,6 +61,13 @@ export const PROXY_TOKEN_HEADER = 'Proxy-Authorization'
 export const CREDENTIAL_SELECTOR_HEADER = 'agentpw-credential'
 export const REQUESTED_ROOT_HEADER = 'agentpw-path'
 export const UPSTREAM_URL_HEADER = 'agentpw-upstream-url'
+
+function resolveErrorStatus(status: number | undefined): 400 | 403 | 409 {
+  if (status === 400 || status === 403 || status === 409) {
+    return status
+  }
+  return 409
+}
 
 /* v8 ignore next -- requestedRoot is always resolved before relative credential selectors are evaluated */
 function missingHomePathResponse(c: Context<CoreHonoEnv>, header: string) {
@@ -393,7 +400,7 @@ export async function handleProxy(
     selector,
   })
   if ('status' in rootSelection) {
-    return c.json(rootSelection.body, rootSelection.status as 400 | 403 | 409)
+    return c.json(rootSelection.body, resolveErrorStatus(rootSelection.status))
   }
   const { requestedRoot } = rootSelection
 

@@ -10,7 +10,6 @@ import {
 import {
   BISCUIT_PRIVATE_KEY,
   ROOT_TOKEN,
-  PUBLIC_KEY_HEX,
   createTestDb,
   mintTestToken,
   type TestDb,
@@ -120,7 +119,7 @@ describe('route edge cases', () => {
 
     const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
     const storedApiKey = await getCredential(db, 'api.keys.example', '/org_alpha/api-key')
-    expect(await decryptCredentials(encryptionKey, storedApiKey!.secret)).toEqual({
+    expect(await decryptCredentials(encryptionKey, storedApiKey?.secret)).toEqual({
       headers: { 'X-Api-Key': 'key-secret' },
     })
 

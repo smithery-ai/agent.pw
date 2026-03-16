@@ -1,4 +1,5 @@
 import { z, type ZodType } from 'zod'
+import { isRecord } from './utils'
 
 type InjectSchemasOptions = {
   ambiguousSchemas?: Set<string>
@@ -13,23 +14,24 @@ export function injectSchemas(
   schemas: ZodType[],
   options?: InjectSchemasOptions,
 ): void {
-  const components = (spec.components as Record<string, unknown>) || {}
-  const schemasMap = (components.schemas as Record<string, unknown>) || {}
+  const components = isRecord(spec.components) ? spec.components : {}
+  const schemasMap = isRecord(components.schemas) ? components.schemas : {}
 
   for (const schema of schemas) {
     const jsonSchema = z.toJSONSchema(schema, {
       unrepresentable: 'any',
-    }) as Record<string, unknown>
+    })
+    if (!isRecord(jsonSchema)) continue
 
-    const id = jsonSchema.id as string | undefined
+    const id = typeof jsonSchema.id === 'string' ? jsonSchema.id : undefined
     if (!id) continue
 
     delete jsonSchema.$schema
     delete jsonSchema.id
 
     // Hoist nested $defs to components.schemas
-    if (jsonSchema.$defs) {
-      const defs = jsonSchema.$defs as Record<string, unknown>
+    if (isRecord(jsonSchema.$defs)) {
+      const defs = jsonSchema.$defs
       for (const [defId, defSchema] of Object.entries(defs)) {
         if (!schemasMap[defId]) {
           schemasMap[defId] = defSchema
@@ -47,9 +49,9 @@ export function injectSchemas(
 
   if (options?.ambiguousSchemas) {
     for (const schemaId of options.ambiguousSchemas) {
-      const schema = schemasMap[schemaId] as Record<string, unknown> | undefined
-      if (schema?.additionalProperties && typeof schema.additionalProperties === 'object') {
-        ;(schema.additionalProperties as Record<string, unknown>)['x-stainless-any'] = true
+      const schema = schemasMap[schemaId]
+      if (isRecord(schema) && isRecord(schema.additionalProperties)) {
+        schema.additionalProperties['x-stainless-any'] = true
       }
     }
   }
@@ -57,7 +59,7 @@ export function injectSchemas(
   components.schemas = schemasMap
   spec.components = components
 
-  replaceInlineSchemasWithRefs(spec.paths as Record<string, unknown>, schemasMap)
+  replaceInlineSchemasWithRefs(isRecord(spec.paths) ? spec.paths : {}, schemasMap)
 }
 
 /** Replace inline schemas that have an `id` matching a schema in components.schemas with $ref pointers. */
@@ -65,21 +67,19 @@ export function replaceInlineSchemasWithRefs(
   obj: unknown,
   schemas: Record<string, unknown>,
 ): void {
-  if (!obj || typeof obj !== 'object') return
+  if (!isRecord(obj) && !Array.isArray(obj)) return
   if (Array.isArray(obj)) {
     for (const item of obj) replaceInlineSchemasWithRefs(item, schemas)
     return
   }
 
-  const record = obj as Record<string, unknown>
+  const record = obj
 
   for (const [key, value] of Object.entries(record)) {
-    if (!value || typeof value !== 'object') continue
+    if (!isRecord(value)) continue
 
-    const valueRecord = value as Record<string, unknown>
-
-    if (valueRecord.id && typeof valueRecord.id === 'string' && schemas[valueRecord.id]) {
-      record[key] = { $ref: `#/components/schemas/${valueRecord.id}` }
+    if (typeof value.id === 'string' && schemas[value.id]) {
+      record[key] = { $ref: `#/components/schemas/${value.id}` }
     } else {
       replaceInlineSchemasWithRefs(value, schemas)
     }
@@ -88,12 +88,12 @@ export function replaceInlineSchemasWithRefs(
 
 /** Rewrite $refs from #/$defs/... to #/components/schemas/... format. */
 export function rewriteRefs(obj: unknown): void {
-  if (!obj || typeof obj !== 'object') return
+  if (!isRecord(obj) && !Array.isArray(obj)) return
   if (Array.isArray(obj)) {
     for (const item of obj) rewriteRefs(item)
     return
   }
-  const record = obj as Record<string, unknown>
+  const record = obj
   if (record.$ref && typeof record.$ref === 'string' && record.$ref.startsWith('#/$defs/')) {
     record.$ref = record.$ref.replace('#/$defs/', '#/components/schemas/')
   }

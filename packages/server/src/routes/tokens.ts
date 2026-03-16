@@ -68,11 +68,12 @@ tokenRoutes.post('/restrict', requireToken,
   zValidator('json', RestrictTokenRequestSchema),
   async c => {
     try {
-      const token = c.get('token') as string
+      const token = c.get('token')
+      if (!token) return c.json({ error: 'Missing token' }, 401)
       const body = c.req.valid('json')
       const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
       const restricted = restrictToken(token, publicKeyHex, body.constraints)
-      return c.json({ ok: true as const, token: restricted })
+      return c.json({ ok: true, token: restricted })
     } catch (e) {
       return c.json({ error: `Failed to restrict token: ${errorMessage(e)}` }, 400)
     }
@@ -93,14 +94,15 @@ tokenRoutes.post('/revoke', requireToken,
   async c => {
     try {
       const db = c.get('db')
-      const token = c.get('token') as string
+      const token = c.get('token')
+      if (!token) return c.json({ error: 'Missing token' }, 401)
       const body = c.req.valid('json')
       const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
       const revIds = getRevocationIds(token, publicKeyHex)
       for (const id of revIds) {
         await revokeToken(db, id, body.reason)
       }
-      return c.json({ ok: true as const, revokedIds: revIds })
+      return c.json({ ok: true, revokedIds: revIds })
     } catch (e) {
       return c.json({ error: `Failed to revoke token: ${errorMessage(e)}` }, 400)
     }
@@ -129,7 +131,7 @@ tokenRoutes.post('/inspect',
       }
 
       return c.json({
-        valid: true as const,
+        valid: true,
         userId: facts.userId,
         orgId: facts.orgId,
         rights: facts.rights,

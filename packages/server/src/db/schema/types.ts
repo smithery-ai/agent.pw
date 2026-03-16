@@ -7,20 +7,20 @@ export const bytea = customType<{ data: Buffer }>({
 })
 
 export const jsonb = <T>() =>
-  customType<{ data: T; driverValue: string }>({
+  customType<{ data: T; driverValue: T | string }>({
     dataType() {
       return 'jsonb'
     },
     toDriver(value: T) {
       return JSON.stringify(value)
     },
-    fromDriver(value: unknown) {
-      if (typeof value !== 'string') return value as T
+    fromDriver(value) {
+      if (typeof value !== 'string') return value
       try {
-        return JSON.parse(value) as T
+        return JSON.parse(value)
       } catch {
         // Older rows may contain a primitive string payload rather than JSON text.
-        return value as T
+        return value
       }
     },
   })

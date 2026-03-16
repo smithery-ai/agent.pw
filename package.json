@@ -30,6 +30,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "knip": "knip",
     "lint": "biome lint .",
+    "fmt": "biome lint --write --unsafe .",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "db:generate": "NODE_OPTIONS='--import tsx' drizzle-kit generate",

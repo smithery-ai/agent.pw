@@ -22,8 +22,10 @@ function addPaginationOptions(command: Command) {
 }
 
 function assertValidPaginationOptions(command: Command) {
-  const opts = command.optsWithGlobals() as { all?: boolean; cursor?: string }
-  if (opts.all && opts.cursor) {
+  const opts = command.optsWithGlobals()
+  const all = opts.all === true
+  const cursor = typeof opts.cursor === 'string' ? opts.cursor : undefined
+  if (all && cursor) {
     throw new Error('--all cannot be combined with --cursor')
   }
 }

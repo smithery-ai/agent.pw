@@ -10,10 +10,17 @@ import {
   type LocalAgentPwPaths,
 } from '../../server/src/local/config'
 import { mintLocalRootToken } from '../../server/src/local/setup'
+import { isRecord } from './type-utils'
 
 export interface AgentPwCliConfig {
   url: string
   token: string
+}
+
+function isAgentPwCliConfig(value: unknown): value is AgentPwCliConfig {
+  return isRecord(value)
+    && typeof value.url === 'string'
+    && typeof value.token === 'string'
 }
 
 function tokenStackFile(paths = localAgentPwPaths()) {
@@ -23,7 +30,8 @@ function tokenStackFile(paths = localAgentPwPaths()) {
 export function readCliConfig(paths = localAgentPwPaths()): AgentPwCliConfig | null {
   if (existsSync(paths.cliConfigFile)) {
     try {
-      return JSON.parse(readFileSync(paths.cliConfigFile, 'utf-8')) as AgentPwCliConfig
+      const parsed = JSON.parse(readFileSync(paths.cliConfigFile, 'utf-8'))
+      return isAgentPwCliConfig(parsed) ? parsed : null
     } catch {
       return null
     }

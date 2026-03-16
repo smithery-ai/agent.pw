@@ -14,6 +14,14 @@ export function randomId() {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function lastItem<T>(items: readonly T[]): T | undefined {
+  return items.at(-1)
+}
+
 const MIN_FLOW_ID_LENGTH = 32
 
 /** Validate that a user-supplied flow_id has sufficient entropy (≥32 chars). */

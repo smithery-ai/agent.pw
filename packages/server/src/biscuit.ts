@@ -57,9 +57,12 @@ export function parseTtlSeconds(ttl: string | number): number {
   const match = ttl.match(/^(\d+)(s|m|h|d)$/)
   if (!match) throw new Error(`Invalid TTL format: ${ttl}`)
   const value = parseInt(match[1], 10)
-  const multiplier = ({ s: 1, m: 60, h: 3600, d: 86400 } as const)[
-    match[2] as 's' | 'm' | 'h' | 'd'
-  ]
+  const unit = match[2]
+  const multiplier =
+    unit === 's' ? 1
+    : unit === 'm' ? 60
+    : unit === 'h' ? 3600
+    : 86400
   return value * multiplier
 }
 

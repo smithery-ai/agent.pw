@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { collectAllPages, getClient, pageToPaginatedResponse, type PaginatedResponse } from '../http'
 import { output, outputList, outputListPage } from '../output'
+import { getErrorStatus, isRecord } from '../type-utils'
 
 interface CredProfile {
   path: string
@@ -11,7 +12,7 @@ interface CredProfile {
 }
 
 interface CreateCredProfileRequest {
-  host: string[]
+  host?: string[]
   auth?: Record<string, unknown>
   managedOauth?: Record<string, unknown>
   displayName?: string
@@ -82,14 +83,30 @@ function parseHeaderFieldTemplate(spec: string): HeaderFieldTemplate {
   }
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(entry => typeof entry === 'string')
+}
+
+function isCreateCredProfileRequest(value: unknown): value is CreateCredProfileRequest {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  if ('host' in value && value.host !== undefined && !isStringArray(value.host)) {
+    return false
+  }
+
+  return true
+}
+
 function buildHeaderAuthSchemes(fields: HeaderFieldTemplate[]) {
   const first = fields[0]
   if (!first) return undefined
   if (first.header.toLowerCase() === 'authorization') {
-    if (first.prefix === 'Bearer ') return [{ type: 'http', scheme: 'bearer' as const }]
-    if (first.prefix === 'Basic ') return [{ type: 'http', scheme: 'basic' as const }]
+    if (first.prefix === 'Bearer ') return [{ type: 'http', scheme: 'bearer' }]
+    if (first.prefix === 'Basic ') return [{ type: 'http', scheme: 'basic' }]
   }
-  return [{ type: 'apiKey' as const, in: 'header' as const, name: first.header }]
+  return [{ type: 'apiKey', in: 'header', name: first.header }]
 }
 
 function buildOAuthConfig(options: AddProfileOptions) {
@@ -178,7 +195,11 @@ export async function addProfile(slug: string, hosts: string[], options: AddProf
 
   if (options.filePath) {
     const content = readFileSync(options.filePath, 'utf-8')
-    body = JSON.parse(content) as CreateCredProfileRequest
+    const parsed = JSON.parse(content)
+    if (!isCreateCredProfileRequest(parsed)) {
+      throw new Error(`Invalid profile JSON in ${options.filePath}`)
+    }
+    body = parsed
     if ((!body.host || body.host.length === 0) && hosts.length > 0) {
       body.host = hosts
     }
@@ -243,5 +264,5 @@ export async function removeProfile(slug: string) {
 }
 
 function isNotFound(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && 'status' in e && (e as { status: number }).status === 404
+  return getErrorStatus(e) === 404
 }

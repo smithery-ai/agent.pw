@@ -141,7 +141,7 @@ describe('db queries', () => {
     const secondProfilePage = await listCredProfilesPage(db, {
       limit: 2,
       visibleRoots: ['/'],
-      afterPath: firstProfilePage.items[firstProfilePage.items.length - 1]!.path,
+      afterPath: firstProfilePage.items[firstProfilePage.items.length - 1]?.path,
     })
     expect(secondProfilePage.items.map(profile => profile.path)).toEqual(['/ccc'])
     expect(secondProfilePage.hasMore).toBe(false)

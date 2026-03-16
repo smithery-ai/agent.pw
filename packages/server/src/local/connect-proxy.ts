@@ -2,7 +2,7 @@ import { connect as connectTcp } from 'node:net'
 import type { IncomingMessage, Server as HttpServer } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { authorizeRequest, extractTokenFacts, getPublicKeyHex, getRevocationIds } from '../biscuit'
-import { createLocalDb } from '../db/index'
+import type { createLocalDb } from '../db/index'
 import { isRevoked } from '../db/queries'
 import {
   PROXY_TOKEN_HEADER,
@@ -16,6 +16,17 @@ import type { LocalAgentPwConfig } from './config'
 import { buildHeadersFromIncoming, maybeInjectLocalProxyToken } from './proxy-support'
 
 type LocalDb = Awaited<ReturnType<typeof createLocalDb>>
+const proxyAuthenticateHeaders: Array<[string, string]> = [
+  ['Proxy-Authenticate', 'Basic realm="agent.pw"'],
+  ['Proxy-Authenticate', 'Bearer realm="agent.pw"'],
+]
+
+function resolveErrorStatus(status: number | undefined): 400 | 403 | 409 {
+  if (status === 400 || status === 403 || status === 409) {
+    return status
+  }
+  return 409
+}
 
 export function parseConnectTarget(authority: string | undefined) {
   if (!authority) {
@@ -81,10 +92,7 @@ export async function authorizeConnectRequest(
       status: 407,
       statusText: 'Proxy Authentication Required',
       body: 'Missing proxy credentials',
-      headers: [
-        ['Proxy-Authenticate', 'Basic realm="agent.pw"'],
-        ['Proxy-Authenticate', 'Bearer realm="agent.pw"'],
-      ] as Array<[string, string]>,
+      headers: proxyAuthenticateHeaders,
     }
   }
 
@@ -106,10 +114,7 @@ export async function authorizeConnectRequest(
       status: 407,
       statusText: 'Proxy Authentication Required',
       body: 'Invalid proxy credentials',
-      headers: [
-        ['Proxy-Authenticate', 'Basic realm="agent.pw"'],
-        ['Proxy-Authenticate', 'Bearer realm="agent.pw"'],
-      ] as Array<[string, string]>,
+      headers: proxyAuthenticateHeaders,
     }
   }
 
@@ -129,8 +134,8 @@ export async function authorizeConnectRequest(
     requestedRootHeader: headers.get(REQUESTED_ROOT_HEADER),
   })
   if ('status' in rootSelection) {
-    const status = rootSelection.status as 400 | 403 | 409
-    const errorBody = rootSelection.body as { error?: string } | undefined
+    const status = resolveErrorStatus(rootSelection.status)
+    const errorBody = rootSelection.body
     return {
       status,
       statusText:

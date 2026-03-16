@@ -59,7 +59,7 @@ function pathWithinRootCondition(
   if (root === '/') {
     return sql`true`
   }
-  return or(eq(column, root), like(column, `${root}/%`))!
+  return or(eq(column, root), like(column, `${root}/%`)) ?? sql`false`
 }
 
 function pathWithinAnyRootCondition(
@@ -69,7 +69,7 @@ function pathWithinAnyRootCondition(
   if (roots.length === 0) {
     return sql`false`
   }
-  return or(...roots.map(root => pathWithinRootCondition(column, root)))!
+  return or(...roots.map(root => pathWithinRootCondition(column, root))) ?? sql`false`
 }
 
 function afterCredentialCursorCondition(cursor: {
@@ -85,7 +85,7 @@ function afterCredentialCursorCondition(cursor: {
       eq(credentials.path, cursor.path),
       gt(credentials.host, cursor.host),
     ),
-  )!
+  ) ?? sql`false`
 }
 
 function isRootLevelProfile(path: string) {

@@ -5,12 +5,11 @@ import { getRequestListener } from '@hono/node-server'
 import { createCoreApp } from '../core/app'
 import { migrateLocal } from '../db/migrate-local'
 import { createLocalDb } from '../db/index'
-import { PROXY_TOKEN_HEADER, UPSTREAM_URL_HEADER } from '../proxy'
+import { UPSTREAM_URL_HEADER } from '../proxy'
 import { attachConnectProxySupport } from './connect-proxy'
 import { buildLocalBaseUrl, type LocalAgentPwConfig } from './config'
 import {
   buildHeadersFromIncoming,
-  isLoopbackAddress,
   maybeInjectLocalProxyToken,
 } from './proxy-support'
 
@@ -60,7 +59,7 @@ async function writeFetchResponse(outgoing: ServerResponse, response: Response) 
     return
   }
 
-  const body = Readable.fromWeb(response.body as globalThis.ReadableStream)
+  const body = Readable.fromWeb(response.body)
   body.on('error', error => outgoing.destroy(error))
   body.pipe(outgoing)
   await finished(outgoing)
@@ -90,7 +89,7 @@ async function handleForwardProxyRequest(
     headers,
   }
   if (!['GET', 'HEAD'].includes(incoming.method ?? 'GET')) {
-    requestInit.body = Readable.toWeb(incoming) as unknown as ReadableStream
+    requestInit.body = Readable.toWeb(incoming)
     requestInit.duplex = 'half'
   }
 

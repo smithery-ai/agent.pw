@@ -29,10 +29,10 @@ export function buildJwks(publicKeyHex: string) {
   return {
     keys: [
       {
-        kty: 'OKP' as const,
-        crv: 'Ed25519' as const,
+        kty: 'OKP',
+        crv: 'Ed25519',
         x: base64urlEncode(publicKeyBytes),
-        use: 'sig' as const,
+        use: 'sig',
         kid: 'agentpw-ed25519-1',
       },
     ],

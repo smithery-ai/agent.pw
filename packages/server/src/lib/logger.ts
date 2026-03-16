@@ -57,9 +57,9 @@ class WardenLogger implements Logger {
   }
 
   private _log(level: LogLevel, objOrMsg: Record<string, unknown> | string, msg?: string) {
-    const [message, attrs] =
+    const [message, attrs]: [string, Record<string, unknown>] =
       typeof objOrMsg === 'string'
-        ? [objOrMsg, {} as Record<string, unknown>]
+        ? [objOrMsg, {}]
         : [msg ?? '', objOrMsg]
 
     const serialized = serializeObject(attrs)
