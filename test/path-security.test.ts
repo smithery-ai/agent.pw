@@ -417,6 +417,81 @@ describe('creation at own path or deeper', () => {
   })
 })
 
+describe('move credential', () => {
+  it('moves credentials within the caller root and rejects invalid targets', async () => {
+    await storeCredentialAtPath('move-cred', 'api.example.com', 'secret', `/${ORG_A}`)
+    await storeCredentialAtPath('cross-cred', 'api.example.com', 'cross-secret', `/${ORG_A}`)
+    await storeCredentialAtPath('dup-cred', 'api.example.com', 'secret-1', `/${ORG_A}`)
+    await storeCredentialAtPath('dup-cred', 'api.example.com', 'secret-2', `/${ORG_A}/production`)
+
+    const token = mintTestToken(ORG_A, ['credential.manage'])
+
+    const moved = await req('/credentials/move-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/production/move-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(moved.status).toBe(200)
+    expect(await moved.json()).toEqual({
+      ok: true,
+      path: `/${ORG_A}/production/move-cred`,
+    })
+
+    const crossOrg = await req('/credentials/cross-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_B}/cross-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(crossOrg.status).toBe(403)
+
+    const missing = await req('/credentials/ghost-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/new/ghost-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(missing.status).toBe(404)
+
+    const invalidPath = await req('/credentials/bad-move', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: 'no-leading-slash/bad-move',
+        host: 'api.example.com',
+      }),
+    })
+    expect(invalidPath.status).toBe(400)
+
+    const wrongName = await req('/credentials/move-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/other-name`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(wrongName.status).toBe(400)
+
+    const conflict = await req('/credentials/dup-cred', {
+      method: 'PATCH',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        path: `/${ORG_A}/production/dup-cred`,
+        host: 'api.example.com',
+      }),
+    })
+    expect(conflict.status).toBe(409)
+  })
+})
+
 describe('profile resolution', () => {
   it('chooses the nearest visible profile for a host', async () => {
     await upsertCredProfile(db, publicProfilePath('github-global'), {

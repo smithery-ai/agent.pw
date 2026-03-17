@@ -363,6 +363,20 @@ export async function upsertCredential(
     })
 }
 
+export async function moveCredential(
+  db: Database,
+  host: string,
+  oldPath: string,
+  newPath: string,
+) {
+  const result = await db
+    .update(credentials)
+    .set({ path: newPath, updatedAt: sql`now()` })
+    .where(and(eq(credentials.host, host), eq(credentials.path, oldPath)))
+    .returning()
+  return result.length > 0
+}
+
 export async function deleteCredential(db: Database, host: string, path: string) {
   const result = await db
     .delete(credentials)

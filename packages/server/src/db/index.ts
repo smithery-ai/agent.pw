@@ -23,10 +23,24 @@ let bundledPGliteAssetsPromise: Promise<{
 type WasmByteSource = ArrayBuffer | Uint8Array
 
 async function compileWasmModule(bytes: WasmByteSource): Promise<WebAssembly.Module> {
-  return typeof WebAssembly.compile === 'function'
-    ? WebAssembly.compile(bytes)
-    /* v8 ignore next -- retained only for runtimes without WebAssembly.compile */
-    : Promise.resolve(new WebAssembly.Module(bytes))
+  const compileFn = Reflect.get(WebAssembly, 'compile')
+  if (typeof compileFn === 'function') {
+    const module = await compileFn.call(WebAssembly, bytes)
+    if (module instanceof WebAssembly.Module) {
+      return module
+    }
+  }
+
+  /* v8 ignore next -- retained only for runtimes without WebAssembly.compile */
+  const moduleCtor = Reflect.get(WebAssembly, 'Module')
+  if (typeof moduleCtor === 'function') {
+    const module = Reflect.construct(moduleCtor, [bytes])
+    if (module instanceof WebAssembly.Module) {
+      return module
+    }
+  }
+
+  throw new TypeError('WebAssembly.Module is unavailable in this runtime')
 }
 
 async function loadBundledPGliteAssets() {

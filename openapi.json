@@ -1027,6 +1027,109 @@
           }
         ]
       },
+      "patch": {
+        "operationId": "patchCredentialsByName",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Move credential",
+        "description": "Move a credential to a new path.",
+        "responses": {
+          "200": {
+            "description": "Credential moved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "path"
+                  ],
+                  "id": "CredentialMoved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Credential not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "New full credential path",
+                    "example": "/org_ruzo/production/linear"
+                  },
+                  "host": {
+                    "description": "Target hostname for the credential",
+                    "example": "api.linear.app",
+                    "type": "string"
+                  },
+                  "profile": {
+                    "description": "Profile slug to resolve the hostname when host is omitted",
+                    "example": "linear",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "id": "MoveCredentialRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ]
+      },
       "delete": {
         "operationId": "deleteCredentialsByName",
         "tags": [
