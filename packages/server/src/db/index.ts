@@ -21,12 +21,18 @@ let bundledPGliteAssetsPromise: Promise<{
   wasmModule: WebAssembly.Module
 } | null> | null = null
 type WasmByteSource = ArrayBuffer | Uint8Array
+const webAssemblyApi = WebAssembly as typeof WebAssembly & {
+  compile?: (bytes: WasmByteSource) => Promise<WebAssembly.Module>
+}
+const WebAssemblyModule = WebAssembly.Module as unknown as {
+  new(bytes: WasmByteSource): WebAssembly.Module
+}
 
 async function compileWasmModule(bytes: WasmByteSource): Promise<WebAssembly.Module> {
-  return typeof WebAssembly.compile === 'function'
-    ? WebAssembly.compile(bytes)
+  return webAssemblyApi.compile
+    ? webAssemblyApi.compile(bytes)
     /* v8 ignore next -- retained only for runtimes without WebAssembly.compile */
-    : Promise.resolve(new WebAssembly.Module(bytes))
+    : Promise.resolve(new WebAssemblyModule(bytes))
 }
 
 async function loadBundledPGliteAssets() {
