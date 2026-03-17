@@ -12,7 +12,7 @@ interface CredProfile {
 }
 
 interface CreateCredProfileRequest {
-  host?: string[]
+  host: string[]
   auth?: Record<string, unknown>
   managedOauth?: Record<string, unknown>
   displayName?: string
@@ -200,8 +200,12 @@ export async function addProfile(slug: string, hosts: string[], options: AddProf
       throw new Error(`Invalid profile JSON in ${options.filePath}`)
     }
     body = parsed
-    if ((!body.host || body.host.length === 0) && hosts.length > 0) {
+    if (body.host.length === 0 && hosts.length > 0) {
       body.host = hosts
+    }
+    if (body.host.length === 0) {
+      console.error('At least one host is required, either in the JSON file or via --host.')
+      process.exit(1)
     }
   } else {
     if (hosts.length === 0) {

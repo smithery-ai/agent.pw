@@ -268,6 +268,28 @@ export function buildProgram() {
       return curl(cmd.args)
     })
 
+  program
+    .command('wrap')
+    .description('Run a command with credentials injected via HTTP proxy')
+    .usage('[options] -- <command> [args...]')
+    .option('--service <host...>', 'Restrict proxy access to specific hosts')
+    .option('--host <host...>', 'Restrict proxy access to specific hosts')
+    .option('--method <verb...>', 'Restrict to specific HTTP methods')
+    .option('--path <prefix...>', 'Restrict to path prefixes')
+    .option('--ttl <duration>', 'Token lifetime (e.g. 1h, 30m)')
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .argument('[command...]')
+    .action(async (command, opts) => {
+      const { wrap } = await import('./commands/wrap')
+      return wrap(command, {
+        services: [...(opts.service ?? []), ...(opts.host ?? [])],
+        methods: opts.method,
+        paths: opts.path,
+        ttl: opts.ttl,
+      })
+    })
+
   return program
 }
 

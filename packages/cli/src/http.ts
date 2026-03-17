@@ -36,7 +36,7 @@ export async function requestJson<T>(path: string, init: RequestInit = {}): Prom
     const body = await res.text()
     throw new HttpStatusError(body || `${res.status} ${res.statusText}`, res.status)
   }
-  return res.json()
+  return JSON.parse(await res.text())
 }
 
 export async function pageToPaginatedResponse<T>(pagePromise: Promise<{

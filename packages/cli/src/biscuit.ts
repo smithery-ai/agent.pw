@@ -19,6 +19,9 @@ type WasmGlueModule = BiscuitModule & {
   __wbg_set_wasm(wasm: WebAssembly.Instance['exports']): void
 }
 
+type WasmImports = NonNullable<ConstructorParameters<typeof WebAssembly.Instance>[1]>
+type WasmModuleImports = WasmImports[string]
+
 const SNIPPET_MODULES = [
   './snippets/biscuit-auth-1c48f52e9814dd36/inline0.js',
   './snippets/biscuit-auth-314ca57174ae0e6d/inline0.js',
@@ -46,7 +49,7 @@ async function initBiscuit(): Promise<BiscuitModule> {
   }
   const bg = importedBg
 
-  const wasmImports: WebAssembly.ModuleImports = {}
+  const wasmImports: WasmModuleImports = {}
   for (const [key, value] of Object.entries(bg)) {
     if (key.startsWith('__wbg_') || key.startsWith('__wbindgen_')) {
       wasmImports[key] = value
@@ -54,7 +57,7 @@ async function initBiscuit(): Promise<BiscuitModule> {
   }
 
   const snippetExports = { performance_now: () => performance.now() }
-  const imports: WebAssembly.Imports = { './biscuit_bg.js': wasmImports }
+  const imports: WasmImports = { './biscuit_bg.js': wasmImports }
 
   for (const moduleName of SNIPPET_MODULES) {
     imports[moduleName] = snippetExports
