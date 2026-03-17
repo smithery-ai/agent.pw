@@ -2,6 +2,42 @@ import { execSync } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 
+const AGENTPW_SKILL_INSTALL_COMMAND = 'npx -y @smithery/cli@latest skill add smithery-ai/agentpw'
+
+export function buildCliHelpFooter() {
+  return [
+    '',
+    'New here?',
+    '  npx agent.pw start',
+    '  Open setup in your browser and connect your first API.',
+    '  If you use Smithery, you can also install the agentpw skill now:',
+    `  ${AGENTPW_SKILL_INSTALL_COMMAND}`,
+  ].join('\n')
+}
+
+export function buildCliWelcomeMessage() {
+  return [
+    'Welcome to agent.pw.',
+    '',
+    'agent.pw lets your AI agent use APIs without seeing your raw API keys.',
+    '',
+    'To get started:',
+    '  npx agent.pw start',
+    '',
+    'This opens setup in your browser so you can connect your first API and get a token for your agent.',
+    '',
+    'If you use Smithery, you can also install the agentpw skill now:',
+    `  ${AGENTPW_SKILL_INSTALL_COMMAND}`,
+    '',
+    'Need the full command list?',
+    '  npx agent.pw --help',
+  ].join('\n')
+}
+
+export function printCliWelcome() {
+  console.log(buildCliWelcomeMessage())
+}
+
 export function canOpenBrowser() {
   return Boolean(
     process.stdout.isTTY
@@ -35,12 +71,6 @@ export function openBrowser(url: string) {
   }
 }
 
-export function installAgentPwSkill() {
-  execSync('npx -y @smithery/cli@latest skill add smithery-ai/agentpw', {
-    stdio: 'inherit',
-  })
-}
-
 async function promptYesNo(question: string) {
   if (!(process.stdin.isTTY && process.stdout.isTTY)) {
     return false
@@ -57,14 +87,6 @@ async function promptYesNo(question: string) {
   }
 }
 
-export async function confirmAgentPwSkillInstall() {
-  if (process.env.AGENTPW_SKIP_SKILL_INSTALL === '1') {
-    return false
-  }
-
-  return promptYesNo('Install the optional Smithery skill now? [y/N] ')
-}
-
 export async function confirmTakeoverRunningProcess(baseUrl: string) {
   return promptYesNo(
     `A process is already responding at ${baseUrl}, but agent.pw is not managing it. Kill it and continue with managed setup? [y/N] `,
@@ -73,12 +95,18 @@ export async function confirmTakeoverRunningProcess(baseUrl: string) {
 
 export function printAgentPwSkillInstallHint() {
   console.log('Optional: install the Smithery skill later with:')
-  console.log('  npx -y @smithery/cli@latest skill add smithery-ai/agentpw')
+  console.log(`  ${AGENTPW_SKILL_INSTALL_COMMAND}`)
 }
 
 export function printOnboardingHeader() {
-  console.log('Starting or repairing your local agent.pw service...')
+  console.log('Setting up agent.pw...')
+  console.log('This can take a minute the first time.')
+  console.log('This window will say "agent.pw is ready." when setup is complete.')
   console.log('')
+}
+
+export function printOnboardingStep(message: string) {
+  console.log(message)
 }
 
 export function printOnboardingSuccess(url: string, browserOpened: boolean) {
@@ -90,11 +118,11 @@ export function printOnboardingSuccess(url: string, browserOpened: boolean) {
 
 export function printBinarySource(
   source: 'bundle' | 'source',
-  displayPath: string,
+  _displayPath: string,
 ) {
   const label = source === 'bundle'
-    ? 'Using bundled local daemon'
-    : 'Using source-checkout local daemon'
+    ? '[1/3] Loading setup tools...'
+    : '[1/3] Loading setup tools from this checkout...'
 
-  console.log(`${label}: ${displayPath}`)
+  console.log(label)
 }

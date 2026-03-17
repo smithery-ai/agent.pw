@@ -14,13 +14,12 @@ import {
   stopUnmanagedLocalServer,
 } from '../local/service-manager'
 import {
-  confirmAgentPwSkillInstall,
   confirmTakeoverRunningProcess,
-  installAgentPwSkill,
   openBrowser,
   printAgentPwSkillInstallHint,
   printBinarySource,
   printOnboardingHeader,
+  printOnboardingStep,
   printOnboardingSuccess,
 } from '../local/onboarding'
 
@@ -56,30 +55,11 @@ export async function start(options: StartOptions = {}) {
     await stopUnmanagedLocalServer(unmanaged)
   }
 
+  printOnboardingStep('[2/3] Starting agent.pw in the background...')
   const service = await ensureLocalService(daemon, paths)
   ensureLocalCliConfig(config, paths)
 
-  console.log(`Server: ${paths.configFile}`)
-  console.log(`CLI:    ${paths.cliConfigFile}`)
-  console.log(`Data:   ${config.dataDir}`)
-  console.log(`URL:    ${service.baseUrl}`)
-  console.log(`Local service is running at ${service.baseUrl}`)
-  console.log(`Service: ${service.kind} (${service.servicePath})`)
-
-  const shouldInstallSkill = await confirmAgentPwSkillInstall()
-  if (shouldInstallSkill) {
-    console.log('Installing the Smithery skill...')
-    try {
-      installAgentPwSkill()
-    } catch {
-      console.error('')
-      console.error('Failed to install the Smithery skill automatically.')
-      printAgentPwSkillInstallHint()
-    }
-  } else {
-    printAgentPwSkillInstallHint()
-  }
-
+  printOnboardingStep('[3/3] Preparing your browser setup link...')
   const bootstrapToken = await runLocalServerDaemonCommand(
     daemon,
     ['bootstrap-token', '--ttl', '10m'],
@@ -89,6 +69,12 @@ export async function start(options: StartOptions = {}) {
 
   const browserOpened = !noBrowser && openBrowser(vaultUrl)
   printOnboardingSuccess(vaultUrl, browserOpened)
+  console.log(`URL:    ${service.baseUrl}`)
+  console.log(`Server: ${paths.configFile}`)
+  console.log(`CLI:    ${paths.cliConfigFile}`)
+  console.log(`Data:   ${config.dataDir}`)
+  console.log(`Service: ${service.kind} (${service.servicePath})`)
+  printAgentPwSkillInstallHint()
 }
 
 export function stopCmd() {

@@ -13,13 +13,12 @@ const {
   ensureLocalService,
   stopLocalService,
   stopUnmanagedLocalServer,
-  confirmAgentPwSkillInstall,
   confirmTakeoverRunningProcess,
-  installAgentPwSkill,
   openBrowser,
   printAgentPwSkillInstallHint,
   printBinarySource,
   printOnboardingHeader,
+  printOnboardingStep,
   printOnboardingSuccess,
 } = vi.hoisted(() => ({
   localAgentPwPaths: vi.fn(),
@@ -34,13 +33,12 @@ const {
   ensureLocalService: vi.fn(),
   stopLocalService: vi.fn(),
   stopUnmanagedLocalServer: vi.fn(),
-  confirmAgentPwSkillInstall: vi.fn(),
   confirmTakeoverRunningProcess: vi.fn(),
-  installAgentPwSkill: vi.fn(),
   openBrowser: vi.fn(),
   printAgentPwSkillInstallHint: vi.fn(),
   printBinarySource: vi.fn(),
   printOnboardingHeader: vi.fn(),
+  printOnboardingStep: vi.fn(),
   printOnboardingSuccess: vi.fn(),
 }))
 
@@ -69,13 +67,12 @@ vi.mock('../packages/cli/src/local/service-manager', () => ({
 }))
 
 vi.mock('../packages/cli/src/local/onboarding', () => ({
-  confirmAgentPwSkillInstall,
   confirmTakeoverRunningProcess,
-  installAgentPwSkill,
   openBrowser,
   printAgentPwSkillInstallHint,
   printBinarySource,
   printOnboardingHeader,
+  printOnboardingStep,
   printOnboardingSuccess,
 }))
 
@@ -116,7 +113,6 @@ describe('CLI start', () => {
       logFile: '/tmp/agent.pw/logs/server.log',
       servicePath: '/tmp/LaunchAgents/ai.agentpw.daemon.plist',
     })
-    confirmAgentPwSkillInstall.mockResolvedValue(false)
     buildVaultLaunchUrl.mockReturnValue('https://agent.pw/vault?url=http://127.0.0.1:9315')
     openBrowser.mockReturnValue(false)
   })
@@ -156,5 +152,12 @@ describe('CLI start', () => {
       dataDir: '/tmp/agent.pw/data',
     }, expect.anything())
     expect(ensureLocalService).toHaveBeenCalled()
+    expect(printAgentPwSkillInstallHint).toHaveBeenCalled()
+    expect(printOnboardingStep).toHaveBeenCalledWith(
+      '[2/3] Starting agent.pw in the background...',
+    )
+    expect(printOnboardingStep).toHaveBeenCalledWith(
+      '[3/3] Preparing your browser setup link...',
+    )
   })
 })
