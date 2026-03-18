@@ -42,7 +42,7 @@ export function buildProgram() {
     .option('--no-browser', 'Print the vault URL instead of opening it')
     .action(async opts => {
       const { start } = await import('./commands/start')
-      return start({ noBrowser: Boolean(opts.noBrowser) })
+      return start({ noBrowser: opts.browser === false })
     })
 
   program
@@ -202,6 +202,28 @@ export function buildProgram() {
     .action(async () => {
       const { inspectTokenCmd } = await import('./commands/token')
       return inspectTokenCmd()
+    })
+
+  tokenCmd
+    .command('bootstrap')
+    .description('Print a short-lived bootstrap token for browser connect')
+    .option('--ttl <duration>', 'Token lifetime (e.g. 10m)')
+    .action(async (opts) => {
+      const { bootstrapTokenCmd } = await import('./commands/token')
+      return bootstrapTokenCmd({ ttl: opts.ttl })
+    })
+
+  tokenCmd
+    .command('connect-url')
+    .description('Print a hosted vault URL that bootstraps browser connect')
+    .option('--ttl <duration>', 'Token lifetime (e.g. 10m)')
+    .option('--vault-url <url>', 'Override the hosted vault URL')
+    .action(async (opts) => {
+      const { connectUrlCmd } = await import('./commands/token')
+      return connectUrlCmd({
+        ttl: opts.ttl,
+        vaultUrl: opts.vaultUrl,
+      })
     })
 
   tokenCmd
