@@ -179,7 +179,7 @@ async function refreshCredentialIfNeeded(
 
   const nextStored: StoredCredentials = {
     ...stored,
-    headers: buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, refreshed.accessToken),
+    headers: { ...stored.headers, ...buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, refreshed.accessToken) },
     oauth: {
       ...stored.oauth,
       accessToken: refreshed.accessToken,
