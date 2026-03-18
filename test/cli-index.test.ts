@@ -37,4 +37,12 @@ describe('CLI root onboarding', () => {
     expect(help).toContain('smithery-ai/agentpw')
     expect(help).toContain('connect your first API')
   })
+
+  it('does not expose browser bootstrap helpers on the public token command surface', () => {
+    const tokenCommand = buildProgram().commands.find(command => command.name() === 'token')
+
+    expect(tokenCommand).toBeDefined()
+    expect(tokenCommand?.commands.map(command => command.name())).not.toContain('bootstrap')
+    expect(tokenCommand?.commands.map(command => command.name())).not.toContain('connect-url')
+  })
 })

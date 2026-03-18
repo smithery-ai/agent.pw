@@ -9,6 +9,7 @@
   "exports": {
     ".": "./packages/server/src/core/app.ts",
     "./types": "./packages/server/src/core/types.ts",
+    "./auth": "./packages/server/src/auth.ts",
     "./db": "./packages/server/src/db/index.ts",
     "./db/queries": "./packages/server/src/db/queries.ts",
     "./db/schema": "./packages/server/src/db/schema/index.ts",

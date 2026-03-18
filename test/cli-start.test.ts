@@ -15,6 +15,7 @@ const {
   stopUnmanagedLocalServer,
   confirmTakeoverRunningProcess,
   openBrowser,
+  buildCliHelpFooter,
   printAgentPwSkillInstallHint,
   printBinarySource,
   printOnboardingHeader,
@@ -35,6 +36,7 @@ const {
   stopUnmanagedLocalServer: vi.fn(),
   confirmTakeoverRunningProcess: vi.fn(),
   openBrowser: vi.fn(),
+  buildCliHelpFooter: vi.fn(),
   printAgentPwSkillInstallHint: vi.fn(),
   printBinarySource: vi.fn(),
   printOnboardingHeader: vi.fn(),
@@ -69,6 +71,7 @@ vi.mock('../packages/cli/src/local/service-manager', () => ({
 vi.mock('../packages/cli/src/local/onboarding', () => ({
   confirmTakeoverRunningProcess,
   openBrowser,
+  buildCliHelpFooter,
   printAgentPwSkillInstallHint,
   printBinarySource,
   printOnboardingHeader,
@@ -76,6 +79,7 @@ vi.mock('../packages/cli/src/local/onboarding', () => ({
   printOnboardingSuccess,
 }))
 
+import { runCli } from '../packages/cli/src/index'
 import { start } from '../packages/cli/src/commands/start'
 
 describe('CLI start', () => {
@@ -113,7 +117,10 @@ describe('CLI start', () => {
       logFile: '/tmp/agent.pw/logs/server.log',
       servicePath: '/tmp/LaunchAgents/ai.agentpw.daemon.plist',
     })
-    buildVaultLaunchUrl.mockReturnValue('https://agent.pw/vault?url=http://127.0.0.1:9315')
+    buildVaultLaunchUrl.mockReturnValue(
+      'https://agent.pw/vault?url=http://127.0.0.1:9315#agentpw_token=bootstrap-token',
+    )
+    buildCliHelpFooter.mockReturnValue('')
     openBrowser.mockReturnValue(false)
   })
 
@@ -158,6 +165,30 @@ describe('CLI start', () => {
     )
     expect(printOnboardingStep).toHaveBeenCalledWith(
       '[3/3] Preparing your browser setup link...',
+    )
+  })
+
+  it('drives the public start command through the hosted bootstrap URL flow', async () => {
+    await runCli(['node', 'agent.pw', 'start', '--no-browser'])
+
+    expect(runLocalServerDaemonCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      ['setup'],
+      expect.anything(),
+    )
+    expect(runLocalServerDaemonCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      ['bootstrap-token', '--ttl', '10m'],
+      expect.anything(),
+    )
+    expect(buildVaultLaunchUrl).toHaveBeenCalledWith(
+      'http://127.0.0.1:9315',
+      'bootstrap-token',
+    )
+    expect(openBrowser).not.toHaveBeenCalled()
+    expect(printOnboardingSuccess).toHaveBeenCalledWith(
+      'https://agent.pw/vault?url=http://127.0.0.1:9315#agentpw_token=bootstrap-token',
+      false,
     )
   })
 })

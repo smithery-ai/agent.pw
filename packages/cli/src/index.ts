@@ -42,7 +42,7 @@ export function buildProgram() {
     .option('--no-browser', 'Print the vault URL instead of opening it')
     .action(async opts => {
       const { start } = await import('./commands/start')
-      return start({ noBrowser: Boolean(opts.noBrowser) })
+      return start({ noBrowser: opts.browser === false })
     })
 
   program
