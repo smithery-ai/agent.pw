@@ -2,18 +2,8 @@ import { loadBiscuit } from '../biscuit'
 import { getClient, requestJson } from '../http'
 import { resolve } from '../resolve'
 import { readTokenStack, writeTokenStack } from '../config'
-import {
-  buildVaultLaunchUrl,
-  resolveLocalDaemonRunner,
-  runLocalServerDaemonCommand,
-} from '../local/server-runtime'
 import { output } from '../output'
 import { isRecord } from '../type-utils'
-import {
-  buildLocalBaseUrl,
-  localAgentPwPaths,
-  readLocalConfig,
-} from '../../../server/src/local/config'
 
 const TOKEN_PREFIX = 'apw_'
 
@@ -102,45 +92,6 @@ interface RestrictOptions {
   methods?: string[]
   paths?: string[]
   ttl?: string
-}
-
-interface BootstrapOptions {
-  ttl?: string
-}
-
-function readBootstrapLocalConfig() {
-  const paths = localAgentPwPaths()
-  const config = readLocalConfig(paths)
-  if (!config) {
-    throw new Error('agent.pw is not configured locally. Run `npx agent.pw start` first.')
-  }
-  return { config, paths }
-}
-
-async function mintBootstrapTokenLocally(ttl = '10m') {
-  const { paths } = readBootstrapLocalConfig()
-  const runner = resolveLocalDaemonRunner()
-  return runLocalServerDaemonCommand(
-    runner,
-    ['bootstrap-token', '--ttl', ttl],
-    paths,
-  )
-}
-
-export async function bootstrapTokenCmd(opts: BootstrapOptions = {}) {
-  console.log(await mintBootstrapTokenLocally(opts.ttl))
-}
-
-export async function connectUrlCmd(opts: BootstrapOptions & { vaultUrl?: string } = {}) {
-  const { config } = readBootstrapLocalConfig()
-  const token = await mintBootstrapTokenLocally(opts.ttl)
-  console.log(
-    buildVaultLaunchUrl(
-      buildLocalBaseUrl(config.port),
-      token,
-      opts.vaultUrl,
-    ),
-  )
 }
 
 export async function restrictTokenCmd(opts: RestrictOptions) {

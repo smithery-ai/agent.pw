@@ -205,28 +205,6 @@ export function buildProgram() {
     })
 
   tokenCmd
-    .command('bootstrap')
-    .description('Print a short-lived bootstrap token for browser connect')
-    .option('--ttl <duration>', 'Token lifetime (e.g. 10m)')
-    .action(async (opts) => {
-      const { bootstrapTokenCmd } = await import('./commands/token')
-      return bootstrapTokenCmd({ ttl: opts.ttl })
-    })
-
-  tokenCmd
-    .command('connect-url')
-    .description('Print a hosted vault URL that bootstraps browser connect')
-    .option('--ttl <duration>', 'Token lifetime (e.g. 10m)')
-    .option('--vault-url <url>', 'Override the hosted vault URL')
-    .action(async (opts) => {
-      const { connectUrlCmd } = await import('./commands/token')
-      return connectUrlCmd({
-        ttl: opts.ttl,
-        vaultUrl: opts.vaultUrl,
-      })
-    })
-
-  tokenCmd
     .command('restrict')
     .description('Create a restricted child token')
     .option('--service <host...>', 'Limit to service host')
