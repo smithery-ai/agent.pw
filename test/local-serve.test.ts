@@ -1,5 +1,6 @@
 import { revokeToken } from '@agent.pw/server/db/queries'
 import { getRevocationIds, mintToken, restrictToken } from '@agent.pw/server/biscuit'
+import { lookup } from 'node:dns/promises'
 import { PassThrough, Writable } from 'node:stream'
 import { createServer as createTcpServer, connect as connectTcp, type Server as TcpServer, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -61,11 +62,11 @@ function createTempDir() {
   return dir
 }
 
-async function getFreePort() {
+async function getFreePort(host = '127.0.0.1') {
   const server = createTcpServer()
   return await new Promise<number>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, host, () => {
       const address = server.address()
       if (!address || typeof address === 'string') {
         reject(new Error('Failed to allocate a local port'))
@@ -81,6 +82,11 @@ async function getFreePort() {
       })
     })
   })
+}
+
+async function resolveConnectLoopbackHost(hostname: string) {
+  const resolved = await lookup(hostname)
+  return resolved.address
 }
 
 function createConfig() {
@@ -526,6 +532,9 @@ describe('local serve helpers', () => {
   it('handles CONNECT tunnel setup, rejection, and upstream failures', async () => {
     const config = createConfig()
     const db = await createTestDb()
+    const loopbackHost = await resolveConnectLoopbackHost(
+      'proxy-target.localhost',
+    )
 
     const invalidTargetSocket = new PassThrough()
     await handleConnectTunnel(
@@ -560,13 +569,13 @@ describe('local serve helpers', () => {
     )
     expect(await readStreamBody(invalidAuthSocket)).toContain('407 Proxy Authentication Required')
 
-    const echoPort = await getFreePort()
+    const echoPort = await getFreePort(loopbackHost)
     const echoServer = createTcpServer(socket => {
       socket.on('data', chunk => socket.write(chunk))
     })
     await new Promise<void>((resolve, reject) => {
       echoServer.once('error', reject)
-      echoServer.listen(echoPort, '127.0.0.1', () => resolve())
+      echoServer.listen(echoPort, loopbackHost, () => resolve())
     })
     activeServers.push(echoServer as TcpServer)
 
@@ -593,7 +602,7 @@ describe('local serve helpers', () => {
     expect(successfulText).toContain('head-')
     expect(successfulText).toContain('ping')
 
-    const refusedPort = await getFreePort()
+    const refusedPort = await getFreePort(loopbackHost)
     const refusedPair = await createSocketPair()
     await handleConnectTunnel(
       config,
