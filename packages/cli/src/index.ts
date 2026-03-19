@@ -231,20 +231,39 @@ export function buildProgram() {
     })
 
   tokenCmd
-    .command('push')
-    .description('Restrict and push token onto the stack')
+    .command('push [token]')
+    .description('Push a provided token, or restrict the current token and push the result')
     .option('--service <host...>', 'Limit to service host')
     .option('--host <host...>', 'Limit to service host')
     .option('--method <verb...>', 'Limit to HTTP method')
     .option('--path <prefix...>', 'Limit to path prefix')
     .option('--ttl <duration>', 'Token lifetime (e.g. 1h)')
-    .action(async (opts) => {
-      const { pushTokenCmd } = await import('./commands/token')
-      return pushTokenCmd({
+    .action(async (token, opts) => {
+      const restrictionOpts = {
         services: [...(opts.service ?? []), ...(opts.host ?? [])],
         methods: opts.method,
         paths: opts.path,
         ttl: opts.ttl,
+      }
+      const hasRestrictions = restrictionOpts.services.length > 0
+        || (restrictionOpts.methods?.length ?? 0) > 0
+        || (restrictionOpts.paths?.length ?? 0) > 0
+        || typeof restrictionOpts.ttl === 'string'
+
+      if (typeof token === 'string') {
+        if (hasRestrictions) {
+          throw new Error('Provide either a token or restriction flags to `token push`, not both.')
+        }
+        const { pushProvidedTokenCmd } = await import('./commands/token')
+        return pushProvidedTokenCmd(token)
+      }
+
+      const { pushTokenCmd } = await import('./commands/token')
+      return pushTokenCmd({
+        services: restrictionOpts.services,
+        methods: restrictionOpts.methods,
+        paths: restrictionOpts.paths,
+        ttl: restrictionOpts.ttl,
       })
     })
 

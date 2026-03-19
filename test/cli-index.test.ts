@@ -42,7 +42,9 @@ describe('CLI root onboarding', () => {
     const tokenCommand = buildProgram().commands.find(command => command.name() === 'token')
 
     expect(tokenCommand).toBeDefined()
+    expect(tokenCommand?.commands.map(command => command.name())).toContain('push')
     expect(tokenCommand?.commands.map(command => command.name())).not.toContain('bootstrap')
     expect(tokenCommand?.commands.map(command => command.name())).not.toContain('connect-url')
+    expect(tokenCommand?.commands.map(command => command.name())).not.toContain('use')
   })
 })

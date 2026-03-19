@@ -7,6 +7,19 @@ import { isRecord } from '../type-utils'
 
 const TOKEN_PREFIX = 'apw_'
 
+function normalizeProvidedToken(token: string) {
+  const trimmed = token.trim()
+  if (!trimmed) {
+    console.error('Token is required.')
+    process.exit(1)
+  }
+  if (!trimmed.startsWith(TOKEN_PREFIX)) {
+    console.error(`Token must start with ${TOKEN_PREFIX}`)
+    process.exit(1)
+  }
+  return trimmed
+}
+
 function base64urlToHex(b64url: string) {
   const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
   const bin = atob(b64)
@@ -85,6 +98,14 @@ export async function inspectTokenCmd() {
       if (line.trim()) console.log(`  ${line.trim()}`)
     }
   }
+}
+
+export function pushProvidedTokenCmd(token: string) {
+  const normalizedToken = normalizeProvidedToken(token)
+  const stack = readTokenStack()
+  stack.push(normalizedToken)
+  writeTokenStack(stack)
+  console.log(`Pushed provided token (stack depth: ${stack.length}). Run \`agent.pw token pop\` to restore the previous token.`)
 }
 
 interface RestrictOptions {
