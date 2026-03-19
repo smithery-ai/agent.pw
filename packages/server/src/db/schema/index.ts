@@ -3,3 +3,14 @@ export { credentials } from './credentials.js'
 export { revocations } from './revocations.js'
 export { authFlows } from './auth-flows.js'
 export { verification } from './verification.js'
+export {
+  authUsers,
+  authSessions,
+  authAccounts,
+  authVerifications,
+  authJwks,
+  authOauthClients,
+  authOauthRefreshTokens,
+  authOauthAccessTokens,
+  authOauthConsents,
+} from './better-auth.js'

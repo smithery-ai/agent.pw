@@ -7,7 +7,8 @@ The password manager for AI agents. An authenticated proxy that stores credentia
 <p>
   <a href="https://agent.pw">Website</a> ·
   <a href="#getting-started">Getting Started</a> ·
-  <a href="docs/security-model.md">Security Model</a>
+  <a href="docs/security-model.md">Security Model</a> ·
+  <a href="docs/service-vendors.md">Service Vendors</a>
 </p>
 
 ```
@@ -134,6 +135,7 @@ packages/
   cli/src/           agent.pw CLI — local start flow, service controls, and management commands
 docs/
   security-model.md  Biscuit tokens, path-based access model, revocation
+  service-vendors.md OIDC integration guide for trusted services
 ```
 
 ## License
