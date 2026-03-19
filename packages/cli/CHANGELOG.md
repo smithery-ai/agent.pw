@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.2.0...agent.pw-v0.3.0) (2026-03-19)
+
+
+### Features
+
+* keep local bootstrap internal to onboarding ([#94](https://github.com/smithery-ai/agent.pw/issues/94)) ([23f5710](https://github.com/smithery-ai/agent.pw/commit/23f5710eb913608ad22fd776cb17d2976885b24c))
+* support pushing provided CLI tokens ([#97](https://github.com/smithery-ai/agent.pw/issues/97)) ([e1de4a7](https://github.com/smithery-ai/agent.pw/commit/e1de4a70926a03c19508b4a68fb264f5d0903e61))
+
 ## [0.2.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.1.0...agent.pw-v0.2.0) (2026-03-15)
 
 
