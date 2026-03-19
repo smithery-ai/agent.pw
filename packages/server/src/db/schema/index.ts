@@ -14,3 +14,7 @@ export {
   authOauthAccessTokens,
   authOauthConsents,
 } from './better-auth.js'
+export {
+  authDelegationGrants,
+  authDelegationTokens,
+} from './delegation.js'
