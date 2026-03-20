@@ -16,12 +16,16 @@ import {
   DeleteCredentialQuerySchema,
 } from './routes/credentials'
 import {
+  CreateTokenRequestSchema,
+  CreateTokenResponseSchema,
   InspectTokenRequestSchema,
   InspectTokenResponseSchema,
-  RestrictTokenRequestSchema,
-  RestrictTokenResponseSchema,
+  IssuedTokenListResponseSchema,
+  IssuedTokenSchema,
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
+  TokenConstraintSchema,
+  TokenRightSchema,
 } from './routes/tokens'
 
 export const openAPIDocumentation = {
@@ -67,10 +71,14 @@ export const allSchemas = [
   CredentialListPageSchema,
   CreateCredentialRequestSchema,
   DeleteCredentialQuerySchema,
+  CreateTokenRequestSchema,
+  CreateTokenResponseSchema,
   InspectTokenRequestSchema,
   InspectTokenResponseSchema,
-  RestrictTokenRequestSchema,
-  RestrictTokenResponseSchema,
+  IssuedTokenListResponseSchema,
+  IssuedTokenSchema,
   RevokeTokenRequestSchema,
   RevokeTokenResponseSchema,
+  TokenConstraintSchema,
+  TokenRightSchema,
 ]

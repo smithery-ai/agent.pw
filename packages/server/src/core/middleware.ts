@@ -3,23 +3,20 @@ import type { CoreHonoEnv } from './types'
 import { extractBearerToken } from '../proxy'
 import {
   authorizeRequest,
+  extractTokenExpiry,
   extractTokenFacts,
   getPublicKeyHex,
   getRevocationIds,
+  hashToken,
 } from '../biscuit'
-import { isRevoked } from '../db/queries'
+import { isRevoked, markIssuedTokenUsed } from '../db/queries'
 
 const MANAGEMENT_TOKEN_HEADER = 'Authorization'
 
-export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
-  const token = extractBearerToken(c.req.header(MANAGEMENT_TOKEN_HEADER))
-  if (!token) {
-    return c.json({
-      error: `Missing ${MANAGEMENT_TOKEN_HEADER} header`,
-      hint: `Send your Biscuit token in the ${MANAGEMENT_TOKEN_HEADER} header. Proxy requests still use Proxy-Authorization.`,
-    }, 401)
-  }
-
+async function validatePresentedToken(
+  c: Context<CoreHonoEnv>,
+  token: string,
+) {
   const publicKeyHex = getPublicKeyHex(c.env.BISCUIT_PRIVATE_KEY)
 
   try {
@@ -27,12 +24,68 @@ export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
     const db = c.get('db')
     for (const id of revIds) {
       if (await isRevoked(db, id)) {
-        return c.json({ error: 'Token has been revoked' }, 403)
+        return { ok: false as const, response: c.json({ error: 'Token has been revoked' }, 403) }
       }
     }
   } catch {
-    return c.json({ error: 'Invalid token' }, 401)
+    return { ok: false as const, response: c.json({ error: 'Invalid token' }, 401) }
   }
+
+  const expiresAt = extractTokenExpiry(token, publicKeyHex)
+  if (expiresAt && expiresAt.getTime() <= Date.now()) {
+    return { ok: false as const, response: c.json({ error: 'Token has expired' }, 403) }
+  }
+
+  const facts = extractTokenFacts(token, publicKeyHex)
+  if (!facts.userId && !facts.orgId) {
+    return { ok: false as const, response: c.json({ error: 'Invalid token' }, 401) }
+  }
+
+  c.set('tokenFacts', facts)
+  c.set('token', token)
+
+  return { ok: true as const, publicKeyHex }
+}
+
+async function trackIssuedTokenUsage(c: Context<CoreHonoEnv>, token: string) {
+  const tokenHash = await hashToken(token)
+  await markIssuedTokenUsed(c.get('db'), tokenHash)
+}
+
+function missingTokenResponse(c: Context<CoreHonoEnv>) {
+  return c.json({
+    error: `Missing ${MANAGEMENT_TOKEN_HEADER} header`,
+    hint: `Send your Biscuit token in the ${MANAGEMENT_TOKEN_HEADER} header. Proxy requests still use Proxy-Authorization.`,
+  }, 401)
+}
+
+export async function requireValidToken(c: Context<CoreHonoEnv>, next: Next) {
+  const token = extractBearerToken(c.req.header(MANAGEMENT_TOKEN_HEADER))
+  if (!token) {
+    return missingTokenResponse(c)
+  }
+
+  const validation = await validatePresentedToken(c, token)
+  if (!validation.ok) {
+    return validation.response
+  }
+
+  await trackIssuedTokenUsage(c, token)
+  return next()
+}
+
+export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
+  const token = extractBearerToken(c.req.header(MANAGEMENT_TOKEN_HEADER))
+  if (!token) {
+    return missingTokenResponse(c)
+  }
+
+  const validation = await validatePresentedToken(c, token)
+  if (!validation.ok) {
+    return validation.response
+  }
+
+  const { publicKeyHex } = validation
 
   // Run Biscuit authorizer to enforce attenuation checks (TTL, service restrictions).
   const authResult = authorizeRequest(token, publicKeyHex, '_management', c.req.method, c.req.path, {
@@ -42,10 +95,7 @@ export async function requireToken(c: Context<CoreHonoEnv>, next: Next) {
     return c.json({ error: 'Forbidden', details: authResult.error }, 403)
   }
 
-  const facts = extractTokenFacts(token, publicKeyHex)
-  c.set('tokenFacts', facts)
-  c.set('token', token)
-
+  await trackIssuedTokenUsage(c, token)
   return next()
 }
 

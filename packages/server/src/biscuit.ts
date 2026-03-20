@@ -36,6 +36,12 @@ export function stripPrefix(token: string): string {
   return token
 }
 
+export async function hashToken(token: string) {
+  const input = new TextEncoder().encode(token)
+  const hash = await crypto.subtle.digest('SHA-256', input)
+  return Buffer.from(hash).toString('hex')
+}
+
 function escapeDatalog(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
@@ -192,6 +198,10 @@ function parsePublicKey(publicKeyHex: string) {
   return PublicKey.fromString(stripKeyPrefix(publicKeyHex), SignatureAlgorithm.Ed25519)
 }
 
+function parseToken(tokenBase64: string, publicKeyHex: string) {
+  return Biscuit.fromBase64(stripPrefix(tokenBase64), parsePublicKey(publicKeyHex))
+}
+
 export function getPublicKey(privateKeyHex: string) {
   const pk = PrivateKey.fromString(privateKeyHex)
   return KeyPair.fromPrivateKey(pk).getPublicKey()
@@ -240,13 +250,79 @@ export function restrictToken(
   const code = buildAttenuationCode(constraints)
   if (!code) return tokenBase64
 
-  const raw = stripPrefix(tokenBase64)
-  const publicKey = parsePublicKey(publicKeyHex)
-  const token = Biscuit.fromBase64(raw, publicKey)
+  const token = parseToken(tokenBase64, publicKeyHex)
   const blk = Biscuit.block_builder()
   blk.addCode(code)
   const attenuated = token.appendBlock(blk)
   return addPrefix(attenuated.toBase64())
+}
+
+export function extractAuthorityExtraFacts(
+  tokenBase64: string,
+  publicKeyHex: string,
+): string[] {
+  const token = parseToken(tokenBase64, publicKeyHex)
+  const source = token.getBlockSource(0)
+  const extras: string[] = []
+
+  for (const line of source.split('\n')) {
+    const normalized = normalizeFactStatement(line)
+    if (!normalized) continue
+    if (/(?:^|[\s,])user_id\("([^"]+)"\)/.test(normalized)) continue
+    if (/(?:^|[\s,])right\("([^"]+)",\s*"([^"]+)"\)/.test(normalized)) continue
+    extras.push(normalized)
+  }
+
+  return extras
+}
+
+export function extractAttenuationBlockSources(
+  tokenBase64: string,
+  publicKeyHex: string,
+): string[] {
+  const token = parseToken(tokenBase64, publicKeyHex)
+  return Array.from({ length: token.countBlocks() - 1 }, (_, index) => token.getBlockSource(index + 1).trim())
+    .filter(source => source.length > 0)
+}
+
+export function appendTokenBlocks(
+  tokenBase64: string,
+  publicKeyHex: string,
+  blockSources: string[],
+): string {
+  if (blockSources.length === 0) return tokenBase64
+
+  let token = parseToken(tokenBase64, publicKeyHex)
+  for (const source of blockSources) {
+    const trimmed = source.trim()
+    if (!trimmed) continue
+    const blk = Biscuit.block_builder()
+    blk.addCode(trimmed)
+    token = token.appendBlock(blk)
+  }
+
+  return addPrefix(token.toBase64())
+}
+
+export function mintDescendantToken(
+  privateKeyHex: string,
+  publicKeyHex: string,
+  parentTokenBase64: string,
+  rights: TokenRight[],
+  constraints: TokenConstraint[],
+): string {
+  const parentFacts = extractTokenFacts(parentTokenBase64, publicKeyHex)
+  const userId = parentFacts.userId ?? parentFacts.orgId
+  if (!userId) {
+    throw new Error('Parent token has no identity')
+  }
+
+  const extraFacts = extractAuthorityExtraFacts(parentTokenBase64, publicKeyHex)
+  const parentBlocks = extractAttenuationBlockSources(parentTokenBase64, publicKeyHex)
+
+  const fresh = mintToken(privateKeyHex, userId, rights, extraFacts)
+  const rebased = appendTokenBlocks(fresh, publicKeyHex, parentBlocks)
+  return restrictToken(rebased, publicKeyHex, constraints)
 }
 
 export interface AuthorizationResult {
@@ -268,8 +344,6 @@ export function authorizeRequest(
   path: string,
   context: AuthorizationContext = {},
 ): AuthorizationResult {
-  const raw = stripPrefix(tokenBase64)
-  const publicKey = parsePublicKey(publicKeyHex)
   const code = buildAuthorizerCode(service, method, path, context)
 
   // Retry loop: the first authorizeWithLimits call on a cold worker may timeout
@@ -277,7 +351,7 @@ export function authorizeRequest(
   // succeeds immediately because the compiled code is cached.
   function attemptAuthorize(retriesLeft: number): AuthorizationResult {
     try {
-      const token = Biscuit.fromBase64(raw, publicKey)
+      const token = parseToken(tokenBase64, publicKeyHex)
       const ab = new AuthorizerBuilder()
       ab.addCode(code)
       const auth = ab.buildAuthenticated(token)
@@ -305,9 +379,7 @@ export function extractTokenFacts(
   publicKeyHex: string,
 ) {
   try {
-    const raw = stripPrefix(tokenBase64)
-    const publicKey = parsePublicKey(publicKeyHex)
-    const token = Biscuit.fromBase64(raw, publicKey)
+    const token = parseToken(tokenBase64, publicKeyHex)
     const source = token.getBlockSource(0)
 
     const rights: TokenRight[] = []
@@ -361,10 +433,32 @@ export function extractUserId(
 }
 
 export function getRevocationIds(tokenBase64: string, publicKeyHex: string): string[] {
-  const raw = stripPrefix(tokenBase64)
-  const publicKey = parsePublicKey(publicKeyHex)
-  const token = Biscuit.fromBase64(raw, publicKey)
+  const token = parseToken(tokenBase64, publicKeyHex)
   return token.getRevocationIdentifiers().map(String)
+}
+
+export function extractTokenExpiry(tokenBase64: string, publicKeyHex: string): Date | null {
+  try {
+    const token = parseToken(tokenBase64, publicKeyHex)
+    const candidates: Date[] = []
+
+    for (let index = 0; index < token.countBlocks(); index += 1) {
+      const source = token.getBlockSource(index)
+      for (const line of source.split('\n')) {
+        const match = line.match(/\$t\s*<=\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[^;\s]+)/)
+        if (!match) continue
+        const date = new Date(match[1])
+        if (!Number.isNaN(date.getTime())) {
+          candidates.push(date)
+        }
+      }
+    }
+
+    if (candidates.length === 0) return null
+    return new Date(Math.min(...candidates.map(candidate => candidate.getTime())))
+  } catch {
+    return null
+  }
 }
 
 export function generateKeyPairHex(): { privateKey: string; publicKey: string } {

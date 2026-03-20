@@ -205,6 +205,14 @@ export function buildProgram() {
     })
 
   tokenCmd
+    .command('list')
+    .description('List issued tokens')
+    .action(async () => {
+      const { listTokensCmd } = await import('./commands/token')
+      return listTokensCmd()
+    })
+
+  tokenCmd
     .command('restrict')
     .description('Create a restricted child token')
     .option('--service <host...>', 'Limit to service host')
@@ -223,11 +231,12 @@ export function buildProgram() {
     })
 
   tokenCmd
-    .command('revoke')
-    .description('Revoke the current token')
-    .action(async () => {
+    .command('revoke <id>')
+    .description('Revoke a tracked token by ID')
+    .option('--reason <text>', 'Reason for revoking the token')
+    .action(async (id, opts) => {
       const { revokeTokenCmd } = await import('./commands/token')
-      return revokeTokenCmd()
+      return revokeTokenCmd(id, opts.reason)
     })
 
   tokenCmd

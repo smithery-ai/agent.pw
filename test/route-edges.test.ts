@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCoreApp } from '@agent.pw/server'
 import { decryptCredentials, deriveEncryptionKey } from '@agent.pw/server/crypto'
-import * as biscuitModule from '@agent.pw/server/biscuit'
 import * as queryModule from '@agent.pw/server/db/queries'
 import {
   getCredential,
@@ -514,32 +513,62 @@ describe('route edge cases', () => {
 
   it('surfaces token route failures as 400 responses', async () => {
     const token = mintTestToken('org_alpha')
+    const manageToken = mintTestToken('org_alpha', ['credential.manage'])
 
-    const badRestrict = await app.request('https://agent.pw/tokens/restrict', {
+    const badCreate = await app.request('https://agent.pw/tokens', {
       method: 'POST',
       headers: withToken(token, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         constraints: [{ ttl: 'later' }],
       }),
     })
-    expect(badRestrict.status).toBe(400)
+    expect(badCreate.status).toBe(400)
 
-    const originalGetRevocationIds = biscuitModule.getRevocationIds
-    const revocationSpy = vi.spyOn(biscuitModule, 'getRevocationIds')
-    revocationSpy
-      .mockImplementationOnce(originalGetRevocationIds)
-      .mockImplementationOnce(() => {
-        throw new Error('revocation lookup failed')
-      })
-
-    const badRevoke = await app.request('https://agent.pw/tokens/revoke', {
+    const created = await app.request('https://agent.pw/tokens', {
       method: 'POST',
       headers: withToken(token, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ reason: 'testing' }),
+      body: JSON.stringify({ constraints: [{ ttl: '10m' }] }),
+    })
+    expect(created.status).toBe(200)
+    const issued = await created.json() as { id: string }
+
+    const badRevoke = await app.request(`https://agent.pw/tokens/${issued.id}`, {
+      method: 'DELETE',
+      headers: withToken(manageToken, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ reason: 123 }),
     })
     expect(badRevoke.status).toBe(400)
     expect(await badRevoke.json()).toEqual({
-      error: 'Failed to revoke token: revocation lookup failed',
+      error: 'Invalid revoke request',
     })
+  })
+
+  it('requires credential.manage for token listing, fetch, and revoke', async () => {
+    const useOnlyToken = mintTestToken('org_alpha', ['credential.use'])
+
+    const created = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(useOnlyToken, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({}),
+    })
+    expect(created.status).toBe(200)
+    const issued = await created.json() as { id: string }
+
+    const listed = await app.request('https://agent.pw/tokens', {
+      headers: withToken(useOnlyToken),
+    })
+    expect(listed.status).toBe(403)
+
+    const fetched = await app.request(`https://agent.pw/tokens/${issued.id}`, {
+      headers: withToken(useOnlyToken),
+    })
+    expect(fetched.status).toBe(403)
+
+    const revoked = await app.request(`https://agent.pw/tokens/${issued.id}`, {
+      method: 'DELETE',
+      headers: withToken(useOnlyToken, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({}),
+    })
+    expect(revoked.status).toBe(403)
   })
 })

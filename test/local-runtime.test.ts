@@ -159,7 +159,7 @@ describe('local setup helpers', () => {
         publicKeyHex,
         '_management',
         'POST',
-        '/tokens/restrict',
+        '/tokens',
         { action: '_management' },
       ).authorized,
     ).toBe(true)

@@ -215,16 +215,16 @@ Each level gets explicit roots instead of implicit inheritance. A platform can m
 
 The CLI supports a token stack for temporary privilege narrowing:
 
-- `token push` — restrict the current token and push it onto a stack
+- `token push` — mint a tracked narrowed token and push it onto a stack
 - `token pop` — revert to the previous token
 
-This lets agents temporarily operate with reduced permissions (e.g. restrict to a single host for the duration of a task) and then restore the broader token afterwards.
+This lets agents temporarily operate with reduced permissions (e.g. restrict to a single host for the duration of a task) and then restore the broader token afterwards. `token pop` is local-only and does not revoke the issued token.
 
 ## Revocation
 
 Each block in a Biscuit has a unique revocation ID. The server stores revoked IDs in the `revocations` table. On every request, the middleware checks all block IDs against this table.
 
-`POST /tokens/revoke` revokes the caller's own token (the one in the `Authorization` header).
+Tracked tokens minted through `POST /tokens` are also recorded in the `issued_tokens` table with their revocation IDs, constraints, rights, and usage metadata. `DELETE /tokens/{id}` revokes a tracked token by ID without requiring the raw bearer token string.
 
 ## Key Management
 

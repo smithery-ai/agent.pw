@@ -2,6 +2,7 @@ import type { Context } from 'hono'
 import type { CoreHonoEnv } from './core/types'
 import {
   authorizeRequest,
+  hashToken,
   extractTokenFacts,
   getPublicKeyHex,
   getRevocationIds,
@@ -13,6 +14,7 @@ import {
   getCredential,
   getCredentialsByHostWithinRoot,
   isRevoked,
+  markIssuedTokenUsed,
   upsertCredential,
 } from './db/queries'
 import {
@@ -414,6 +416,8 @@ export async function handleProxy(
   if (!result.authorized) {
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
+
+  await markIssuedTokenUsed(db, await hashToken(token))
 
   let profile: { path: string; host: string[] } | null = null
   if (slug) {

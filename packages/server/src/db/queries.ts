@@ -5,13 +5,15 @@ import {
   eq,
   gt,
   type InferSelectModel,
+  isNull,
   like,
   lt,
   or,
   sql,
   type SQL,
 } from 'drizzle-orm'
-import { credProfiles, credentials, revocations, authFlows } from './schema/index.js'
+import type { TokenConstraint, TokenRight } from '../core/types.js'
+import { credProfiles, credentials, revocations, authFlows, issuedTokens } from './schema/index.js'
 import type { Database } from './index.js'
 import {
   credentialName,
@@ -25,6 +27,7 @@ type CredProfileRow = Omit<InferSelectModel<typeof credProfiles>, 'host'> & {
 }
 
 type CredentialRow = InferSelectModel<typeof credentials>
+type IssuedTokenRow = InferSelectModel<typeof issuedTokens>
 
 function normalizeHostList(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -102,6 +105,21 @@ function appliesToRoot(profilePath: string, root: string) {
 
 function profileVisibleWithinRoot(profilePath: string, root: string) {
   return isAncestorOrEqual(root, profilePath) || appliesToRoot(profilePath, root)
+}
+
+function issuedTokenOwnerCondition(owner: {
+  ownerUserId?: string | null
+  orgId?: string | null
+}) {
+  if (owner.ownerUserId) {
+    return owner.orgId
+      ? and(eq(issuedTokens.ownerUserId, owner.ownerUserId), eq(issuedTokens.orgId, owner.orgId))
+      : eq(issuedTokens.ownerUserId, owner.ownerUserId)
+  }
+  if (owner.orgId) {
+    return and(isNull(issuedTokens.ownerUserId), eq(issuedTokens.orgId, owner.orgId))
+  }
+  return sql`false`
 }
 
 // ─── Cred Profiles ──────────────────────────────────────────────────────────
@@ -400,6 +418,127 @@ export async function revokeToken(db: Database, revocationId: string, reason?: s
     .insert(revocations)
     .values({ revocationId, reason })
     .onConflictDoNothing()
+}
+
+// ─── Issued Tokens ───────────────────────────────────────────────────────────
+
+export interface CreateIssuedTokenData {
+  id: string
+  ownerUserId?: string | null
+  orgId?: string | null
+  name?: string | null
+  tokenHash: string
+  revocationIds: string[]
+  rights: TokenRight[]
+  constraints: TokenConstraint[]
+  expiresAt?: Date | null
+}
+
+export async function createIssuedToken(db: Database, data: CreateIssuedTokenData) {
+  const rows = await db
+    .insert(issuedTokens)
+    .values({
+      id: data.id,
+      ownerUserId: data.ownerUserId ?? null,
+      orgId: data.orgId ?? null,
+      name: data.name ?? null,
+      tokenHash: data.tokenHash,
+      revocationIds: data.revocationIds,
+      rights: data.rights,
+      constraints: data.constraints,
+      expiresAt: data.expiresAt ?? null,
+    })
+    .returning()
+
+  return rows[0] ?? null
+}
+
+export async function listIssuedTokensByOwner(
+  db: Database,
+  owner: { ownerUserId?: string | null; orgId?: string | null },
+) {
+  return db
+    .select()
+    .from(issuedTokens)
+    .where(issuedTokenOwnerCondition(owner))
+    .orderBy(desc(issuedTokens.createdAt), desc(issuedTokens.id))
+}
+
+export async function getIssuedTokenById(
+  db: Database,
+  id: string,
+  owner: { ownerUserId?: string | null; orgId?: string | null },
+) {
+  const rows = await db
+    .select()
+    .from(issuedTokens)
+    .where(and(eq(issuedTokens.id, id), issuedTokenOwnerCondition(owner)))
+
+  return rows[0] ?? null
+}
+
+export async function getIssuedTokenByHash(db: Database, tokenHash: string) {
+  const rows = await db
+    .select()
+    .from(issuedTokens)
+    .where(eq(issuedTokens.tokenHash, tokenHash))
+
+  return rows[0] ?? null
+}
+
+export async function markIssuedTokenUsed(
+  db: Database,
+  tokenHash: string,
+  usedAt = new Date(),
+) {
+  const rows = await db
+    .update(issuedTokens)
+    .set({ lastUsedAt: usedAt })
+    .where(eq(issuedTokens.tokenHash, tokenHash))
+    .returning()
+
+  return rows[0] ?? null
+}
+
+export async function revokeIssuedTokenById(
+  db: Database,
+  id: string,
+  owner: { ownerUserId?: string | null; orgId?: string | null },
+  reason?: string,
+) {
+  const revokedAt = new Date()
+
+  return db.transaction(async tx => {
+    const rows = await tx
+      .select()
+      .from(issuedTokens)
+      .where(and(eq(issuedTokens.id, id), issuedTokenOwnerCondition(owner)))
+
+    const token = rows[0] ?? null
+    if (!token) return null
+
+    await tx
+      .update(issuedTokens)
+      .set({
+        revokedAt: token.revokedAt ?? revokedAt,
+        revokeReason: token.revokeReason ?? reason ?? null,
+      })
+      .where(eq(issuedTokens.id, token.id))
+
+    if (token.revocationIds.length > 0) {
+      await tx
+        .insert(revocations)
+        .values(token.revocationIds.map(revocationId => ({ revocationId, reason })))
+        .onConflictDoNothing()
+    }
+
+    const updated = await tx
+      .select()
+      .from(issuedTokens)
+      .where(eq(issuedTokens.id, token.id))
+
+    return updated[0] ?? token
+  })
 }
 
 // ─── Auth Flows ──────────────────────────────────────────────────────────────

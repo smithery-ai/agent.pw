@@ -100,9 +100,11 @@ DELETE /credentials/{name}                remove a credential
 GET    /cred_profiles                     list profiles
 PUT    /cred_profiles/{slug}              create/update a profile
 DELETE /cred_profiles/{slug}              remove a profile
-POST   /tokens/restrict                   attenuate a token
+POST   /tokens                            mint a tracked Biscuit token
+GET    /tokens                            list tracked tokens
+GET    /tokens/{id}                       fetch tracked token metadata
 POST   /tokens/inspect                    inspect token facts
-POST   /tokens/revoke                     revoke a token
+DELETE /tokens/{id}                       revoke a tracked token
 GET    /.well-known/jwks.json             Ed25519 public key (JWK)
 ```
 
