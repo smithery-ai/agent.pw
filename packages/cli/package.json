@@ -28,7 +28,7 @@
     "@smithery/biscuit": "^1.0.1"
   },
   "devDependencies": {
-    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/f706b21edbccd665389ac20179f39d7b288c9a67/dist.tar.gz",
+    "@agent.pw/sdk": "https://pkg.stainless.com/s/agent.pw-typescript/c1c3425f4bc32d704e1c36164cf6a2b2b7f2a5d2/dist.tar.gz",
     "@types/node": "^25.3.3",
     "commander": "^14.0.3",
     "typescript": "^5.9.3"
