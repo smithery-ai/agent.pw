@@ -14,7 +14,7 @@ import {
   getCredential,
   getCredentialsByHostWithinRoot,
   isRevoked,
-  markIssuedTokenUsed,
+  markIssuedTokenUsedBestEffort,
   upsertCredential,
 } from './db/queries'
 import {
@@ -417,7 +417,7 @@ export async function handleProxy(
     return c.json({ error: 'Forbidden', details: result.error }, 403)
   }
 
-  await markIssuedTokenUsed(db, await hashToken(token))
+  await markIssuedTokenUsedBestEffort(db, await hashToken(token))
 
   let profile: { path: string; host: string[] } | null = null
   if (slug) {

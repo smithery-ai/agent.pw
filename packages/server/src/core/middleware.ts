@@ -9,7 +9,7 @@ import {
   getRevocationIds,
   hashToken,
 } from '../biscuit'
-import { isRevoked, markIssuedTokenUsed } from '../db/queries'
+import { isRevoked, markIssuedTokenUsedBestEffort } from '../db/queries'
 
 const MANAGEMENT_TOKEN_HEADER = 'Authorization'
 
@@ -49,7 +49,7 @@ async function validatePresentedToken(
 
 async function trackIssuedTokenUsage(c: Context<CoreHonoEnv>, token: string) {
   const tokenHash = await hashToken(token)
-  await markIssuedTokenUsed(c.get('db'), tokenHash)
+  await markIssuedTokenUsedBestEffort(c.get('db'), tokenHash)
 }
 
 function missingTokenResponse(c: Context<CoreHonoEnv>) {

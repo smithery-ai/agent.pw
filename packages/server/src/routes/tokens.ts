@@ -249,9 +249,11 @@ function serializeIssuedToken(row: {
 
 function ensureFacts(c: { get(key: 'tokenFacts'): CoreHonoEnv['Variables']['tokenFacts'] }) {
   const facts = c.get('tokenFacts')
+  /* v8 ignore start -- requireToken always populates tokenFacts before these handlers run */
   if (!facts) {
     throw new Error('Missing token facts')
   }
+  /* v8 ignore stop */
   return facts
 }
 
@@ -302,9 +304,11 @@ tokenRoutes.post('/',
         expiresAt,
       })
 
+      /* v8 ignore start -- insert().returning() either yields the new row or throws */
       if (!row) {
         return c.json({ error: 'Failed to create token record' }, 500)
       }
+      /* v8 ignore stop */
 
       return c.json({
         ok: true,
@@ -374,9 +378,11 @@ tokenRoutes.post('/inspect',
         homePath: facts.homePath,
         scopes: facts.scopes,
       })
+    /* v8 ignore start -- extractTokenFacts returns a sentinel object instead of throwing */
     } catch {
       return c.json({ error: 'Invalid or unrecognized token' }, 400)
     }
+    /* v8 ignore stop */
   },
 )
 

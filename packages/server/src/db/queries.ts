@@ -69,10 +69,11 @@ function pathWithinAnyRootCondition(
   column: typeof credProfiles.path | typeof credentials.path,
   roots: string[],
 ): SQL<unknown> {
-  /* v8 ignore next -- public callers short-circuit empty roots before building SQL */
+  /* v8 ignore start -- public callers short-circuit empty roots before building SQL */
   if (roots.length === 0) {
     return sql`false`
   }
+  /* v8 ignore stop */
   /* v8 ignore next -- non-empty roots always produce at least one SQL branch here */
   return or(...roots.map(root => pathWithinRootCondition(column, root))) ?? sql`false`
 }
@@ -485,6 +486,41 @@ export async function getIssuedTokenByHash(db: Database, tokenHash: string) {
   return rows[0] ?? null
 }
 
+export function isMissingIssuedTokensTableError(error: unknown) {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'cause' in error &&
+    error.cause &&
+    isMissingIssuedTokensTableError(error.cause)
+  ) {
+    return true
+  }
+
+  const code =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string'
+      ? error.code
+      : null
+  if (code === '42P01') {
+    return true
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : ''
+  return message.includes('issued_tokens') && (
+    message.includes('does not exist') ||
+    message.includes('relation') ||
+    message.includes('no such table')
+  )
+}
+
 export async function markIssuedTokenUsed(
   db: Database,
   tokenHash: string,
@@ -497,6 +533,21 @@ export async function markIssuedTokenUsed(
     .returning()
 
   return rows[0] ?? null
+}
+
+export async function markIssuedTokenUsedBestEffort(
+  db: Database,
+  tokenHash: string,
+  usedAt = new Date(),
+) {
+  try {
+    return await markIssuedTokenUsed(db, tokenHash, usedAt)
+  } catch (error) {
+    if (isMissingIssuedTokensTableError(error)) {
+      return null
+    }
+    throw error
+  }
 }
 
 export async function revokeIssuedTokenById(

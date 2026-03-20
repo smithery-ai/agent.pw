@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCoreApp } from '@agent.pw/server'
+import { mintToken } from '@agent.pw/server/biscuit'
 import { decryptCredentials, deriveEncryptionKey } from '@agent.pw/server/crypto'
 import * as queryModule from '@agent.pw/server/db/queries'
 import {
@@ -570,5 +571,242 @@ describe('route edge cases', () => {
       body: JSON.stringify({}),
     })
     expect(revoked.status).toBe(403)
+  })
+
+  it('handles token CRUD edge cases and constraint normalization', async () => {
+    const token = mintTestToken('org_alpha', ['credential.use', 'credential.manage'])
+
+    const fullScope = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({}),
+    })
+    expect(fullScope.status).toBe(200)
+    expect(await fullScope.json()).toEqual(expect.objectContaining({
+      constraints: [],
+      rights: expect.arrayContaining([
+        { action: 'credential.use', root: '/org_alpha' },
+        { action: 'credential.manage', root: '/org_alpha' },
+      ]),
+    }))
+
+    const passthroughConstraint = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [{}],
+      }),
+    })
+    expect(passthroughConstraint.status).toBe(200)
+    expect(await passthroughConstraint.json()).toEqual(expect.objectContaining({
+      constraints: [{}],
+      rights: expect.arrayContaining([
+        { action: 'credential.use', root: '/org_alpha' },
+        { action: 'credential.manage', root: '/org_alpha' },
+      ]),
+    }))
+
+    const invalidRoot = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [{ roots: 'not-a-path' }],
+      }),
+    })
+    expect(invalidRoot.status).toBe(400)
+    expect(await invalidRoot.json()).toEqual({
+      error: "Failed to create token: Invalid root 'not-a-path'",
+    })
+
+    const forbiddenAction = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [{ actions: 'profile.manage' }],
+      }),
+    })
+    expect(forbiddenAction.status).toBe(403)
+
+    const forbiddenRoot = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [{ roots: '/org_beta' }],
+      }),
+    })
+    expect(forbiddenRoot.status).toBe(403)
+
+    const forbiddenActionAtRoot = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [{ actions: ['profile.manage'], roots: ['/org_alpha/team'] }],
+      }),
+    })
+    expect(forbiddenActionAtRoot.status).toBe(403)
+
+    const actionsOnly = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [{ actions: ['credential.use'] }],
+      }),
+    })
+    expect(actionsOnly.status).toBe(200)
+    expect(await actionsOnly.json()).toEqual(expect.objectContaining({
+      rights: [{ action: 'credential.use', root: '/org_alpha' }],
+    }))
+
+    const rootsOnly = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [{ roots: ['/org_alpha/team'] }],
+      }),
+    })
+    expect(rootsOnly.status).toBe(200)
+    expect(await rootsOnly.json()).toEqual(expect.objectContaining({
+      rights: expect.arrayContaining([
+        { action: 'credential.use', root: '/org_alpha/team' },
+        { action: 'credential.manage', root: '/org_alpha/team' },
+      ]),
+    }))
+
+    const created = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        name: 'CI key',
+        constraints: [{
+          actions: ['credential.use'],
+          roots: ['/org_alpha/team'],
+          services: ['api.linear.app'],
+          methods: ['GET', 'POST'],
+          paths: ['/graphql'],
+          ttl: 60,
+        }],
+      }),
+    })
+    expect(created.status).toBe(200)
+    expect(await created.json()).toEqual(expect.objectContaining({
+      name: 'CI key',
+      rights: [{ action: 'credential.use', root: '/org_alpha/team' }],
+      constraints: [{
+        actions: 'credential.use',
+        roots: '/org_alpha/team',
+        services: 'api.linear.app',
+        methods: ['GET', 'POST'],
+        paths: '/graphql',
+        ttl: 60,
+      }],
+    }))
+
+    const missingToken = await app.request('https://agent.pw/tokens/tok_missing', {
+      headers: withToken(token),
+    })
+    expect(missingToken.status).toBe(404)
+    expect(await missingToken.json()).toEqual({ error: 'Issued token not found' })
+
+    const missingRevoke = await app.request('https://agent.pw/tokens/tok_missing', {
+      method: 'DELETE',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ reason: 'missing' }),
+    })
+    expect(missingRevoke.status).toBe(404)
+    expect(await missingRevoke.json()).toEqual({ error: 'Issued token not found' })
+
+    const orgOnlyToken = mintToken(
+      BISCUIT_PRIVATE_KEY,
+      '',
+      [
+        { action: 'credential.use', root: '/org_alpha' },
+        { action: 'credential.manage', root: '/org_alpha' },
+      ],
+      ['org_id("org_alpha")', 'home_path("/org_alpha")'],
+    )
+    const orgOwned = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(orgOnlyToken, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name: 'Org-owned token' }),
+    })
+    expect(orgOwned.status).toBe(200)
+    const orgIssued = await orgOwned.json() as { id: string }
+
+    const orgListed = await app.request('https://agent.pw/tokens', {
+      headers: withToken(orgOnlyToken),
+    })
+    expect(orgListed.status).toBe(200)
+    expect(await orgListed.json()).toEqual({
+      data: [expect.objectContaining({ id: orgIssued.id, name: 'Org-owned token' })],
+    })
+
+    const orgFetched = await app.request(`https://agent.pw/tokens/${orgIssued.id}`, {
+      headers: withToken(orgOnlyToken),
+    })
+    expect(orgFetched.status).toBe(200)
+
+    const orgRevoked = await app.request(`https://agent.pw/tokens/${orgIssued.id}`, {
+      method: 'DELETE',
+      headers: withToken(orgOnlyToken, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ reason: 'cleanup' }),
+    })
+    expect(orgRevoked.status).toBe(200)
+
+    const orgFetchedAfterRevoke = await app.request(`https://agent.pw/tokens/${orgIssued.id}`, {
+      headers: withToken(orgOnlyToken),
+    })
+    expect(orgFetchedAfterRevoke.status).toBe(200)
+    expect(await orgFetchedAfterRevoke.json()).toEqual(expect.objectContaining({
+      id: orgIssued.id,
+      revokedAt: expect.any(String),
+      revokeReason: 'cleanup',
+    }))
+  })
+
+  it('normalizes multi-value token constraints and de-duplicates repeated rights', async () => {
+    const token = mintTestToken('org_alpha', ['credential.use', 'credential.manage'])
+
+    const created = await app.request('https://agent.pw/tokens', {
+      method: 'POST',
+      headers: withToken(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        constraints: [
+          {
+            actions: ['credential.use', 'credential.manage'],
+            hosts: ['api.linear.app', 'api.github.com'],
+            roots: ['/org_alpha/team', '/org_alpha/team'],
+            services: ['linear', 'github'],
+            methods: ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
+            paths: ['/graphql', '/v1/me'],
+          },
+          {
+            actions: ['credential.use'],
+            roots: ['/org_alpha/team'],
+          },
+        ],
+      }),
+    })
+
+    expect(created.status).toBe(200)
+    expect(await created.json()).toEqual(expect.objectContaining({
+      rights: [
+        { action: 'credential.use', root: '/org_alpha/team' },
+        { action: 'credential.manage', root: '/org_alpha/team' },
+      ],
+      constraints: [
+        {
+          actions: ['credential.use', 'credential.manage'],
+          hosts: ['api.linear.app', 'api.github.com'],
+          roots: ['/org_alpha/team', '/org_alpha/team'],
+          services: ['linear', 'github'],
+          methods: ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
+          paths: ['/graphql', '/v1/me'],
+        },
+        {
+          actions: 'credential.use',
+          roots: '/org_alpha/team',
+        },
+      ],
+    }))
   })
 })
