@@ -1,6 +1,6 @@
 # Security Model
 
-agent.pw uses [Biscuit](https://www.biscuitsec.org/) tokens for identity plus client-side attenuation, and canonical slash-delimited paths for credential and profile scoping.
+agent.pw uses [Biscuit](https://www.biscuitsec.org/) tokens for identity and attenuation, canonical slash-delimited paths for credential and profile scoping, and a server-side `issued_tokens` ledger for tracked tokens minted through `/tokens`.
 
 ## Token Format
 
@@ -34,6 +34,7 @@ The `apw:` / `apw_` fact prefixes are not part of the current model.
 - Credentials are authorized by descendant roots, not by implicit ancestor inheritance.
 - Each proxied or bootstrap request runs against one active root.
 - Profiles are stored like credentials, but resolved as overrides: subtree-local profiles beat broader defaults.
+- Management routes are protected twice: the Biscuit authorizer runs on the synthetic `_management` service/action, then route handlers enforce path-based rights such as `credential.manage` or `profile.manage`.
 
 ## Architecture
 
@@ -55,6 +56,11 @@ A Biscuit token has three layers:
 - **Authority block**: Written by the server using the Ed25519 private key. Contains identity facts and optional rights.
 - **Attenuation blocks**: Appended by anyone holding the token. Can only add checks that *narrow* permissions — never expand them.
 - **Verification**: Anyone with the public key (available at `/.well-known/jwks.json`) can verify the signature and evaluate the Biscuit checks.
+
+There are two ways narrowed tokens show up in practice:
+
+- **Offline attenuation** via `restrictToken(...)`: append one more Biscuit block locally, without calling the server.
+- **Tracked minting** via `POST /tokens`: the server derives narrower rights from the presented token, mints a fresh Biscuit family, reapplies parent attenuation blocks, applies the requested constraints, and records the result in `issued_tokens`.
 
 ## Paths and Rights
 
@@ -85,7 +91,6 @@ right("/org_acme/shared", "credential.use");
 right("/org_acme/shared", "credential.bootstrap");
 right("/org_acme", "credential.manage");
 right("/org_acme", "profile.manage");
-right("/org_acme", "token.mint");
 ```
 
 A right over a root authorizes actions inside that subtree:
@@ -94,9 +99,10 @@ A right over a root authorizes actions inside that subtree:
 - `credential.bootstrap` allows creation of a new credential inside the granted root.
 - `credential.manage` allows mutation of existing credentials inside the granted root.
 - `profile.manage` allows mutation of profiles inside the granted root.
-- `token.mint` allows minting child tokens for descendant roots.
 
 There is no implicit upward inheritance for credentials. A token can act only inside roots it was explicitly granted.
+
+`POST /tokens` does not currently require a separate `token.mint` right. It accepts any valid token, but the server can only derive child rights that are already covered by the presented token. `GET /tokens`, `GET /tokens/{id}`, and `DELETE /tokens/{id}` additionally require `credential.manage`.
 
 ## Active Root
 
@@ -170,6 +176,18 @@ check if requested_root($root), ["/org_acme/shared"].contains($root);
 check if time($t), $t <= 2026-03-05T13:00:00Z;
 ```
 
+For management routes, the same authorizer runs against `_management` instead of the upstream hostname:
+
+```datalog
+resource("_management");
+action("_management");
+path("/tokens");
+operation("POST");
+allow if user_id($u);
+```
+
+That means `/tokens`, `/credentials`, and `/cred_profiles` are still covered by Biscuit checks, not just by database-backed route logic.
+
 ## Attenuation (Client-Side)
 
 Tokens can be narrowed without server involvement. Attenuation appends a new block with checks:
@@ -199,6 +217,8 @@ const narrowed = restrictToken(originalToken, publicKeyHex, [
 
 A user with multiple roots can delegate a token narrowed to one host, one method, one active root, and one path prefix. The recipient cannot escape those checks.
 
+The tracked `/tokens` API uses the same constraint vocabulary (`actions`, `hosts`, `roots`, `services`, `methods`, `paths`, `ttl`), but it does not append directly to the presented token. Instead it mints a fresh tracked token family so a revoked child token does not revoke its parent.
+
 ### White-Labeling
 
 Product teams can white-label agent.pw for their end users by extending the path tree:
@@ -217,6 +237,8 @@ The CLI supports a token stack for temporary privilege narrowing:
 
 - `token push` — mint a tracked narrowed token and push it onto a stack
 - `token pop` — revert to the previous token
+- `token list` — inspect tracked tokens owned by the current identity
+- `token revoke <id>` — revoke a tracked token by ID
 
 This lets agents temporarily operate with reduced permissions (e.g. restrict to a single host for the duration of a task) and then restore the broader token afterwards. `token pop` is local-only and does not revoke the issued token.
 
@@ -224,10 +246,13 @@ This lets agents temporarily operate with reduced permissions (e.g. restrict to 
 
 Each block in a Biscuit has a unique revocation ID. The server stores revoked IDs in the `revocations` table. On every request, the middleware checks all block IDs against this table.
 
-Tracked tokens minted through `POST /tokens` are also recorded in the `issued_tokens` table with their revocation IDs, constraints, rights, and usage metadata. `DELETE /tokens/{id}` revokes a tracked token by ID without requiring the raw bearer token string.
+Tracked tokens minted through `POST /tokens` are also recorded in the `issued_tokens` table with their revocation IDs, constraints, rights, and usage metadata. `DELETE /tokens/{id}` revokes a tracked token by ID without requiring the raw bearer token string, and successful authenticated use updates `last_used_at` when the ledger is present.
+
+Because `/tokens` mints a fresh Biscuit family instead of appending directly to the parent token, revoking a tracked child token does not revoke the parent token family.
 
 ## Key Management
 
-- **Private key**: Ed25519, stored server-side only (`BISCUIT_PRIVATE_KEY` env var or `~/.agent.pw/config.json`)
+- **Private key**: Ed25519, stored server-side only (`BISCUIT_PRIVATE_KEY` env var or `~/.agent.pw/server.json`)
 - **Public key**: Exposed at `GET /.well-known/jwks.json` in JWK format
+- **CLI connection state**: stored separately in `~/.agent.pw/cli.json`
 - Token verification, attenuation, and fact extraction all use the public key only
