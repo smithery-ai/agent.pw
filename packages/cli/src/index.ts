@@ -213,24 +213,6 @@ export function buildProgram() {
     })
 
   tokenCmd
-    .command('restrict')
-    .description('Create a restricted child token')
-    .option('--service <host...>', 'Limit to service host')
-    .option('--host <host...>', 'Limit to service host')
-    .option('--method <verb...>', 'Limit to HTTP method')
-    .option('--path <prefix...>', 'Limit to path prefix')
-    .option('--ttl <duration>', 'Token lifetime (e.g. 1h)')
-    .action(async (opts) => {
-      const { restrictTokenCmd } = await import('./commands/token')
-      return restrictTokenCmd({
-        services: [...(opts.service ?? []), ...(opts.host ?? [])],
-        methods: opts.method,
-        paths: opts.path,
-        ttl: opts.ttl,
-      })
-    })
-
-  tokenCmd
     .command('revoke <id>')
     .description('Revoke a tracked token by ID')
     .option('--reason <text>', 'Reason for revoking the token')
@@ -241,7 +223,7 @@ export function buildProgram() {
 
   tokenCmd
     .command('push [token]')
-    .description('Push a provided token, or restrict the current token and push the result')
+    .description('Push a provided token, or mint a tracked token from the current token and push the result')
     .option('--service <host...>', 'Limit to service host')
     .option('--host <host...>', 'Limit to service host')
     .option('--method <verb...>', 'Limit to HTTP method')

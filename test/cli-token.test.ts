@@ -37,7 +37,6 @@ import {
   popTokenCmd,
   pushProvidedTokenCmd,
   pushTokenCmd,
-  restrictTokenCmd,
   revokeTokenCmd,
 } from '../packages/cli/src/commands/token'
 
@@ -93,7 +92,7 @@ describe('CLI token stack commands', () => {
     )
   })
 
-  it('creates restricted tokens through POST /tokens', async () => {
+  it('routes `token push` with restrictions through POST /tokens', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     requestJson.mockResolvedValue({
       ok: true,
@@ -109,12 +108,20 @@ describe('CLI token stack commands', () => {
       revokeReason: null,
     })
 
-    await restrictTokenCmd({
-      services: ['api.notion.com'],
-      methods: ['get'],
-      paths: ['/v1/pages'],
-      ttl: '1h',
-    })
+    await runCli([
+      'node',
+      'agent.pw',
+      'token',
+      'push',
+      '--host',
+      'api.notion.com',
+      '--method',
+      'get',
+      '--path',
+      '/v1/pages',
+      '--ttl',
+      '1h',
+    ])
 
     expect(requestJson).toHaveBeenCalledWith('/tokens', {
       method: 'POST',
@@ -128,7 +135,10 @@ describe('CLI token stack commands', () => {
         }],
       }),
     })
-    expect(log).toHaveBeenCalledWith('apw_child_token')
+    expect(writeTokenStack).toHaveBeenCalledWith(['apw_child_token'])
+    expect(log).toHaveBeenCalledWith(
+      'Pushed tracked token tok_123 (stack depth: 1). Run `agent.pw token pop` to restore the previous token.',
+    )
   })
 
   it('pushes a tracked restricted token without revoking it on pop', async () => {
@@ -165,6 +175,35 @@ describe('CLI token stack commands', () => {
       'Pushed tracked token tok_push (stack depth: 1). Run `agent.pw token pop` to restore the previous token.',
     )
     expect(log).toHaveBeenNthCalledWith(2, 'Popped to root token.')
+  })
+
+  it('pushes a full-scope tracked token when no restriction flags are provided', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    requestJson.mockResolvedValue({
+      ok: true,
+      id: 'tok_full_scope',
+      token: 'apw_full_scope_child',
+      name: null,
+      rights: [],
+      constraints: [],
+      createdAt: '2026-03-20T00:00:00.000Z',
+      expiresAt: null,
+      lastUsedAt: null,
+      revokedAt: null,
+      revokeReason: null,
+    })
+
+    await pushTokenCmd({})
+
+    expect(requestJson).toHaveBeenCalledWith('/tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(writeTokenStack).toHaveBeenCalledWith(['apw_full_scope_child'])
+    expect(log).toHaveBeenCalledWith(
+      'Pushed tracked token tok_full_scope (stack depth: 1). Run `agent.pw token pop` to restore the previous token.',
+    )
   })
 
   it('lists tracked tokens from GET /tokens', async () => {

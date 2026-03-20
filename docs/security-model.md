@@ -235,12 +235,12 @@ Each level gets explicit roots instead of implicit inheritance. A platform can m
 
 The CLI supports a token stack for temporary privilege narrowing:
 
-- `token push` — mint a tracked narrowed token and push it onto a stack
+- `token push` — push a provided token, or mint a tracked token from the current token and push it onto the stack
 - `token pop` — revert to the previous token
 - `token list` — inspect tracked tokens owned by the current identity
 - `token revoke <id>` — revoke a tracked token by ID
 
-This lets agents temporarily operate with reduced permissions (e.g. restrict to a single host for the duration of a task) and then restore the broader token afterwards. `token pop` is local-only and does not revoke the issued token.
+This lets agents temporarily operate with reduced permissions (for example, restrict to a single host for the duration of a task) and then restore the broader token afterwards. When `token push` is called without restriction flags, it mints and pushes a tracked token with the caller's full currently allowed scope. `token pop` is local-only and does not revoke the issued token.
 
 ## Revocation
 

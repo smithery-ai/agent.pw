@@ -159,36 +159,15 @@ function printIssuedToken(token: IssuedTokenRecord) {
 }
 
 async function createTrackedToken(constraint: Record<string, unknown>) {
+  const body = Object.keys(constraint).length === 0
+    ? {}
+    : { constraints: [constraint] }
+
   return requestJson<CreateTokenResponse>('/tokens', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ constraints: [constraint] }),
+    body: JSON.stringify(body),
   })
-}
-
-export async function restrictTokenCmd(opts: RestrictOptions) {
-  const constraint: Record<string, unknown> = {}
-  if (opts.services && opts.services.length > 0) {
-    constraint.services = opts.services.length === 1 ? opts.services[0] : opts.services
-  }
-  if (opts.methods && opts.methods.length > 0) {
-    const upper = opts.methods.map(m => m.toUpperCase())
-    constraint.methods = upper.length === 1 ? upper[0] : upper
-  }
-  if (opts.paths && opts.paths.length > 0) {
-    constraint.paths = opts.paths.length === 1 ? opts.paths[0] : opts.paths
-  }
-  if (opts.ttl) constraint.ttl = opts.ttl
-
-  if (Object.keys(constraint).length === 0) {
-    console.error('At least one constraint is required (--service, --method, --path, or --ttl).')
-    process.exit(1)
-  }
-
-  const res = await createTrackedToken(constraint)
-
-  if (output(res)) return
-  console.log(res.token)
 }
 
 export async function listTokensCmd() {
@@ -231,11 +210,6 @@ export async function pushTokenCmd(opts: RestrictOptions) {
     constraint.paths = opts.paths.length === 1 ? opts.paths[0] : opts.paths
   }
   if (opts.ttl) constraint.ttl = opts.ttl
-
-  if (Object.keys(constraint).length === 0) {
-    console.error('At least one constraint is required (--service, --method, --path, or --ttl).')
-    process.exit(1)
-  }
 
   const res = await createTrackedToken(constraint)
 

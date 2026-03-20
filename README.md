@@ -95,7 +95,7 @@ agent.pw stop
 Mint, list, and revoke tracked proxy tokens:
 
 ```bash
-agent.pw token restrict --host api.linear.app --method GET --path /graphql --ttl 1h
+agent.pw token push --host api.linear.app --method GET --path /graphql --ttl 1h
 agent.pw token list
 agent.pw token revoke <issued-token-id> --reason "rotated in CI"
 ```
