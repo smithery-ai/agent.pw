@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.3.0...agent.pw-v0.4.0) (2026-03-20)
+
+
+### Features
+
+* track issued biscuit tokens ([#99](https://github.com/smithery-ai/agent.pw/issues/99)) ([c6afa65](https://github.com/smithery-ai/agent.pw/commit/c6afa653c49821107d923cd0c78b4baef780656d))
+
 ## [0.3.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.2.0...agent.pw-v0.3.0) (2026-03-19)
 
 
