@@ -208,7 +208,7 @@ export async function listTokensCmd() {
 }
 
 export async function revokeTokenCmd(id: string, reason?: string) {
-  const res = await requestJson<{ ok: true; id: string }>('/tokens/' + encodeURIComponent(id), {
+  const res = await requestJson<{ ok: true; id: string }>(`/tokens/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(reason ? { reason } : {}),

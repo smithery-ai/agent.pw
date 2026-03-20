@@ -104,12 +104,33 @@ function uniqueRights(rights: TokenRight[]) {
   })
 }
 
+function normalizeMethod(method: string): HttpMethod {
+  switch (method.toUpperCase()) {
+    case 'GET':
+      return 'GET'
+    case 'POST':
+      return 'POST'
+    case 'PUT':
+      return 'PUT'
+    case 'DELETE':
+      return 'DELETE'
+    case 'PATCH':
+      return 'PATCH'
+    case 'HEAD':
+      return 'HEAD'
+    case 'OPTIONS':
+      return 'OPTIONS'
+    default:
+      throw new Error(`Invalid method '${method}'`)
+  }
+}
+
 function normalizeConstraint(constraint: z.infer<typeof TokenConstraintSchema>): TokenConstraint {
   const actions = toArray(constraint.actions).filter(Boolean)
   const hosts = toArray(constraint.hosts).filter(Boolean)
   const roots = toArray(constraint.roots).filter(Boolean)
   const services = toArray(constraint.services).filter(Boolean)
-  const methods = toArray(constraint.methods).filter(Boolean).map(method => method.toUpperCase() as HttpMethod)
+  const methods = toArray(constraint.methods).filter(Boolean).map(normalizeMethod)
   const paths = toArray(constraint.paths).filter(Boolean)
 
   for (const root of roots) {

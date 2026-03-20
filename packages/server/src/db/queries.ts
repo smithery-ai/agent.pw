@@ -27,7 +27,6 @@ type CredProfileRow = Omit<InferSelectModel<typeof credProfiles>, 'host'> & {
 }
 
 type CredentialRow = InferSelectModel<typeof credentials>
-type IssuedTokenRow = InferSelectModel<typeof issuedTokens>
 
 function normalizeHostList(value: unknown): string[] {
   if (Array.isArray(value)) {
