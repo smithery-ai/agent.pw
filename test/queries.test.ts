@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import {
   completeAuthFlow,
+  createIssuedToken,
   createAuthFlow,
   deleteCredential,
   getAuthFlow,
@@ -12,6 +13,9 @@ import {
   getCredential,
   getCredentialsByHost,
   getCredentialsByHostWithinRoot,
+  getIssuedTokenByHash,
+  getIssuedTokenById,
+  isMissingIssuedTokensTableError,
   isRevoked,
   listCredProfilesWithCredentialCounts,
   listCredProfilesPage,
@@ -19,7 +23,11 @@ import {
   listCredentialsAccessible,
   listCredentialsAccessiblePage,
   listCredentialsWithinRoots,
+  listIssuedTokensByOwner,
+  markIssuedTokenUsed,
+  markIssuedTokenUsedBestEffort,
   revokeToken,
+  revokeIssuedTokenById,
   updateAuthFlow,
   upsertCredProfile,
   upsertCredential,
@@ -29,9 +37,11 @@ import {
   deriveEncryptionKey,
   encryptCredentials,
 } from '@agent.pw/server/crypto'
+import { getRevocationIds, hashToken, mintToken } from '@agent.pw/server/biscuit'
 import { publicProfilePath } from '@agent.pw/server/paths'
 import {
   BISCUIT_PRIVATE_KEY,
+  PUBLIC_KEY_HEX,
   createTestDb,
   type TestDb,
 } from './setup'
@@ -359,5 +369,143 @@ describe('db queries', () => {
       token: 'access-token',
       identity: 'user-123',
     }))
+  })
+
+  it('tracks issued tokens by owner, hash, usage, and revocation', async () => {
+    const userToken = mintToken(
+      BISCUIT_PRIVATE_KEY,
+      'user_alpha',
+      [{ action: 'credential.use', root: '/org_alpha' }],
+      ['org_id("org_alpha")'],
+    )
+    const orgToken = mintToken(
+      BISCUIT_PRIVATE_KEY,
+      'org_alpha',
+      [{ action: 'credential.manage', root: '/org_alpha' }],
+      ['org_id("org_alpha")'],
+    )
+    const otherToken = mintToken(
+      BISCUIT_PRIVATE_KEY,
+      'user_beta',
+      [{ action: 'credential.use', root: '/org_alpha' }],
+      ['org_id("org_alpha")'],
+    )
+
+    const userHash = await hashToken(userToken)
+    const orgHash = await hashToken(orgToken)
+    const otherHash = await hashToken(otherToken)
+    const userRevocationIds = getRevocationIds(userToken, PUBLIC_KEY_HEX)
+    const orgRevocationIds = getRevocationIds(orgToken, PUBLIC_KEY_HEX)
+    const otherRevocationIds = getRevocationIds(otherToken, PUBLIC_KEY_HEX)
+
+    const userIssued = await createIssuedToken(db, {
+      id: 'tok_user',
+      ownerUserId: 'user_alpha',
+      orgId: 'org_alpha',
+      name: 'User token',
+      tokenHash: userHash,
+      revocationIds: userRevocationIds,
+      rights: [{ action: 'credential.use', root: '/org_alpha' }],
+      constraints: [{ methods: 'GET' }],
+      expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    })
+    const orgIssued = await createIssuedToken(db, {
+      id: 'tok_org',
+      ownerUserId: null,
+      orgId: 'org_alpha',
+      name: 'Org token',
+      tokenHash: orgHash,
+      revocationIds: orgRevocationIds,
+      rights: [{ action: 'credential.manage', root: '/org_alpha' }],
+      constraints: [],
+    })
+    await createIssuedToken(db, {
+      id: 'tok_other',
+      ownerUserId: 'user_beta',
+      orgId: 'org_alpha',
+      name: 'Other token',
+      tokenHash: otherHash,
+      revocationIds: otherRevocationIds,
+      rights: [{ action: 'credential.use', root: '/org_alpha' }],
+      constraints: [],
+    })
+
+    expect(userIssued).toEqual(expect.objectContaining({ id: 'tok_user', name: 'User token' }))
+    expect(orgIssued).toEqual(expect.objectContaining({ id: 'tok_org', name: 'Org token' }))
+
+    const userOwned = await listIssuedTokensByOwner(db, {
+      ownerUserId: 'user_alpha',
+      orgId: 'org_alpha',
+    })
+    expect(userOwned.map(row => row.id)).toEqual(['tok_user'])
+    expect((await listIssuedTokensByOwner(db, {
+      ownerUserId: 'user_alpha',
+    })).map(row => row.id)).toEqual(['tok_user'])
+
+    const orgOwned = await listIssuedTokensByOwner(db, {
+      ownerUserId: null,
+      orgId: 'org_alpha',
+    })
+    expect(orgOwned.map(row => row.id)).toEqual(['tok_org'])
+    expect(await listIssuedTokensByOwner(db, {})).toEqual([])
+
+    expect(await getIssuedTokenById(db, 'tok_user', {
+      ownerUserId: 'user_alpha',
+      orgId: 'org_alpha',
+    })).toEqual(expect.objectContaining({ id: 'tok_user' }))
+    expect(await getIssuedTokenById(db, 'tok_user', {
+      ownerUserId: 'user_beta',
+      orgId: 'org_alpha',
+    })).toBeNull()
+    expect(await getIssuedTokenByHash(db, userHash)).toEqual(expect.objectContaining({ id: 'tok_user' }))
+
+    const usedAt = new Date('2099-02-02T00:00:00.000Z')
+    expect(await markIssuedTokenUsed(db, userHash, usedAt)).toEqual(
+      expect.objectContaining({ id: 'tok_user', lastUsedAt: usedAt }),
+    )
+    expect(await markIssuedTokenUsed(db, 'missing-hash', usedAt)).toBeNull()
+
+    const revoked = await revokeIssuedTokenById(db, 'tok_user', {
+      ownerUserId: 'user_alpha',
+      orgId: 'org_alpha',
+    }, 'manual')
+    expect(revoked).toEqual(expect.objectContaining({
+      id: 'tok_user',
+      revokeReason: 'manual',
+    }))
+    expect(await isRevoked(db, userRevocationIds[0]!)).toBe(true)
+
+    const revokedAgain = await revokeIssuedTokenById(db, 'tok_user', {
+      ownerUserId: 'user_alpha',
+      orgId: 'org_alpha',
+    }, 'ignored')
+    expect(revokedAgain).toEqual(expect.objectContaining({
+      id: 'tok_user',
+      revokeReason: 'manual',
+    }))
+
+    expect(await revokeIssuedTokenById(db, 'missing-token', {
+      ownerUserId: 'user_alpha',
+      orgId: 'org_alpha',
+    }, 'missing')).toBeNull()
+  })
+
+  it('detects missing issued-token ledger errors and rethrows unexpected ones', async () => {
+    expect(
+      isMissingIssuedTokensTableError(
+        new Error('relation "agentpw.issued_tokens" does not exist'),
+      ),
+    ).toBe(true)
+    expect(
+      isMissingIssuedTokensTableError({
+        cause: 'no such table: issued_tokens',
+      }),
+    ).toBe(true)
+    expect(isMissingIssuedTokensTableError(new Error('boom'))).toBe(false)
+    expect(isMissingIssuedTokensTableError({})).toBe(false)
+
+    await expect(
+      markIssuedTokenUsedBestEffort({} as unknown as TestDb, 'hash'),
+    ).rejects.toBeInstanceOf(TypeError)
   })
 })

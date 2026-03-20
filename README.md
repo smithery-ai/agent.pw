@@ -20,17 +20,17 @@ Agent ──▶ proxy.agent.pw/api.github.com/user ──▶ api.github.com/user
 1. Agent sends a normal HTTP request through the proxy
 2. agent.pw looks up a stored credential for the target host
 3. If found, inject auth headers and forward
-4. If not found, forward as-is — if upstream returns 401, bootstrap a credential automatically
-5. Agents get scoped, revocable [Biscuit](https://www.biscuitsec.org/) tokens — never raw secrets
+4. If not found, return a structured `WWW-Authenticate: AgentPW ...` challenge that points the caller at an OAuth or manual bootstrap flow
+5. Agents get scoped, revocable [Biscuit](https://www.biscuitsec.org/) tokens — and server-minted tokens are tracked for listing, revocation, and usage metadata
 
 ## Features
 
 - **Authenticated proxy** — credential injection by target hostname, transparent to the agent
-- **Auth bootstrap** — standards-based OAuth discovery (RFC 9728, PKCE, Resource Indicators), with credential profile fallback for non-standard APIs
+- **Structured auth bootstrap** — standards-based OAuth discovery (RFC 9728, PKCE, Resource Indicators), with `AgentPW` auth challenges and manual/profile fallback for non-standard APIs
 - **Credential profiles** — templates that describe how to authenticate with a service (OAuth endpoints or header forms)
-- **Path-based access** — credentials live in a hierarchical tree; usage flows upward, admin flows downward ([details](docs/security-model.md))
-- **Biscuit tokens** — cryptographic attenuation by host, method, path, and TTL; tokens can only be narrowed, never expanded ([details](docs/security-model.md))
-- **Token stack** — `token push` / `token pop` for temporary privilege narrowing during agent tasks
+- **Path-based access** — credentials and profiles live in a hierarchical tree, with explicit rights over descendant roots ([details](docs/security-model.md))
+- **Tracked Biscuit tokens** — cryptographic attenuation by host, method, path, root, and TTL, with tracked server-minted tokens that can be listed and revoked by ID ([details](docs/security-model.md))
+- **Token stack** — `token push`, `token pop`, `token list`, and `token revoke` for temporary privilege narrowing during agent tasks
 - **Write-only credentials** — agents use credentials through the proxy but cannot read the raw secret material
 - **Local-first OSS** — run a self-hosted instance with PGlite in one command, then use the hosted vault as an optional browser shell
 
@@ -90,21 +90,37 @@ agent.pw logs
 agent.pw stop
 ```
 
+### Tracked Tokens
+
+Mint, list, and revoke tracked proxy tokens:
+
+```bash
+agent.pw token push --host api.linear.app --method GET --path /graphql --ttl 1h
+agent.pw token list
+agent.pw token revoke <issued-token-id> --reason "rotated in CI"
+```
+
 ## API
 
 ```
 ALL    /proxy/{hostname}/{path...}        authenticated proxy
 GET    /credentials                       list credentials
 PUT    /credentials/{name}                store a credential
+PATCH  /credentials/{name}                move a credential to a new path
 DELETE /credentials/{name}                remove a credential
 GET    /cred_profiles                     list profiles
+GET    /cred_profiles/{slug}              fetch profile details
 PUT    /cred_profiles/{slug}              create/update a profile
 DELETE /cred_profiles/{slug}              remove a profile
-POST   /tokens/restrict                   attenuate a token
+POST   /tokens                            mint a tracked Biscuit token
+GET    /tokens                            list tracked tokens
+GET    /tokens/{id}                       fetch tracked token metadata
 POST   /tokens/inspect                    inspect token facts
-POST   /tokens/revoke                     revoke a token
+DELETE /tokens/{id}                       revoke a tracked token
 GET    /.well-known/jwks.json             Ed25519 public key (JWK)
 ```
+
+Management routes use `Authorization: Bearer <token>`. Proxy requests use `Proxy-Authorization`.
 
 List endpoints accept `limit` and `cursor` query params and return:
 
@@ -115,6 +131,8 @@ List endpoints accept `limit` and `cursor` query params and return:
   "nextCursor": null
 }
 ```
+
+Some credential and profile mutations also require `host`, `profile`, or `path` fields so the server can resolve the exact record or target path.
 
 ## Development
 

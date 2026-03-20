@@ -535,6 +535,245 @@
         },
         "additionalProperties": false
       },
+      "TokenConstraint": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "hosts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "roots": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "services": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "methods": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "DELETE",
+                  "PATCH",
+                  "HEAD",
+                  "OPTIONS"
+                ]
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "DELETE",
+                    "PATCH",
+                    "HEAD",
+                    "OPTIONS"
+                  ]
+                }
+              }
+            ]
+          },
+          "paths": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "ttl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateTokenRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenConstraint"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TokenRight": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "root"
+        ],
+        "additionalProperties": false
+      },
+      "CreateTokenResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenRight"
+            }
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenConstraint"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastUsedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revokeReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "rights",
+          "constraints",
+          "createdAt",
+          "expiresAt",
+          "lastUsedAt",
+          "revokedAt",
+          "revokeReason",
+          "ok",
+          "token"
+        ],
+        "additionalProperties": false
+      },
       "InspectTokenRequest": {
         "type": "object",
         "properties": {
@@ -578,20 +817,7 @@
           "rights": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "action": {
-                  "type": "string"
-                },
-                "root": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "action",
-                "root"
-              ],
-              "additionalProperties": false
+              "$ref": "#/components/schemas/TokenRight"
             }
           },
           "homePath": {
@@ -621,147 +847,103 @@
         ],
         "additionalProperties": false
       },
-      "RestrictTokenRequest": {
+      "IssuedToken": {
         "type": "object",
         "properties": {
-          "constraints": {
-            "minItems": 1,
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rights": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "actions": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                },
-                "hosts": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                },
-                "roots": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                },
-                "services": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                },
-                "methods": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "enum": [
-                        "GET",
-                        "POST",
-                        "PUT",
-                        "DELETE",
-                        "PATCH",
-                        "HEAD",
-                        "OPTIONS"
-                      ]
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "GET",
-                          "POST",
-                          "PUT",
-                          "DELETE",
-                          "PATCH",
-                          "HEAD",
-                          "OPTIONS"
-                        ]
-                      }
-                    }
-                  ]
-                },
-                "paths": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                },
-                "ttl": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    }
-                  ]
-                }
+              "$ref": "#/components/schemas/TokenRight"
+            }
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenConstraint"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
               },
-              "additionalProperties": false
-            },
-            "description": "Attenuation constraints to append to the current token"
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastUsedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revokeReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "constraints"
+          "id",
+          "name",
+          "rights",
+          "constraints",
+          "createdAt",
+          "expiresAt",
+          "lastUsedAt",
+          "revokedAt",
+          "revokeReason"
         ],
         "additionalProperties": false
       },
-      "RestrictTokenResponse": {
+      "IssuedTokenListResponse": {
         "type": "object",
         "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          },
-          "token": {
-            "type": "string",
-            "description": "Restricted child token"
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssuedToken"
+            }
           }
         },
         "required": [
-          "ok",
-          "token"
+          "data"
         ],
         "additionalProperties": false
       },
@@ -782,6 +964,19 @@
             "type": "boolean",
             "const": true
           },
+          "id": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revokedIds": {
             "type": "array",
             "items": {
@@ -792,6 +987,8 @@
         },
         "required": [
           "ok",
+          "id",
+          "revokedAt",
           "revokedIds"
         ],
         "additionalProperties": false
@@ -1402,27 +1599,27 @@
         ]
       }
     },
-    "/tokens/restrict": {
+    "/tokens": {
       "post": {
-        "operationId": "postTokensRestrict",
+        "operationId": "postTokens",
         "tags": [
           "tokens"
         ],
-        "summary": "Restrict token",
-        "description": "Create an attenuated child token from the current bearer token.",
+        "summary": "Issue token",
+        "description": "Create a tracked Biscuit token derived from the current bearer token.",
         "responses": {
           "200": {
-            "description": "Restricted token minted",
+            "description": "Tracked token minted",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RestrictTokenResponse"
+                  "$ref": "#/components/schemas/CreateTokenResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Restriction failed",
+            "description": "Token issuance failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -1435,10 +1632,13 @@
                   "required": [
                     "error"
                   ],
-                  "id": "TokenRestrictError"
+                  "id": "TokenCreateError"
                 }
               }
             }
+          },
+          "403": {
+            "description": "Requested scope exceeds parent token"
           }
         },
         "requestBody": {
@@ -1446,60 +1646,32 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RestrictTokenRequest"
+                "$ref": "#/components/schemas/CreateTokenRequest"
               }
             }
           }
         }
-      }
-    },
-    "/tokens/revoke": {
-      "post": {
-        "operationId": "postTokensRevoke",
+      },
+      "get": {
+        "operationId": "getTokens",
         "tags": [
           "tokens"
         ],
-        "summary": "Revoke token",
-        "description": "Revoke the current bearer token, preventing further use.",
+        "summary": "List issued tokens",
+        "description": "List tracked tokens owned by the current token identity.",
         "responses": {
           "200": {
-            "description": "Token revoked",
+            "description": "Tracked tokens",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RevokeTokenResponse"
+                  "$ref": "#/components/schemas/IssuedTokenListResponse"
                 }
               }
             }
           },
-          "400": {
-            "description": "Revocation failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "id": "TokenError"
-                }
-              }
-            }
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RevokeTokenRequest"
-              }
-            }
+          "403": {
+            "description": "Credential management right required"
           }
         }
       }
@@ -1553,6 +1725,80 @@
             }
           }
         }
+      }
+    },
+    "/tokens/{id}": {
+      "get": {
+        "operationId": "getTokensById",
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Get issued token",
+        "description": "Fetch metadata for one tracked token.",
+        "responses": {
+          "200": {
+            "description": "Tracked token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedToken"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential management right required"
+          },
+          "404": {
+            "description": "Tracked token not found"
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "deleteTokensById",
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Revoke issued token",
+        "description": "Revoke a tracked token by ID.",
+        "responses": {
+          "200": {
+            "description": "Tracked token revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeTokenResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential management right required"
+          },
+          "404": {
+            "description": "Tracked token not found"
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ]
       }
     }
   }

@@ -317,38 +317,81 @@ describe('Core Scenario Flows', () => {
     expect(proxied.status).toBe(200)
     expect(await proxied.json()).toEqual({ authorization: 'Bearer lin_api_test' })
 
-    const restrictedRes = await req('/tokens/restrict', {
+    const issuedRes = await req('/tokens', {
       method: 'POST',
       headers: withManagementToken(ORG_TOKEN, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         constraints: [{ services: 'api.linear.app', methods: 'GET', paths: '/graphql' }],
       }),
     })
-    expect(restrictedRes.status).toBe(200)
-    const restricted = (await restrictedRes.json()) as { token: string }
+    expect(issuedRes.status).toBe(200)
+    const issued = (await issuedRes.json()) as {
+      id: string
+      token: string
+      expiresAt: string | null
+      lastUsedAt: string | null
+    }
+    expect(issued.token).toMatch(/^apw_/)
+    expect(issued.lastUsedAt).toBeNull()
+
+    const listedBeforeUse = await req('/tokens', {
+      headers: withManagementToken(ORG_TOKEN),
+    })
+    expect(listedBeforeUse.status).toBe(200)
+    expect(await listedBeforeUse.json()).toEqual({
+      data: [
+        expect.objectContaining({
+          id: issued.id,
+          lastUsedAt: null,
+        }),
+      ],
+    })
 
     const restrictedGet = await req('/proxy/api.linear.app/graphql', {
-      headers: withProxyToken(restricted.token),
+      headers: withProxyToken(issued.token),
     })
     expect(restrictedGet.status).toBe(200)
 
     const restrictedPost = await req('/proxy/api.linear.app/graphql', {
       method: 'POST',
-      headers: withProxyToken(restricted.token),
+      headers: withProxyToken(issued.token),
     })
     expect(restrictedPost.status).toBe(403)
 
-    const revoked = await req('/tokens/revoke', {
+    const restrictedMint = await req('/tokens', {
       method: 'POST',
+      headers: withManagementToken(issued.token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ constraints: [{ ttl: '5m' }] }),
+    })
+    expect(restrictedMint.status).toBe(403)
+
+    const fetchedAfterUse = await req(`/tokens/${issued.id}`, {
+      headers: withManagementToken(ORG_TOKEN),
+    })
+    expect(fetchedAfterUse.status).toBe(200)
+    expect(await fetchedAfterUse.json()).toEqual(
+      expect.objectContaining({
+        id: issued.id,
+        lastUsedAt: expect.any(String),
+      }),
+    )
+
+    const revoked = await req(`/tokens/${issued.id}`, {
+      method: 'DELETE',
       headers: withManagementToken(ORG_TOKEN, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ reason: 'no longer needed' }),
     })
     expect(revoked.status).toBe(200)
 
-    const revokedProxy = await req('/proxy/api.linear.app/graphql', {
+    const revokedChildProxy = await req('/proxy/api.linear.app/graphql', {
+      headers: withProxyToken(issued.token),
+    })
+    expect(revokedChildProxy.status).toBe(403)
+
+    const parentStillWorks = await req('/proxy/api.linear.app/graphql', {
       headers: withProxyToken(ORG_TOKEN),
     })
-    expect(revokedProxy.status).toBe(403)
+    expect(parentStillWorks.status).toBe(200)
   })
 
   it('requires an explicit credential name when multiple credentials match a host', async () => {

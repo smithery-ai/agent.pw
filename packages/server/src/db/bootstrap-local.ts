@@ -62,4 +62,37 @@ export async function bootstrapLocalSchema(db: Database) {
       created_at TIMESTAMP NOT NULL DEFAULT now()
     )
   `)
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS agentpw.issued_tokens (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT,
+      org_id TEXT,
+      name TEXT,
+      token_hash TEXT NOT NULL,
+      revocation_ids JSONB NOT NULL,
+      rights JSONB NOT NULL,
+      constraints JSONB NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      expires_at TIMESTAMP,
+      last_used_at TIMESTAMP,
+      revoked_at TIMESTAMP,
+      revoke_reason TEXT
+    )
+  `)
+
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS issued_tokens_token_hash_idx
+    ON agentpw.issued_tokens (token_hash)
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS issued_tokens_owner_user_created_idx
+    ON agentpw.issued_tokens (owner_user_id, created_at)
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS issued_tokens_org_created_idx
+    ON agentpw.issued_tokens (org_id, created_at)
+  `)
 }

@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCoreApp } from '@agent.pw/server'
 import { createLogger } from '@agent.pw/server/logger'
@@ -8,6 +9,7 @@ import { revokeToken } from '@agent.pw/server/db/queries'
 import {
   requireRight,
   requireToken,
+  requireValidToken,
   resolveUserId,
 } from '../packages/server/src/core/middleware'
 import {
@@ -140,6 +142,39 @@ describe('core middleware', () => {
     }))
   })
 
+  it('accepts valid non-management tokens with requireValidToken', async () => {
+    const app = await buildHarness()
+    app.get('/valid-only', requireValidToken, c =>
+      c.json({ facts: c.get('tokenFacts') }),
+    )
+
+    const missing = await app.request(makeUrl('/valid-only'))
+    expect(missing.status).toBe(401)
+    expect(await missing.json()).toEqual({
+      error: 'Missing Authorization header',
+      hint: 'Send your Biscuit token in the Authorization header. Proxy requests still use Proxy-Authorization.',
+    })
+
+    const invalid = await app.request(makeUrl('/valid-only'), {
+      headers: { Authorization: 'Bearer bad-token' },
+    })
+    expect(invalid.status).toBe(401)
+    expect(await invalid.json()).toEqual({ error: 'Invalid token' })
+
+    const restricted = restrictToken(mintTestToken('org_alpha'), PUBLIC_KEY_HEX, [{ services: 'github' }])
+    const response = await app.request(makeUrl('/valid-only'), {
+      headers: { Authorization: `Bearer ${restricted}` },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      facts: expect.objectContaining({
+        orgId: 'org_alpha',
+        userId: 'org_alpha',
+      }),
+    })
+  })
+
   it('inspects tokens via the public inspect route', async () => {
     const app = createCoreApp({ db, biscuitPrivateKey: BISCUIT_PRIVATE_KEY })
     const token = mintTestToken('org_alpha', ['credential.use', 'credential.manage'])
@@ -169,6 +204,14 @@ describe('core middleware', () => {
     })
     expect(invalid.status).toBe(400)
     expect(await invalid.json()).toEqual({ error: 'Invalid or unrecognized token' })
+
+    const identityless = await app.request(makeUrl('/tokens/inspect'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: mintToken(BISCUIT_PRIVATE_KEY, '') }),
+    })
+    expect(identityless.status).toBe(400)
+    expect(await identityless.json()).toEqual({ error: 'Invalid or unrecognized token' })
   })
 
   it('rejects revoked tokens and service-restricted tokens for management routes', async () => {
@@ -190,6 +233,36 @@ describe('core middleware', () => {
     })
     expect(forbidden.status).toBe(403)
     expect(await forbidden.json()).toEqual(expect.objectContaining({ error: 'Forbidden' }))
+  })
+
+  it('rejects expired or identityless tokens and tolerates a missing issued token ledger', async () => {
+    const app = await buildHarness()
+    app.get('/protected', requireToken, c => c.json({ ok: true }))
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'))
+    const expiredToken = restrictToken(mintTestToken('org_alpha'), PUBLIC_KEY_HEX, [{ ttl: 1 }])
+    vi.setSystemTime(new Date('2030-01-01T00:00:02.000Z'))
+
+    const expired = await app.request(makeUrl('/protected'), {
+      headers: { Authorization: `Bearer ${expiredToken}` },
+    })
+    expect(expired.status).toBe(403)
+    expect(await expired.json()).toEqual({ error: 'Token has expired' })
+
+    const identitylessToken = mintToken(BISCUIT_PRIVATE_KEY, '')
+    const identityless = await app.request(makeUrl('/protected'), {
+      headers: { Authorization: `Bearer ${identitylessToken}` },
+    })
+    expect(identityless.status).toBe(401)
+    expect(await identityless.json()).toEqual({ error: 'Invalid token' })
+
+    await db.execute(sql`drop table agentpw.issued_tokens`)
+    const legacyDb = await app.request(makeUrl('/protected'), {
+      headers: { Authorization: `Bearer ${mintTestToken('org_alpha')}` },
+    })
+    expect(legacyDb.status).toBe(200)
+    expect(await legacyDb.json()).toEqual({ ok: true })
   })
 
   it('enforces rights and resolves user identity from tokens', async () => {

@@ -70,9 +70,11 @@ resources:
 
   tokens:
     methods:
-      restrict: post /tokens/restrict
+      create: post /tokens
+      list: get /tokens
+      get: get /tokens/{id}
       inspect: post /tokens/inspect
-      revoke: post /tokens/revoke
+      revoke: delete /tokens/{id}
 
 settings:
   disable_mock_tests: true

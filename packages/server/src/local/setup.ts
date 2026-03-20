@@ -66,9 +66,7 @@ export function mintBootstrapToken(
     paths: [
       '/credentials',
       '/cred_profiles',
-      '/tokens/inspect',
-      '/tokens/restrict',
-      '/tokens/revoke',
+      '/tokens',
     ],
     ttl,
   }])

@@ -1,8 +1,8 @@
 import { loadBiscuit } from '../biscuit'
-import { getClient, requestJson } from '../http'
-import { resolve } from '../resolve'
+import { requestJson } from '../http'
 import { readTokenStack, writeTokenStack } from '../config'
-import { output } from '../output'
+import { output, outputList } from '../output'
+import { resolve } from '../resolve'
 import { isRecord } from '../type-utils'
 
 const TOKEN_PREFIX = 'apw_'
@@ -115,39 +115,86 @@ interface RestrictOptions {
   ttl?: string
 }
 
-export async function restrictTokenCmd(opts: RestrictOptions) {
-  const constraint: Record<string, unknown> = {}
-  if (opts.services && opts.services.length > 0) {
-    constraint.services = opts.services.length === 1 ? opts.services[0] : opts.services
-  }
-  if (opts.methods && opts.methods.length > 0) {
-    const upper = opts.methods.map(m => m.toUpperCase())
-    constraint.methods = upper.length === 1 ? upper[0] : upper
-  }
-  if (opts.paths && opts.paths.length > 0) {
-    constraint.paths = opts.paths.length === 1 ? opts.paths[0] : opts.paths
-  }
-  if (opts.ttl) constraint.ttl = opts.ttl
+interface IssuedTokenRecord {
+  id: string
+  name: string | null
+  rights: Array<{ action: string; root: string }>
+  constraints: Array<Record<string, unknown>>
+  createdAt: string
+  expiresAt: string | null
+  lastUsedAt: string | null
+  revokedAt: string | null
+  revokeReason: string | null
+}
 
-  if (Object.keys(constraint).length === 0) {
-    console.error('At least one constraint is required (--service, --method, --path, or --ttl).')
-    process.exit(1)
-  }
+interface CreateTokenResponse extends IssuedTokenRecord {
+  ok: true
+  token: string
+}
 
-  const res = await requestJson<{ token: string }>('/tokens/restrict', {
+function describeStatus(token: IssuedTokenRecord) {
+  if (token.revokedAt) return 'revoked'
+  if (token.expiresAt && new Date(token.expiresAt).getTime() <= Date.now()) return 'expired'
+  return 'active'
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toISOString()
+}
+
+function printIssuedToken(token: IssuedTokenRecord) {
+  const label = token.name ? ` ${token.name}` : ''
+  console.log(`${token.id}${label}`)
+  console.log(`  status: ${describeStatus(token)}`)
+  console.log(`  created: ${formatTimestamp(token.createdAt)}`)
+  console.log(`  expires: ${formatTimestamp(token.expiresAt)}`)
+  console.log(`  last used: ${formatTimestamp(token.lastUsedAt)}`)
+  console.log(`  rights: ${token.rights.map(right => `${right.action}@${right.root}`).join(', ') || '(none)'}`)
+  if (token.revokeReason) {
+    console.log(`  revoke reason: ${token.revokeReason}`)
+  }
+}
+
+async function createTrackedToken(constraint: Record<string, unknown>) {
+  const body = Object.keys(constraint).length === 0
+    ? {}
+    : { constraints: [constraint] }
+
+  return requestJson<CreateTokenResponse>('/tokens', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ constraints: [constraint] }),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function listTokensCmd() {
+  const res = await requestJson<{ data: IssuedTokenRecord[] }>('/tokens', {
+    method: 'GET',
+  })
+
+  if (outputList(res.data)) return
+  if (res.data.length === 0) {
+    console.log('No issued tokens.')
+    return
+  }
+
+  for (const token of res.data) {
+    printIssuedToken(token)
+  }
+}
+
+export async function revokeTokenCmd(id: string, reason?: string) {
+  const res = await requestJson<{ ok: true; id: string }>(`/tokens/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(reason ? { reason } : {}),
   })
 
   if (output(res)) return
-  console.log(res.token)
-}
-
-export async function revokeTokenCmd() {
-  const client = await getClient()
-  await client.tokens.revoke({})
-  console.log('Token revoked.')
+  console.log(`Revoked token ${res.id}.`)
 }
 
 export async function pushTokenCmd(opts: RestrictOptions) {
@@ -164,21 +211,12 @@ export async function pushTokenCmd(opts: RestrictOptions) {
   }
   if (opts.ttl) constraint.ttl = opts.ttl
 
-  if (Object.keys(constraint).length === 0) {
-    console.error('At least one constraint is required (--service, --method, --path, or --ttl).')
-    process.exit(1)
-  }
-
-  const res = await requestJson<{ token: string }>('/tokens/restrict', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ constraints: [constraint] }),
-  })
+  const res = await createTrackedToken(constraint)
 
   const stack = readTokenStack()
   stack.push(res.token)
   writeTokenStack(stack)
-  console.log(`Pushed restricted token (stack depth: ${stack.length})`)
+  console.log(`Pushed tracked token ${res.id} (stack depth: ${stack.length}). Run \`agent.pw token pop\` to restore the previous token.`)
 }
 
 export function popTokenCmd() {

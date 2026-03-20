@@ -45,6 +45,7 @@ describe('db entrypoints', () => {
         'auth_flows',
         'cred_profiles',
         'credentials',
+        'issued_tokens',
         'revocations',
       ])
     } finally {
