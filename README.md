@@ -11,7 +11,7 @@ Host products embed it in-process to manage provider OAuth and API keys, store e
 The framework centers on five primitives:
 
 - `Credential Profile`: how to authenticate to a provider at a given path
-- `Binding`: the runtime tuple that says which profile a resource uses and which path subtree it can read credentials from
+- `Binding`: the runtime handle for one connection or integration in your product
 - `Credential`: encrypted auth material stored under a binding root
 - `OAuth`: start, complete, refresh, and disconnect provider auth flows
 - `Rules`: portable authorization facts that can be enforced directly or compiled into Biscuits
@@ -85,26 +85,33 @@ const headers = await agentPw.bindings.resolveHeaders(binding)
 The framework runtime contract is explicit:
 
 1. define or resolve a `Credential Profile`
-2. create a `Binding` for a product resource
+2. create a `Binding` for a connection in your product
 3. start and complete auth against that binding
 4. resolve headers or stored credentials from the same binding later
 
-A binding is not a separate database object in agent.pw. It is the runtime handle a host product passes in:
+A binding is the pair of values your product passes to agent.pw when it wants to use one connection:
 
 ```txt
 root        = /{namespace}/{connectionId}
 profilePath = /github
 ```
 
-`profilePath` answers "how should this resource authenticate?"
+For example, if your app has a connection called "Acme GitHub", the binding tells agent.pw:
 
-`root` answers "where in the path tree may this resource read or store credentials?"
+- which auth definition to use
+- where to read or store credentials for that connection
 
-That is why the binding uses `root + profilePath`, not `credentialPath + profilePath`.
+`profilePath` answers "how should this connection authenticate?"
+
+`root` answers "which part of the path tree belongs to this connection?"
+
+That is why the binding uses `root + profilePath`.
 
 - `root` is a lookup boundary and sharing boundary
 - `credentialPath` is an optional exact leaf when the caller already knows the specific credential to use
 - if no `credentialPath` is provided, agent.pw resolves the deepest matching credential under the binding root
+
+In practice, host products usually know "this is the GitHub connection for Acme" before they know the exact credential leaf. The binding starts from that connection root, and `credentialPath` stays available as an optional override when the caller wants to pin one specific stored credential.
 
 Example:
 
@@ -158,9 +165,7 @@ Under the hood, OAuth is implemented with [`oauth4webapi`](https://github.com/pa
 
 ## Rules and Tokens
 
-The canonical authorization model is `Rules`, not Biscuits.
-
-Use `agent.pw/rules` when you want path-based policy checks directly in application code:
+Use `agent.pw/rules` for path-based policy checks directly in application code:
 
 ```ts
 import { authorizeRules } from 'agent.pw/rules'

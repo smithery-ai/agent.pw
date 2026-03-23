@@ -51,14 +51,14 @@ Profiles are configuration, not secrets. Their security properties are:
 
 ### Bindings
 
-Bindings are the runtime root of trust for a product resource.
+Bindings are the runtime root of trust for one connection or integration in a host product.
 
 A binding declares:
 
 - `root`
 - `profilePath`
 
-`profilePath` chooses the auth definition. `root` chooses the namespace subtree the resource can use for credential lookup and storage.
+`profilePath` chooses the auth definition. `root` chooses the namespace subtree the connection can use for credential lookup and storage.
 
 Runtime operations should execute against an explicit binding rather than against inferred request hosts or global user state. This matters for multi-tenant products because one user may operate across multiple roots during the same session.
 

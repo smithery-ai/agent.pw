@@ -110,9 +110,9 @@ export interface CredentialPutInput {
 }
 
 export interface BindingRef {
-  // Namespace root used for credential lookup and storage under a product resource.
+  // Namespace root used for credential lookup and storage for one host-product connection or integration.
   root: string
-  // Credential Profile path that defines how this resource authenticates.
+  // Credential Profile path that defines how that connection authenticates.
   profilePath: string
 }
 

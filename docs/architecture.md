@@ -7,7 +7,7 @@ The framework has four core resource types and two runtime layers.
 Resources:
 
 - `Credential Profile`: how a provider authenticates at a path
-- `Binding`: the runtime tuple that says which profile a product resource uses and which path subtree it owns
+- `Binding`: the runtime handle for one connection or integration in a host product
 - `Credential`: encrypted auth material stored under that root
 - `Rules`: path-based authorization facts over one or more roots
 
@@ -40,7 +40,7 @@ import * as sql from 'agent.pw/sql'
 
 There is no built-in server, daemon, CLI, or proxy surface in this repo.
 
-## Core Objects
+## Concepts
 
 ### Path
 
@@ -81,14 +81,12 @@ Deeper profiles override broader ones when both apply.
 
 ### Binding
 
-A `Binding` is the explicit runtime association between a product resource and framework auth state.
+A `Binding` is the runtime handle a host product passes when it wants to use one connection or integration through agent.pw.
 
-It is not a framework-owned table. It is the handle the embedding product passes to the runtime.
+It tells the framework two things:
 
-A binding declares:
-
-- `root`: the subtree where credentials for that resource live
-- `profilePath`: the credential profile that resource uses
+- `profilePath`: which auth definition to use
+- `root`: which path subtree to use for storing and resolving credentials
 
 Examples:
 
@@ -100,15 +98,24 @@ Examples:
 
 Bindings are the primary runtime identity model for embedded consumers such as Smithery Connect.
 
-`profilePath` answers "how should this resource authenticate?"
+If your product has a connection called "Acme GitHub", the binding might look like:
 
-`root` answers "which part of the path tree does this resource own for credential lookup and storage?"
+```txt
+root        = /acme/connections/github_primary
+profilePath = /github
+```
 
-That is why the binding is `root + profilePath`, not `credentialPath + profilePath`.
+`profilePath` answers "how should this connection authenticate?"
+
+`root` answers "which part of the path tree belongs to this connection for credential lookup and storage?"
+
+That is why the binding is `root + profilePath`.
 
 - `root` is a namespace boundary and lookup boundary
 - `credentialPath` is an optional exact leaf when a caller wants to pin one specific stored credential
 - when `credentialPath` is omitted, the framework resolves the deepest matching credential under the binding root
+
+In practice, a host product usually knows it is working with a connection such as "Acme GitHub" before it knows the exact credential leaf. The binding starts from that connection root, and `credentialPath` remains an optional override for callers that want to pin one specific stored credential.
 
 ### Credential
 
@@ -130,7 +137,7 @@ Examples:
 
 ### Rules
 
-`Rules` are the canonical authorization model for the framework.
+`Rules` are the base authorization model for the framework.
 
 Each rule is a path grant:
 
