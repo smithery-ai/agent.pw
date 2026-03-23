@@ -49,16 +49,25 @@ Profiles are configuration, not secrets. Their security properties are:
 - deeper definitions shadow broader definitions
 - same-depth ambiguity is rejected
 
-### Bindings
+Profiles are optional when a binding targets a discovered OAuth resource directly. They remain useful when a product needs an explicit auth definition, a polyfill, or a path-scoped override.
 
-Bindings are the runtime root of trust for one connection or integration in a host product.
+### Auth Bindings
+
+Bindings are the runtime root of trust for one saved connection in a host product.
 
 A binding declares:
 
 - `root`
-- `profilePath`
+- `target`
 
-`profilePath` chooses the auth definition. `root` chooses the namespace subtree the connection can use for credential lookup and storage.
+`root` chooses the namespace subtree the connection can use for credential lookup and storage.
+
+`target` chooses how that connection authenticates:
+
+- a profile target points at a `Credential Profile`
+- a resource target points at a discovered OAuth resource such as an MCP server
+
+The shorthand `{ root, profilePath }` remains valid for profile-backed bindings.
 
 Runtime operations should execute against an explicit binding rather than against inferred request hosts or global user state. This matters for multi-tenant products because one user may operate across multiple roots during the same session.
 
@@ -131,7 +140,7 @@ That makes organization-specific overrides explicit without flattening all provi
 Given an explicit binding:
 
 1. find credentials under the binding root
-2. keep only credentials tagged to the binding `profilePath`
+2. keep only credentials tagged to the binding target
 3. choose the deepest applicable stored credential
 4. reject same-depth conflicts
 
@@ -161,6 +170,7 @@ That includes:
 - exchanging authorization codes
 - refreshing access tokens
 - optionally revoking provider tokens on disconnect
+- discovering resource and authorization server metadata when the binding target is a resource
 
 The implementation uses `oauth4webapi`, but the important security property is architectural: embedded products do not need to re-implement provider token lifecycle logic outside the vault.
 

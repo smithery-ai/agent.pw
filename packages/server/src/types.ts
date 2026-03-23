@@ -90,7 +90,8 @@ export interface CredentialProfilePutInput {
 }
 
 export interface CredentialSummary {
-  profilePath: string
+  profilePath: string | null
+  target: AuthTarget
   host: string | null
   path: string
   auth: Record<string, unknown>
@@ -102,39 +103,94 @@ export interface CredentialRecord extends CredentialSummary {
   secret: StoredCredentials
 }
 
-export interface CredentialPutInput {
+export interface ProfileAuthTarget {
+  kind: 'profile'
   profilePath: string
+}
+
+export interface ResourceAuthTarget {
+  kind: 'resource'
+  resource: string
+  authorizationServer?: string
+}
+
+export type AuthTarget = ProfileAuthTarget | ResourceAuthTarget
+
+export type CredentialPutInput = ({
+  profilePath: string
+  target?: never
+} | {
+  target: AuthTarget
+  profilePath?: never
+}) & {
   host?: string | null
   auth?: Record<string, unknown>
   secret: StoredCredentials | Buffer
 }
 
-export interface BindingRef {
-  // Namespace root used for credential lookup and storage for one host-product connection or integration.
+export interface ProfileAuthBinding {
   root: string
-  // Credential Profile path that defines how that connection authenticates.
   profilePath: string
+  target?: never
 }
+
+export interface TargetAuthBinding {
+  root: string
+  target: AuthTarget
+  profilePath?: never
+}
+
+export type AuthBinding = ProfileAuthBinding | TargetAuthBinding
+
+// Backward-compatible aliases for the earlier binding-first API names.
+export type ProfileBindingRef = ProfileAuthBinding
+export type TargetBindingRef = TargetAuthBinding
+export type BindingRef = AuthBinding
 
 export interface ResolvedCredential extends CredentialRecord {
   profile: CredentialProfileRecord | null
 }
 
-export interface BindingPutInput extends BindingRef {
+export type BindingPutInput = AuthBinding & {
   credentialPath?: string
   host?: string | null
   auth?: Record<string, unknown>
   secret: StoredCredentials | Buffer
 }
 
+export interface OAuthClientMetadataInput {
+  clientId?: string
+  redirectUris: string[]
+  clientName?: string
+  scope?: string | string[]
+  tokenEndpointAuthMethod?: OAuthClientAuthenticationMethod | 'private_key_jwt'
+  jwksUri?: string
+  jwks?: Record<string, unknown>
+  tokenEndpointAuthSigningAlg?: string
+}
+
+export interface OAuthClientInput {
+  clientId?: string
+  clientSecret?: string
+  clientAuthentication?: OAuthClientAuthenticationMethod
+  metadata?: OAuthClientMetadataInput
+  useDynamicRegistration?: boolean
+  initialAccessToken?: string
+}
+
+export interface OAuthResolvedConfig extends OAuthProfileConfig {
+  resource?: string
+}
+
 export interface PendingFlow {
   id: string
   root: string
-  profilePath: string
+  target: AuthTarget
   credentialPath?: string
   redirectUri: string
   codeVerifier: string
   expiresAt: Date
+  oauthConfig: OAuthResolvedConfig
 }
 
 export interface CompletedFlowResult {
@@ -148,12 +204,13 @@ export interface FlowStore {
   delete(id: string): Promise<void>
 }
 
-export interface OAuthStartAuthorizationInput extends BindingRef {
+export type OAuthStartAuthorizationInput = AuthBinding & {
   credentialPath?: string
   redirectUri: string
   scopes?: string | string[]
   expiresAt?: Date
   additionalParameters?: Record<string, string>
+  client?: OAuthClientInput
 }
 
 export interface OAuthAuthorizationSession {
@@ -161,7 +218,8 @@ export interface OAuthAuthorizationSession {
   authorizationUrl: string
   expiresAt: Date
   root: string
-  profilePath: string
+  target: AuthTarget
+  profilePath: string | null
   credentialPath?: string
 }
 
@@ -170,17 +228,17 @@ export interface OAuthCompleteAuthorizationInput {
 }
 
 export interface OAuthCompletionResult {
-  binding: BindingRef
+  binding: AuthBinding
   credentialPath: string
   credential: ResolvedCredential
 }
 
-export interface OAuthRefreshInput extends BindingRef {
+export type OAuthRefreshInput = AuthBinding & {
   credentialPath?: string
   force?: boolean
 }
 
-export interface OAuthDisconnectInput extends BindingRef {
+export type OAuthDisconnectInput = AuthBinding & {
   credentialPath?: string
   revoke?: 'refresh_token' | 'access_token' | 'both'
 }
@@ -224,6 +282,7 @@ export interface AgentPwOptions {
   flowStore?: FlowStore
   oauthFetch?: typeof fetch
   sql?: SqlNamespaceOptions
+  oauthClient?: OAuthClientInput
 }
 
 export interface AgentPw {
@@ -241,20 +300,18 @@ export interface AgentPw {
     delete(path: string): Promise<boolean>
   }
   bindings: {
-    resolve(input: BindingRef & {
+    resolve(input: AuthBinding & {
       credentialPath?: string
       refresh?: boolean
     }): Promise<ResolvedCredential | null>
-    resolveHeaders(input: BindingRef & {
+    resolveHeaders(input: AuthBinding & {
       credentialPath?: string
       refresh?: boolean
     }): Promise<Record<string, string>>
     put(input: BindingPutInput): Promise<ResolvedCredential>
   }
   credentials: {
-    resolve(input: {
-      root: string
-      profilePath: string
+    resolve(input: AuthBinding & {
       credentialPath?: string
       refresh?: boolean
     }): Promise<CredentialRecord | null>
@@ -272,6 +329,14 @@ export interface AgentPw {
     completeAuthorization(input: OAuthCompleteAuthorizationInput): Promise<OAuthCompletionResult>
     refreshCredential(input: OAuthRefreshInput): Promise<ResolvedCredential | null>
     disconnect(input: OAuthDisconnectInput): Promise<boolean>
+    discoverResource(input: {
+      resource: string
+    }): Promise<{
+      target: ResourceAuthTarget
+      authorizationServers: string[]
+      resourceName?: string
+      scopes?: string[]
+    }>
     createWebHandlers(options?: {
       callbackPath?: string
       success?(result: OAuthCompletionResult, request: Request): Response | Promise<Response>

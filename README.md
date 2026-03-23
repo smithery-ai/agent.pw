@@ -8,10 +8,10 @@ It lets agent products connect to external services once and reuse those credent
 
 Host products embed it in-process to manage provider OAuth and API keys, store encrypted credentials, and resolve fresh authenticated headers at runtime.
 
-The framework centers on five primitives:
+The framework centers on five concepts:
 
-- `Credential Profile`: how to authenticate to a provider at a given path
-- `Binding`: the runtime handle for one connection or integration in your product
+- `Credential Profile`: a reusable auth definition for providers that need one
+- `Auth Binding`: one saved connection in your product and the auth target it uses
 - `Credential`: encrypted auth material stored under a binding root
 - `OAuth`: start, complete, refresh, and disconnect provider auth flows
 - `Rules`: portable authorization facts that can be enforced directly or compiled into Biscuits
@@ -62,7 +62,10 @@ await agentPw.profiles.put('/github', {
 
 const binding = {
   root: '/acme/connections/github_primary',
-  profilePath: '/github',
+  target: {
+    kind: 'profile',
+    profilePath: '/github',
+  },
 }
 
 const session = await agentPw.oauth.startAuthorization({
@@ -80,45 +83,107 @@ const headers = await agentPw.bindings.resolveHeaders(binding)
 
 `createInMemoryFlowStore()` is a development helper. Multi-instance products should pass an explicit persistent or shared `FlowStore`.
 
-## Binding-First Runtime Model
+## Auth Bindings
 
 The framework runtime contract is explicit:
 
 1. define or resolve a `Credential Profile`
-2. create a `Binding` for a connection in your product
+2. create an `Auth Binding` for a connection in your product
 3. start and complete auth against that binding
 4. resolve headers or stored credentials from the same binding later
 
-A binding is the pair of values your product passes to agent.pw when it wants to use one connection:
+A binding is how your product tells agent.pw, "this saved connection should use this auth target."
 
-```txt
-root        = /{namespace}/{connectionId}
-profilePath = /github
+Every binding has:
+
+- `root`: where credentials for this connection live
+- `target`: how this connection authenticates
+
+`target` can be one of two things:
+
+- a `Credential Profile`, for APIs that need an explicit auth definition or an override
+- a discovered `resource`, for MCP servers and other OAuth resources that publish their own metadata
+
+Profile-based example:
+
+```ts
+const binding = {
+  root: '/acme/connections/github_primary',
+  target: {
+    kind: 'profile',
+    profilePath: '/github',
+  },
+}
 ```
 
-For example, if your app has a connection called "Acme GitHub", the binding tells agent.pw:
+Discovery-first example:
 
-- which auth definition to use
+```ts
+const binding = {
+  root: '/acme/connections/docs_mcp',
+  target: {
+    kind: 'resource',
+    resource: 'https://docs.example.com/mcp',
+  },
+}
+```
+
+For a saved connection such as "Acme GitHub", the binding tells agent.pw:
+
 - where to read or store credentials for that connection
-
-`profilePath` answers "how should this connection authenticate?"
+- whether auth comes from a profile or from resource discovery
 
 `root` answers "which part of the path tree belongs to this connection?"
 
-That is why the binding uses `root + profilePath`.
+`target` answers "how should this connection authenticate?"
+
+That is why the binding uses `root + target`.
 
 - `root` is a lookup boundary and sharing boundary
 - `credentialPath` is an optional exact leaf when the caller already knows the specific credential to use
 - if no `credentialPath` is provided, agent.pw resolves the deepest matching credential under the binding root
 
-In practice, host products usually know "this is the GitHub connection for Acme" before they know the exact credential leaf. The binding starts from that connection root, and `credentialPath` stays available as an optional override when the caller wants to pin one specific stored credential.
+In practice, host products usually know "this is Acme's GitHub connection" or "this is the docs MCP connection" before they know the exact credential leaf. The binding starts from that connection root, and `credentialPath` stays available as an optional override when the caller wants to pin one specific stored credential.
 
-Example:
-
-- `profilePath = /github` means "use the GitHub auth definition"
-- `root = /acme/connections/github_primary` means "look for GitHub credentials inside this resource's namespace"
+The shorthand `{ root, profilePath }` is still accepted for profile-based bindings. The more general form is `{ root, target }`.
 
 Runtime resolution does not depend on request hosts, proxy headers, or a framework-owned HTTP server.
+
+## Discovery-First MCP OAuth
+
+When a server publishes OAuth discovery metadata, agent.pw can use it directly without requiring a `Credential Profile`.
+
+```ts
+const discovered = await agentPw.oauth.discoverResource({
+  resource: 'https://docs.example.com/mcp',
+})
+
+const binding = {
+  root: '/acme/connections/docs_mcp',
+  target: discovered.target,
+}
+
+const session = await agentPw.oauth.startAuthorization({
+  ...binding,
+  redirectUri: 'https://connect.example.com/oauth/callback',
+  client: {
+    metadata: {
+      redirectUris: ['https://connect.example.com/oauth/callback'],
+      clientName: 'Connect Client',
+      tokenEndpointAuthMethod: 'none',
+    },
+    useDynamicRegistration: true,
+  },
+})
+
+await agentPw.oauth.completeAuthorization({
+  callbackUri: 'https://connect.example.com/oauth/callback?code=...&state=...',
+})
+
+const headers = await agentPw.bindings.resolveHeaders(binding)
+```
+
+Use a `Credential Profile` when you need a polyfill or override for services that do not publish usable discovery metadata.
 
 ## Hosted OAuth and CIMD
 
@@ -132,7 +197,10 @@ const oauthHandlers = agentPw.oauth.createWebHandlers({
 export async function start(request: Request) {
   return oauthHandlers.start(request, {
     root: '/acme/connections/github_primary',
-    profilePath: '/github',
+    target: {
+      kind: 'profile',
+      profilePath: '/github',
+    },
   })
 }
 
@@ -212,7 +280,7 @@ The path model applies to:
 
 - `Credential Profiles`
 - `Credentials`
-- `Binding` roots
+- `Auth Binding` roots
 - authorization roots in `Rules`
 
 Resolution is tree-based:

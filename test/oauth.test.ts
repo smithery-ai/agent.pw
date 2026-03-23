@@ -51,6 +51,81 @@ function createOAuthFetch() {
   return { fetchImpl, calls }
 }
 
+function createDiscoveryOAuthFetch() {
+  const calls: Array<{
+    url: string
+    body: URLSearchParams
+  }> = []
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const body = init?.body instanceof URLSearchParams
+      ? init.body
+      : new URLSearchParams(typeof init?.body === 'string' ? init.body : undefined)
+
+    calls.push({ url, body })
+
+    if (url.includes('/.well-known/oauth-protected-resource')) {
+      return Response.json({
+        resource: 'https://mcp.example.com',
+        authorization_servers: ['https://auth.mcp.example.com'],
+        scopes_supported: ['mcp.tools.read'],
+        resource_name: 'Example MCP',
+      })
+    }
+
+    if (
+      url === 'https://auth.mcp.example.com/.well-known/oauth-authorization-server'
+      || url === 'https://auth.mcp.example.com/.well-known/openid-configuration'
+    ) {
+      return Response.json({
+        issuer: 'https://auth.mcp.example.com',
+        authorization_endpoint: 'https://auth.mcp.example.com/authorize',
+        token_endpoint: 'https://auth.mcp.example.com/token',
+        revocation_endpoint: 'https://auth.mcp.example.com/revoke',
+        registration_endpoint: 'https://auth.mcp.example.com/register',
+      })
+    }
+
+    if (url === 'https://auth.mcp.example.com/register') {
+      return Response.json({
+        client_id: 'https://app.example.com/.well-known/oauth-client',
+        token_endpoint_auth_method: 'none',
+      }, { status: 201 })
+    }
+
+    if (url === 'https://auth.mcp.example.com/token') {
+      if (body.get('grant_type') === 'authorization_code') {
+        return Response.json({
+          access_token: 'mcp-access-1',
+          refresh_token: 'mcp-refresh-1',
+          expires_in: 3600,
+          scope: 'mcp.tools.read',
+          token_type: 'Bearer',
+        })
+      }
+
+      if (body.get('grant_type') === 'refresh_token') {
+        return Response.json({
+          access_token: 'mcp-access-2',
+          refresh_token: 'mcp-refresh-2',
+          expires_in: 3600,
+          scope: 'mcp.tools.read',
+          token_type: 'Bearer',
+        })
+      }
+    }
+
+    if (url === 'https://auth.mcp.example.com/revoke') {
+      return new Response(null, { status: 200 })
+    }
+
+    throw new Error(`Unexpected discovery fetch: ${url}`)
+  }
+
+  return { fetchImpl, calls }
+}
+
 async function createOAuthAgent() {
   const db = await createTestDb()
   const flowStore = createInMemoryFlowStore()
@@ -86,6 +161,29 @@ async function createOAuthAgent() {
   return { agentPw, calls }
 }
 
+async function createDiscoveryOAuthAgent() {
+  const db = await createTestDb()
+  const flowStore = createInMemoryFlowStore()
+  const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
+  const { fetchImpl, calls } = createDiscoveryOAuthFetch()
+  const agentPw = await createAgentPw({
+    db,
+    encryptionKey,
+    flowStore,
+    oauthFetch: fetchImpl,
+    oauthClient: {
+      useDynamicRegistration: true,
+      metadata: {
+        redirectUris: ['https://app.example.com/oauth/callback'],
+        clientName: 'Connect Client',
+        tokenEndpointAuthMethod: 'none',
+      },
+    },
+  })
+
+  return { agentPw, calls }
+}
+
 describe('oauth runtime', () => {
   it('starts and completes OAuth authorization flows', async () => {
     const { agentPw, calls } = await createOAuthAgent()
@@ -104,7 +202,10 @@ describe('oauth runtime', () => {
     expect(await agentPw.oauth.getFlow(session.flowId)).toEqual(expect.objectContaining({
       id: session.flowId,
       root: '/org_alpha/connections/linear_1',
-      profilePath: '/linear',
+      target: {
+        kind: 'profile',
+        profilePath: '/linear',
+      },
     }))
 
     const result = await agentPw.oauth.completeAuthorization({
@@ -158,6 +259,90 @@ describe('oauth runtime', () => {
       accessToken: 'access-2',
       refreshToken: 'refresh-2',
     }))
+  })
+
+  it('supports discovery-first MCP OAuth without a credential profile', async () => {
+    const { agentPw, calls } = await createDiscoveryOAuthAgent()
+
+    const discovered = await agentPw.oauth.discoverResource({
+      resource: 'https://mcp.example.com',
+    })
+    expect(discovered).toEqual({
+      target: {
+        kind: 'resource',
+        resource: 'https://mcp.example.com/',
+      },
+      authorizationServers: ['https://auth.mcp.example.com'],
+      resourceName: 'Example MCP',
+      scopes: ['mcp.tools.read'],
+    })
+
+    const binding = {
+      root: '/org_alpha/connections/mcp_1',
+      target: {
+        kind: 'resource' as const,
+        resource: 'https://mcp.example.com',
+      },
+    }
+
+    const session = await agentPw.oauth.startAuthorization({
+      ...binding,
+      redirectUri: 'https://app.example.com/oauth/callback',
+    })
+    expect(session.authorizationUrl).toContain('https://auth.mcp.example.com/authorize')
+    expect(session.authorizationUrl).toContain('resource=https%3A%2F%2Fmcp.example.com%2F')
+    expect(session.target).toEqual({
+      kind: 'resource',
+      resource: 'https://mcp.example.com/',
+    })
+    expect(session.profilePath).toBeNull()
+
+    const result = await agentPw.oauth.completeAuthorization({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-789&state=${session.flowId}`,
+    })
+
+    expect(result.binding).toEqual({
+      root: '/org_alpha/connections/mcp_1',
+      target: {
+        kind: 'resource',
+        resource: 'https://mcp.example.com/',
+      },
+    })
+    expect(result.credential.target).toEqual({
+      kind: 'resource',
+      resource: 'https://mcp.example.com/',
+    })
+    expect(result.credential.profilePath).toBeNull()
+    expect(result.credential.path).toBe('/org_alpha/connections/mcp_1/credential')
+    expect(result.credential.secret.headers).toEqual({
+      Authorization: 'Bearer mcp-access-1',
+    })
+
+    const refreshed = await agentPw.oauth.refreshCredential({
+      ...binding,
+      force: true,
+    })
+    expect(refreshed?.secret.oauth).toEqual(expect.objectContaining({
+      accessToken: 'mcp-access-2',
+      refreshToken: 'mcp-refresh-2',
+      resource: 'https://mcp.example.com/',
+      clientId: 'https://app.example.com/.well-known/oauth-client',
+    }))
+
+    expect(await agentPw.bindings.resolveHeaders(binding)).toEqual({
+      Authorization: 'Bearer mcp-access-2',
+    })
+
+    expect(await agentPw.oauth.disconnect({
+      ...binding,
+      revoke: 'both',
+    })).toBe(true)
+
+    expect(calls.map(call => call.url)).toEqual(expect.arrayContaining([
+      'https://auth.mcp.example.com/register',
+      'https://auth.mcp.example.com/token',
+      'https://auth.mcp.example.com/revoke',
+    ]))
   })
 
   it('hosts callback helpers, serves CIMD, and disconnects credentials', async () => {

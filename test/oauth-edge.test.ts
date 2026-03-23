@@ -99,6 +99,12 @@ describe('oauth edge cases', () => {
       },
       deleteCredential: async () => false,
     })
+    await expect(expiringService.startAuthorization({
+      root: '/org/connection',
+      profilePath: '/provider',
+      credentialPath: '/',
+      redirectUri: 'https://app.example.com/callback',
+    })).rejects.toBeInstanceOf(AgentPwInputError)
     const expired = await expiringService.startAuthorization({
       root: '/org/connection',
       profilePath: '/provider',
@@ -691,9 +697,12 @@ describe('oauth edge cases', () => {
         redirectUri: 'https://app.example.com/callback',
       })
       mutableProfile = makeProfile({ oauthConfig: null })
-      await expect(globalService.completeAuthorization({
+      const completionAfterProfileChange = await globalService.completeAuthorization({
         callbackUri: `https://app.example.com/callback?code=abc&state=${session.flowId}`,
-      })).rejects.toThrow("Credential Profile '/provider' has no OAuth configuration")
+      })
+      expect(completionAfterProfileChange.credential.secret.headers).toEqual({
+        Authorization: 'Bearer auth-code-access',
+      })
 
       mutableProfile = makeProfile({
         auth: null,
@@ -757,6 +766,357 @@ describe('oauth edge cases', () => {
         'https://issuer-no-auth.example.com/.well-known/openid-configuration',
         'https://accounts.example.com/token',
         'https://accounts.example.com/revoke',
+      ]))
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('covers resource discovery edge cases and resource credentials without stored client ids', async () => {
+    const flowStore = createInMemoryFlowStore()
+    const service = createOAuthService({
+      flowStore,
+      clock: () => new Date('2026-01-01T00:00:00.000Z'),
+      customFetch: async input => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+
+        if (url.includes('/.well-known/oauth-protected-resource')) {
+          return Response.json({
+            resource: 'https://mcp.example.com',
+            authorization_servers: ['https://issuer-no-auth.example.com'],
+            resource_name: 'Example MCP',
+          })
+        }
+
+        if (
+          url === 'https://issuer-no-auth.example.com/.well-known/oauth-authorization-server'
+          || url === 'https://issuer-no-auth.example.com/.well-known/openid-configuration'
+        ) {
+          return Response.json({
+            issuer: 'https://issuer-no-auth.example.com',
+            token_endpoint: 'https://issuer-no-auth.example.com/token',
+          })
+        }
+
+        throw new Error(`unexpected fetch ${url}`)
+      },
+      getProfile: async () => null,
+      resolveBinding: async () => makeResolvedCredential({
+        profile: null,
+        secret: {
+          headers: { Authorization: 'Bearer resource-token' },
+          oauth: {
+            accessToken: 'resource-token',
+            refreshToken: 'resource-refresh',
+            expiresAt: '2020-01-01T00:00:00.000Z',
+          },
+        },
+      }),
+      putBinding: async input => makeResolvedCredential({
+        path: input.credentialPath ?? '/org/connection/credential',
+        profile: null,
+        secret: input.secret as ResolvedCredential['secret'],
+      }),
+      deleteCredential: async () => true,
+    })
+
+    expect(await service.discoverResource({
+      resource: 'https://mcp.example.com',
+    })).toEqual({
+      target: {
+        kind: 'resource',
+        resource: 'https://mcp.example.com/',
+      },
+      authorizationServers: ['https://issuer-no-auth.example.com'],
+      resourceName: 'Example MCP',
+      scopes: undefined,
+    })
+
+    await expect(service.startAuthorization({
+      root: '/org/connection',
+      target: {
+        kind: 'resource',
+        resource: 'https://mcp.example.com',
+      },
+      client: {
+        clientId: 'https://app.example.com/.well-known/oauth-client',
+      },
+      redirectUri: 'https://app.example.com/callback',
+    })).rejects.toThrow("Resource 'https://mcp.example.com/' is missing an authorization endpoint")
+
+    const unresolvedRefresh = await service.refreshCredential({
+      root: '/org/connection',
+      target: {
+        kind: 'resource',
+        resource: 'https://mcp.example.com',
+      },
+      force: true,
+    })
+    expect(unresolvedRefresh?.secret.headers).toEqual({
+      Authorization: 'Bearer resource-token',
+    })
+
+    expect(await service.disconnect({
+      root: '/org/connection',
+      target: {
+        kind: 'resource',
+        resource: 'https://mcp.example.com',
+      },
+      revoke: 'both',
+    })).toBe(true)
+  })
+
+  it('validates resource client registration requirements', async () => {
+    const makeService = (withRegistrationEndpoint: boolean) => createOAuthService({
+      flowStore: createInMemoryFlowStore(),
+      clock: () => new Date('2026-01-01T00:00:00.000Z'),
+      customFetch: async input => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+
+        if (url.includes('/.well-known/oauth-protected-resource')) {
+          return Response.json({
+            resource: 'https://mcp.example.com',
+            authorization_servers: ['https://issuer.example.com'],
+          })
+        }
+
+        if (
+          url === 'https://issuer.example.com/.well-known/oauth-authorization-server'
+          || url === 'https://issuer.example.com/.well-known/openid-configuration'
+        ) {
+          return Response.json({
+            issuer: 'https://issuer.example.com',
+            authorization_endpoint: 'https://issuer.example.com/authorize',
+            token_endpoint: 'https://issuer.example.com/token',
+            registration_endpoint: withRegistrationEndpoint
+              ? 'https://issuer.example.com/register'
+              : undefined,
+          })
+        }
+
+        throw new Error(`unexpected fetch ${url}`)
+      },
+      getProfile: async () => null,
+      resolveBinding: async () => null,
+      putBinding: async () => {
+        throw new Error('not reached')
+      },
+      deleteCredential: async () => false,
+    })
+
+    const binding = {
+      root: '/org/connection',
+      target: {
+        kind: 'resource' as const,
+        resource: 'https://mcp.example.com',
+      },
+      redirectUri: 'https://app.example.com/callback',
+    }
+
+    await expect(makeService(true).startAuthorization({
+      ...binding,
+      client: {
+        useDynamicRegistration: true,
+      },
+    })).rejects.toThrow('Dynamic client registration requires client metadata')
+
+    await expect(makeService(false).startAuthorization({
+      ...binding,
+      client: {
+        useDynamicRegistration: true,
+        metadata: {
+          redirectUris: ['https://app.example.com/callback'],
+        },
+      },
+    })).rejects.toThrow("Authorization server 'https://issuer.example.com' does not support dynamic client registration")
+
+    await expect(makeService(true).startAuthorization({
+      ...binding,
+      client: {
+        clientSecret: 'secret-only',
+      },
+    })).rejects.toThrow("Resource 'https://mcp.example.com/' requires a clientId or dynamic client registration")
+
+    await expect(makeService(true).startAuthorization({
+      ...binding,
+    })).rejects.toThrow("Resource 'https://mcp.example.com/' requires oauth client configuration")
+
+    const multiIssuerService = createOAuthService({
+      flowStore: createInMemoryFlowStore(),
+      clock: () => new Date('2026-01-01T00:00:00.000Z'),
+      customFetch: async input => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+
+        if (url.includes('/.well-known/oauth-protected-resource')) {
+          return Response.json({
+            resource: 'https://mcp.example.com',
+            authorization_servers: [
+              'https://issuer-a.example.com',
+              'https://issuer-b.example.com',
+            ],
+          })
+        }
+
+        throw new Error(`unexpected fetch ${url}`)
+      },
+      getProfile: async () => null,
+      resolveBinding: async () => null,
+      putBinding: async () => {
+        throw new Error('not reached')
+      },
+      deleteCredential: async () => false,
+    })
+
+    await expect(multiIssuerService.startAuthorization({
+      ...binding,
+      client: {
+        clientId: 'https://app.example.com/.well-known/oauth-client',
+      },
+    })).rejects.toThrow("Resource 'https://mcp.example.com/' advertises multiple authorization servers; choose one explicitly")
+
+    const noIssuerService = createOAuthService({
+      flowStore: createInMemoryFlowStore(),
+      clock: () => new Date('2026-01-01T00:00:00.000Z'),
+      customFetch: async input => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+        if (url.includes('/.well-known/oauth-protected-resource')) {
+          return Response.json({
+            resource: 'https://mcp.example.com',
+          })
+        }
+        throw new Error(`unexpected fetch ${url}`)
+      },
+      getProfile: async () => null,
+      resolveBinding: async () => null,
+      putBinding: async () => {
+        throw new Error('not reached')
+      },
+      deleteCredential: async () => false,
+    })
+
+    await expect(noIssuerService.startAuthorization({
+      ...binding,
+      client: {
+        clientId: 'https://app.example.com/.well-known/oauth-client',
+      },
+    })).rejects.toThrow("Resource 'https://mcp.example.com/' does not advertise an authorization server")
+
+    const explicitIssuerService = createOAuthService({
+      flowStore: createInMemoryFlowStore(),
+      clock: () => new Date('2026-01-01T00:00:00.000Z'),
+      customFetch: async input => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+        if (url.includes('/.well-known/oauth-protected-resource')) {
+          return Response.json({
+            resource: 'https://mcp.example.com',
+            authorization_servers: ['https://issuer-a.example.com'],
+          })
+        }
+        throw new Error(`unexpected fetch ${url}`)
+      },
+      getProfile: async () => null,
+      resolveBinding: async () => null,
+      putBinding: async () => {
+        throw new Error('not reached')
+      },
+      deleteCredential: async () => false,
+    })
+
+    await expect(explicitIssuerService.startAuthorization({
+      root: '/org/connection',
+      target: {
+        kind: 'resource',
+        resource: 'https://mcp.example.com',
+        authorizationServer: 'https://issuer-b.example.com',
+      },
+      client: {
+        clientId: 'https://app.example.com/.well-known/oauth-client',
+      },
+      redirectUri: 'https://app.example.com/callback',
+    })).rejects.toThrow(
+      "Authorization server 'https://issuer-b.example.com/' is not advertised for resource 'https://mcp.example.com/'",
+    )
+  })
+
+  it('supports resource discovery and dynamic registration through global fetch', async () => {
+    const originalFetch = globalThis.fetch
+    const requests: string[] = []
+    globalThis.fetch = (async input => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      requests.push(url)
+
+      if (url.includes('https://mcp.example.com') && url.includes('/.well-known/oauth-protected-resource')) {
+        return Response.json({
+          resource: 'https://mcp.example.com',
+          authorization_servers: ['https://issuer.example.com'],
+        })
+      }
+
+      if (url.includes('https://noauth.example.com') && url.includes('/.well-known/oauth-protected-resource')) {
+        return Response.json({
+          resource: 'https://noauth.example.com',
+        })
+      }
+
+      if (
+        url === 'https://issuer.example.com/.well-known/oauth-authorization-server'
+        || url === 'https://issuer.example.com/.well-known/openid-configuration'
+      ) {
+        return Response.json({
+          issuer: 'https://issuer.example.com',
+          authorization_endpoint: 'https://issuer.example.com/authorize',
+          token_endpoint: 'https://issuer.example.com/token',
+          registration_endpoint: 'https://issuer.example.com/register',
+        })
+      }
+
+      if (url === 'https://issuer.example.com/register') {
+        return Response.json({
+          client_id: 'https://app.example.com/.well-known/oauth-client',
+          token_endpoint_auth_method: 'none',
+        }, { status: 201 })
+      }
+
+      throw new Error(`unexpected fetch ${url}`)
+    }) as typeof fetch
+
+    try {
+      const service = createOAuthService({
+        flowStore: createInMemoryFlowStore(),
+        clock: () => new Date('2026-01-01T00:00:00.000Z'),
+        getProfile: async () => null,
+        resolveBinding: async () => null,
+        putBinding: async () => {
+          throw new Error('not reached')
+        },
+        deleteCredential: async () => false,
+      })
+
+      const discovered = await service.discoverResource({
+        resource: 'https://noauth.example.com',
+      })
+      expect(discovered.authorizationServers).toEqual([])
+
+      const session = await service.startAuthorization({
+        root: '/org/connection',
+        target: {
+          kind: 'resource',
+          resource: 'https://mcp.example.com',
+        },
+        client: {
+          useDynamicRegistration: true,
+          metadata: {
+            redirectUris: ['https://app.example.com/callback'],
+            jwks: {
+              keys: [],
+            },
+          },
+        },
+        redirectUri: 'https://app.example.com/callback',
+      })
+      expect(session.authorizationUrl).toContain('https://issuer.example.com/authorize')
+      expect(requests).toEqual(expect.arrayContaining([
+        'https://issuer.example.com/register',
       ]))
     } finally {
       globalThis.fetch = originalFetch

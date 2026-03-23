@@ -22,6 +22,14 @@ export type StoredCredentials = {
     expiresAt?: string
     scopes?: string
     tokenType?: string
+    resource?: string
+    issuer?: string
+    authorizationUrl?: string
+    tokenUrl?: string
+    revocationUrl?: string
+    clientId?: string
+    clientSecret?: string
+    clientAuthentication?: string
   }
 }
 

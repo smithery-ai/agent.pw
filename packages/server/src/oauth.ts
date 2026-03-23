@@ -1,16 +1,19 @@
 import * as oauth from 'oauth4webapi'
+import { authTargetProfilePath, normalizeBindingLike, normalizeBindingRef } from './auth-targets.js'
 import { buildCredentialHeaders, type StoredCredentials } from './lib/credentials-crypto.js'
 import { AgentPwInputError } from './errors.js'
 import { getOAuthScheme, parseAuthSchemes } from './auth-schemes.js'
 import { isRecord, randomId, validateFlowId } from './lib/utils.js'
 import { canonicalizePath, validatePath } from './paths.js'
 import type {
+  AuthTarget,
   BindingPutInput,
   BindingRef,
   CimdDocument,
   CimdDocumentInput,
   CompletedFlowResult,
   CredentialProfileRecord,
+  OAuthClientInput,
   OAuthAuthorizationSession,
   OAuthClientAuthenticationMethod,
   OAuthCompleteAuthorizationInput,
@@ -18,6 +21,7 @@ import type {
   OAuthDisconnectInput,
   OAuthProfileConfig,
   OAuthRefreshInput,
+  OAuthResolvedConfig,
   OAuthStartAuthorizationInput,
   OAuthWebHandlers,
   PendingFlow,
@@ -126,9 +130,11 @@ function profileOAuthHeaders(profile: CredentialProfileRecord, accessToken: stri
 }
 
 function oauthSecretFromTokenResponse(
-  profile: CredentialProfileRecord,
+  target: AuthTarget,
   response: oauth.TokenEndpointResponse,
+  oauthConfig: OAuthResolvedConfig,
   existing?: StoredCredentials,
+  profile?: CredentialProfileRecord | null,
 ): StoredCredentials {
   const accessToken = response.access_token
   const refreshToken = response.refresh_token ?? existing?.oauth?.refreshToken ?? null
@@ -137,13 +143,23 @@ function oauthSecretFromTokenResponse(
     : existing?.oauth?.expiresAt
 
   return {
-    headers: profileOAuthHeaders(profile, accessToken),
+    headers: target.kind === 'profile' && profile
+      ? profileOAuthHeaders(profile, accessToken)
+      : buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, accessToken),
     oauth: {
       accessToken,
       refreshToken,
       expiresAt,
       scopes: typeof response.scope === 'string' ? response.scope : existing?.oauth?.scopes,
       tokenType: response.token_type,
+      resource: oauthConfig.resource,
+      issuer: oauthConfig.issuer,
+      authorizationUrl: oauthConfig.authorizationUrl,
+      tokenUrl: oauthConfig.tokenUrl,
+      revocationUrl: oauthConfig.revocationUrl,
+      clientId: oauthConfig.clientId,
+      clientSecret: oauthConfig.clientSecret,
+      clientAuthentication: oauthConfig.clientAuthentication,
     },
   }
 }
@@ -186,6 +202,28 @@ function buildClient(config: OAuthProfileConfig): oauth.Client {
   }
 }
 
+function oauthConfigFromStoredCredentials(secret: StoredCredentials | undefined): OAuthResolvedConfig | null {
+  const stored = secret?.oauth
+  const clientId = stringValue(stored?.clientId)
+  if (!clientId) {
+    return null
+  }
+  return {
+    issuer: stringValue(stored?.issuer),
+    authorizationUrl: stringValue(stored?.authorizationUrl),
+    tokenUrl: stringValue(stored?.tokenUrl),
+    revocationUrl: stringValue(stored?.revocationUrl),
+    clientId,
+    clientSecret: stringValue(stored?.clientSecret),
+    clientAuthentication: normalizeClientAuthentication(
+      stringValue(stored?.clientAuthentication),
+      Boolean(stored?.clientSecret),
+    ),
+    scopes: stringValue(stored?.scopes),
+    resource: stringValue(stored?.resource),
+  }
+}
+
 async function resolveAuthorizationServer(
   config: OAuthProfileConfig,
   customFetch: typeof fetch | undefined,
@@ -214,6 +252,72 @@ function resolveRedirectUri(request: Request, callbackPath: string) {
   const url = new URL(request.url)
   const callbackUrl = new URL(callbackPath, url)
   return callbackUrl.toString()
+}
+
+async function discoverResourceTarget(
+  target: Extract<AuthTarget, { kind: 'resource' }>,
+  customFetch: typeof fetch | undefined,
+) {
+  const resourceUrl = assertUrl(target.resource, 'resource')
+  const metadataResponse = await oauth.resourceDiscoveryRequest(
+    resourceUrl,
+    customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+  )
+  const resourceServer = await oauth.processResourceDiscoveryResponse(resourceUrl, metadataResponse)
+  const issuers = resourceServer.authorization_servers ?? []
+  const issuer = target.authorizationServer ?? issuers[0]
+
+  if (!issuer) {
+    throw new AgentPwInputError(`Resource '${target.resource}' does not advertise an authorization server`)
+  }
+
+  if (target.authorizationServer && !issuers.includes(target.authorizationServer)) {
+    throw new AgentPwInputError(
+      `Authorization server '${target.authorizationServer}' is not advertised for resource '${target.resource}'`,
+    )
+  }
+
+  if (!target.authorizationServer && issuers.length > 1) {
+    throw new AgentPwInputError(
+      `Resource '${target.resource}' advertises multiple authorization servers; choose one explicitly`,
+    )
+  }
+
+  const issuerUrl = assertUrl(issuer, 'authorization server')
+  const discoveryResponse = await oauth.discoveryRequest(
+    issuerUrl,
+    customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+  )
+  const authorizationServer = await oauth.processDiscoveryResponse(issuerUrl, discoveryResponse)
+  return { resourceServer, authorizationServer }
+}
+
+function cimdToClientMetadata(input: NonNullable<OAuthClientInput['metadata']>) {
+  return {
+    client_id: input.clientId,
+    redirect_uris: input.redirectUris,
+    client_name: input.clientName,
+    scope: toScopeString(input.scope),
+    grant_types: ['authorization_code', 'refresh_token'],
+    token_endpoint_auth_method: input.tokenEndpointAuthMethod,
+    jwks_uri: input.jwksUri,
+    jwks: input.jwks ? JSON.parse(JSON.stringify(input.jwks)) : undefined,
+    token_endpoint_auth_signing_alg: input.tokenEndpointAuthSigningAlg,
+  } satisfies Partial<oauth.Client>
+}
+
+function bindingRefFromNormalized(
+  binding: ReturnType<typeof normalizeBindingRef>,
+): BindingRef {
+  return binding.target.kind === 'profile'
+    ? {
+        root: binding.root,
+        profilePath: binding.target.profilePath,
+      }
+    : {
+        root: binding.root,
+        target: binding.target,
+      }
 }
 
 function defaultSuccessResponse() {
@@ -267,6 +371,7 @@ export function createOAuthService(options: {
   flowStore?: FlowStore
   clock: () => Date
   customFetch?: typeof fetch
+  defaultClient?: OAuthClientInput
   getProfile(path: string): Promise<CredentialProfileRecord | null>
   resolveBinding(input: BindingRef & {
     credentialPath?: string
@@ -298,9 +403,14 @@ export function createOAuthService(options: {
       return resolved
     }
 
-    const profile = resolved.profile ?? await options.getProfile(input.profilePath)
-    const oauthConfig = parseOAuthProfileConfig(profile)
-    if (!(profile && oauthConfig)) {
+    const binding = normalizeBindingRef(input)
+    const profile = binding.target.kind === 'profile'
+      ? resolved.profile ?? await options.getProfile(binding.target.profilePath)
+      : null
+    const oauthConfig = profile
+      ? parseOAuthProfileConfig(profile)
+      : oauthConfigFromStoredCredentials(resolved.secret)
+    if (!oauthConfig) {
       return resolved
     }
 
@@ -318,13 +428,87 @@ export function createOAuthService(options: {
     )
     const processed = await oauth.processRefreshTokenResponse(authorizationServer, client, tokenResponse)
     return options.putBinding({
-      root: input.root,
-      profilePath: input.profilePath,
+      ...bindingRefFromNormalized(binding),
       credentialPath: resolved.path,
       host: resolved.host,
       auth: resolved.auth,
-      secret: oauthSecretFromTokenResponse(profile, processed, resolved.secret),
+      secret: oauthSecretFromTokenResponse(binding.target, processed, oauthConfig, resolved.secret, profile),
     })
+  }
+
+  async function resolveOAuthConfigForBinding(
+    input: OAuthStartAuthorizationInput,
+  ): Promise<{
+    binding: ReturnType<typeof normalizeBindingRef>
+    profile: CredentialProfileRecord | null
+    oauthConfig: OAuthResolvedConfig
+  }> {
+    const binding = normalizeBindingRef(input)
+
+    if (binding.target.kind === 'profile') {
+      const profile = await options.getProfile(binding.target.profilePath)
+      const oauthConfig = parseOAuthProfileConfig(profile)
+      if (!oauthConfig) {
+        throw new AgentPwInputError(`Credential Profile '${binding.target.profilePath}' has no OAuth configuration`)
+      }
+      return { binding, profile, oauthConfig }
+    }
+
+    const clientInput = input.client ?? options.defaultClient
+    if (!clientInput) {
+      throw new AgentPwInputError(`Resource '${binding.target.resource}' requires oauth client configuration`)
+    }
+
+    const { resourceServer, authorizationServer } = await discoverResourceTarget(binding.target, options.customFetch)
+    const shouldRegisterDynamically = Boolean(clientInput.useDynamicRegistration || (!clientInput.clientId && clientInput.metadata))
+    let clientId = clientInput.clientId ?? clientInput.metadata?.clientId
+    let clientSecret = clientInput.clientSecret
+    let clientAuthentication = normalizeClientAuthentication(clientInput.clientAuthentication, Boolean(clientSecret))
+
+    if (shouldRegisterDynamically) {
+      if (!clientInput.metadata) {
+        throw new AgentPwInputError('Dynamic client registration requires client metadata')
+      }
+      if (!authorizationServer.registration_endpoint) {
+        throw new AgentPwInputError(`Authorization server '${authorizationServer.issuer}' does not support dynamic client registration`)
+      }
+
+      const registrationResponse = await oauth.dynamicClientRegistrationRequest(
+        authorizationServer,
+        cimdToClientMetadata(clientInput.metadata),
+        {
+          initialAccessToken: clientInput.initialAccessToken,
+          ...(options.customFetch ? { [oauth.customFetch]: options.customFetch } : {}),
+        },
+      )
+      const registered = await oauth.processDynamicClientRegistrationResponse(registrationResponse)
+      clientId = stringValue(registered.client_id)
+      clientSecret = stringValue(registered.client_secret)
+      clientAuthentication = normalizeClientAuthentication(
+        stringValue(registered.token_endpoint_auth_method),
+        Boolean(clientSecret),
+      )
+    }
+
+    if (!clientId) {
+      throw new AgentPwInputError(`Resource '${binding.target.resource}' requires a clientId or dynamic client registration`)
+    }
+
+    return {
+      binding,
+      profile: null,
+      oauthConfig: {
+        issuer: authorizationServer.issuer,
+        authorizationUrl: authorizationServer.authorization_endpoint,
+        tokenUrl: authorizationServer.token_endpoint,
+        revocationUrl: authorizationServer.revocation_endpoint,
+        clientId,
+        clientSecret,
+        clientAuthentication,
+        scopes: input.scopes ?? resourceServer.scopes_supported,
+        resource: binding.target.resource,
+      },
+    }
   }
 
   return {
@@ -335,18 +519,15 @@ export function createOAuthService(options: {
 
     async startAuthorization(input: OAuthStartAuthorizationInput): Promise<OAuthAuthorizationSession> {
       const flowStore = await requireFlowStore()
-      const root = assertResolvablePath(input.root, 'binding root')
-      const profilePath = assertResolvablePath(input.profilePath, 'profile path')
       const redirectUri = assertUrl(input.redirectUri, 'redirect uri').toString()
-      const profile = await options.getProfile(profilePath)
-      const oauthConfig = parseOAuthProfileConfig(profile)
-      if (!oauthConfig) {
-        throw new AgentPwInputError(`Credential Profile '${profilePath}' has no OAuth configuration`)
-      }
+      const { binding, oauthConfig } = await resolveOAuthConfigForBinding(input)
 
       const authorizationServer = await resolveAuthorizationServer(oauthConfig, options.customFetch)
       if (!authorizationServer.authorization_endpoint) {
-        throw new AgentPwInputError(`Credential Profile '${profilePath}' is missing an authorization endpoint`)
+        if (binding.target.kind === 'profile') {
+          throw new AgentPwInputError(`Credential Profile '${binding.target.profilePath}' is missing an authorization endpoint`)
+        }
+        throw new AgentPwInputError(`Resource '${binding.target.resource}' is missing an authorization endpoint`)
       }
 
       const flowId = validateFlowId(undefined) ?? randomId() + randomId()
@@ -360,6 +541,9 @@ export function createOAuthService(options: {
       authorizationUrl.searchParams.set('state', flowId)
       authorizationUrl.searchParams.set('code_challenge', codeChallenge)
       authorizationUrl.searchParams.set('code_challenge_method', 'S256')
+      if (oauthConfig.resource) {
+        authorizationUrl.searchParams.set('resource', oauthConfig.resource)
+      }
 
       const scopes = toScopeString(input.scopes) ?? toScopeString(oauthConfig.scopes)
       if (scopes) {
@@ -376,12 +560,13 @@ export function createOAuthService(options: {
 
       const flow: PendingFlow = {
         id: flowId,
-        root,
-        profilePath,
+        root: binding.root,
+        target: binding.target,
         credentialPath,
         redirectUri,
         codeVerifier,
         expiresAt: input.expiresAt ?? defaultExpiry(options.clock),
+        oauthConfig,
       }
 
       await flowStore.create(flow)
@@ -390,8 +575,9 @@ export function createOAuthService(options: {
         flowId,
         authorizationUrl: authorizationUrl.toString(),
         expiresAt: flow.expiresAt,
-        root,
-        profilePath,
+        root: flow.root,
+        target: flow.target,
+        profilePath: authTargetProfilePath(flow.target),
         credentialPath: flow.credentialPath,
       }
     },
@@ -413,11 +599,10 @@ export function createOAuthService(options: {
         throw new AgentPwInputError(`OAuth flow '${flow.id}' has expired`)
       }
 
-      const profile = await options.getProfile(flow.profilePath)
-      const oauthConfig = parseOAuthProfileConfig(profile)
-      if (!(profile && oauthConfig)) {
-        throw new AgentPwInputError(`Credential Profile '${flow.profilePath}' has no OAuth configuration`)
-      }
+      const profile = flow.target.kind === 'profile'
+        ? await options.getProfile(flow.target.profilePath)
+        : null
+      const oauthConfig = flow.oauthConfig
 
       const authorizationServer = await resolveAuthorizationServer(oauthConfig, options.customFetch)
       const client = buildClient(oauthConfig)
@@ -438,13 +623,14 @@ export function createOAuthService(options: {
 
       const credential = await options.putBinding({
         root: flow.root,
-        profilePath: flow.profilePath,
+        target: flow.target,
         credentialPath: flow.credentialPath,
         auth: {
           kind: 'oauth',
-          provider: profile.provider,
+          provider: profile?.provider,
+          resource: flow.target.kind === 'resource' ? flow.target.resource : undefined,
         },
-        secret: oauthSecretFromTokenResponse(profile, processed),
+        secret: oauthSecretFromTokenResponse(flow.target, processed, oauthConfig, undefined, profile),
       })
 
       await flowStore.complete(flow.id)
@@ -452,7 +638,7 @@ export function createOAuthService(options: {
       return {
         binding: {
           root: flow.root,
-          profilePath: flow.profilePath,
+          target: flow.target,
         },
         credentialPath: credential.path,
         credential,
@@ -460,9 +646,9 @@ export function createOAuthService(options: {
     },
 
     async refreshCredential(input: OAuthRefreshInput) {
+      const binding = normalizeBindingRef(input)
       const resolved = await options.resolveBinding({
-        root: input.root,
-        profilePath: input.profilePath,
+        ...bindingRefFromNormalized(binding),
         credentialPath: input.credentialPath,
         refresh: false,
       })
@@ -470,9 +656,9 @@ export function createOAuthService(options: {
     },
 
     async disconnect(input: OAuthDisconnectInput) {
+      const binding = normalizeBindingRef(input)
       const resolved = await options.resolveBinding({
-        root: input.root,
-        profilePath: input.profilePath,
+        ...bindingRefFromNormalized(binding),
         credentialPath: input.credentialPath,
         refresh: false,
       })
@@ -480,8 +666,12 @@ export function createOAuthService(options: {
         return false
       }
 
-      const profile = resolved.profile ?? await options.getProfile(input.profilePath)
-      const oauthConfig = parseOAuthProfileConfig(profile)
+      const profile = binding.target.kind === 'profile'
+        ? resolved.profile ?? await options.getProfile(binding.target.profilePath)
+        : null
+      const oauthConfig = profile
+        ? parseOAuthProfileConfig(profile)
+        : oauthConfigFromStoredCredentials(resolved.secret)
       const revokeMode = input.revoke ?? 'refresh_token'
       if (oauthConfig) {
         const authorizationServer = await resolveAuthorizationServer(oauthConfig, options.customFetch)
@@ -530,6 +720,27 @@ export function createOAuthService(options: {
       return options.deleteCredential(resolved.path)
     },
 
+    async discoverResource(input: { resource: string }) {
+      const target = {
+        kind: 'resource',
+        resource: assertUrl(input.resource, 'resource').toString(),
+      } as const
+      const resourceUrl = assertUrl(target.resource, 'resource')
+      const metadataResponse = await oauth.resourceDiscoveryRequest(
+        resourceUrl,
+        options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+      )
+      const resourceServer = await oauth.processResourceDiscoveryResponse(resourceUrl, metadataResponse)
+      return {
+        target,
+        authorizationServers: resourceServer.authorization_servers ?? [],
+        resourceName: stringValue(resourceServer.resource_name),
+        scopes: Array.isArray(resourceServer.scopes_supported)
+          ? resourceServer.scopes_supported.filter((entry): entry is string => typeof entry === 'string')
+          : undefined,
+      }
+    },
+
     createWebHandlers(
       optionsForHandlers: {
         callbackPath?: string
@@ -541,8 +752,14 @@ export function createOAuthService(options: {
 
       return {
         start: async (request, input) => {
+          const binding = normalizeBindingLike(input)
           const session = await this.startAuthorization({
-            ...input,
+            ...bindingRefFromNormalized(binding),
+            credentialPath: input.credentialPath,
+            expiresAt: input.expiresAt,
+            additionalParameters: input.additionalParameters,
+            scopes: input.scopes,
+            client: input.client,
             redirectUri: input.redirectUri ?? resolveRedirectUri(request, callbackPath),
           })
           return Response.redirect(session.authorizationUrl, 302)

@@ -7,7 +7,7 @@ The framework has four core resource types and two runtime layers.
 Resources:
 
 - `Credential Profile`: how a provider authenticates at a path
-- `Binding`: the runtime handle for one connection or integration in a host product
+- `Auth Binding`: the runtime handle for one saved connection in a host product
 - `Credential`: encrypted auth material stored under that root
 - `Rules`: path-based authorization facts over one or more roots
 
@@ -16,7 +16,7 @@ Runtime layers:
 - `OAuth`: start, complete, refresh, and disconnect provider auth
 - optional token compilation helpers such as `agent.pw/biscuit`
 
-The primary runtime contract is explicit. Products pass a `Binding` with `root + profilePath`. Runtime credential resolution starts from that binding rather than from inferred hosts, proxy headers, or framework-owned routes.
+The primary runtime contract is explicit. Products pass an `Auth Binding` with `root + target`. Runtime credential resolution starts from that binding rather than from inferred hosts, proxy headers, or framework-owned routes.
 
 ## Package Boundary
 
@@ -79,14 +79,21 @@ Profiles are tree-scoped. Examples:
 
 Deeper profiles override broader ones when both apply.
 
-### Binding
+Profiles are optional for discovery-first OAuth resources. They are most useful when a product needs an explicit auth definition, a polyfill, or a path-scoped override.
 
-A `Binding` is the runtime handle a host product passes when it wants to use one connection or integration through agent.pw.
+### Auth Binding
+
+A binding is how a host product tells agent.pw which saved connection it wants to use and how that connection authenticates.
 
 It tells the framework two things:
 
-- `profilePath`: which auth definition to use
 - `root`: which path subtree to use for storing and resolving credentials
+- `target`: how that connection authenticates
+
+`target` can be:
+
+- `{ kind: 'profile', profilePath }` when the product wants to use a `Credential Profile`
+- `{ kind: 'resource', resource }` when the product wants discovery-first OAuth for a published resource such as an MCP server
 
 Examples:
 
@@ -100,31 +107,50 @@ Bindings are the primary runtime identity model for embedded consumers such as S
 
 If your product has a connection called "Acme GitHub", the binding might look like:
 
-```txt
-root        = /acme/connections/github_primary
-profilePath = /github
+```ts
+const binding = {
+  root: '/acme/connections/github_primary',
+  target: {
+    kind: 'profile',
+    profilePath: '/github',
+  },
+}
 ```
 
-`profilePath` answers "how should this connection authenticate?"
+A discovery-first MCP binding might look like:
+
+```ts
+const binding = {
+  root: '/acme/connections/docs_mcp',
+  target: {
+    kind: 'resource',
+    resource: 'https://docs.example.com/mcp',
+  },
+}
+```
 
 `root` answers "which part of the path tree belongs to this connection for credential lookup and storage?"
 
-That is why the binding is `root + profilePath`.
+`target` answers "how should this connection authenticate?"
+
+That is why the binding is `root + target`.
 
 - `root` is a namespace boundary and lookup boundary
 - `credentialPath` is an optional exact leaf when a caller wants to pin one specific stored credential
 - when `credentialPath` is omitted, the framework resolves the deepest matching credential under the binding root
 
-In practice, a host product usually knows it is working with a connection such as "Acme GitHub" before it knows the exact credential leaf. The binding starts from that connection root, and `credentialPath` remains an optional override for callers that want to pin one specific stored credential.
+In practice, a host product usually knows it is working with a connection such as "Acme GitHub" or "Docs MCP" before it knows the exact credential leaf. The binding starts from that connection root, and `credentialPath` remains an optional override for callers that want to pin one specific stored credential.
+
+For compatibility, the framework still accepts the shorthand `{ root, profilePath }` for profile-backed bindings.
 
 ### Credential
 
 A `Credential` is encrypted auth material stored at a path under a binding root.
 
-Credentials are tagged with their `profilePath`. Runtime resolution uses:
+Credentials are tagged with their auth target. Runtime resolution uses:
 
 - the binding root
-- the binding profile
+- the binding target
 - the deepest stored matching credential inside that root
 
 Examples:
@@ -168,11 +194,12 @@ Profile resolution is path-based:
 
 Runtime credential resolution starts from an explicit binding:
 
-1. the host product chooses `root + profilePath`
-2. `agent.pw` resolves the binding profile
-3. `agent.pw` looks for credentials under the binding root with that `profilePath`
-4. the deepest stored credential wins
-5. same-depth ambiguity is an error
+1. the host product chooses `root + target`
+2. for profile targets, `agent.pw` resolves the `Credential Profile`
+3. for resource targets, `agent.pw` uses discovery metadata directly
+4. `agent.pw` looks for credentials under the binding root tagged to that same target
+5. the deepest stored credential wins
+6. same-depth ambiguity is an error
 
 The framework still stores `host` on credentials because host products may want it as metadata or for adapter logic. It is not the canonical runtime identity model.
 
@@ -201,6 +228,7 @@ The framework owns:
 - callback completion and code exchange
 - refresh token exchange
 - optional disconnect and token revocation
+- resource metadata discovery and authorization server discovery
 - hosted callback helpers
 - client metadata document generation for MCP-style clients
 
@@ -245,7 +273,7 @@ Current tables:
 Important storage choices:
 
 - `cred_profiles.path` and `credentials.path` are tree-aware path fields
-- `credentials.profile_path` is the canonical runtime profile association
+- `credentials.profile_path` stores the canonical auth target key used for runtime resolution
 - secrets are encrypted before persistence
 - the SQL schema is framework-owned and versioned with Drizzle migrations
 
@@ -282,8 +310,10 @@ This keeps the authorization model stable even if host products choose a differe
 
 An embedded consumer such as Smithery Connect uses the framework like this:
 
-1. define a profile such as `/github`
-2. choose a binding root such as `/{namespace}/{connectionId}`
+1. choose a binding root such as `/{namespace}/{connectionId}`
+2. choose an auth target:
+   - a `Credential Profile` such as `/github`
+   - or a discovered resource such as `https://docs.example.com/mcp`
 3. start OAuth for that binding
 4. complete OAuth and persist a credential under the binding root
 5. resolve headers from that binding during MCP or API execution

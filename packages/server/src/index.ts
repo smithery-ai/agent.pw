@@ -1,6 +1,15 @@
 import {
   createQueryHelpers,
 } from './db/queries.js'
+import {
+  authTargetFromKey,
+  authTargetKey,
+  authTargetProfilePath,
+  normalizeBindingRef,
+  normalizeCredentialTargetInput,
+  normalizeRoot,
+  resolveBindingCredentialPath,
+} from './auth-targets.js'
 import { AgentPwConflictError, AgentPwInputError } from './errors.js'
 import { decryptCredentials, encryptCredentials } from './lib/credentials-crypto.js'
 import { createLogger } from './lib/logger.js'
@@ -9,13 +18,13 @@ import { createOAuthService } from './oauth.js'
 import {
   canonicalizePath,
   credentialName,
-  isAncestorOrEqual,
-  joinCredentialPath,
   validatePath,
 } from './paths.js'
 import type {
   AgentPw,
   AgentPwOptions,
+  AuthTarget,
+  BindingRef,
   BindingPutInput,
   CredentialProfileRecord,
   CredentialRecord,
@@ -68,14 +77,6 @@ function assertPath(path: string, label: string) {
   return normalized
 }
 
-function normalizeRoot(root: string, label: string) {
-  const normalized = canonicalizePath(root)
-  if (!validatePath(normalized)) {
-    throw new AgentPwInputError(`Invalid ${label} '${root}'`)
-  }
-  return normalized
-}
-
 async function decryptCredentialRecord(
   encryptionKey: string,
   row: {
@@ -88,8 +89,10 @@ async function decryptCredentialRecord(
     updatedAt: Date
   },
 ): Promise<CredentialRecord> {
+  const target = authTargetFromKey(row.profilePath)
   return {
-    profilePath: row.profilePath,
+    profilePath: authTargetProfilePath(target),
+    target,
     host: row.host,
     path: row.path,
     auth: row.auth,
@@ -97,32 +100,6 @@ async function decryptCredentialRecord(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
-}
-
-function assertBindingInput(input: {
-  root: string
-  profilePath: string
-}) {
-  return {
-    root: normalizeRoot(input.root, 'binding root'),
-    profilePath: assertPath(input.profilePath, 'profile path'),
-  }
-}
-
-function resolveBindingCredentialPath(input: {
-  root: string
-  profilePath: string
-  credentialPath?: string
-}) {
-  const credentialPath = input.credentialPath
-    ? assertPath(input.credentialPath, 'credential path')
-    : joinCredentialPath(input.root, credentialName(input.profilePath))
-
-  if (!isAncestorOrEqual(input.root, credentialPath)) {
-    throw new AgentPwInputError(`Credential path '${credentialPath}' is outside root '${input.root}'`)
-  }
-
-  return credentialPath
 }
 
 export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
@@ -192,14 +169,15 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
   }
 
   async function resolveBindingInternal(
-    input: {
-      root: string
-      profilePath: string
+    input: BindingRef & {
       credentialPath?: string
     },
   ): Promise<ResolvedCredential | null> {
-    const binding = assertBindingInput(input)
-    const profile = await profiles.get(binding.profilePath)
+    const binding = normalizeBindingRef(input)
+    const targetKey = authTargetKey(binding.target)
+    const profile = binding.target.kind === 'profile'
+      ? await profiles.get(binding.target.profilePath)
+      : null
     const exactPath = input.credentialPath
       ? resolveBindingCredentialPath({
           ...binding,
@@ -209,7 +187,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 
     if (exactPath) {
       const exact = await queries.getCredential(options.db, exactPath)
-      if (!exact || exact.profilePath !== binding.profilePath) {
+      if (!exact || exact.profilePath !== targetKey) {
         return null
       }
 
@@ -217,7 +195,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       return { ...decrypted, profile }
     }
 
-    const matches = await queries.getCredentialsByProfileWithinRoot(options.db, binding.profilePath, binding.root)
+    const matches = await queries.getCredentialsByProfileWithinRoot(options.db, targetKey, binding.root)
     const selected = resolveSingleMatch(matches, 'Credential')
     if (!selected) {
       return null
@@ -228,13 +206,13 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
   }
 
   async function putCredential(path: string, input: {
-    profilePath: string
+    target: AuthTarget
     host?: string | null
     auth?: Record<string, unknown>
     secret: CredentialRecord['secret'] | Buffer
   }) {
     const credentialPath = assertPath(path, 'credential path')
-    const profilePath = assertPath(input.profilePath, 'profile path')
+    const profilePath = authTargetKey(input.target)
     const secret = Buffer.isBuffer(input.secret)
       ? input.secret
       : await encryptCredentials(encryptionKey, input.secret)
@@ -256,15 +234,19 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
   }
 
   async function putBinding(input: BindingPutInput) {
-    const binding = assertBindingInput(input)
-    const profile = await profiles.get(binding.profilePath)
+    const binding = normalizeBindingRef(input)
+    const profile = binding.target.kind === 'profile'
+      ? await profiles.get(binding.target.profilePath)
+      : null
     const credentialPath = resolveBindingCredentialPath({
       ...binding,
       credentialPath: input.credentialPath,
     })
-    const host = input.host ?? profile?.host[0] ?? null
+    const host = input.host
+      ?? profile?.host[0]
+      ?? (binding.target.kind === 'resource' ? new URL(binding.target.resource).host : null)
     const credential = await putCredential(credentialPath, {
-      profilePath: binding.profilePath,
+      target: binding.target,
       host,
       auth: input.auth,
       secret: input.secret,
@@ -280,6 +262,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     flowStore: options.flowStore,
     clock,
     customFetch: options.oauthFetch,
+    defaultClient: options.oauthClient,
     getProfile(path) {
       return profiles.get(path)
     },
@@ -298,9 +281,10 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       if (!input.refresh && input.refresh !== undefined) {
         return resolved
       }
+      const binding = normalizeBindingRef(input)
       return oauth.refreshCredential({
-        root: input.root,
-        profilePath: input.profilePath,
+        root: binding.root,
+        target: binding.target,
         credentialPath: input.credentialPath,
       })
     },
@@ -317,9 +301,10 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 
   const credentials: AgentPw['credentials'] = {
     async resolve(input) {
+      const binding = normalizeBindingRef(input)
       const resolved = await bindings.resolve({
-        root: input.root,
-        profilePath: input.profilePath,
+        root: binding.root,
+        target: binding.target,
         credentialPath: input.credentialPath,
         refresh: input.refresh,
       })
@@ -341,7 +326,8 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
         root: query.root ? normalizeRoot(query.root, 'credential root') : '/',
       })
       return rows.map<CredentialSummary>(row => ({
-        profilePath: row.profilePath,
+        profilePath: authTargetProfilePath(authTargetFromKey(row.profilePath)),
+        target: authTargetFromKey(row.profilePath),
         host: row.host,
         path: row.path,
         auth: row.auth,
@@ -351,7 +337,12 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
 
     put(path, input) {
-      return putCredential(path, input)
+      return putCredential(path, {
+        target: normalizeCredentialTargetInput(input),
+        host: input.host,
+        auth: input.auth,
+        secret: input.secret,
+      })
     },
 
     move(fromPath, toPath) {
