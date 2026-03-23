@@ -28,9 +28,8 @@ describe('Better Auth plugin edge cases', () => {
       agentPw: {
         profiles: {
           get: vi.fn(),
-          resolve: vi.fn(),
         },
-        credentials: {
+        bindings: {
           put,
         },
       } as never,
@@ -52,9 +51,8 @@ describe('Better Auth plugin edge cases', () => {
       agentPw: {
         profiles: {
           get: vi.fn(),
-          resolve: vi.fn(),
         },
-        credentials: {
+        bindings: {
           put,
         },
       } as never,
@@ -80,16 +78,14 @@ describe('Better Auth plugin edge cases', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
-    const resolve = vi.fn()
-
     const plugin = createAgentPwBetterAuthPlugin({
       agentPw: {
-        profiles: { get, resolve },
-        credentials: { put },
+        profiles: { get },
+        bindings: { put },
       } as never,
       selectCredential() {
         return {
-          credentialPath: '/org_alpha/linear-credential',
+          root: '/org_alpha/connections/linear_1',
           profilePath: '/org_alpha/linear',
           auth: { kind: 'custom' },
         }
@@ -105,8 +101,10 @@ describe('Better Auth plugin edge cases', () => {
     await initialized?.options?.databaseHooks?.account?.create?.after?.(makeAccount(), null)
 
     expect(get).toHaveBeenCalledWith('/org_alpha/linear')
-    expect(resolve).not.toHaveBeenCalled()
-    expect(put).toHaveBeenCalledWith('/org_alpha/linear-credential', {
+    expect(put).toHaveBeenCalledWith({
+      root: '/org_alpha/connections/linear_1',
+      profilePath: '/org_alpha/linear',
+      credentialPath: '/org_alpha/connections/linear_1/linear',
       host: 'api.linear.app',
       auth: { kind: 'custom' },
       secret: {
@@ -117,7 +115,7 @@ describe('Better Auth plugin edge cases', () => {
 
   it('builds default stored credentials without access tokens or oauth config', async () => {
     const put = vi.fn()
-    const resolve = vi.fn(async () => ({
+    const get = vi.fn(async () => ({
       path: '/org_alpha/linear',
       provider: 'linear',
       host: ['api.linear.app'],
@@ -134,15 +132,14 @@ describe('Better Auth plugin edge cases', () => {
     const plugin = createAgentPwBetterAuthPlugin({
       agentPw: {
         profiles: {
-          get: vi.fn(),
-          resolve,
+          get,
         },
-        credentials: { put },
+        bindings: { put },
       } as never,
       selectCredential() {
         return {
-          credentialPath: '/org_alpha/linear-credential',
-          host: 'api.linear.app',
+          root: '/org_alpha/connections/linear_1',
+          profilePath: '/org_alpha/linear',
         }
       },
     })
@@ -155,8 +152,11 @@ describe('Better Auth plugin edge cases', () => {
       scope: '',
     }), null)
 
-    expect(resolve).toHaveBeenCalled()
-    expect(put).toHaveBeenCalledWith('/org_alpha/linear-credential', expect.objectContaining({
+    expect(get).toHaveBeenCalledWith('/org_alpha/linear')
+    expect(put).toHaveBeenCalledWith(expect.objectContaining({
+      root: '/org_alpha/connections/linear_1',
+      profilePath: '/org_alpha/linear',
+      credentialPath: '/org_alpha/connections/linear_1/linear',
       host: 'api.linear.app',
       secret: {
         headers: {},
@@ -175,19 +175,19 @@ describe('Better Auth plugin edge cases', () => {
 
   it('builds default stored credentials when no profile oauth config exists', async () => {
     const put = vi.fn()
-    const resolve = vi.fn(async () => null)
+    const get = vi.fn(async () => null)
 
     const plugin = createAgentPwBetterAuthPlugin({
       agentPw: {
         profiles: {
-          get: vi.fn(),
-          resolve,
+          get,
         },
-        credentials: { put },
+        bindings: { put },
       } as never,
       selectCredential() {
         return {
-          credentialPath: '/org_alpha/linear-credential',
+          root: '/org_alpha/connections/linear_1',
+          profilePath: '/org_alpha/linear',
           host: 'api.linear.app',
         }
       },
@@ -198,7 +198,9 @@ describe('Better Auth plugin edge cases', () => {
       scope: 'repo',
     }), null)
 
-    expect(put).toHaveBeenCalledWith('/org_alpha/linear-credential', expect.objectContaining({
+    expect(put).toHaveBeenCalledWith(expect.objectContaining({
+      root: '/org_alpha/connections/linear_1',
+      profilePath: '/org_alpha/linear',
       secret: expect.objectContaining({
         oauth: expect.objectContaining({
           scopes: 'repo',
@@ -211,9 +213,8 @@ describe('Better Auth plugin edge cases', () => {
     const baseAgentPw = {
       profiles: {
         get: vi.fn(),
-        resolve: vi.fn(async () => null),
       },
-      credentials: {
+      bindings: {
         put: vi.fn(),
       },
     } as never
@@ -222,26 +223,43 @@ describe('Better Auth plugin edge cases', () => {
       agentPw: baseAgentPw,
       selectCredential() {
         return {
-          credentialPath: '/',
+          root: '/',
+          profilePath: '/linear',
         }
       },
     })
     const invalidPathInit = invalidPathPlugin.init?.({} as never)
     await expect(invalidPathInit?.options?.databaseHooks?.account?.create?.after?.(makeAccount(), null)).rejects.toThrow(
-      "Invalid credential path '/'",
+      "Invalid binding root '/'",
+    )
+
+    const invalidProfilePlugin = createAgentPwBetterAuthPlugin({
+      agentPw: baseAgentPw,
+      selectCredential() {
+        return {
+          root: '/org_alpha/connections/linear_1',
+          profilePath: '/',
+        }
+      },
+    })
+    const invalidProfileInit = invalidProfilePlugin.init?.({} as never)
+    await expect(invalidProfileInit?.options?.databaseHooks?.account?.create?.after?.(makeAccount(), null)).rejects.toThrow(
+      "Invalid profile path '/'",
     )
 
     const missingHostPlugin = createAgentPwBetterAuthPlugin({
       agentPw: baseAgentPw,
       selectCredential() {
         return {
-          credentialPath: '/org_alpha/linear-credential',
+          root: '/org_alpha/connections/linear_1',
+          profilePath: '/org_alpha/linear',
         }
       },
     })
     const missingHostInit = missingHostPlugin.init?.({} as never)
-    await expect(missingHostInit?.options?.databaseHooks?.account?.create?.after?.(makeAccount(), null)).rejects.toThrow(
-      "No host resolved for Better Auth account 'linear'",
-    )
+    await expect(missingHostInit?.options?.databaseHooks?.account?.create?.after?.(makeAccount(), null)).resolves.toBeUndefined()
+    expect(baseAgentPw.bindings.put).toHaveBeenCalledWith(expect.objectContaining({
+      host: null,
+    }))
   })
 })

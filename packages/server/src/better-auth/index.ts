@@ -1,6 +1,6 @@
 import type { Account, BetterAuthPlugin, GenericEndpointContext } from 'better-auth'
 import type { AgentPw, CredentialProfileRecord } from '../types.js'
-import { credentialParentPath, validatePath } from '../paths.js'
+import { credentialName, joinCredentialPath, validatePath } from '../paths.js'
 import { isRecord } from '../lib/utils.js'
 import type { StoredCredentials } from '../lib/credentials-crypto.js'
 import { authAccounts } from '../db/schema/auth-accounts.js'
@@ -16,16 +16,16 @@ export const betterAuthSchema = {
 }
 
 export interface AgentPwBetterAuthTarget {
-  credentialPath: string
-  root?: string
+  root: string
+  credentialPath?: string
   provider?: string
-  profilePath?: string
+  profilePath: string
   host?: string
   auth?: Record<string, unknown>
 }
 
 export interface AgentPwBetterAuthPluginOptions {
-  agentPw: Pick<AgentPw, 'profiles' | 'credentials'>
+  agentPw: Pick<AgentPw, 'profiles' | 'bindings'>
   selectCredential(input: {
     account: Account
     context: GenericEndpointContext | null
@@ -92,28 +92,27 @@ async function syncAccountToCredential(
   if (!target) {
     return
   }
-  if (!validatePath(target.credentialPath) || target.credentialPath === '/') {
-    throw new Error(`Invalid credential path '${target.credentialPath}'`)
+  if (!validatePath(target.root) || target.root === '/') {
+    throw new Error(`Invalid binding root '${target.root}'`)
   }
 
-  const root = target.root ?? credentialParentPath(target.credentialPath)
-  const profile = target.profilePath
-    ? await options.agentPw.profiles.get(target.profilePath)
-    : await options.agentPw.profiles.resolve({
-        provider: target.provider ?? account.providerId,
-        host: target.host,
-        root,
-      })
-  const host = target.host ?? profile?.host[0]
-  if (!host) {
-    throw new Error(`No host resolved for Better Auth account '${account.providerId}'`)
+  if (!validatePath(target.profilePath) || target.profilePath === '/') {
+    throw new Error(`Invalid profile path '${target.profilePath}'`)
   }
+  const profile = await options.agentPw.profiles.get(target.profilePath)
+  const credentialPath =
+    target.credentialPath
+    ?? joinCredentialPath(target.root, credentialName(target.profilePath))
+  const host = target.host ?? profile?.host[0] ?? null
 
   const secret = options.buildStoredCredentials
     ? options.buildStoredCredentials({ account, profile, target })
     : defaultStoredCredentials({ account, profile })
 
-  await options.agentPw.credentials.put(target.credentialPath, {
+  await options.agentPw.bindings.put({
+    root: target.root,
+    profilePath: target.profilePath,
+    credentialPath,
     host,
     auth: target.auth ?? {
       kind: 'oauth',

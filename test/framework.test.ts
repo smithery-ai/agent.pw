@@ -49,30 +49,41 @@ describe('createAgentPw', () => {
     }))
 
     await agentPw.credentials.put('/org_alpha/linear', {
+      profilePath: '/linear',
       host: 'api.linear.app',
       auth: { kind: 'headers' },
       secret: bearerSecret('org-token'),
     })
     await agentPw.credentials.put('/org_alpha/ws_engineering/linear', {
+      profilePath: '/org_alpha/ws_engineering/linear',
       host: 'api.linear.app',
       auth: { kind: 'headers' },
       secret: bearerSecret('engineering-token'),
     })
 
-    expect(await agentPw.credentials.get('/org_alpha/linear', 'api.linear.app')).toEqual(
+    expect(await agentPw.credentials.get('/org_alpha/linear')).toEqual(
       expect.objectContaining({
         path: '/org_alpha/linear',
+        profilePath: '/linear',
         secret: { headers: { Authorization: 'Bearer org-token' } },
       }),
     )
 
-    expect(await agentPw.credentials.resolve({
-      host: 'api.linear.app',
+    expect(await agentPw.bindings.resolve({
       root: '/org_alpha/ws_engineering/service',
+      profilePath: '/org_alpha/ws_engineering/linear',
     })).toEqual(expect.objectContaining({
       path: '/org_alpha/ws_engineering/linear',
+      profilePath: '/org_alpha/ws_engineering/linear',
       secret: { headers: { Authorization: 'Bearer engineering-token' } },
     }))
+
+    expect(await agentPw.bindings.resolveHeaders({
+      root: '/org_alpha/ws_engineering/service',
+      profilePath: '/org_alpha/ws_engineering/linear',
+    })).toEqual({
+      Authorization: 'Bearer engineering-token',
+    })
   })
 
   it('raises conflicts when same-depth credentials are ambiguous', async () => {
@@ -83,19 +94,21 @@ describe('createAgentPw', () => {
     })
 
     await agentPw.credentials.put('/org_alpha/ws_engineering/linear', {
+      profilePath: '/linear',
       host: 'api.linear.app',
       auth: { kind: 'headers' },
       secret: bearerSecret('linear-a'),
     })
     await agentPw.credentials.put('/org_alpha/ws_engineering/linear-shadow', {
+      profilePath: '/linear',
       host: 'api.linear.app',
       auth: { kind: 'headers' },
       secret: bearerSecret('linear-b'),
     })
 
-    await expect(agentPw.credentials.resolve({
-      host: 'api.linear.app',
+    await expect(agentPw.bindings.resolve({
       root: '/org_alpha/ws_engineering/service',
+      profilePath: '/linear',
     })).rejects.toBeInstanceOf(AgentPwConflictError)
   })
 
@@ -151,6 +164,33 @@ describe('createAgentPw', () => {
     expect(await agentPw.access.inspect(minted.token)).toEqual(expect.objectContaining({
       valid: false,
       revoked: true,
+    }))
+  })
+
+  it('stores credentials through explicit bindings', async () => {
+    const db = await createTestDb()
+    const agentPw = await createAgentPw({
+      db,
+      biscuitPrivateKey: BISCUIT_PRIVATE_KEY,
+    })
+
+    await agentPw.profiles.put('/github', {
+      host: ['api.github.com'],
+    })
+
+    const stored = await agentPw.bindings.put({
+      root: '/org_alpha/connections/github_1',
+      profilePath: '/github',
+      secret: bearerSecret('github-token'),
+    })
+
+    expect(stored).toEqual(expect.objectContaining({
+      path: '/org_alpha/connections/github_1/github',
+      profilePath: '/github',
+      host: 'api.github.com',
+      profile: expect.objectContaining({
+        path: '/github',
+      }),
     }))
   })
 })

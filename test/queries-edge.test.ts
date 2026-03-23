@@ -42,32 +42,37 @@ describe('query edge cases', () => {
     expect((await listCredProfiles(db)).map(profile => profile.path)).toEqual(['/github', '/gitlab', '/slack'])
 
     await upsertCredential(db, {
+      profilePath: '/linear',
       host: 'api.linear.app',
       path: '/org_alpha/a',
       auth: { kind: 'headers' },
       secret: Buffer.from('a'),
     })
     await upsertCredential(db, {
+      profilePath: '/linear',
       host: 'api.linear.app',
       path: '/org_alpha/b',
       auth: { kind: 'headers' },
       secret: Buffer.from('b'),
     })
     await upsertCredential(db, {
+      profilePath: '/linear',
       host: 'api.linear.app',
       path: '/org_beta/c',
       auth: { kind: 'headers' },
       secret: Buffer.from('c'),
     })
     await upsertCredential(db, {
+      profilePath: '/secondary',
       host: 'api.secondary.app',
       path: '/org_alpha/shared',
       auth: { kind: 'headers' },
       secret: Buffer.from('d'),
     })
     await upsertCredential(db, {
+      profilePath: '/tertiary',
       host: 'api.tertiary.app',
-      path: '/org_alpha/shared',
+      path: '/org_alpha/shared-secondary',
       auth: { kind: 'headers' },
       secret: Buffer.from('e'),
     })
@@ -84,7 +89,7 @@ describe('query edge cases', () => {
       '/org_alpha/a',
       '/org_alpha/b',
       '/org_alpha/shared',
-      '/org_alpha/shared',
+      '/org_alpha/shared-secondary',
       '/org_beta/c',
     ])
 
@@ -129,9 +134,20 @@ describe('query edge cases', () => {
     expect(secondPage.items.map(item => item.path)).toEqual([
       '/org_alpha/b',
       '/org_alpha/shared',
-      '/org_alpha/shared',
+      '/org_alpha/shared-secondary',
     ])
     expect(secondPage.hasMore).toBe(false)
+
+    const nullHostCursorPage = await listCredentialsAccessiblePage(db, {
+      limit: 5,
+      roots: ['/org_alpha', '/org_beta'],
+      after: {
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        path: '/org_alpha/shared',
+        host: null,
+      },
+    })
+    expect(nullHostCursorPage.items.map(item => item.path)).toContain('/org_alpha/shared-secondary')
   })
 
   it('handles token ledger misses, missing tables, and revocation edge cases', async () => {
@@ -176,7 +192,7 @@ describe('query edge cases', () => {
       revokedAt: revoked?.revokedAt,
     }))
 
-    expect(await moveCredential(db, 'missing.host', '/missing', '/next')).toBe(false)
+    expect(await moveCredential(db, '/missing', '/next')).toBe(false)
 
     await createIssuedToken(db, {
       id: 'tok_null_reason',

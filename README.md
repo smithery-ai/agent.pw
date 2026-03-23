@@ -7,9 +7,10 @@
 It gives a host application four things:
 
 - path-scoped `Credential Profiles` that describe how a provider authenticates
+- explicit `Bindings` that attach product resources to `root + profilePath`
 - encrypted `Credentials` stored once and reused across runtimes
 - scoped Biscuit-based `Agent Access` tokens for agent execution
-- a Better Auth bridge that mirrors provider OAuth accounts into agent.pw credentials
+- a Better Auth bridge that mirrors provider OAuth accounts into binding-scoped agent.pw credentials
 
 Smithery-style products embed `agent.pw` directly in-process. There is no built-in server, daemon, or CLI in this repo.
 
@@ -19,6 +20,7 @@ Smithery-style products embed `agent.pw` directly in-process. There is no built-
 import { createAgentPw } from 'agent.pw'
 import * as paths from 'agent.pw/paths'
 import * as access from 'agent.pw/access'
+import * as oauth from 'agent.pw/oauth'
 import * as sql from 'agent.pw/sql'
 import * as betterAuth from 'agent.pw/better-auth'
 ```
@@ -52,8 +54,9 @@ await agentPw.profiles.put('/linear', {
   },
 })
 
-await agentPw.credentials.put('/org_acme/linear', {
-  host: 'api.linear.app',
+const binding = await agentPw.bindings.put({
+  root: '/org_acme/connections/linear_finance',
+  profilePath: '/linear',
   auth: { kind: 'headers' },
   secret: {
     headers: {
@@ -62,9 +65,14 @@ await agentPw.credentials.put('/org_acme/linear', {
   },
 })
 
-const credential = await agentPw.credentials.resolve({
-  host: 'api.linear.app',
-  root: '/org_acme/workflows/finance',
+const headers = await agentPw.bindings.resolveHeaders({
+  root: '/org_acme/connections/linear_finance',
+  profilePath: '/linear',
+})
+
+const flow = await agentPw.oauth.start({
+  root: '/org_acme/connections/linear_finance',
+  profilePath: '/linear',
 })
 
 const accessToken = await agentPw.access.mint({
@@ -77,6 +85,14 @@ const accessToken = await agentPw.access.mint({
   },
 })
 ```
+
+The primary runtime contract is explicit:
+
+- identify a binding root such as `/{namespace}/{connectionId}`
+- attach it to a `profilePath`
+- resolve headers or stored auth from that binding
+
+Host or URL inference can still exist in adapters, but it is no longer the core model.
 
 ## Better Auth
 
@@ -113,8 +129,8 @@ const auth = betterAuth({
       agentPw,
       selectCredential() {
         return {
-          credentialPath: '/org_acme/linear',
-          provider: 'linear',
+          root: '/org_acme/connections/linear_primary',
+          profilePath: '/linear',
         }
       },
     }),
@@ -135,16 +151,19 @@ Examples:
 /org_acme/linear
 /org_acme/ws_eng/linear
 /org_acme/ws_eng/user_alice/notion
+/org_acme/connections/linear_primary
 ```
 
 - `Credential Profile`: auth definition at a path
+- `Binding`: explicit `root + profilePath` association for a product resource
 - `Credential`: encrypted auth material at a path
 - `Agent Access`: scoped rights over one or more path roots
 
 Resolution is tree-based:
 
 - profiles resolve by deepest applicable path, with root-level defaults as fallback
-- credentials resolve by deepest applicable stored credential
+- runtime auth resolves from an explicit Binding
+- credentials resolve by deepest applicable stored credential inside the binding root
 - same-depth ambiguity is an error that the host product must disambiguate
 
 More detail is in [docs/security-model.md](docs/security-model.md).
@@ -185,6 +204,7 @@ pnpm run db:generate
 packages/server/src/
   index.ts          createAgentPw(...)
   access.ts         Biscuit-backed access helpers and service
+  oauth.ts          pluggable pending auth flow state
   paths.ts          canonical path helpers
   better-auth/      Better Auth bridge and schema exports
   db/               Drizzle schema, queries, bootstrap, migrations

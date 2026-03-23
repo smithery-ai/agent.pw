@@ -1,6 +1,7 @@
 import type { Database } from './db/index.js'
 import type { Logger } from './lib/logger.js'
 import type { StoredCredentials } from './lib/credentials-crypto.js'
+import type { FlowStore } from './oauth.js'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
 
@@ -33,6 +34,7 @@ export interface AgentPwOptions {
   encryptionKey?: string
   clock?: () => Date
   logger?: Logger
+  flowStore?: FlowStore
 }
 
 export interface CredentialProfileRecord {
@@ -56,7 +58,8 @@ export interface CredentialProfilePutInput {
 }
 
 export interface CredentialSummary {
-  host: string
+  profilePath: string
+  host: string | null
   path: string
   auth: Record<string, unknown>
   createdAt: Date
@@ -68,7 +71,24 @@ export interface CredentialRecord extends CredentialSummary {
 }
 
 export interface CredentialPutInput {
-  host: string
+  profilePath: string
+  host?: string | null
+  auth?: Record<string, unknown>
+  secret: StoredCredentials | Buffer
+}
+
+export interface BindingRef {
+  root: string
+  profilePath: string
+}
+
+export interface ResolvedCredential extends CredentialRecord {
+  profile: CredentialProfileRecord | null
+}
+
+export interface BindingPutInput extends BindingRef {
+  credentialPath?: string
+  host?: string | null
   auth?: Record<string, unknown>
   secret: StoredCredentials | Buffer
 }
@@ -131,19 +151,52 @@ export interface AgentPw {
     put(path: string, data: CredentialProfilePutInput): Promise<CredentialProfileRecord>
     delete(path: string): Promise<boolean>
   }
+  bindings: {
+    resolve(input: BindingRef & {
+      credentialPath?: string
+    }): Promise<ResolvedCredential | null>
+    resolveHeaders(input: BindingRef & {
+      credentialPath?: string
+    }): Promise<Record<string, string>>
+    put(input: BindingPutInput): Promise<ResolvedCredential>
+  }
   credentials: {
     resolve(input: {
-      host: string
       root: string
+      profilePath: string
       credentialPath?: string
     }): Promise<CredentialRecord | null>
-    get(path: string, host: string): Promise<CredentialRecord | null>
+    get(path: string): Promise<CredentialRecord | null>
     list(options?: {
       root?: string
     }): Promise<CredentialSummary[]>
     put(path: string, input: CredentialPutInput): Promise<CredentialRecord>
-    move(fromPath: string, toPath: string, host: string): Promise<boolean>
-    delete(path: string, host: string): Promise<boolean>
+    move(fromPath: string, toPath: string): Promise<boolean>
+    delete(path: string): Promise<boolean>
+  }
+  oauth: {
+    start(input: BindingRef & {
+      id?: string
+      codeVerifier?: string
+      expiresAt?: Date
+    }): Promise<{
+      id: string
+      root: string
+      profilePath: string
+      codeVerifier: string
+      expiresAt: Date
+    }>
+    get(id: string): Promise<{
+      id: string
+      root: string
+      profilePath: string
+      codeVerifier: string
+      expiresAt: Date
+    } | null>
+    complete(id: string, result?: {
+      identity?: string
+    }): Promise<void>
+    delete(id: string): Promise<void>
   }
   access: {
     mint(input: MintAccessInput): Promise<{

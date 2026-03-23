@@ -1,3 +1,4 @@
+import { getPublicKeyHex } from './biscuit.js'
 import { createAccessService } from './access.js'
 import {
   deleteCredProfile,
@@ -6,20 +7,23 @@ import {
   getCredProfilesByHostWithinRoot,
   getCredProfilesByProviderWithinRoot,
   getCredential,
-  getCredentialsByHostWithinRoot,
+  getCredentialsByProfileWithinRoot,
   listCredProfiles,
   listCredentials,
   moveCredential,
   upsertCredProfile,
   upsertCredential,
 } from './db/queries.js'
+import { AgentPwConflictError, AgentPwInputError } from './errors.js'
 import { decryptCredentials, deriveEncryptionKey, encryptCredentials } from './lib/credentials-crypto.js'
 import { createLogger } from './lib/logger.js'
 import { deriveDisplayName } from './lib/utils.js'
+import { createInMemoryFlowStore, createOAuthService } from './oauth.js'
 import {
   canonicalizePath,
   credentialName,
   isAncestorOrEqual,
+  joinCredentialPath,
   validatePath,
 } from './paths.js'
 import type {
@@ -28,9 +32,8 @@ import type {
   CredentialProfileRecord,
   CredentialRecord,
   CredentialSummary,
+  ResolvedCredential,
 } from './types.js'
-import { AgentPwConflictError, AgentPwInputError } from './errors.js'
-import { getPublicKeyHex } from './biscuit.js'
 
 function toProfileRecord(row: {
   path: string
@@ -88,7 +91,8 @@ function normalizeRoot(root: string, label: string) {
 async function decryptCredentialRecord(
   encryptionKey: string,
   row: {
-    host: string
+    profilePath: string
+    host: string | null
     path: string
     auth: Record<string, unknown>
     secret: Buffer
@@ -97,6 +101,7 @@ async function decryptCredentialRecord(
   },
 ): Promise<CredentialRecord> {
   return {
+    profilePath: row.profilePath,
     host: row.host,
     path: row.path,
     auth: row.auth,
@@ -106,11 +111,41 @@ async function decryptCredentialRecord(
   }
 }
 
+function assertBindingInput(input: {
+  root: string
+  profilePath: string
+}) {
+  return {
+    root: normalizeRoot(input.root, 'binding root'),
+    profilePath: assertPath(input.profilePath, 'profile path'),
+  }
+}
+
+function resolveBindingCredentialPath(input: {
+  root: string
+  profilePath: string
+  credentialPath?: string
+}) {
+  const credentialPath = input.credentialPath
+    ? assertPath(input.credentialPath, 'credential path')
+    : joinCredentialPath(input.root, credentialName(input.profilePath))
+
+  if (!isAncestorOrEqual(input.root, credentialPath)) {
+    throw new AgentPwInputError(`Credential path '${credentialPath}' is outside root '${input.root}'`)
+  }
+
+  return credentialPath
+}
+
 export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
   const encryptionKey = options.encryptionKey ?? await deriveEncryptionKey(options.biscuitPrivateKey)
   const logger = options.logger ?? createLogger('agentpw').logger
   const clock = options.clock ?? (() => new Date())
   const publicKeyHex = getPublicKeyHex(options.biscuitPrivateKey)
+  const oauth = createOAuthService({
+    flowStore: options.flowStore ?? createInMemoryFlowStore(),
+    clock,
+  })
 
   const profiles: AgentPw['profiles'] = {
     async resolve(input) {
@@ -172,30 +207,115 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
   }
 
-  const credentials: AgentPw['credentials'] = {
-    async resolve(input) {
-      const root = canonicalizePath(input.root)
-      if (!validatePath(root)) {
-        throw new AgentPwInputError(`Invalid root '${input.root}'`)
+  async function resolveBinding(
+    input: {
+      root: string
+      profilePath: string
+      credentialPath?: string
+    },
+  ): Promise<ResolvedCredential | null> {
+    const binding = assertBindingInput(input)
+    const profile = await profiles.get(binding.profilePath)
+    const exactPath = input.credentialPath
+      ? resolveBindingCredentialPath({
+          ...binding,
+          credentialPath: input.credentialPath,
+        })
+      : null
+
+    if (exactPath) {
+      const exact = await getCredential(options.db, exactPath)
+      if (!exact || exact.profilePath !== binding.profilePath) {
+        return null
       }
 
-      if (input.credentialPath) {
-        const credentialPath = assertPath(input.credentialPath, 'credential path')
-        if (!isAncestorOrEqual(root, credentialPath)) {
-          throw new AgentPwInputError(`Credential path '${credentialPath}' is outside root '${root}'`)
-        }
+      const decrypted = await decryptCredentialRecord(encryptionKey, exact)
+      return { ...decrypted, profile }
+    }
 
-        const exact = await getCredential(options.db, input.host, credentialPath)
-        return exact ? decryptCredentialRecord(encryptionKey, exact) : null
-      }
+    const matches = await getCredentialsByProfileWithinRoot(options.db, binding.profilePath, binding.root)
+    const selected = resolveSingleMatch(matches, 'Credential')
+    if (!selected) {
+      return null
+    }
 
-      const matches = await getCredentialsByHostWithinRoot(options.db, input.host, root)
-      const selected = resolveSingleMatch(matches, 'Credential')
-      return selected ? decryptCredentialRecord(encryptionKey, selected) : null
+    const decrypted = await decryptCredentialRecord(encryptionKey, selected)
+    return { ...decrypted, profile }
+  }
+
+  async function putCredential(path: string, input: {
+    profilePath: string
+    host?: string | null
+    auth?: Record<string, unknown>
+    secret: CredentialRecord['secret'] | Buffer
+  }) {
+    const credentialPath = assertPath(path, 'credential path')
+    const profilePath = assertPath(input.profilePath, 'profile path')
+    const secret = Buffer.isBuffer(input.secret)
+      ? input.secret
+      : await encryptCredentials(encryptionKey, input.secret)
+
+    await upsertCredential(options.db, {
+      profilePath,
+      host: input.host ?? null,
+      path: credentialPath,
+      auth: input.auth ?? { kind: 'opaque' },
+      secret,
+    })
+
+    const stored = await getCredential(options.db, credentialPath)
+    if (!stored) {
+      throw new Error(`Failed to persist Credential '${credentialPath}'`)
+    }
+
+    return decryptCredentialRecord(encryptionKey, stored)
+  }
+
+  const bindings: AgentPw['bindings'] = {
+    resolve(input) {
+      return resolveBinding(input)
     },
 
-    async get(path, host) {
-      const selected = await getCredential(options.db, host, assertPath(path, 'credential path'))
+    async resolveHeaders(input) {
+      const resolved = await resolveBinding(input)
+      return resolved?.secret.headers ?? {}
+    },
+
+    async put(input) {
+      const binding = assertBindingInput(input)
+      const profile = await profiles.get(binding.profilePath)
+      const credentialPath = resolveBindingCredentialPath({
+        ...binding,
+        credentialPath: input.credentialPath,
+      })
+      const host = input.host ?? profile?.host[0] ?? null
+      const credential = await putCredential(credentialPath, {
+        profilePath: binding.profilePath,
+        host,
+        auth: input.auth,
+        secret: input.secret,
+      })
+
+      return {
+        ...credential,
+        profile,
+      }
+    },
+  }
+
+  const credentials: AgentPw['credentials'] = {
+    async resolve(input) {
+      const resolved = await resolveBinding(input)
+      if (!resolved) {
+        return null
+      }
+
+      const { profile, ...credential } = resolved
+      return credential
+    },
+
+    async get(path) {
+      const selected = await getCredential(options.db, assertPath(path, 'credential path'))
       return selected ? decryptCredentialRecord(encryptionKey, selected) : null
     },
 
@@ -204,6 +324,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
         root: query.root ? normalizeRoot(query.root, 'credential root') : '/',
       })
       return rows.map<CredentialSummary>(row => ({
+        profilePath: row.profilePath,
         host: row.host,
         path: row.path,
         auth: row.auth,
@@ -212,38 +333,20 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       }))
     },
 
-    async put(path, input) {
-      const credentialPath = assertPath(path, 'credential path')
-      const secret = Buffer.isBuffer(input.secret)
-        ? input.secret
-        : await encryptCredentials(encryptionKey, input.secret)
-
-      await upsertCredential(options.db, {
-        host: input.host,
-        path: credentialPath,
-        auth: input.auth ?? { kind: 'opaque' },
-        secret,
-      })
-
-      const stored = await getCredential(options.db, input.host, credentialPath)
-      if (!stored) {
-        throw new Error(`Failed to persist Credential '${credentialPath}' for '${input.host}'`)
-      }
-
-      return decryptCredentialRecord(encryptionKey, stored)
+    put(path, input) {
+      return putCredential(path, input)
     },
 
-    move(fromPath, toPath, host) {
+    move(fromPath, toPath) {
       return moveCredential(
         options.db,
-        host,
         assertPath(fromPath, 'source path'),
         assertPath(toPath, 'target path'),
       )
     },
 
-    delete(path, host) {
-      return deleteCredential(options.db, host, assertPath(path, 'credential path'))
+    delete(path) {
+      return deleteCredential(options.db, assertPath(path, 'credential path'))
     },
   }
 
@@ -259,7 +362,9 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 
   return {
     profiles,
+    bindings,
     credentials,
+    oauth,
     access,
   }
 }

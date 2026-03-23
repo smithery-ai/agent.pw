@@ -50,8 +50,8 @@ describe('Better Auth integration', () => {
       agentPw,
       selectCredential() {
         return {
-          credentialPath: '/org_alpha/linear-credential',
-          provider: 'linear',
+          root: '/org_alpha/connections/linear_1',
+          profilePath: '/org_alpha/linear',
         }
       },
     })
@@ -59,7 +59,7 @@ describe('Better Auth integration', () => {
 
     await initialized?.options?.databaseHooks?.account?.create?.after?.(makeAccount(), null)
 
-    expect(await agentPw.credentials.get('/org_alpha/linear-credential', 'api.linear.app')).toEqual(
+    expect(await agentPw.credentials.get('/org_alpha/connections/linear_1/linear')).toEqual(
       expect.objectContaining({
         auth: expect.objectContaining({
           kind: 'oauth',
@@ -86,7 +86,7 @@ describe('Better Auth integration', () => {
       null,
     )
 
-    expect(await agentPw.credentials.get('/org_alpha/linear-credential', 'api.linear.app')).toEqual(
+    expect(await agentPw.credentials.get('/org_alpha/connections/linear_1/linear')).toEqual(
       expect.objectContaining({
         secret: expect.objectContaining({
           headers: { Authorization: 'Bearer updated-token' },

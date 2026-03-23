@@ -51,14 +51,41 @@ export async function bootstrapLocalSchema(db: Database) {
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS agentpw.credentials (
-      host TEXT NOT NULL,
       path TEXT NOT NULL,
+      profile_path TEXT,
+      host TEXT,
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
-      PRIMARY KEY (host, path)
+      PRIMARY KEY (path)
     )
+  `)
+
+  await db.execute(sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'agentpw'
+          AND table_name = 'credentials'
+          AND column_name = 'profile_path'
+      ) THEN
+        ALTER TABLE agentpw.credentials ADD COLUMN profile_path TEXT;
+      END IF;
+    END $$;
+  `)
+
+  await db.execute(sql`
+    UPDATE agentpw.credentials
+    SET profile_path = path
+    WHERE profile_path IS NULL
+  `)
+
+  await db.execute(sql`
+    ALTER TABLE agentpw.credentials
+    ALTER COLUMN profile_path SET NOT NULL
   `)
 
   await db.execute(sql`
@@ -67,8 +94,13 @@ export async function bootstrapLocalSchema(db: Database) {
   `)
 
   await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS credentials_host_path_idx
-    ON agentpw.credentials (host, path)
+    CREATE INDEX IF NOT EXISTS credentials_profile_path_idx
+    ON agentpw.credentials (profile_path)
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS credentials_profile_path_path_idx
+    ON agentpw.credentials (profile_path, path)
   `)
 
   await db.execute(sql`

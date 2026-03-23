@@ -7,6 +7,7 @@ import {
   getCredProfilesByProviderWithinRoot,
   getCredential,
   getCredentialsByHostWithinRoot,
+  getCredentialsByProfileWithinRoot,
   getIssuedTokenByHash,
   getIssuedTokenById,
   getIssuedTokenByIdUnscoped,
@@ -39,13 +40,14 @@ import {
 
 let db: TestDb
 
-async function storeBearerCredential(host: string, path: string, token: string) {
+async function storeBearerCredential(profilePath: string, host: string, path: string, token: string) {
   const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
   const secret = await encryptCredentials(encryptionKey, {
     headers: buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, token),
   })
 
   await upsertCredential(db, {
+    profilePath,
     host,
     path,
     auth: { kind: 'headers' },
@@ -113,15 +115,19 @@ describe('query layer', () => {
   })
 
   it('handles credential lookups within explicit roots', async () => {
-    await storeBearerCredential('api.linear.app', '/root-cred', 'root-token')
-    await storeBearerCredential('api.linear.app', '/org_alpha/linear', 'org-token')
-    await storeBearerCredential('api.linear.app', '/org_alpha/ws_engineering/linear', 'eng-token')
-    await storeBearerCredential('api.linear.app', '/org_beta/linear', 'beta-token')
+    await storeBearerCredential('/linear', 'api.linear.app', '/root-cred', 'root-token')
+    await storeBearerCredential('/linear', 'api.linear.app', '/org_alpha/linear', 'org-token')
+    await storeBearerCredential('/linear', 'api.linear.app', '/org_alpha/ws_engineering/linear', 'eng-token')
+    await storeBearerCredential('/linear', 'api.linear.app', '/org_beta/linear', 'beta-token')
 
-    expect(await getCredential(db, 'api.linear.app', '/org_alpha/linear')).toEqual(
+    expect(await getCredential(db, '/org_alpha/linear')).toEqual(
       expect.objectContaining({ path: '/org_alpha/linear' }),
     )
 
+    expect((await getCredentialsByProfileWithinRoot(db, '/linear', '/org_alpha')).map(row => row.path)).toEqual([
+      '/org_alpha/linear',
+      '/root-cred',
+    ])
     expect((await getCredentialsByHostWithinRoot(db, 'api.linear.app', '/org_alpha')).map(row => row.path)).toEqual([
       '/org_alpha/linear',
       '/root-cred',
@@ -132,8 +138,8 @@ describe('query layer', () => {
       '/org_alpha/ws_engineering/linear',
     ])
 
-    expect(await deleteCredential(db, 'api.linear.app', '/org_alpha/linear')).toBe(true)
-    expect(await deleteCredential(db, 'api.linear.app', '/org_alpha/linear')).toBe(false)
+    expect(await deleteCredential(db, '/org_alpha/linear')).toBe(true)
+    expect(await deleteCredential(db, '/org_alpha/linear')).toBe(false)
   })
 
   it('tracks issued tokens by owner, hash, usage, and revocation', async () => {

@@ -7,6 +7,7 @@
     ".": "./packages/server/src/index.ts",
     "./paths": "./packages/server/src/paths.ts",
     "./access": "./packages/server/src/access.ts",
+    "./oauth": "./packages/server/src/oauth.ts",
     "./sql": "./packages/server/src/sql/index.ts",
     "./better-auth": "./packages/server/src/better-auth/index.ts"
   },

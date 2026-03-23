@@ -76,7 +76,7 @@ function pathWithinRootCondition(
 function afterCredentialCursorCondition(cursor: {
   createdAt: Date
   path: string
-  host: string
+  host: string | null
 }): SQL<unknown> {
   return sql`(
     ${lt(credentials.createdAt, cursor.createdAt)}
@@ -84,7 +84,7 @@ function afterCredentialCursorCondition(cursor: {
     or ${and(
       eq(credentials.createdAt, cursor.createdAt),
       eq(credentials.path, cursor.path),
-      gt(credentials.host, cursor.host),
+      gt(sql`coalesce(${credentials.host}, '')`, cursor.host ?? ''),
     )}
   )`
 }
@@ -251,11 +251,11 @@ export async function deleteCredProfile(db: Database, path: string) {
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
 
-export async function getCredential(db: Database, host: string, path: string) {
+export async function getCredential(db: Database, path: string) {
   const rows = await db
     .select()
     .from(credentials)
-    .where(and(eq(credentials.host, host), eq(credentials.path, path)))
+    .where(eq(credentials.path, path))
 
   return rows[0] ?? null
 }
@@ -271,7 +271,22 @@ export async function listCredentials(
     ? undefined
     : pathWithinRootCondition(credentials.path, root)
   const rows = await db.select().from(credentials).where(conditions)
-  return rows.sort((a, b) => a.path.localeCompare(b.path) || a.host.localeCompare(b.host))
+  return rows.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+export async function getCredentialsByProfileWithinRoot(
+  db: Database,
+  profilePath: string,
+  root: string,
+) {
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(and(eq(credentials.profilePath, profilePath), credentialApplicabilityCondition(root)))
+
+  return rows
+    .filter(credential => credentialAppliesToRoot(credential.path, root))
+    .sort(compareByDeepestPath)
 }
 
 export async function getCredentialsByHostWithinRoot(
@@ -298,7 +313,7 @@ export async function listCredentialsAccessiblePage(
     after?: {
       createdAt: Date
       path: string
-      host: string
+      host: string | null
     } | null
   },
 ) {
@@ -320,7 +335,7 @@ export async function listCredentialsAccessiblePage(
     .select()
     .from(credentials)
     .where(and(...conditions))
-    .orderBy(desc(credentials.createdAt), asc(credentials.path), asc(credentials.host))
+    .orderBy(desc(credentials.createdAt), asc(credentials.path), asc(sql`coalesce(${credentials.host}, '')`))
     .limit(options.limit + 1)
 
   return takePage(rows, options.limit)
@@ -329,7 +344,8 @@ export async function listCredentialsAccessiblePage(
 export async function upsertCredential(
   db: Database,
   data: {
-    host: string
+    profilePath: string
+    host?: string | null
     path: string
     auth: Record<string, unknown>
     secret: Buffer
@@ -338,14 +354,17 @@ export async function upsertCredential(
   await db
     .insert(credentials)
     .values({
+      profilePath: data.profilePath,
       host: data.host,
       path: data.path,
       auth: data.auth,
       secret: data.secret,
     })
     .onConflictDoUpdate({
-      target: [credentials.host, credentials.path],
+      target: [credentials.path],
       set: {
+        profilePath: sql`excluded.profile_path`,
+        host: sql`excluded.host`,
         auth: sql`excluded.auth`,
         secret: sql`excluded.secret`,
         updatedAt: sql`now()`,
@@ -355,23 +374,22 @@ export async function upsertCredential(
 
 export async function moveCredential(
   db: Database,
-  host: string,
   oldPath: string,
   newPath: string,
 ) {
   const rows = await db
     .update(credentials)
     .set({ path: newPath, updatedAt: sql`now()` })
-    .where(and(eq(credentials.host, host), eq(credentials.path, oldPath)))
+    .where(eq(credentials.path, oldPath))
     .returning()
 
   return rows.length > 0
 }
 
-export async function deleteCredential(db: Database, host: string, path: string) {
+export async function deleteCredential(db: Database, path: string) {
   const rows = await db
     .delete(credentials)
-    .where(and(eq(credentials.host, host), eq(credentials.path, path)))
+    .where(eq(credentials.path, path))
     .returning()
 
   return rows.length > 0

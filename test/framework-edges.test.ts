@@ -104,52 +104,57 @@ describe('createAgentPw edge cases', () => {
     })
 
     expect(await agentPw.credentials.resolve({
-      host: 'api.linear.app',
       root: '/',
+      profilePath: '/linear',
       credentialPath: '/linear',
     })).toBeNull()
     expect(await agentPw.credentials.resolve({
-      host: 'api.linear.app',
       root: '/',
+      profilePath: '/linear',
     })).toBeNull()
+    expect(await agentPw.bindings.resolveHeaders({
+      root: '/',
+      profilePath: '/linear',
+    })).toEqual({})
 
     await expect(agentPw.credentials.resolve({
-      host: 'api.linear.app',
       root: '/../bad-root',
+      profilePath: '/linear',
     })).rejects.toBeInstanceOf(AgentPwInputError)
 
     await expect(agentPw.credentials.resolve({
-      host: 'api.linear.app',
       root: '/org_alpha',
+      profilePath: '/linear',
       credentialPath: '/org_beta/linear',
     })).rejects.toBeInstanceOf(AgentPwInputError)
 
-    await expect(agentPw.credentials.get('/', 'api.linear.app')).rejects.toBeInstanceOf(AgentPwInputError)
+    await expect(agentPw.credentials.get('/')).rejects.toBeInstanceOf(AgentPwInputError)
     await expect(agentPw.credentials.list({ root: '/../bad-root' })).rejects.toBeInstanceOf(AgentPwInputError)
 
     const encryptedBuffer = await encryptCredentials(encryptionKey, {
       headers: { Authorization: 'Bearer buffered-token' },
     })
     const stored = await agentPw.credentials.put('/org_alpha/linear', {
-      host: 'api.linear.app',
+      profilePath: '/linear',
       secret: encryptedBuffer,
     })
     expect(stored).toEqual(expect.objectContaining({
       auth: { kind: 'opaque' },
       path: '/org_alpha/linear',
+      profilePath: '/linear',
       secret: { headers: { Authorization: 'Bearer buffered-token' } },
     }))
 
-    expect(await agentPw.credentials.move('/org_alpha/linear', '/org_alpha/linear-next', 'api.linear.app')).toBe(true)
-    expect(await agentPw.credentials.move('/org_alpha/linear', '/org_alpha/linear-next', 'api.linear.app')).toBe(false)
-    expect(await agentPw.credentials.delete('/org_alpha/linear-next', 'api.linear.app')).toBe(true)
-    expect(await agentPw.credentials.delete('/org_alpha/linear-next', 'api.linear.app')).toBe(false)
+    expect(await agentPw.credentials.move('/org_alpha/linear', '/org_alpha/linear-next')).toBe(true)
+    expect(await agentPw.credentials.move('/org_alpha/linear', '/org_alpha/linear-next')).toBe(false)
+    expect(await agentPw.credentials.delete('/org_alpha/linear-next')).toBe(true)
+    expect(await agentPw.credentials.delete('/org_alpha/linear-next')).toBe(false)
 
     await agentPw.credentials.put('/org_alpha/linear-second', {
-      host: 'api.linear.app',
+      profilePath: '/linear',
       secret: { headers: { Authorization: 'Bearer second' } },
     })
-    expect(await agentPw.credentials.get('/missing', 'api.linear.app')).toBeNull()
+    expect(await agentPw.credentials.get('/missing')).toBeNull()
     expect((await agentPw.credentials.list()).map(credential => credential.path)).toEqual([
       '/org_alpha/linear-second',
     ])
@@ -157,11 +162,22 @@ describe('createAgentPw edge cases', () => {
       '/org_alpha/linear-second',
     ])
     expect(await agentPw.credentials.resolve({
-      host: 'api.linear.app',
       root: '/org_alpha',
+      profilePath: '/linear',
       credentialPath: '/org_alpha/linear-second',
     })).toEqual(expect.objectContaining({
       path: '/org_alpha/linear-second',
+    }))
+
+    const bindingStored = await agentPw.bindings.put({
+      root: '/org_alpha/custom',
+      profilePath: '/custom',
+      secret: { headers: { Authorization: 'Bearer custom' } },
+    })
+    expect(bindingStored).toEqual(expect.objectContaining({
+      host: null,
+      path: '/org_alpha/custom/custom',
+      profile: null,
     }))
   })
 
@@ -205,8 +221,8 @@ describe('createAgentPw edge cases', () => {
     })
 
     await expect(agentPw.credentials.put('/linear', {
-      host: 'api.linear.app',
+      profilePath: '/linear',
       secret: { headers: {} },
-    })).rejects.toThrow("Failed to persist Credential '/linear' for 'api.linear.app'")
+    })).rejects.toThrow("Failed to persist Credential '/linear'")
   })
 })

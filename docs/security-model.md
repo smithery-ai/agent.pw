@@ -3,6 +3,7 @@
 `agent.pw` is built around three primitives:
 
 - path-scoped `Credential Profiles`
+- explicit `Bindings`
 - encrypted `Credentials`
 - scoped Biscuit-based `Agent Access`
 
@@ -48,6 +49,17 @@ The stored payload is write-only from the framework’s perspective:
 - normal runtime access goes through framework APIs
 - agents consume scoped access and resolved credentials without seeing raw secret storage
 
+### Binding
+
+A `Binding` is the explicit runtime association between a host product resource and agent.pw auth state.
+
+A Binding declares:
+
+- `root`: the subtree where credentials for that resource live
+- `profilePath`: the Credential Profile the resource uses
+
+This is the primary embedded contract of the framework. Products resolve runtime auth from a Binding, not from inferred request hosts.
+
 ### Agent Access
 
 `Agent Access` is a Biscuit token plus optional tracked metadata in `issued_tokens`.
@@ -75,9 +87,18 @@ The framework does not store folder rows. Hierarchy is implicit in path segments
 
 ## Resolution
 
+### Binding Resolution
+
+Runtime resolution is Binding-first:
+
+1. The host product identifies a Binding.
+2. The Binding supplies `root` and `profilePath`.
+3. agent.pw resolves stored auth from that Binding.
+4. Optional adapters may infer a Binding from request shape, but they are not the core contract.
+
 ### Profile Resolution
 
-Given a requested root, profiles resolve by applicability:
+Given a Binding or candidate root, profiles resolve by applicability:
 
 1. Find profiles whose parent path is an ancestor of the requested root.
 2. Prefer the deepest applicable path.
@@ -90,12 +111,12 @@ This makes path-local overrides explicit without flattening provider knowledge i
 
 Credentials resolve the same way:
 
-1. Filter by target host.
-2. Keep credentials whose parent path is an ancestor of the requested root.
+1. Start from the Binding’s `root` and `profilePath`.
+2. Keep credentials inside the Binding root that belong to the Binding’s `profilePath`.
 3. Choose the deepest applicable credential.
 4. Same-depth ambiguity is an error.
 
-This lets a product keep credentials portable while still narrowing them by org, workspace, or user subtree.
+This lets a product keep credentials portable while still narrowing them by org, workspace, or user subtree, without making runtime auth depend on host inference.
 
 ## Biscuit Tokens
 
@@ -144,7 +165,9 @@ Each Biscuit block has a revocation identifier.
 The Better Auth bridge in `agent.pw/better-auth` does two things:
 
 - exposes Better Auth tables inside the same `agentpw` SQL schema
-- mirrors Better Auth account updates into encrypted agent.pw credentials
+- mirrors Better Auth account updates into encrypted Binding-scoped agent.pw credentials
+
+Pending auth handoff state is intentionally storage-backend-agnostic. An embedding product can keep that state in SQL, KV, or another ephemeral store that matches its runtime needs.
 
 That separation matters:
 
