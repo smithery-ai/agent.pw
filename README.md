@@ -4,7 +4,9 @@
 
 `agent.pw` is a credential vault and auth framework for agents.
 
-Host products embed it in-process to define provider auth once, store encrypted credentials once, and resolve fresh authenticated headers at runtime across agents, tools, and MCP clients.
+It lets agent products connect to external services once and reuse those credentials safely across agents, tools, and MCP clients.
+
+Host products embed it in-process to manage provider OAuth and API keys, store encrypted credentials, and resolve fresh authenticated headers at runtime.
 
 The framework centers on five primitives:
 
