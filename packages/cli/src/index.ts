@@ -32,7 +32,7 @@ function assertValidPaginationOptions(command: Command) {
 export function buildProgram() {
   const program = new Command()
     .name('agent.pw')
-    .description('Use APIs from AI agents without exposing raw API keys')
+    .description('Portable auth and credential access for AI agents')
     .addHelpText('after', buildCliHelpFooter())
     .version(pkg.version)
 
@@ -266,11 +266,29 @@ export function buildProgram() {
       return popTokenCmd()
     })
 
+  // ─── proxy helpers ─────────────────────────────────────────────────────────
+
+  const proxyCmd = program
+    .command('proxy')
+    .description('Forward-proxy helpers for local runtimes')
+
+  proxyCmd
+    .command('env')
+    .description('Print shell exports for local forward-proxy mode')
+    .action(async () => {
+      const { proxyEnvCmd } = await import('./commands/proxy')
+      return proxyEnvCmd()
+    })
+
+  program
+    .command('exec')
+    .description('Run a command with local agent.pw proxy env configured')
+
   // ─── curl ──────────────────────────────────────────────────────────────────
 
   program
     .command('curl')
-    .description('Proxy-aware curl wrapper')
+    .description('Run curl through agent.pw with scoped auth')
     .allowUnknownOption()
     .allowExcessArguments()
     .action(async (_, cmd) => {
@@ -285,6 +303,11 @@ export async function runCli(argv = process.argv) {
   if (argv.slice(2).length === 0) {
     printCliWelcome()
     return
+  }
+
+  if (argv[2] === 'exec' && argv[3] !== '--help' && argv[3] !== '-h') {
+    const { proxyExecCmd } = await import('./commands/proxy')
+    return proxyExecCmd(argv.slice(3))
   }
 
   return buildProgram().parseAsync(argv)

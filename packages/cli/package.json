@@ -1,7 +1,7 @@
 {
   "name": "agent.pw",
   "version": "0.4.0",
-  "description": "CLI for agent.pw — the password manager for AI agents",
+  "description": "CLI for agent.pw — portable auth for AI agents",
   "type": "module",
   "license": "FSL-1.1-MIT",
   "bin": {

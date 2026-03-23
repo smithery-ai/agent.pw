@@ -33,7 +33,7 @@ The `apw:` / `apw_` fact prefixes are not part of the current model.
 - `home_path(...)` is optional client-facing metadata for relative path aliases. It is not authority.
 - Credentials are authorized by descendant roots, not by implicit ancestor inheritance.
 - Each proxied or bootstrap request runs against one active root.
-- Profiles are stored like credentials, but resolved as overrides: subtree-local profiles beat broader defaults.
+- Credential Profiles describe how to authenticate to a provider. Managed product surfaces usually present them as a flat catalog, while self-hosted installs can still scope profile defaults by path when they need that level of control.
 - Management routes are protected twice: the Biscuit authorizer runs on the synthetic `_management` service/action, then route handlers enforce path-based rights such as `credential.manage` or `profile.manage`.
 
 ## Architecture
@@ -64,7 +64,7 @@ There are two ways narrowed tokens show up in practice:
 
 ## Paths and Rights
 
-Every credential and profile has one canonical leaf path. There are no folder rows in the database; hierarchy is implicit in the path segments.
+Every credential has one canonical leaf path. Self-hosted profiles can also be stored under canonical paths when an installation needs scoped defaults. There are no folder rows in the database; hierarchy is implicit in the path segments.
 
 Examples:
 
@@ -131,11 +131,11 @@ This is descendant selection, not ancestor inheritance.
 
 ## Profile Resolution
 
-Profiles use the same storage model as credentials, but they resolve as defaults and overrides rather than one selected credential.
+Credential Profiles are the auth definitions that describe how to authenticate to a provider. Managed product surfaces usually present them as a flat catalog of provider defaults. The OSS core also allows self-hosted installs to scope profile defaults by path when they want local overrides.
 
-Root-level profiles such as `/linear` and `/github` are the global defaults.
+Root-level profiles such as `/linear` and `/github` act as the global defaults.
 
-More specific profiles override those defaults inside their subtree:
+More specific profiles can narrow those defaults inside a subtree:
 
 ```
 /linear
