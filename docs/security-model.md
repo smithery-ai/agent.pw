@@ -1,6 +1,6 @@
 # Security Model
 
-`agent.pw` is built around three primitives:
+`agent.pw` is built around four primitives:
 
 - path-scoped `Credential Profiles`
 - explicit `Bindings`
@@ -8,6 +8,8 @@
 - scoped Biscuit-based `Agent Access`
 
 The framework does not own an HTTP surface. A host product embeds these primitives directly and decides how agents, users, and runtimes interact with them.
+
+The public architecture for how those primitives fit together lives in [architecture.md](./architecture.md). This document focuses on the security contract.
 
 ## Resource Model
 
@@ -66,7 +68,7 @@ This is the primary embedded contract of the framework. Products resolve runtime
 
 Tokens carry:
 
-- identity facts such as `user_id(...)`, `org_id(...)`, and `home_path(...)`
+- identity facts such as `user_id(...)`, `org_id(...)`, `home_path(...)`, and `scope(...)`
 - explicit `right(root, action)` grants
 - optional attenuation constraints over host, method, path, root, and TTL
 
@@ -85,6 +87,23 @@ Examples:
 
 The framework does not store folder rows. Hierarchy is implicit in path segments.
 
+## Rights Model
+
+The framework treats `right(root, action)` as the canonical capability fact.
+
+Examples:
+
+```datalog
+user_id("usr_123");
+org_id("org_acme");
+right("/org_acme", "credential.use");
+right("/org_acme", "credential.manage");
+right("/org_acme/connections/github_prod", "token.mint");
+scope("repo");
+```
+
+`home_path(...)` is optional convenience metadata. It can be useful to a host product, but runtime authorization should not depend on a singular home path being present.
+
 ## Resolution
 
 ### Binding Resolution
@@ -95,6 +114,8 @@ Runtime resolution is Binding-first:
 2. The Binding supplies `root` and `profilePath`.
 3. agent.pw resolves stored auth from that Binding.
 4. Optional adapters may infer a Binding from request shape, but they are not the core contract.
+
+This matters for multi-tenant products. One user may have access to more than one root, so the active runtime root should be explicit and binding-scoped.
 
 ### Profile Resolution
 
@@ -142,10 +163,35 @@ check if path($path), $path.starts_with("/org_acme");
 check if requested_root($root), ["/org_acme"].contains($root);
 ```
 
-The framework enforces two things during authorization:
+## Authorization Pipeline
 
+Authorization is evaluated in two layers:
+
+1. framework path-right checks confirm that the token carries `right(root, action)` covering the requested path
+2. Biscuit attenuation checks are evaluated against ambient facts such as action, host, method, path, and requested root
+
+That split is intentional. The path model stays explicit in framework code, while Biscuit carries monotonic attenuation rules that child tokens can only narrow.
+
+The framework enforces four things during authorization:
+
+- the token parses and validates
 - the token still validates and has not been revoked
 - the token’s explicit rights cover the requested path/action
+- any attenuation checks on host, method, path, root, service, or TTL still pass
+
+Ambient facts supplied to the authorizer include:
+
+```datalog
+resource("api.linear.app");
+operation("GET");
+path("/org_acme/tasks/123");
+action("credential.use");
+host("api.linear.app");
+requested_root("/org_acme");
+time(2026-03-23T15:00:00.000Z);
+```
+
+The framework also supports multiple rights on one token. List operations can union visible roots, while runtime operations should still execute against one explicit Binding root.
 
 Tracked tokens are recorded in `issued_tokens`, so host products can inspect usage and revoke by logical token ID instead of only by bearer string.
 

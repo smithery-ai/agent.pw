@@ -166,7 +166,12 @@ Resolution is tree-based:
 - credentials resolve by deepest applicable stored credential inside the binding root
 - same-depth ambiguity is an error that the host product must disambiguate
 
-More detail is in [docs/security-model.md](docs/security-model.md).
+More detail is in [docs/architecture.md](docs/architecture.md) and [docs/security-model.md](docs/security-model.md).
+
+The public architecture docs live in:
+
+- [docs/architecture.md](docs/architecture.md)
+- [docs/security-model.md](docs/security-model.md)
 
 ## SQL
 
@@ -210,6 +215,7 @@ packages/server/src/
   db/               Drizzle schema, queries, bootstrap, migrations
   lib/              encryption, logging, shared helpers
 docs/
+  architecture.md
   security-model.md
 ```
 
