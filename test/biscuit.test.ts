@@ -2,17 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { Biscuit, PrivateKey } from '@smithery/biscuit'
 import {
   authorizeRequest,
+  compileRulesToBiscuit,
   extractTokenFacts,
   extractUserId,
   generateKeyPairHex,
   getPublicKey,
   getPublicKeyHex,
   getRevocationIds,
+  hashToken,
   mintToken,
   parseTtlSeconds,
   restrictToken,
   stripPrefix,
-} from '../packages/server/src/biscuit'
+  subjectFactsToExtraFacts,
+} from 'agent.pw/biscuit'
 import { BISCUIT_PRIVATE_KEY, ORG_TOKEN, PUBLIC_KEY_HEX, TEST_ORG_ID } from './setup'
 
 function buildCustomToken(code: string) {
@@ -34,7 +37,7 @@ describe('biscuit helpers', () => {
     expect(() => parseTtlSeconds('soon')).toThrow('Invalid TTL format: soon')
   })
 
-  it('mints tokens, extracts facts, and derives public metadata', () => {
+  it('mints tokens, extracts facts, and derives public metadata', async () => {
     const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_test_123', [
       { action: 'credential.use', root: `/${TEST_ORG_ID}` },
     ], [
@@ -56,6 +59,20 @@ describe('biscuit helpers', () => {
     expect(extractUserId(token, PUBLIC_KEY_HEX)).toBe('user_test_123')
     expect(getPublicKeyHex(BISCUIT_PRIVATE_KEY)).toBe(PUBLIC_KEY_HEX)
     expect(getRevocationIds(token, PUBLIC_KEY_HEX).length).toBeGreaterThan(0)
+    await expect(hashToken(token)).resolves.toMatch(/^[0-9a-f]{64}$/)
+    expect(subjectFactsToExtraFacts({
+      orgId: TEST_ORG_ID,
+      homePath: `/${TEST_ORG_ID}`,
+      scopes: ['repo'],
+    })).toEqual([
+      `org_id("${TEST_ORG_ID}");`,
+      `home_path("/${TEST_ORG_ID}");`,
+      'scope("repo");',
+    ])
+    expect(subjectFactsToExtraFacts({ orgId: TEST_ORG_ID })).toEqual([
+      `org_id("${TEST_ORG_ID}");`,
+    ])
+    expect(subjectFactsToExtraFacts(undefined)).toEqual([])
   })
 
   it('restricts tokens against service, method, path, and TTL constraints', () => {
@@ -63,13 +80,17 @@ describe('biscuit helpers', () => {
     expect(unrestricted).toBe(ORG_TOKEN)
 
     const restricted = restrictToken(ORG_TOKEN, PUBLIC_KEY_HEX, [
-      { services: ['github', 'gitlab'], methods: ['GET', 'POST'], paths: ['/user', '/repos'], ttl: '5m' },
+      { hosts: 'api.linear.app', services: ['github', 'gitlab'], methods: ['GET', 'POST'], paths: ['/user', '/repos'], ttl: '5m' },
       { services: 'linear', methods: 'HEAD', paths: '/graphql', ttl: 600 },
     ])
 
     expect(restricted).not.toBe(ORG_TOKEN)
-    expect(authorizeRequest(restricted, PUBLIC_KEY_HEX, 'github', 'GET', '/user').authorized).toBe(true)
-    expect(authorizeRequest(restricted, PUBLIC_KEY_HEX, 'gitlab', 'POST', '/repos/1').authorized).toBe(true)
+    expect(authorizeRequest(restricted, PUBLIC_KEY_HEX, 'github', 'GET', '/user', {
+      host: 'api.linear.app',
+    }).authorized).toBe(true)
+    expect(authorizeRequest(restricted, PUBLIC_KEY_HEX, 'gitlab', 'POST', '/repos/1', {
+      host: 'api.linear.app',
+    }).authorized).toBe(true)
     expect(authorizeRequest(restricted, PUBLIC_KEY_HEX, 'linear', 'HEAD', '/graphql').authorized).toBe(true)
     expect(authorizeRequest(restricted, PUBLIC_KEY_HEX, 'github', 'DELETE', '/user').authorized).toBe(false)
     expect(authorizeRequest(restricted, PUBLIC_KEY_HEX, 'github', 'GET', '/admin').authorized).toBe(false)
@@ -110,6 +131,14 @@ describe('biscuit helpers', () => {
       scopes: ['repo'],
     })
 
+    const withHomePath = buildCustomToken([
+      'user_id("legacy-user");',
+      'home_path("/legacy-org");',
+    ].join('\n'))
+    expect(extractTokenFacts(withHomePath, PUBLIC_KEY_HEX)).toEqual(expect.objectContaining({
+      homePath: '/legacy-org',
+    }))
+
     const orgOnlyToken = buildCustomToken('org_id("org-only");')
     expect(extractUserId(orgOnlyToken, PUBLIC_KEY_HEX)).toBe('org-only')
   })
@@ -128,6 +157,31 @@ describe('biscuit helpers', () => {
       'PUT',
       '/cred_profiles/linear',
     )).toEqual({ authorized: true })
+  })
+
+  it('compiles rule grants and constraints into biscuits', () => {
+    const compiled = compileRulesToBiscuit({
+      privateKeyHex: BISCUIT_PRIVATE_KEY,
+      subject: 'compiled-user',
+      rights: [{ action: 'credential.use', root: '/org_alpha' }],
+      constraints: [{ methods: 'GET', paths: '/org_alpha' }],
+      extraFacts: ['org_id("org_alpha")'],
+    })
+
+    expect(extractTokenFacts(compiled, PUBLIC_KEY_HEX)).toEqual(expect.objectContaining({
+      userId: 'compiled-user',
+      orgId: 'org_alpha',
+      rights: [{ action: 'credential.use', root: '/org_alpha' }],
+    }))
+
+    const unconstrained = compileRulesToBiscuit({
+      privateKeyHex: BISCUIT_PRIVATE_KEY,
+      subject: 'compiled-user',
+      rights: [{ action: 'credential.use', root: '/org_alpha' }],
+    })
+    expect(extractTokenFacts(unconstrained, PUBLIC_KEY_HEX)).toEqual(expect.objectContaining({
+      userId: 'compiled-user',
+    }))
   })
 
   it('emits bare identity facts and plain ambient request facts', () => {

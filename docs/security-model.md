@@ -1,252 +1,233 @@
 # Security Model
 
-`agent.pw` is built around four primitives:
+`agent.pw` secures agent auth around four ideas:
 
-- path-scoped `Credential Profiles`
-- explicit `Bindings`
-- encrypted `Credentials`
-- scoped Biscuit-based `Agent Access`
+- explicit binding roots
+- encrypted credential storage
+- refresh-aware OAuth runtime ownership
+- portable path-based rules
 
-The framework does not own an HTTP surface. A host product embeds these primitives directly and decides how agents, users, and runtimes interact with them.
+This document focuses on those trust boundaries and enforcement mechanics. The full system structure is described in [architecture.md](./architecture.md).
 
-The public architecture for how those primitives fit together lives in [architecture.md](./architecture.md). This document focuses on the security contract.
+## Trust Boundary
 
-## Resource Model
+The host product owns:
 
-### Credential Profile
+- user identity and sessions
+- UI and interaction flows
+- runtime orchestration
+- network transport and any external tokens it chooses to issue
 
-A `Credential Profile` is the auth definition for a provider at a path.
+`agent.pw` owns:
+
+- path validation and tree-based resolution
+- provider auth definitions
+- encrypted credential storage
+- OAuth token lifecycle for provider credentials
+- rule evaluation over binding roots
+- optional Biscuit compilation helpers
+
+That split keeps the auth substrate inspectable and reusable without forcing a second server hop.
+
+## Resource Security Model
+
+### Credential Profiles
+
+Profiles define how to authenticate to a provider at a path.
 
 Examples:
 
 ```txt
 /github
-/org_acme/github
-/org_acme/ws_eng/github
+/acme/github
+/acme/ws_eng/github
 ```
 
-Profiles define things like:
+Profiles are configuration, not secrets. Their security properties are:
 
-- provider hosts
-- supported auth schemes
-- provider-specific OAuth configuration
+- path-local overrides stay explicit
+- deeper definitions shadow broader definitions
+- same-depth ambiguity is rejected
 
-Profiles are tree-scoped. A deeper profile overrides a broader one when both apply.
+### Bindings
 
-### Credential
+Bindings are the runtime root of trust for a product resource.
 
-A `Credential` is the encrypted auth material stored at a path.
+A binding declares:
+
+- `root`
+- `profilePath`
+
+Runtime operations should execute against an explicit binding rather than against inferred request hosts or global user state. This matters for multi-tenant products because one user may operate across multiple roots during the same session.
+
+### Credentials
+
+Credentials store provider auth material encrypted at rest.
+
+Security properties:
+
+- secrets are encrypted before persistence
+- runtime code resolves credentials through framework APIs instead of reading raw ciphertext directly
+- refreshable OAuth material stays with the credential record that runtime resolution uses
+
+### Rules
+
+Rules are path grants:
+
+```txt
+right(root, action)
+```
 
 Examples:
 
 ```txt
-/org_acme/github
-/org_acme/ws_eng/linear
-/org_acme/ws_eng/user_alice/notion
+credential.use on /acme
+credential.manage on /acme/ws_eng
 ```
 
-The stored payload is write-only from the framework’s perspective:
+Rules are the framework’s canonical authorization facts. They can be enforced directly or compiled into another transport format later.
 
-- credentials are encrypted before they are persisted
-- normal runtime access goes through framework APIs
-- agents consume scoped access and resolved credentials without seeing raw secret storage
+## Path Semantics
 
-### Binding
-
-A `Binding` is the explicit runtime association between a host product resource and agent.pw auth state.
-
-A Binding declares:
-
-- `root`: the subtree where credentials for that resource live
-- `profilePath`: the Credential Profile the resource uses
-
-This is the primary embedded contract of the framework. Products resolve runtime auth from a Binding, not from inferred request hosts.
-
-### Agent Access
-
-`Agent Access` is a Biscuit token plus optional tracked metadata in `issued_tokens`.
-
-Tokens carry:
-
-- identity facts such as `user_id(...)`, `org_id(...)`, `home_path(...)`, and `scope(...)`
-- explicit `right(root, action)` grants
-- optional attenuation constraints over host, method, path, root, and TTL
-
-## Paths
-
-All policy is expressed against absolute slash-delimited paths.
+All policy is expressed over absolute slash-delimited paths.
 
 Examples:
 
 ```txt
-/org_acme
-/org_acme/shared
-/org_acme/ws_eng
-/org_acme/ws_eng/user_alice
+/acme
+/acme/shared
+/acme/ws_eng
+/acme/ws_eng/user_alice
+/acme/connections/github_primary
 ```
 
-The framework does not store folder rows. Hierarchy is implicit in path segments.
+The framework does not store folder rows. Parent-child relationships are derived from path ancestry.
 
-## Rights Model
+This gives the security model three properties:
 
-The framework treats `right(root, action)` as the canonical capability fact.
+- every resource has a stable namespace
+- subtree scoping is uniform across profiles, credentials, and bindings
+- authorization can be evaluated against roots rather than against ad hoc object ids
 
-Examples:
-
-```datalog
-user_id("usr_123");
-org_id("org_acme");
-right("/org_acme", "credential.use");
-right("/org_acme", "credential.manage");
-right("/org_acme/connections/github_prod", "token.mint");
-scope("repo");
-```
-
-`home_path(...)` is optional convenience metadata. It can be useful to a host product, but runtime authorization should not depend on a singular home path being present.
-
-## Resolution
-
-### Binding Resolution
-
-Runtime resolution is Binding-first:
-
-1. The host product identifies a Binding.
-2. The Binding supplies `root` and `profilePath`.
-3. agent.pw resolves stored auth from that Binding.
-4. Optional adapters may infer a Binding from request shape, but they are not the core contract.
-
-This matters for multi-tenant products. One user may have access to more than one root, so the active runtime root should be explicit and binding-scoped.
+## Resolution Guarantees
 
 ### Profile Resolution
 
-Given a Binding or candidate root, profiles resolve by applicability:
+Given a binding root or candidate root:
 
-1. Find profiles whose parent path is an ancestor of the requested root.
-2. Prefer the deepest applicable path.
-3. Fall back to root-level defaults such as `/github` or `/linear`.
-4. Same-depth ambiguity is an error.
+1. find profiles whose path is applicable to that root
+2. choose the deepest applicable match
+3. fall back to a global default such as `/github`
+4. reject same-depth conflicts
 
-This makes path-local overrides explicit without flattening provider knowledge into one global table.
+That makes organization-specific overrides explicit without flattening all provider knowledge into a single global row.
 
 ### Credential Resolution
 
-Credentials resolve the same way:
+Given an explicit binding:
 
-1. Start from the Binding’s `root` and `profilePath`.
-2. Keep credentials inside the Binding root that belong to the Binding’s `profilePath`.
-3. Choose the deepest applicable credential.
-4. Same-depth ambiguity is an error.
+1. find credentials under the binding root
+2. keep only credentials tagged to the binding `profilePath`
+3. choose the deepest applicable stored credential
+4. reject same-depth conflicts
 
-This lets a product keep credentials portable while still narrowing them by org, workspace, or user subtree, without making runtime auth depend on host inference.
+The framework stores `host` as metadata, but host is not the canonical runtime identity.
 
-## Biscuit Tokens
+### Refresh-Aware Reads
 
-Tokens use an `apw_` transport prefix over a base64-encoded Biscuit.
+Binding reads are refresh-aware when OAuth state is present.
 
-Authority facts look like:
+Before returning headers, the framework can:
 
-```datalog
-user_id("usr_123");
-org_id("org_acme");
-home_path("/org_acme");
-right("/org_acme", "credential.use");
-right("/org_acme", "credential.manage");
-scope("repo");
-```
+1. inspect the credential expiry
+2. refresh through the configured provider flow when needed
+3. persist the refreshed credential state
+4. return fresh headers
 
-Attenuation can add checks such as:
+This prevents host products from accidentally resolving stale provider tokens because the refresh logic stays attached to the vault itself.
 
-```datalog
-check if host($host), ["api.linear.app"].contains($host);
-check if operation($op), ["GET"].contains($op);
-check if path($path), $path.starts_with("/org_acme");
-check if requested_root($root), ["/org_acme"].contains($root);
-```
+## OAuth Lifecycle Ownership
 
-## Authorization Pipeline
+The framework owns the provider OAuth runtime lifecycle.
 
-Authorization is evaluated in two layers:
+That includes:
 
-1. framework path-right checks confirm that the token carries `right(root, action)` covering the requested path
-2. Biscuit attenuation checks are evaluated against ambient facts such as action, host, method, path, and requested root
+- generating PKCE authorization requests
+- validating callback state
+- exchanging authorization codes
+- refreshing access tokens
+- optionally revoking provider tokens on disconnect
 
-That split is intentional. The path model stays explicit in framework code, while Biscuit carries monotonic attenuation rules that child tokens can only narrow.
+The implementation uses `oauth4webapi`, but the important security property is architectural: embedded products do not need to re-implement provider token lifecycle logic outside the vault.
 
-The framework enforces four things during authorization:
+### Flow State
 
-- the token parses and validates
-- the token still validates and has not been revoked
-- the token’s explicit rights cover the requested path/action
-- any attenuation checks on host, method, path, root, service, or TTL still pass
+Pending OAuth flow state is stored behind `FlowStore`.
 
-Ambient facts supplied to the authorizer include:
+This is intentional:
 
-```datalog
-resource("api.linear.app");
-operation("GET");
-path("/org_acme/tasks/123");
-action("credential.use");
-host("api.linear.app");
-requested_root("/org_acme");
-time(2026-03-23T15:00:00.000Z);
-```
+- products can choose storage that matches their runtime model
+- flow state can live in SQL, KV, or another shared ephemeral backend
+- the framework does not silently assume single-process memory in production
 
-The framework also supports multiple rights on one token. List operations can union visible roots, while runtime operations should still execute against one explicit Binding root.
+An in-memory flow store exists only as an explicit helper for local development or tests.
 
-Tracked tokens are recorded in `issued_tokens`, so host products can inspect usage and revoke by logical token ID instead of only by bearer string.
+### Hosted OAuth and Client Metadata
 
-## Revocation
+Embedded MCP clients often need two small hosted endpoints:
 
-Each Biscuit block has a revocation identifier.
+- an OAuth callback
+- a client metadata document
 
-`agent.pw` stores revoked block ids in `revocations`. A tracked token revocation also writes the tracked token’s block ids into the revocation table, which means:
+The framework provides helpers to generate those responses without turning HTTP routing into the core abstraction. The hosted surface remains thin and declarative, while the auth lifecycle and storage stay inside the framework.
 
-- inspection can see that a token was revoked
-- later authorizations fail even if a copied token string still exists elsewhere
+## Encrypted Storage
 
-## Better Auth
+Credential secrets are encrypted with an application-provided encryption key before they are written to SQL.
 
-`agent.pw` uses Better Auth as the provider OAuth engine.
+The stored OAuth payload includes only the material needed for provider auth lifecycle:
 
-The Better Auth bridge in `agent.pw/better-auth` does two things:
+- `accessToken`
+- `refreshToken`
+- `expiresAt`
+- `scopes`
+- `tokenType`
 
-- exposes Better Auth tables inside the same `agentpw` SQL schema
-- mirrors Better Auth account updates into encrypted Binding-scoped agent.pw credentials
+Runtime callers typically consume resolved headers, not the raw secret payload.
 
-Pending auth handoff state is intentionally storage-backend-agnostic. An embedding product can keep that state in SQL, KV, or another ephemeral store that matches its runtime needs.
+## Rule Enforcement
 
-That separation matters:
+The framework can evaluate rules directly.
 
-- Better Auth manages the OAuth handshake and provider account lifecycle
-- agent.pw remains the runtime-facing source of truth for resolved credentials
+Examples:
 
-## Storage
+- does `credential.use` on `/acme` cover `/acme/connections/github_primary`?
+- which roots are visible for `credential.manage`?
+- does a path constraint narrow a runtime request correctly?
 
-All framework-owned tables live in the `agentpw` schema.
+This enforcement path lives in `agent.pw/rules` and does not require Biscuit or any other token system.
 
-Core tables:
+## Biscuit as an Optional Transport
+
+`agent.pw/biscuit` compiles rules into Biscuit tokens for products that want capability-bearing tokens.
+
+That module can:
+
+- mint tokens from rule grants
+- add attenuation constraints such as host, method, path, or TTL
+- verify or inspect Biscuit payloads
+
+The security model stays the same either way:
+
+- roots define the resource scope
+- rules define the granted actions
+- optional token transports carry those facts to another runtime
+
+## SQL Footprint
+
+The current framework-owned SQL footprint is intentionally small:
 
 - `cred_profiles`
 - `credentials`
-- `issued_tokens`
-- `revocations`
 
-Better Auth companion tables:
-
-- `auth_users`
-- `auth_sessions`
-- `auth_accounts`
-- `auth_verifications`
-
-## Trust Boundary
-
-The host application owns user auth, UI, and runtime orchestration.
-
-`agent.pw` owns:
-
-- path validation and resolution
-- encrypted credential storage
-- provider auth definitions
-- Biscuit minting, attenuation, inspection, and revocation-aware authorization
-
-That keeps the auth control plane inspectable and reusable across products without forcing a second server hop.
+That keeps the vault focused on provider auth definitions and encrypted credential state. User auth, application sessions, and product-specific metadata remain in the embedding product.

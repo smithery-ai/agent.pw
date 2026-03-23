@@ -47,7 +47,7 @@ vi.mock('@smithery/biscuit', async importOriginal => {
   }
 })
 
-import { authorizeRequest, mintToken } from '../packages/server/src/biscuit'
+import { authorizeRequest, mintToken } from 'agent.pw/biscuit'
 
 describe('biscuit authorization retries', () => {
   it('retries timeout warmups once before succeeding', () => {

@@ -1,8 +1,8 @@
 import { drizzle } from 'drizzle-orm/pglite'
 import * as schema from '../packages/server/src/db/schema/index'
 import { bootstrapLocalSchema } from 'agent.pw/sql'
-import { mintToken } from 'agent.pw/access'
-import type { TokenRight } from '../packages/server/src/types'
+import { mintToken } from 'agent.pw/biscuit'
+import type { RuleGrant } from '../packages/server/src/types'
 
 export const BISCUIT_PRIVATE_KEY =
   'ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad'
@@ -15,7 +15,7 @@ function escapeDatalog(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function rightsAtRoot(root: string, actions: string[]): TokenRight[] {
+function rightsAtRoot(root: string, actions: string[]): RuleGrant[] {
   return actions.map(action => ({ action, root }))
 }
 

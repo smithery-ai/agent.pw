@@ -1,15 +1,17 @@
 {
   "name": "agent.pw",
   "version": "0.1.0",
+  "description": "Credential vault and auth framework for agents",
   "packageManager": "pnpm@10.8.0",
   "type": "module",
   "exports": {
     ".": "./packages/server/src/index.ts",
     "./paths": "./packages/server/src/paths.ts",
-    "./access": "./packages/server/src/access.ts",
+    "./biscuit": "./packages/server/src/biscuit.ts",
     "./oauth": "./packages/server/src/oauth.ts",
+    "./rules": "./packages/server/src/rules.ts",
     "./sql": "./packages/server/src/sql/index.ts",
-    "./better-auth": "./packages/server/src/better-auth/index.ts"
+    "./types": "./packages/server/src/types.ts"
   },
   "scripts": {
     "build": "pnpm typecheck",
@@ -24,8 +26,8 @@
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",
     "@smithery/biscuit": "^1.0.1",
-    "better-auth": "^1.5.6",
     "drizzle-orm": "^0.44.1",
+    "oauth4webapi": "^3.8.5",
     "postgres": "^3.4.5",
     "zod": "^4.3.6"
   },

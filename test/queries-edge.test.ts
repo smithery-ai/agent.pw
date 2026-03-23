@@ -1,24 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import {
-  createIssuedToken,
   getCredProfile,
-  getIssuedTokenByHash,
-  getIssuedTokenById,
-  getIssuedTokenByIdUnscoped,
-  isMissingIssuedTokensTableError,
   listCredentials,
   listCredentialsAccessiblePage,
   listCredProfiles,
-  listIssuedTokensByOwner,
-  markIssuedTokenUsedBestEffort,
   moveCredential,
-  revokeIssuedTokenById,
-  revokeIssuedTokenByIdUnscoped,
   upsertCredential,
 } from 'agent.pw/sql'
-import { hashToken, mintToken } from 'agent.pw/access'
-import { BISCUIT_PRIVATE_KEY, createTestDb } from './setup'
+import { createTestDb } from './setup'
 
 describe('query edge cases', () => {
   it('normalizes odd profile host shapes and paginates accessible credentials', async () => {
@@ -71,7 +61,7 @@ describe('query edge cases', () => {
     })
     await upsertCredential(db, {
       profilePath: '/tertiary',
-      host: 'api.tertiary.app',
+      host: null,
       path: '/org_alpha/shared-secondary',
       auth: { kind: 'headers' },
       secret: Buffer.from('e'),
@@ -100,14 +90,14 @@ describe('query edge cases', () => {
       items: [],
       hasMore: false,
     })
+
     expect(await listCredentialsAccessiblePage(db, {
-      limit: 5,
+      limit: 10,
       roots: ['/'],
     })).toEqual(expect.objectContaining({
       hasMore: false,
       items: expect.arrayContaining([
         expect.objectContaining({ path: '/org_alpha/a' }),
-        expect.objectContaining({ path: '/org_alpha/b' }),
         expect.objectContaining({ path: '/org_beta/c' }),
       ]),
     }))
@@ -148,85 +138,7 @@ describe('query edge cases', () => {
       },
     })
     expect(nullHostCursorPage.items.map(item => item.path)).toContain('/org_alpha/shared-secondary')
-  })
-
-  it('handles token ledger misses, missing tables, and revocation edge cases', async () => {
-    const db = await createTestDb()
-    const token = mintToken(BISCUIT_PRIVATE_KEY, 'user_alpha', [
-      { action: 'credential.use', root: '/org_alpha' },
-    ])
-    const tokenHash = await hashToken(token)
-
-    expect(await getIssuedTokenById(db, 'missing', {
-      ownerUserId: 'user_alpha',
-      orgId: 'org_alpha',
-    })).toBeNull()
-    expect(await getIssuedTokenByIdUnscoped(db, 'missing')).toBeNull()
-    expect(await getIssuedTokenByHash(db, 'missing')).toBeNull()
-    expect(await listIssuedTokensByOwner(db, {})).toEqual([])
-
-    await createIssuedToken(db, {
-      id: 'tok_empty',
-      ownerUserId: 'user_alpha',
-      orgId: null,
-      tokenHash,
-      revocationIds: [],
-      rights: [{ action: 'credential.use', root: '/org_alpha' }],
-      constraints: [],
-    })
-
-    expect(await revokeIssuedTokenById(db, 'tok_empty', {
-      ownerUserId: 'other_user',
-    }, 'manual')).toBeNull()
-
-    const revoked = await revokeIssuedTokenByIdUnscoped(db, 'tok_empty', 'manual')
-    expect(revoked).toEqual(expect.objectContaining({
-      id: 'tok_empty',
-      revokeReason: 'manual',
-    }))
-
-    const revokedAgain = await revokeIssuedTokenByIdUnscoped(db, 'tok_empty', 'ignored')
-    expect(revokedAgain).toEqual(expect.objectContaining({
-      id: 'tok_empty',
-      revokeReason: 'manual',
-      revokedAt: revoked?.revokedAt,
-    }))
 
     expect(await moveCredential(db, '/missing', '/next')).toBe(false)
-
-    await createIssuedToken(db, {
-      id: 'tok_null_reason',
-      ownerUserId: 'user_alpha',
-      orgId: null,
-      tokenHash: `${tokenHash}-2`,
-      revocationIds: [],
-      rights: [{ action: 'credential.use', root: '/org_alpha' }],
-      constraints: [],
-    })
-    expect(await revokeIssuedTokenByIdUnscoped(db, 'tok_null_reason')).toEqual(expect.objectContaining({
-      id: 'tok_null_reason',
-      revokeReason: null,
-    }))
-
-    expect(isMissingIssuedTokensTableError({
-      cause: new Error('relation "agentpw.issued_tokens" does not exist'),
-    })).toBe(true)
-    expect(isMissingIssuedTokensTableError({ code: '42P01' })).toBe(true)
-    expect(isMissingIssuedTokensTableError('no such table: issued_tokens')).toBe(true)
-    expect(isMissingIssuedTokensTableError({ code: 'XX000' })).toBe(false)
-
-    const missingTableDb = {
-      update() {
-        throw { code: '42P01' }
-      },
-    }
-    await expect(markIssuedTokenUsedBestEffort(missingTableDb as never, 'hash')).resolves.toBeNull()
-
-    const brokenDb = {
-      update() {
-        throw new Error('boom')
-      },
-    }
-    await expect(markIssuedTokenUsedBestEffort(brokenDb as never, 'hash')).rejects.toThrow('boom')
   })
 })

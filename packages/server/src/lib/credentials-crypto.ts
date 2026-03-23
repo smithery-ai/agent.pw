@@ -1,11 +1,11 @@
 import type { AuthScheme } from '../auth-schemes.js'
 
 /**
- * Derive a 32-byte AES-256 encryption key from the biscuit private key.
- * Uses SHA-256 with a domain separator so one secret covers both signing and encryption.
+ * Derive a 32-byte AES-256 encryption key from an application secret.
+ * Uses SHA-256 with a domain separator so callers can derive a stable vault key.
  */
-export async function deriveEncryptionKey(biscuitPrivateKey: string) {
-  const input = new TextEncoder().encode(`${biscuitPrivateKey}:credential-encryption`)
+export async function deriveEncryptionKey(secretSeed: string) {
+  const input = new TextEncoder().encode(`${secretSeed}:credential-encryption`)
   const hash = await crypto.subtle.digest('SHA-256', input)
   return Buffer.from(hash).toString('base64')
 }
@@ -20,10 +20,8 @@ export type StoredCredentials = {
     refreshToken?: string | null
     accessToken?: string | null
     expiresAt?: string
-    tokenUrl?: string
-    clientId?: string
-    clientSecret?: string
     scopes?: string
+    tokenType?: string
   }
 }
 

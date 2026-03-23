@@ -41,14 +41,8 @@ describe('db entrypoints', () => {
       `)
 
       expect(result.rows.map(row => row.table_name)).toEqual([
-        'auth_accounts',
-        'auth_sessions',
-        'auth_users',
-        'auth_verifications',
         'cred_profiles',
         'credentials',
-        'issued_tokens',
-        'revocations',
       ])
     } finally {
       await closeLocalDb(db)

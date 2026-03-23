@@ -18,7 +18,7 @@ async function decryptSecretBuffer(encryptionKey: string, encrypted: Buffer) {
 }
 
 describe('credentials crypto', () => {
-  it('derives deterministic AES keys from the biscuit private key', async () => {
+  it('derives deterministic AES keys from an application secret', async () => {
     const first = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
     const second = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
     const other = await deriveEncryptionKey('ed25519-private/another-secret')
@@ -35,10 +35,8 @@ describe('credentials crypto', () => {
       oauth: {
         accessToken: 'access',
         refreshToken: 'refresh',
-        tokenUrl: 'https://example.com/token',
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
         scopes: 'repo',
+        tokenType: 'bearer',
       },
     })
 
@@ -47,10 +45,8 @@ describe('credentials crypto', () => {
       oauth: {
         accessToken: 'access',
         refreshToken: 'refresh',
-        tokenUrl: 'https://example.com/token',
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
         scopes: 'repo',
+        tokenType: 'bearer',
       },
     })
   })

@@ -1,5 +1,3 @@
-import { getPublicKeyHex } from './biscuit.js'
-import { createAccessService } from './access.js'
 import {
   deleteCredProfile,
   deleteCredential,
@@ -15,10 +13,10 @@ import {
   upsertCredential,
 } from './db/queries.js'
 import { AgentPwConflictError, AgentPwInputError } from './errors.js'
-import { decryptCredentials, deriveEncryptionKey, encryptCredentials } from './lib/credentials-crypto.js'
+import { decryptCredentials, encryptCredentials } from './lib/credentials-crypto.js'
 import { createLogger } from './lib/logger.js'
 import { deriveDisplayName } from './lib/utils.js'
-import { createInMemoryFlowStore, createOAuthService } from './oauth.js'
+import { createOAuthService } from './oauth.js'
 import {
   canonicalizePath,
   credentialName,
@@ -29,6 +27,7 @@ import {
 import type {
   AgentPw,
   AgentPwOptions,
+  BindingPutInput,
   CredentialProfileRecord,
   CredentialRecord,
   CredentialSummary,
@@ -138,14 +137,9 @@ function resolveBindingCredentialPath(input: {
 }
 
 export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
-  const encryptionKey = options.encryptionKey ?? await deriveEncryptionKey(options.biscuitPrivateKey)
   const logger = options.logger ?? createLogger('agentpw').logger
   const clock = options.clock ?? (() => new Date())
-  const publicKeyHex = getPublicKeyHex(options.biscuitPrivateKey)
-  const oauth = createOAuthService({
-    flowStore: options.flowStore ?? createInMemoryFlowStore(),
-    clock,
-  })
+  const encryptionKey = options.encryptionKey
 
   const profiles: AgentPw['profiles'] = {
     async resolve(input) {
@@ -207,7 +201,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
   }
 
-  async function resolveBinding(
+  async function resolveBindingInternal(
     input: {
       root: string
       profilePath: string
@@ -271,41 +265,74 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     return decryptCredentialRecord(encryptionKey, stored)
   }
 
+  async function putBinding(input: BindingPutInput) {
+    const binding = assertBindingInput(input)
+    const profile = await profiles.get(binding.profilePath)
+    const credentialPath = resolveBindingCredentialPath({
+      ...binding,
+      credentialPath: input.credentialPath,
+    })
+    const host = input.host ?? profile?.host[0] ?? null
+    const credential = await putCredential(credentialPath, {
+      profilePath: binding.profilePath,
+      host,
+      auth: input.auth,
+      secret: input.secret,
+    })
+
+    return {
+      ...credential,
+      profile,
+    }
+  }
+
+  const oauth = createOAuthService({
+    flowStore: options.flowStore,
+    clock,
+    customFetch: options.oauthFetch,
+    getProfile(path) {
+      return profiles.get(path)
+    },
+    resolveBinding(input) {
+      return resolveBindingInternal(input)
+    },
+    putBinding,
+    deleteCredential(path) {
+      return deleteCredential(options.db, assertPath(path, 'credential path'))
+    },
+  })
+
   const bindings: AgentPw['bindings'] = {
-    resolve(input) {
-      return resolveBinding(input)
+    async resolve(input) {
+      const resolved = await resolveBindingInternal(input)
+      if (!input.refresh && input.refresh !== undefined) {
+        return resolved
+      }
+      return oauth.refreshCredential({
+        root: input.root,
+        profilePath: input.profilePath,
+        credentialPath: input.credentialPath,
+      })
     },
 
     async resolveHeaders(input) {
-      const resolved = await resolveBinding(input)
+      const resolved = await bindings.resolve(input)
       return resolved?.secret.headers ?? {}
     },
 
-    async put(input) {
-      const binding = assertBindingInput(input)
-      const profile = await profiles.get(binding.profilePath)
-      const credentialPath = resolveBindingCredentialPath({
-        ...binding,
-        credentialPath: input.credentialPath,
-      })
-      const host = input.host ?? profile?.host[0] ?? null
-      const credential = await putCredential(credentialPath, {
-        profilePath: binding.profilePath,
-        host,
-        auth: input.auth,
-        secret: input.secret,
-      })
-
-      return {
-        ...credential,
-        profile,
-      }
+    put(input) {
+      return putBinding(input)
     },
   }
 
   const credentials: AgentPw['credentials'] = {
     async resolve(input) {
-      const resolved = await resolveBinding(input)
+      const resolved = await bindings.resolve({
+        root: input.root,
+        profilePath: input.profilePath,
+        credentialPath: input.credentialPath,
+        refresh: input.refresh,
+      })
       if (!resolved) {
         return null
       }
@@ -350,22 +377,13 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
   }
 
-  const access = createAccessService({
-    ...options,
-    encryptionKey,
-    logger,
-    clock,
-    publicKeyHex,
-  })
-
-  logger.debug({ publicKeyHex }, 'agent.pw initialized')
+  logger.debug('agent.pw initialized')
 
   return {
     profiles,
     bindings,
     credentials,
     oauth,
-    access,
   }
 }
 

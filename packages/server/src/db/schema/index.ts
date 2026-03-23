@@ -1,8 +1,2 @@
-export { authAccounts } from './auth-accounts.js'
-export { authSessions } from './auth-sessions.js'
-export { authUsers } from './auth-users.js'
-export { authVerifications } from './auth-verifications.js'
 export { credProfiles } from './cred-profiles.js'
 export { credentials } from './credentials.js'
-export { revocations } from './revocations.js'
-export { issuedTokens } from './issued-tokens.js'

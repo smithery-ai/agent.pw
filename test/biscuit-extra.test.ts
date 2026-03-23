@@ -10,7 +10,7 @@ import {
   mintDescendantToken,
   mintToken,
   restrictToken,
-} from '../packages/server/src/biscuit'
+} from 'agent.pw/biscuit'
 import { BISCUIT_PRIVATE_KEY, PUBLIC_KEY_HEX } from './setup'
 
 function buildCustomToken(code: string) {

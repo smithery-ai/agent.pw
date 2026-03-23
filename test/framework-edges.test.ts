@@ -25,7 +25,6 @@ describe('createAgentPw edge cases', () => {
     const db = await createTestDb()
     const agentPw = await createAgentPw({
       db,
-      biscuitPrivateKey: BISCUIT_PRIVATE_KEY,
       encryptionKey: Buffer.alloc(32, 7).toString('base64'),
       logger: silentLogger,
       clock: () => new Date('2026-01-01T00:00:00.000Z'),
@@ -99,7 +98,6 @@ describe('createAgentPw edge cases', () => {
     const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
     const agentPw = await createAgentPw({
       db,
-      biscuitPrivateKey: BISCUIT_PRIVATE_KEY,
       encryptionKey,
     })
 
@@ -194,7 +192,7 @@ describe('createAgentPw edge cases', () => {
     const db = await createTestDb()
     const agentPw = await createMockedAgentPw({
       db,
-      biscuitPrivateKey: BISCUIT_PRIVATE_KEY,
+      encryptionKey: Buffer.alloc(32, 7).toString('base64'),
       logger: silentLogger,
     })
 
@@ -216,7 +214,7 @@ describe('createAgentPw edge cases', () => {
     const db = await createTestDb()
     const agentPw = await createMockedAgentPw({
       db,
-      biscuitPrivateKey: BISCUIT_PRIVATE_KEY,
+      encryptionKey: Buffer.alloc(32, 7).toString('base64'),
       logger: silentLogger,
     })
 
