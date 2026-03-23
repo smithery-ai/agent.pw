@@ -1,55 +1,32 @@
 {
-  "name": "@agent.pw/server",
+  "name": "agent.pw",
   "version": "0.1.0",
   "packageManager": "pnpm@10.8.0",
   "type": "module",
-  "bin": {
-    "agent.pw": "./packages/cli/dist/index.js"
-  },
   "exports": {
-    ".": "./packages/server/src/core/app.ts",
-    "./types": "./packages/server/src/core/types.ts",
-    "./auth": "./packages/server/src/auth.ts",
-    "./db": "./packages/server/src/db/index.ts",
-    "./db/queries": "./packages/server/src/db/queries.ts",
-    "./db/schema": "./packages/server/src/db/schema/index.ts",
-    "./db/migrate-local": "./packages/server/src/db/migrate-local.ts",
-    "./logger": "./packages/server/src/lib/logger.ts",
-    "./crypto": "./packages/server/src/lib/credentials-crypto.ts",
-    "./utils": "./packages/server/src/lib/utils.ts",
-    "./scopes": "./packages/server/src/scopes.ts",
+    ".": "./packages/server/src/index.ts",
     "./paths": "./packages/server/src/paths.ts",
-    "./rights": "./packages/server/src/rights.ts",
-    "./dns": "./packages/server/src/lib/dns.ts",
-    "./biscuit": "./packages/server/src/biscuit.ts",
-    "./proxy": "./packages/server/src/proxy.ts",
-    "./auth-schemes": "./packages/server/src/auth-schemes.ts",
-    "./pagination": "./packages/server/src/lib/pagination.ts"
+    "./access": "./packages/server/src/access.ts",
+    "./sql": "./packages/server/src/sql/index.ts",
+    "./better-auth": "./packages/server/src/better-auth/index.ts"
   },
   "scripts": {
-    "build": "pnpm typecheck && pnpm --filter agent.pw build",
+    "build": "pnpm typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "knip": "knip",
     "lint": "biome lint .",
     "fmt": "biome lint --write --unsafe .",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "db:generate": "NODE_OPTIONS='--import tsx' drizzle-kit generate",
-    "db:migrate": "NODE_OPTIONS='--import tsx' drizzle-kit migrate",
-    "openapi:generate": "tsx scripts/generate-openapi.ts"
+    "db:generate": "tsx ./node_modules/drizzle-kit/bin.cjs generate"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",
-    "@hono/node-server": "^1.19.11",
-    "@hono/standard-validator": "^0.2.2",
     "@smithery/biscuit": "^1.0.1",
-    "commander": "^14.0.3",
+    "better-auth": "^1.5.6",
     "drizzle-orm": "^0.44.1",
-    "hono": "^4.12.0",
-    "hono-openapi": "^1.3.0",
     "postgres": "^3.4.5",
-    "zod": "^4.3.6",
-    "zod-openapi": "^5.4.6"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.5",

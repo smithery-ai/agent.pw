@@ -6,7 +6,7 @@ import {
   encryptCredentials,
   encryptSecret,
   importAesKey,
-} from '@agent.pw/server/crypto'
+} from '../packages/server/src/lib/credentials-crypto'
 import { BISCUIT_PRIVATE_KEY } from './setup'
 
 async function decryptSecretBuffer(encryptionKey: string, encrypted: Buffer) {
@@ -82,5 +82,7 @@ describe('credentials crypto', () => {
     }, 'token')).toEqual({
       Authorization: 'Bearer token',
     })
+    // @ts-expect-error exercising runtime guard against unsupported scheme payloads
+    expect(() => buildCredentialHeaders({ type: 'custom' }, 'token')).toThrow('Unsupported auth scheme')
   })
 })

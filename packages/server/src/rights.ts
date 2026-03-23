@@ -1,4 +1,4 @@
-import type { TokenFacts, TokenRight } from './core/types'
+import type { TokenFacts, TokenRight } from './types.js'
 import { isAncestorOrEqual, pathDepth } from './paths'
 
 /* v8 ignore next -- branch coverage is exercised through the exported sort helpers */

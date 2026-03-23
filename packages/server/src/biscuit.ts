@@ -16,7 +16,7 @@ import {
   KeyPair,
   SignatureAlgorithm,
 } from '@smithery/biscuit'
-import type { TokenConstraint, TokenRight } from './core/types'
+import type { TokenConstraint, TokenRight } from './types.js'
 
 export const TOKEN_PREFIX = 'apw_'
 

@@ -4,7 +4,7 @@ import {
   getApiKeyScheme,
   getOAuthScheme,
   parseAuthSchemes,
-} from '@agent.pw/server/auth-schemes'
+} from '../packages/server/src/auth-schemes'
 
 describe('auth schemes', () => {
   it('parses valid auth schemes and applies defaults', () => {

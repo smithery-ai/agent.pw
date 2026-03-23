@@ -12,7 +12,7 @@ import {
   parseTtlSeconds,
   restrictToken,
   stripPrefix,
-} from '@agent.pw/server/biscuit'
+} from '../packages/server/src/biscuit'
 import { BISCUIT_PRIVATE_KEY, ORG_TOKEN, PUBLIC_KEY_HEX, TEST_ORG_ID } from './setup'
 
 function buildCustomToken(code: string) {

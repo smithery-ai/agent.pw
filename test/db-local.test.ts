@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { createDb, createLocalDb } from '@agent.pw/server/db'
+import { createDb, createLocalDb, migrateLocal } from 'agent.pw/sql'
 
 async function closeLocalDb(db: unknown) {
   await (db as { $client?: { close?: () => Promise<void> } }).$client?.close?.()
@@ -30,7 +30,6 @@ describe('db entrypoints', () => {
     let db: Awaited<ReturnType<typeof createLocalDb>> | undefined
     const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-migrate-'))
     try {
-      const { migrateLocal } = await import('@agent.pw/server/db/migrate-local')
       db = await createLocalDb(dataDir)
       await migrateLocal(db)
 
@@ -42,7 +41,10 @@ describe('db entrypoints', () => {
       `)
 
       expect(result.rows.map(row => row.table_name)).toEqual([
-        'auth_flows',
+        'auth_accounts',
+        'auth_sessions',
+        'auth_users',
+        'auth_verifications',
         'cred_profiles',
         'credentials',
         'issued_tokens',

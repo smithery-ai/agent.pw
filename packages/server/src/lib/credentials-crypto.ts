@@ -11,17 +11,17 @@ export async function deriveEncryptionKey(biscuitPrivateKey: string) {
 }
 
 /**
- * Credentials stored alongside a connection, encrypted at rest in the database.
- * Used by the proxy to inject auth headers when forwarding to upstream APIs.
+ * Auth material stored alongside a credential, encrypted at rest in the database.
+ * Framework consumers can use the header view directly or read the OAuth payload.
  */
 export type StoredCredentials = {
   headers: Record<string, string>
   oauth?: {
-    refreshToken: string
-    accessToken: string
+    refreshToken?: string | null
+    accessToken?: string | null
     expiresAt?: string
-    tokenUrl: string
-    clientId: string
+    tokenUrl?: string
+    clientId?: string
     clientSecret?: string
     scopes?: string
   }

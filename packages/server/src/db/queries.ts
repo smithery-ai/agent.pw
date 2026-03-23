@@ -4,29 +4,42 @@ import {
   desc,
   eq,
   gt,
-  type InferSelectModel,
+  inArray,
   isNull,
   like,
   lt,
-  or,
   sql,
+  type InferSelectModel,
   type SQL,
 } from 'drizzle-orm'
-import type { TokenConstraint, TokenRight } from '../core/types.js'
-import { credProfiles, credentials, revocations, authFlows, issuedTokens } from './schema/index.js'
-import type { Database } from './index.js'
+import type {
+  TokenConstraint,
+  TokenRight,
+} from '../types.js'
 import {
+  ancestorPaths,
   credentialName,
   credentialParentPath,
   isAncestorOrEqual,
+  joinCredentialPath,
   pathDepth,
 } from '../paths.js'
+import type { Database } from './index.js'
+import {
+  credProfiles,
+  credentials,
+  issuedTokens,
+  revocations,
+} from './schema/index.js'
 
-type CredProfileRow = Omit<InferSelectModel<typeof credProfiles>, 'host'> & {
+type CredProfileModel = InferSelectModel<typeof credProfiles>
+type CredentialModel = InferSelectModel<typeof credentials>
+
+export type CredProfileRow = Omit<CredProfileModel, 'host'> & {
   host: string[]
 }
 
-type CredentialRow = InferSelectModel<typeof credentials>
+export type CredentialRow = CredentialModel
 
 function normalizeHostList(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -38,20 +51,15 @@ function normalizeHostList(value: unknown): string[] {
   return []
 }
 
+function normalizeProfile(row: CredProfileModel): CredProfileRow {
+  return {
+    ...row,
+    host: normalizeHostList(row.host),
+  }
+}
+
 function compareByDeepestPath<T extends { path: string }>(a: T, b: T) {
   return pathDepth(b.path) - pathDepth(a.path) || a.path.localeCompare(b.path)
-}
-
-export interface QueryPage<T> {
-  items: T[]
-  hasMore: boolean
-}
-
-function takePage<T>(rows: T[], limit: number): QueryPage<T> {
-  return {
-    items: rows.slice(0, limit),
-    hasMore: rows.length > limit,
-  }
 }
 
 function pathWithinRootCondition(
@@ -61,21 +69,8 @@ function pathWithinRootCondition(
   if (root === '/') {
     return sql`true`
   }
-  /* v8 ignore next -- eq+like always provide at least one SQL branch here */
-  return or(eq(column, root), like(column, `${root}/%`)) ?? sql`false`
-}
 
-function pathWithinAnyRootCondition(
-  column: typeof credProfiles.path | typeof credentials.path,
-  roots: string[],
-): SQL<unknown> {
-  /* v8 ignore start -- public callers short-circuit empty roots before building SQL */
-  if (roots.length === 0) {
-    return sql`false`
-  }
-  /* v8 ignore stop */
-  /* v8 ignore next -- non-empty roots always produce at least one SQL branch here */
-  return or(...roots.map(root => pathWithinRootCondition(column, root))) ?? sql`false`
+  return sql`(${eq(column, root)} or ${like(column, `${root}/%`)})`
 }
 
 function afterCredentialCursorCondition(cursor: {
@@ -83,28 +78,59 @@ function afterCredentialCursorCondition(cursor: {
   path: string
   host: string
 }): SQL<unknown> {
-  /* v8 ignore next -- this cursor comparison always provides at least one SQL branch */
-  return or(
-    lt(credentials.createdAt, cursor.createdAt),
-    and(eq(credentials.createdAt, cursor.createdAt), gt(credentials.path, cursor.path)),
-    and(
+  return sql`(
+    ${lt(credentials.createdAt, cursor.createdAt)}
+    or ${and(eq(credentials.createdAt, cursor.createdAt), gt(credentials.path, cursor.path))}
+    or ${and(
       eq(credentials.createdAt, cursor.createdAt),
       eq(credentials.path, cursor.path),
       gt(credentials.host, cursor.host),
-    ),
-  ) ?? sql`false`
+    )}
+  )`
 }
 
-function isRootLevelProfile(path: string) {
-  return credentialParentPath(path) === '/'
+function hostContainsCondition(host: string): SQL<unknown> {
+  return sql`${credProfiles.host} ? ${host}`
+}
+
+function rootLevelProfileCondition(): SQL<unknown> {
+  return sql`(length(${credProfiles.path}) - length(replace(${credProfiles.path}, '/', ''))) = 1`
+}
+
+function rootLevelCredentialCondition(): SQL<unknown> {
+  return sql`(length(${credentials.path}) - length(replace(${credentials.path}, '/', ''))) = 1`
+}
+
+function profileApplicabilityCondition(root: string): SQL<unknown> {
+  const ancestors = ancestorPaths(root)
+  const localRoots = ancestors.filter(candidate => candidate !== '/')
+  const conditions: SQL<unknown>[] = [rootLevelProfileCondition()]
+
+  for (const candidate of localRoots) {
+    conditions.push(pathWithinRootCondition(credProfiles.path, candidate))
+  }
+
+  return sql`(${sql.join(conditions, sql` or `)})`
 }
 
 function appliesToRoot(profilePath: string, root: string) {
   return isAncestorOrEqual(credentialParentPath(profilePath), root)
 }
 
-function profileVisibleWithinRoot(profilePath: string, root: string) {
-  return isAncestorOrEqual(root, profilePath) || appliesToRoot(profilePath, root)
+function credentialApplicabilityCondition(root: string): SQL<unknown> {
+  const ancestors = ancestorPaths(root)
+  const localRoots = ancestors.filter(candidate => candidate !== '/')
+  const conditions: SQL<unknown>[] = [rootLevelCredentialCondition()]
+
+  for (const candidate of localRoots) {
+    conditions.push(pathWithinRootCondition(credentials.path, candidate))
+  }
+
+  return sql`(${sql.join(conditions, sql` or `)})`
+}
+
+function credentialAppliesToRoot(credentialPath: string, root: string) {
+  return isAncestorOrEqual(credentialParentPath(credentialPath), root)
 }
 
 function issuedTokenOwnerCondition(owner: {
@@ -122,114 +148,66 @@ function issuedTokenOwnerCondition(owner: {
   return sql`false`
 }
 
-// ─── Cred Profiles ──────────────────────────────────────────────────────────
+function takePage<T>(rows: T[], limit: number) {
+  return {
+    items: rows.slice(0, limit),
+    hasMore: rows.length > limit,
+  }
+}
+
+// ─── Credential Profiles ─────────────────────────────────────────────────────
 
 export async function getCredProfile(db: Database, path: string) {
   const rows = await db.select().from(credProfiles).where(eq(credProfiles.path, path))
   const row = rows[0]
-  if (!row) return null
-  return { ...row, host: normalizeHostList(row.host) }
+  return row ? normalizeProfile(row) : null
 }
 
-export async function getCredProfileByHost(db: Database, host: string) {
-  const profiles = await listCredProfiles(db)
-  return profiles.find(profile => profile.host.includes(host)) ?? null
+export async function listCredProfiles(
+  db: Database,
+  options: {
+    root?: string
+  } = {},
+): Promise<CredProfileRow[]> {
+  const root = options.root ?? '/'
+  const conditions = root === '/'
+    ? undefined
+    : pathWithinRootCondition(credProfiles.path, root)
+  const rows = await db.select().from(credProfiles).where(conditions)
+  return rows.map(normalizeProfile).sort((a, b) => a.path.localeCompare(b.path))
 }
 
-export async function getCredProfilesByHostWithinRoot(db: Database, host: string, root: string) {
-  const profiles = await listCredProfiles(db)
-  return profiles
-    .filter(profile => profile.host.includes(host) && appliesToRoot(profile.path, root))
+export async function getCredProfilesByProviderWithinRoot(
+  db: Database,
+  provider: string,
+  root: string,
+) {
+  const candidatePaths = ancestorPaths(root).map(candidate => joinCredentialPath(candidate, provider))
+  const rows = await db
+    .select()
+    .from(credProfiles)
+    .where(inArray(credProfiles.path, candidatePaths))
+
+  return rows
+    .map(normalizeProfile)
+    .filter(profile => credentialName(profile.path) === provider)
     .sort(compareByDeepestPath)
 }
 
-export async function getCredProfilesBySlugWithinRoot(db: Database, slug: string, root: string) {
-  const profiles = await listCredProfiles(db)
-  return profiles
-    .filter(profile => credentialName(profile.path) === slug && appliesToRoot(profile.path, root))
-    .sort(compareByDeepestPath)
-}
-
-export async function getCredProfilesBySlugAndHost(db: Database, slug: string, host: string) {
-  const profiles = await listCredProfiles(db)
-  return profiles
-    .filter(profile => credentialName(profile.path) === slug && profile.host.includes(host))
-    .sort(compareByDeepestPath)
-}
-
-export async function getCredProfilesByHostWithPublicFallback(
+export async function getCredProfilesByHostWithinRoot(
   db: Database,
   host: string,
   root: string,
 ) {
-  const matches = await getCredProfilesByHostWithinRoot(db, host, root)
-  const local = matches.filter(profile => !isRootLevelProfile(profile.path))
-  if (local.length > 0) {
-    return local
-  }
-  return matches.filter(profile => isRootLevelProfile(profile.path))
-}
+  const rows = await db
+    .select()
+    .from(credProfiles)
+    .where(and(profileApplicabilityCondition(root), hostContainsCondition(host)))
 
-export async function getCredProfilesBySlugWithPublicFallback(
-  db: Database,
-  slug: string,
-  root: string,
-) {
-  const matches = await getCredProfilesBySlugWithinRoot(db, slug, root)
-  const local = matches.filter(profile => !isRootLevelProfile(profile.path))
-  if (local.length > 0) {
-    return local
-  }
-  return matches.filter(profile => isRootLevelProfile(profile.path))
-}
-
-export async function listCredProfiles(db: Database): Promise<CredProfileRow[]> {
-  const rows = await db.select().from(credProfiles)
-  return rows.map(row => ({ ...row, host: normalizeHostList(row.host) }))
-}
-
-export async function listCredProfilesPage(
-  db: Database,
-  options: {
-    limit: number
-    afterPath?: string | null
-    visibleRoots: string[]
-  },
-) {
-  if (options.visibleRoots.length === 0) {
-    return takePage([], options.limit)
-  }
-
-  const profiles = await listCredProfiles(db)
-  const visible = profiles
-    .filter(profile => options.visibleRoots.some(root => profileVisibleWithinRoot(profile.path, root)))
-    .filter(profile => options.afterPath ? profile.path > options.afterPath : true)
-    .sort((a, b) => a.path.localeCompare(b.path))
-
-  return takePage(visible, options.limit)
-}
-
-export async function listCredProfilesWithCredentialCounts(db: Database) {
-  const [allProfiles, counts] = await Promise.all([
-    listCredProfiles(db),
-    db
-      .select({
-        host: credentials.host,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(credentials)
-      .groupBy(credentials.host),
-  ])
-
-  const countMap = new Map<string, number>()
-  for (const row of counts) {
-    countMap.set(row.host, Number(row.count))
-  }
-
-  return allProfiles.map(profile => {
-    const credentialCount = profile.host.reduce((sum, h) => sum + (countMap.get(h) ?? 0), 0)
-    return { ...profile, credentialCount }
-  })
+  return rows
+    .map(normalizeProfile)
+    .filter(profile => appliesToRoot(profile.path, root))
+    .sort(compareByDeepestPath)
 }
 
 export async function upsertCredProfile(
@@ -238,7 +216,7 @@ export async function upsertCredProfile(
   data: {
     host: string[]
     auth?: Record<string, unknown>
-    managedOauth?: Record<string, unknown>
+    oauthConfig?: Record<string, unknown>
     displayName?: string
     description?: string
   },
@@ -249,7 +227,7 @@ export async function upsertCredProfile(
       path,
       host: data.host,
       auth: data.auth,
-      managedOauth: data.managedOauth,
+      oauthConfig: data.oauthConfig,
       displayName: data.displayName,
       description: data.description,
     })
@@ -258,7 +236,7 @@ export async function upsertCredProfile(
       set: {
         host: sql`excluded.host`,
         auth: sql`coalesce(excluded.auth, ${credProfiles.auth})`,
-        managedOauth: sql`coalesce(excluded.managed_oauth, ${credProfiles.managedOauth})`,
+        oauthConfig: sql`coalesce(excluded.oauth_config, ${credProfiles.oauthConfig})`,
         displayName: sql`coalesce(excluded.display_name, ${credProfiles.displayName})`,
         description: sql`coalesce(excluded.description, ${credProfiles.description})`,
         updatedAt: sql`now()`,
@@ -267,8 +245,8 @@ export async function upsertCredProfile(
 }
 
 export async function deleteCredProfile(db: Database, path: string) {
-  const result = await db.delete(credProfiles).where(eq(credProfiles.path, path)).returning()
-  return result.length > 0
+  const rows = await db.delete(credProfiles).where(eq(credProfiles.path, path)).returning()
+  return rows.length > 0
 }
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
@@ -278,32 +256,37 @@ export async function getCredential(db: Database, host: string, path: string) {
     .select()
     .from(credentials)
     .where(and(eq(credentials.host, host), eq(credentials.path, path)))
+
   return rows[0] ?? null
 }
 
-export async function getCredentialsByHost(db: Database, host: string) {
-  return db.select().from(credentials).where(eq(credentials.host, host))
-}
-
-export async function listCredentials(db: Database): Promise<CredentialRow[]> {
-  return db.select().from(credentials)
-}
-
-export async function listCredentialsWithinRoots(
+export async function listCredentials(
   db: Database,
-  roots: string[],
-) {
-  const all = await listCredentials(db)
-  return all.filter(credential =>
-    roots.some(root => isAncestorOrEqual(root, credential.path)),
-  )
+  options: {
+    root?: string
+  } = {},
+): Promise<CredentialRow[]> {
+  const root = options.root ?? '/'
+  const conditions = root === '/'
+    ? undefined
+    : pathWithinRootCondition(credentials.path, root)
+  const rows = await db.select().from(credentials).where(conditions)
+  return rows.sort((a, b) => a.path.localeCompare(b.path) || a.host.localeCompare(b.host))
 }
 
-export async function listCredentialsAccessible(
+export async function getCredentialsByHostWithinRoot(
   db: Database,
-  roots: string[],
+  host: string,
+  root: string,
 ) {
-  return listCredentialsWithinRoots(db, roots)
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(and(eq(credentials.host, host), credentialApplicabilityCondition(root)))
+
+  return rows
+    .filter(credential => credentialAppliesToRoot(credential.path, root))
+    .sort(compareByDeepestPath)
 }
 
 export async function listCredentialsAccessiblePage(
@@ -323,9 +306,9 @@ export async function listCredentialsAccessiblePage(
     return takePage([], options.limit)
   }
 
-  const conditions: SQL<unknown>[] = [
-    pathWithinAnyRootCondition(credentials.path, options.roots),
-  ]
+  const conditions: SQL<unknown>[] = []
+  const roots = options.roots.map(root => pathWithinRootCondition(credentials.path, root))
+  conditions.push(sql`(${sql.join(roots, sql` or `)})`)
   if (options.pathPrefix) {
     conditions.push(pathWithinRootCondition(credentials.path, options.pathPrefix))
   }
@@ -341,17 +324,6 @@ export async function listCredentialsAccessiblePage(
     .limit(options.limit + 1)
 
   return takePage(rows, options.limit)
-}
-
-export async function getCredentialsByHostWithinRoot(
-  db: Database,
-  host: string,
-  root: string,
-) {
-  const candidates = await getCredentialsByHost(db, host)
-  return candidates
-    .filter(credential => isAncestorOrEqual(root, credential.path))
-    .sort(compareByDeepestPath)
 }
 
 export async function upsertCredential(
@@ -387,20 +359,22 @@ export async function moveCredential(
   oldPath: string,
   newPath: string,
 ) {
-  const result = await db
+  const rows = await db
     .update(credentials)
     .set({ path: newPath, updatedAt: sql`now()` })
     .where(and(eq(credentials.host, host), eq(credentials.path, oldPath)))
     .returning()
-  return result.length > 0
+
+  return rows.length > 0
 }
 
 export async function deleteCredential(db: Database, host: string, path: string) {
-  const result = await db
+  const rows = await db
     .delete(credentials)
     .where(and(eq(credentials.host, host), eq(credentials.path, path)))
     .returning()
-  return result.length > 0
+
+  return rows.length > 0
 }
 
 // ─── Revocations ─────────────────────────────────────────────────────────────
@@ -410,6 +384,7 @@ export async function isRevoked(db: Database, revocationId: string) {
     .select()
     .from(revocations)
     .where(eq(revocations.revocationId, revocationId))
+
   return rows.length > 0
 }
 
@@ -450,7 +425,8 @@ export async function createIssuedToken(db: Database, data: CreateIssuedTokenDat
     })
     .returning()
 
-  return rows[0] ?? null
+  const [row = null] = rows
+  return row
 }
 
 export async function listIssuedTokensByOwner(
@@ -473,6 +449,15 @@ export async function getIssuedTokenById(
     .select()
     .from(issuedTokens)
     .where(and(eq(issuedTokens.id, id), issuedTokenOwnerCondition(owner)))
+
+  return rows[0] ?? null
+}
+
+export async function getIssuedTokenByIdUnscoped(db: Database, id: string) {
+  const rows = await db
+    .select()
+    .from(issuedTokens)
+    .where(eq(issuedTokens.id, id))
 
   return rows[0] ?? null
 }
@@ -556,13 +541,24 @@ export async function revokeIssuedTokenById(
   owner: { ownerUserId?: string | null; orgId?: string | null },
   reason?: string,
 ) {
+  const token = await getIssuedTokenById(db, id, owner)
+  if (!token) return null
+
+  return revokeIssuedTokenByIdUnscoped(db, id, reason)
+}
+
+export async function revokeIssuedTokenByIdUnscoped(
+  db: Database,
+  id: string,
+  reason?: string,
+) {
   const revokedAt = new Date()
 
   return db.transaction(async tx => {
     const rows = await tx
       .select()
       .from(issuedTokens)
-      .where(and(eq(issuedTokens.id, id), issuedTokenOwnerCondition(owner)))
+      .where(eq(issuedTokens.id, id))
 
     const token = rows[0] ?? null
     if (!token) return null
@@ -587,81 +583,7 @@ export async function revokeIssuedTokenById(
       .from(issuedTokens)
       .where(eq(issuedTokens.id, token.id))
 
-    return updated[0] ?? token
+    const [row = token] = updated
+    return row
   })
-}
-
-// ─── Auth Flows ──────────────────────────────────────────────────────────────
-
-export interface CreateFlowData {
-  id: string
-  profilePath?: string
-  method: 'oauth' | 'api_key'
-  codeVerifier?: string
-  scopePath?: string
-  expiresAt: Date
-}
-
-function formatTimestampWithoutTimezone(date: Date) {
-  // auth_flows.expires_at is TIMESTAMP WITHOUT TIME ZONE in the current schema,
-  // and PGlite reads that type back as a UTC instant. Persist the UTC wall-clock
-  // components explicitly so the same absolute instant round-trips regardless
-  // of the process timezone or the session timezone.
-  const pad = (value: number, width = 2) => value.toString().padStart(width, '0')
-  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}.${pad(date.getUTCMilliseconds(), 3)}`
-}
-
-function asTimestampWithoutTimezone(date: Date) {
-  return sql`${formatTimestampWithoutTimezone(date)}::timestamp`
-}
-
-export interface CompleteFlowData {
-  token?: string
-  identity: string
-}
-
-export async function createAuthFlow(db: Database, data: CreateFlowData) {
-  await db.insert(authFlows).values({
-    id: data.id,
-    profilePath: data.profilePath,
-    method: data.method,
-    codeVerifier: data.codeVerifier,
-    scopePath: data.scopePath,
-    expiresAt: asTimestampWithoutTimezone(data.expiresAt),
-  })
-}
-
-export async function updateAuthFlow(db: Database, id: string, data: CreateFlowData) {
-  await db
-    .update(authFlows)
-    .set({
-      profilePath: data.profilePath,
-      method: data.method,
-      codeVerifier: data.codeVerifier,
-      scopePath: data.scopePath,
-      expiresAt: asTimestampWithoutTimezone(data.expiresAt),
-    })
-    .where(eq(authFlows.id, id))
-}
-
-export async function getAuthFlow(db: Database, id: string) {
-  const rows = await db
-    .select()
-    .from(authFlows)
-    .where(eq(authFlows.id, id))
-  const flow = rows[0] ?? null
-  if (!flow) return null
-  if (flow.expiresAt < new Date()) return null
-  return flow
-}
-
-export async function completeAuthFlow(db: Database, id: string, data: CompleteFlowData) {
-  await db
-    .update(authFlows)
-    .set({
-      status: 'completed',
-      token: data.token,
-      identity: data.identity,
-    })
-    .where(eq(authFlows.id, id))
 }

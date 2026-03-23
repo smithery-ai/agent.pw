@@ -10,12 +10,43 @@ export async function bootstrapLocalSchema(db: Database) {
       path TEXT PRIMARY KEY,
       host JSONB NOT NULL,
       auth JSONB,
-      managed_oauth JSONB,
+      oauth_config JSONB,
       display_name TEXT,
       description TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )
+  `)
+
+  await db.execute(sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'agentpw'
+          AND table_name = 'cred_profiles'
+          AND column_name = 'managed_oauth'
+      ) AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'agentpw'
+          AND table_name = 'cred_profiles'
+          AND column_name = 'oauth_config'
+      ) THEN
+        ALTER TABLE agentpw.cred_profiles RENAME COLUMN managed_oauth TO oauth_config;
+      END IF;
+    END $$;
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS cred_profiles_path_idx
+    ON agentpw.cred_profiles (path)
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS cred_profiles_host_idx
+    ON agentpw.cred_profiles USING gin (host)
   `)
 
   await db.execute(sql`
@@ -49,18 +80,95 @@ export async function bootstrapLocalSchema(db: Database) {
   `)
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.auth_flows (
+    DROP TABLE IF EXISTS agentpw.auth_flows
+  `)
+
+  await db.execute(sql`
+    DROP TABLE IF EXISTS agentpw.verification
+  `)
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS agentpw.auth_users (
       id TEXT PRIMARY KEY,
-      profile_path TEXT,
-      method TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      code_verifier TEXT,
-      scope_path TEXT,
-      token TEXT,
-      identity TEXT,
-      expires_at TIMESTAMP NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT now()
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      email TEXT NOT NULL,
+      email_verified BOOLEAN NOT NULL DEFAULT false,
+      name TEXT NOT NULL,
+      image TEXT
     )
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS auth_users_email_idx
+    ON agentpw.auth_users (email)
+  `)
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS agentpw.auth_sessions (
+      id TEXT PRIMARY KEY,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      user_id TEXT NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      token TEXT NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT
+    )
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx
+    ON agentpw.auth_sessions (user_id)
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS auth_sessions_token_idx
+    ON agentpw.auth_sessions (token)
+  `)
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS agentpw.auth_accounts (
+      id TEXT PRIMARY KEY,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      provider_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      access_token TEXT,
+      refresh_token TEXT,
+      id_token TEXT,
+      access_token_expires_at TIMESTAMP,
+      refresh_token_expires_at TIMESTAMP,
+      scope TEXT,
+      password TEXT
+    )
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS auth_accounts_user_id_idx
+    ON agentpw.auth_accounts (user_id)
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS auth_accounts_provider_account_idx
+    ON agentpw.auth_accounts (provider_id, account_id)
+  `)
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS agentpw.auth_verifications (
+      id TEXT PRIMARY KEY,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      value TEXT NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      identifier TEXT NOT NULL
+    )
+  `)
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS auth_verifications_identifier_idx
+    ON agentpw.auth_verifications (identifier)
   `)
 
   await db.execute(sql`

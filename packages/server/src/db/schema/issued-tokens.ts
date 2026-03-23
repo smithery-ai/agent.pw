@@ -1,5 +1,5 @@
 import { index, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
-import type { TokenConstraint, TokenRight } from '../../core/types.js'
+import type { TokenConstraint, TokenRight } from '../../types.js'
 import { agentpwSchema } from './agentpw-schema.js'
 import { jsonb } from './types.js'
 

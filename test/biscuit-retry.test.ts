@@ -8,30 +8,36 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@smithery/biscuit', async importOriginal => {
   const actual = await importOriginal<typeof import('@smithery/biscuit')>()
+  type FakeAuthenticatedAuthorizer = {
+    authorizeWithLimits(): void
+  }
 
   class FakeAuthorizerBuilder extends actual.AuthorizerBuilder {
     buildAuthenticated() {
       state.attempts += 1
       if (state.mode === 'string-failure') {
-        return {
+        const authorizer: FakeAuthenticatedAuthorizer = {
           authorizeWithLimits() {
             throw 'policy failed'
           },
-        } as any
+        }
+        return authorizer
       }
 
       if (state.mode === 'always-timeout' || state.attempts === 1) {
-        return {
+        const authorizer: FakeAuthenticatedAuthorizer = {
           authorizeWithLimits() {
             throw new Error('Timeout while warming up')
           },
-        } as any
+        }
+        return authorizer
       }
-      return {
+      const authorizer: FakeAuthenticatedAuthorizer = {
         authorizeWithLimits() {
           return undefined
         },
-      } as any
+      }
+      return authorizer
     }
   }
 
