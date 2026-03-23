@@ -1,5 +1,5 @@
 export { bootstrapLocalSchema } from '../db/bootstrap-local.js'
 export { createDb, createLocalDb } from '../db/index.js'
 export { migrateLocal } from '../db/migrate-local.js'
-export * from '../db/queries.js'
 export * from '../db/schema/index.js'
+export * from '../db/queries.js'

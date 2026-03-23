@@ -23,6 +23,7 @@ export interface RuleSubject {
   subject?: string
   userId?: string | null
   orgId?: string | null
+  // Optional legacy metadata for consumers that still model a primary namespace.
   homePath?: string | null
   scopes?: string[]
 }
@@ -31,6 +32,7 @@ export interface RuleFacts {
   rights: RuleGrant[]
   userId: string | null
   orgId: string | null
+  // Optional legacy metadata; not required by the binding-first runtime model.
   homePath: string | null
   scopes: string[]
 }
@@ -44,6 +46,11 @@ export interface RuleAuthorizationInput {
 export interface RuleAuthorizationResult {
   authorized: boolean
   error?: string
+}
+
+export interface SqlNamespaceOptions {
+  schema?: string
+  tablePrefix?: string
 }
 
 export type OAuthClientAuthenticationMethod =
@@ -103,7 +110,9 @@ export interface CredentialPutInput {
 }
 
 export interface BindingRef {
+  // Namespace root used for credential lookup and storage under a product resource.
   root: string
+  // Credential Profile path that defines how this resource authenticates.
   profilePath: string
 }
 
@@ -214,6 +223,7 @@ export interface AgentPwOptions {
   logger?: Logger
   flowStore?: FlowStore
   oauthFetch?: typeof fetch
+  sql?: SqlNamespaceOptions
 }
 
 export interface AgentPw {

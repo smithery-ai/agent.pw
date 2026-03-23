@@ -58,7 +58,11 @@ A binding declares:
 - `root`
 - `profilePath`
 
+`profilePath` chooses the auth definition. `root` chooses the namespace subtree the resource can use for credential lookup and storage.
+
 Runtime operations should execute against an explicit binding rather than against inferred request hosts or global user state. This matters for multi-tenant products because one user may operate across multiple roots during the same session.
+
+An exact `credentialPath` may also be supplied by a caller, but that is an optional leaf override. It does not replace the role of the binding root as the namespace boundary.
 
 ### Credentials
 

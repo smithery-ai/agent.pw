@@ -182,9 +182,13 @@ describe('createAgentPw edge cases', () => {
   it('surfaces defensive persistence failures for profiles', async () => {
     vi.doMock('../packages/server/src/db/queries.js', async importOriginal => {
       const actual = await importOriginal<typeof import('../packages/server/src/db/queries.js')>()
+      const helpers = actual.createQueryHelpers()
       return {
         ...actual,
-        getCredProfile: vi.fn(async () => null),
+        createQueryHelpers: vi.fn(() => ({
+          ...helpers,
+          getCredProfile: vi.fn(async () => null),
+        })),
       }
     })
 
@@ -204,9 +208,13 @@ describe('createAgentPw edge cases', () => {
   it('surfaces defensive persistence failures for credentials', async () => {
     vi.doMock('../packages/server/src/db/queries.js', async importOriginal => {
       const actual = await importOriginal<typeof import('../packages/server/src/db/queries.js')>()
+      const helpers = actual.createQueryHelpers()
       return {
         ...actual,
-        getCredential: vi.fn(async () => null),
+        createQueryHelpers: vi.fn(() => ({
+          ...helpers,
+          getCredential: vi.fn(async () => null),
+        })),
       }
     })
 

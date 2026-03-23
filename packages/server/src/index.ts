@@ -1,16 +1,5 @@
 import {
-  deleteCredProfile,
-  deleteCredential,
-  getCredProfile,
-  getCredProfilesByHostWithinRoot,
-  getCredProfilesByProviderWithinRoot,
-  getCredential,
-  getCredentialsByProfileWithinRoot,
-  listCredProfiles,
-  listCredentials,
-  moveCredential,
-  upsertCredProfile,
-  upsertCredential,
+  createQueryHelpers,
 } from './db/queries.js'
 import { AgentPwConflictError, AgentPwInputError } from './errors.js'
 import { decryptCredentials, encryptCredentials } from './lib/credentials-crypto.js'
@@ -140,6 +129,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
   const logger = options.logger ?? createLogger('agentpw').logger
   const clock = options.clock ?? (() => new Date())
   const encryptionKey = options.encryptionKey
+  const queries = createQueryHelpers(options.sql)
 
   const profiles: AgentPw['profiles'] = {
     async resolve(input) {
@@ -149,9 +139,9 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       }
 
       let matches = input.provider
-        ? await getCredProfilesByProviderWithinRoot(options.db, input.provider, root)
+        ? await queries.getCredProfilesByProviderWithinRoot(options.db, input.provider, root)
         : input.host
-          ? await getCredProfilesByHostWithinRoot(options.db, input.host, root)
+          ? await queries.getCredProfilesByHostWithinRoot(options.db, input.host, root)
           : []
 
       const { host } = input
@@ -164,12 +154,12 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
 
     async get(path) {
-      const selected = await getCredProfile(options.db, assertPath(path, 'profile path'))
+      const selected = await queries.getCredProfile(options.db, assertPath(path, 'profile path'))
       return selected ? toProfileRecord(selected) : null
     },
 
     async list(query = {}) {
-      const rows = await listCredProfiles(options.db, {
+      const rows = await queries.listCredProfiles(options.db, {
         root: query.root ? normalizeRoot(query.root, 'profile root') : '/',
       })
       return rows.map(toProfileRecord)
@@ -181,7 +171,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
         throw new AgentPwInputError('Credential Profile host list cannot be empty')
       }
 
-      await upsertCredProfile(options.db, profilePath, {
+      await queries.upsertCredProfile(options.db, profilePath, {
         host: data.host,
         auth: data.auth,
         oauthConfig: data.oauthConfig,
@@ -189,7 +179,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
         description: data.description,
       })
 
-      const stored = await getCredProfile(options.db, profilePath)
+      const stored = await queries.getCredProfile(options.db, profilePath)
       if (!stored) {
         throw new Error(`Failed to persist Credential Profile '${profilePath}'`)
       }
@@ -197,7 +187,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
 
     delete(path) {
-      return deleteCredProfile(options.db, assertPath(path, 'profile path'))
+      return queries.deleteCredProfile(options.db, assertPath(path, 'profile path'))
     },
   }
 
@@ -218,7 +208,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       : null
 
     if (exactPath) {
-      const exact = await getCredential(options.db, exactPath)
+      const exact = await queries.getCredential(options.db, exactPath)
       if (!exact || exact.profilePath !== binding.profilePath) {
         return null
       }
@@ -227,7 +217,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       return { ...decrypted, profile }
     }
 
-    const matches = await getCredentialsByProfileWithinRoot(options.db, binding.profilePath, binding.root)
+    const matches = await queries.getCredentialsByProfileWithinRoot(options.db, binding.profilePath, binding.root)
     const selected = resolveSingleMatch(matches, 'Credential')
     if (!selected) {
       return null
@@ -249,7 +239,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       ? input.secret
       : await encryptCredentials(encryptionKey, input.secret)
 
-    await upsertCredential(options.db, {
+    await queries.upsertCredential(options.db, {
       profilePath,
       host: input.host ?? null,
       path: credentialPath,
@@ -257,7 +247,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       secret,
     })
 
-    const stored = await getCredential(options.db, credentialPath)
+    const stored = await queries.getCredential(options.db, credentialPath)
     if (!stored) {
       throw new Error(`Failed to persist Credential '${credentialPath}'`)
     }
@@ -298,7 +288,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
     putBinding,
     deleteCredential(path) {
-      return deleteCredential(options.db, assertPath(path, 'credential path'))
+      return queries.deleteCredential(options.db, assertPath(path, 'credential path'))
     },
   })
 
@@ -342,12 +332,12 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
 
     async get(path) {
-      const selected = await getCredential(options.db, assertPath(path, 'credential path'))
+      const selected = await queries.getCredential(options.db, assertPath(path, 'credential path'))
       return selected ? decryptCredentialRecord(encryptionKey, selected) : null
     },
 
     async list(query = {}) {
-      const rows = await listCredentials(options.db, {
+      const rows = await queries.listCredentials(options.db, {
         root: query.root ? normalizeRoot(query.root, 'credential root') : '/',
       })
       return rows.map<CredentialSummary>(row => ({
@@ -365,7 +355,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
 
     move(fromPath, toPath) {
-      return moveCredential(
+      return queries.moveCredential(
         options.db,
         assertPath(fromPath, 'source path'),
         assertPath(toPath, 'target path'),
@@ -373,7 +363,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
 
     delete(path) {
-      return deleteCredential(options.db, assertPath(path, 'credential path'))
+      return queries.deleteCredential(options.db, assertPath(path, 'credential path'))
     },
   }
 

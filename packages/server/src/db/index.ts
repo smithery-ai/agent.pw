@@ -2,18 +2,27 @@ import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js'
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
 import { readFile } from 'node:fs/promises'
 import postgres from 'postgres'
-import * as schema from './schema/index.js'
+import type { SqlNamespaceOptions } from '../types.js'
+import { coerceSqlNamespace, type schemaTables, type AgentPwSqlNamespace } from './schema/index.js'
 
-type PostgresDatabase = ReturnType<typeof drizzlePg<typeof schema>>
-type PgliteDatabase = ReturnType<typeof drizzlePglite<typeof schema>>
+type PostgresDatabase = ReturnType<typeof drizzlePg<typeof schemaTables>>
+type PgliteDatabase = ReturnType<typeof drizzlePglite<typeof schemaTables>>
 
 /** Database type that works with both postgres-js and PGlite drivers. */
 export type Database = PostgresDatabase | PgliteDatabase
 
+type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace
+
 /** Create a database connection using postgres-js (for deployed/Smithery mode). */
-export function createDb(connectionString: string): Database {
+export function createDb(
+  connectionString: string,
+  options: {
+    sql?: SqlNamespaceInput
+  } = {},
+): Database {
+  const sqlNamespace = coerceSqlNamespace(options.sql)
   const client = postgres(connectionString)
-  return drizzlePg(client, { schema })
+  return drizzlePg(client, { schema: sqlNamespace.tables })
 }
 
 let bundledPGliteAssetsPromise: Promise<{
@@ -69,11 +78,17 @@ async function loadBundledPGliteAssets() {
 }
 
 /** Create a local database using PGlite (for CLI/local mode). */
-export async function createLocalDb(dataDir: string): Promise<Database> {
+export async function createLocalDb(
+  dataDir: string,
+  options: {
+    sql?: SqlNamespaceInput
+  } = {},
+): Promise<Database> {
   const { PGlite } = await import('@electric-sql/pglite')
+  const sqlNamespace = coerceSqlNamespace(options.sql)
   const bundledAssets = await loadBundledPGliteAssets()
   const client = bundledAssets
     ? new PGlite({ dataDir, ...bundledAssets })
     : new PGlite(dataDir)
-  return drizzlePglite(client, { schema })
+  return drizzlePglite(client, { schema: sqlNamespace.tables })
 }

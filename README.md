@@ -10,8 +10,8 @@ Host products embed it in-process to manage provider OAuth and API keys, store e
 
 The framework centers on five primitives:
 
-- `Credential Profile`: a tree-scoped auth definition for a provider
-- `Binding`: an explicit `root + profilePath` association for a product resource
+- `Credential Profile`: how to authenticate to a provider at a given path
+- `Binding`: the runtime tuple that says which profile a resource uses and which path subtree it can read credentials from
 - `Credential`: encrypted auth material stored under a binding root
 - `OAuth`: start, complete, refresh, and disconnect provider auth flows
 - `Rules`: portable authorization facts that can be enforced directly or compiled into Biscuits
@@ -89,12 +89,27 @@ The framework runtime contract is explicit:
 3. start and complete auth against that binding
 4. resolve headers or stored credentials from the same binding later
 
-Bindings are the primary identity model for embedded products:
+A binding is not a separate database object in agent.pw. It is the runtime handle a host product passes in:
 
 ```txt
 root        = /{namespace}/{connectionId}
 profilePath = /github
 ```
+
+`profilePath` answers "how should this resource authenticate?"
+
+`root` answers "where in the path tree may this resource read or store credentials?"
+
+That is why the binding uses `root + profilePath`, not `credentialPath + profilePath`.
+
+- `root` is a lookup boundary and sharing boundary
+- `credentialPath` is an optional exact leaf when the caller already knows the specific credential to use
+- if no `credentialPath` is provided, agent.pw resolves the deepest matching credential under the binding root
+
+Example:
+
+- `profilePath = /github` means "use the GitHub auth definition"
+- `root = /acme/connections/github_primary` means "look for GitHub credentials inside this resource's namespace"
 
 Runtime resolution does not depend on request hosts, proxy headers, or a framework-owned HTTP server.
 
@@ -169,7 +184,6 @@ const token = compileRulesToBiscuit({
   constraints: [{ hosts: ['api.github.com'], ttl: '10m' }],
   extraFacts: subjectFactsToExtraFacts({
     orgId: 'acme',
-    homePath: '/acme',
     scopes: ['repo'],
   }),
 })
@@ -214,6 +228,29 @@ Current framework tables:
 
 - `cred_profiles`
 - `credentials`
+
+The default namespace is the `agentpw` schema with no table prefix.
+
+Embedders can opt into a different SQL namespace without changing the default package path:
+
+```ts
+import { createAgentPwSchema, createDb } from 'agent.pw/sql'
+
+const sqlNamespace = createAgentPwSchema({
+  schema: 'connect_data',
+  tablePrefix: 'smithery_',
+})
+
+const db = createDb(process.env.DATABASE_URL!, {
+  sql: sqlNamespace,
+})
+
+const agentPw = await createAgentPw({
+  db,
+  encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
+  sql: sqlNamespace,
+})
+```
 
 ## Public Docs
 

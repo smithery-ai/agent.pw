@@ -1,9 +1,5 @@
 # Architecture
 
-`agent.pw` is a credential vault and auth framework for agents.
-
-This repo is the public source of truth for the architecture. Products embed the framework directly and keep their own UI, user identity, runtime orchestration, and transport layer.
-
 ## Executive Summary
 
 The framework has four core resource types and two runtime layers.
@@ -11,7 +7,7 @@ The framework has four core resource types and two runtime layers.
 Resources:
 
 - `Credential Profile`: how a provider authenticates at a path
-- `Binding`: which profile a product resource uses and which root it owns
+- `Binding`: the runtime tuple that says which profile a product resource uses and which path subtree it owns
 - `Credential`: encrypted auth material stored under that root
 - `Rules`: path-based authorization facts over one or more roots
 
@@ -85,7 +81,9 @@ Deeper profiles override broader ones when both apply.
 
 ### Binding
 
-A `Binding` is the explicit association between a product resource and framework auth state.
+A `Binding` is the explicit runtime association between a product resource and framework auth state.
+
+It is not a framework-owned table. It is the handle the embedding product passes to the runtime.
 
 A binding declares:
 
@@ -101,6 +99,16 @@ Examples:
 ```
 
 Bindings are the primary runtime identity model for embedded consumers such as Smithery Connect.
+
+`profilePath` answers "how should this resource authenticate?"
+
+`root` answers "which part of the path tree does this resource own for credential lookup and storage?"
+
+That is why the binding is `root + profilePath`, not `credentialPath + profilePath`.
+
+- `root` is a namespace boundary and lookup boundary
+- `credentialPath` is an optional exact leaf when a caller wants to pin one specific stored credential
+- when `credentialPath` is omitted, the framework resolves the deepest matching credential under the binding root
 
 ### Credential
 
@@ -161,6 +169,8 @@ Runtime credential resolution starts from an explicit binding:
 
 The framework still stores `host` on credentials because host products may want it as metadata or for adapter logic. It is not the canonical runtime identity model.
 
+An explicit `credentialPath` can still be passed when the caller already knows the exact credential to use. That narrows runtime resolution further, but it is optional and does not replace the binding root.
+
 ### Refresh-Aware Resolution
 
 `bindings.resolve(...)` and `bindings.resolveHeaders(...)` are refresh-aware.
@@ -218,7 +228,7 @@ That gives embedded products a small hosted surface without making HTTP routing 
 
 ## Storage Model
 
-`agent.pw` is SQL-first. All framework tables live in the `agentpw` schema.
+`agent.pw` is SQL-first. By default, framework tables live in the `agentpw` schema.
 
 Current tables:
 
@@ -231,6 +241,14 @@ Important storage choices:
 - `credentials.profile_path` is the canonical runtime profile association
 - secrets are encrypted before persistence
 - the SQL schema is framework-owned and versioned with Drizzle migrations
+
+The default namespace is `agentpw` with no table prefix, but embedders can override both through `createAgentPwSchema(...)` and pass the same namespace config into:
+
+- `createDb(...)` or `createLocalDb(...)`
+- `migrateLocal(...)` or `bootstrapLocalSchema(...)`
+- `createAgentPw(...)`
+
+That keeps the default package behavior stable while allowing a host product to place agent.pw tables inside its own schema or prefixed namespace.
 
 ## Rules and Biscuit Compilation
 
