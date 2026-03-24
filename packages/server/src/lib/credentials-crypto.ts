@@ -77,7 +77,7 @@ export async function decryptCredentials(
 }
 
 /**
- * Derive proxy headers from a token and an auth scheme.
+ * Derive runtime request headers from a token and an auth scheme.
  * Each scheme type is self-describing — no ambiguity about formatting.
  */
 export function buildCredentialHeaders(
