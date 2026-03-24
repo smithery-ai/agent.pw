@@ -262,7 +262,7 @@ describe('index coverage helpers', () => {
       displayName: 'Headers',
     })
 
-    const result = await agentPw.authenticated({
+    const api = agentPw.scope({
       rights: [
         { action: 'credential.connect', root: '/acme' },
         { action: 'credential.use', root: '/acme' },
@@ -271,11 +271,9 @@ describe('index coverage helpers', () => {
         { action: 'profile.read', root: '/' },
         { action: 'profile.manage', root: '/' },
       ],
-      userId: 'user_123',
-      orgId: 'acme',
-      homePath: null,
-      scopes: [],
-    }, async api => {
+    })
+
+    const result = await (async () => {
       const readProfile = await api.profiles.get('/linear')
       await api.profiles.put('/profiles/temp', {
         resourcePatterns: ['https://temp.example.com/*'],
@@ -373,7 +371,7 @@ describe('index coverage helpers', () => {
         deleted,
         disconnected,
       }
-    })
+    })()
 
     expect(result.readProfile?.path).toBe('/linear')
     expect(result.allProfiles.map(profile => profile.path)).toEqual(['/headers', '/linear', '/profiles/temp'])

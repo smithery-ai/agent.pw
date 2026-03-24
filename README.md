@@ -32,7 +32,7 @@ import * as paths from 'agent.pw/paths'
 - `connect`
 - `credentials`
 - `profiles`
-- `authenticated(...)`
+- `scope(...)`
 
 ## Quick Start
 
@@ -255,17 +255,13 @@ const children = await agentPw.credentials.list({
 
 `credentials.list({ path })` returns direct children only.
 
-## Authenticated Facade
+## Scoped API
 
-Use `authenticated(...)` to get a scoped API that enforces rules automatically.
+Use `scope(...)` to get a scoped API that enforces rules automatically.
 
 ```ts
-const api = agentPw.authenticated({
+const api = agentPw.scope({
   rights: [{ action: 'credential.use', root: '/acme' }],
-  userId: 'user_123',
-  orgId: 'acme',
-  homePath: null,
-  scopes: [],
 })
 
 const headers = await api.connect.headers({
@@ -273,39 +269,27 @@ const headers = await api.connect.headers({
 })
 ```
 
-Or use the callback form:
+Apps are responsible for deriving those rights from whatever auth system they use, such as a Biscuit token, a session, or an internal permission store.
 
-```ts
-await agentPw.authenticated({
-  rights: [{ action: 'credential.read', root: '/acme' }],
-  userId: 'user_123',
-  orgId: 'acme',
-  homePath: null,
-  scopes: [],
-}, async api => {
-  return api.credentials.list({ path: '/acme/connections' })
-})
-```
+`scope(...)` only accepts the facts the framework actually checks: path-based rights.
 
 ## Rules and Biscuits
 
 Rules are the base authorization model.
 
 ```ts
-import { can, assertCan } from 'agent.pw/rules'
+import { can } from 'agent.pw/rules'
 
 const allowed = can({
   rights: [{ action: 'credential.use', root: '/acme' }],
   action: 'credential.use',
   path: '/acme/connections/docs',
 })
-
-assertCan({
-  rights: [{ action: 'credential.manage', root: '/acme' }],
-  action: 'credential.manage',
-  path: '/acme/connections/docs',
-})
 ```
+
+if (!allowed) {
+  throw new Error('Missing credential.use for /acme/connections/docs')
+}
 
 If an app wants Biscuit tokens, it can compile the same rules into Biscuits:
 

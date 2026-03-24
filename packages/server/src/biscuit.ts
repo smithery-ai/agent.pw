@@ -16,7 +16,7 @@ import {
   KeyPair,
   SignatureAlgorithm,
 } from '@smithery/biscuit'
-import type { RuleConstraint, RuleFacts, RuleGrant, RuleSubject } from './types.js'
+import type { BiscuitSubject, BiscuitTokenFacts, RuleConstraint, RuleGrant } from './types.js'
 
 export const TOKEN_PREFIX = 'apw_'
 
@@ -377,7 +377,7 @@ export function authorizeRequest(
 export function extractTokenFacts(
   tokenBase64: string,
   publicKeyHex: string,
-) : RuleFacts {
+) : BiscuitTokenFacts {
   try {
     const token = parseToken(tokenBase64, publicKeyHex)
     const source = token.getBlockSource(0)
@@ -484,7 +484,7 @@ export function compileRulesToBiscuit(input: {
   return restrictToken(minted, getPublicKeyHex(input.privateKeyHex), input.constraints)
 }
 
-export function subjectFactsToExtraFacts(subject: RuleSubject | undefined) {
+export function subjectFactsToExtraFacts(subject: BiscuitSubject | undefined) {
   const facts: string[] = []
 
   if (!subject) {

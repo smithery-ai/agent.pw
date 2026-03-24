@@ -186,9 +186,9 @@ That means the same grant language can protect:
 - `profiles.get(path)`
 - `profiles.list({ path })`
 
-## Authenticated Facade
+## Scoped API
 
-`agentPw.authenticated(facts)` returns a scoped API that enforces rules automatically.
+`agentPw.scope({ rights })` returns a scoped API that enforces rules automatically.
 
 This gives embedders a consistent way to evaluate permissions before:
 
@@ -197,15 +197,17 @@ This gives embedders a consistent way to evaluate permissions before:
 - listing credentials
 - managing profiles
 
-The callback form:
+Example:
 
 ```ts
-await agentPw.authenticated(facts, async api => {
-  return api.connect.headers({ path: '/acme/connections/docs' })
+const api = agentPw.scope({
+  rights: [{ action: 'credential.use', root: '/acme' }],
 })
+
+await api.connect.headers({ path: '/acme/connections/docs' })
 ```
 
-keeps authorization local to the operation and avoids leaking unchecked raw helpers into higher-level code.
+The framework only asks for path-based rights because those are the facts it actually checks. Apps can derive those rights from Biscuits, sessions, or any other permission store.
 
 ## Biscuits
 

@@ -105,7 +105,7 @@ import * as paths from 'agent.pw/paths'
 - `connect`
 - `credentials`
 - `profiles`
-- `authenticated(...)`
+- `scope(...)`
 
 There is no built-in daemon, CLI, proxy surface, or required second server hop in this repo.
 
@@ -284,25 +284,26 @@ The framework exposes rules in two ways:
 Use `agent.pw/rules` with helpers like:
 
 - `can(...)`
-- `assertCan(...)`
 
-### Scoped facade
+### Scoped API
 
-Use `agentPw.authenticated(facts)` to get an API that enforces rules automatically for:
+Use `agentPw.scope({ rights })` to get an API that enforces rules automatically for:
 
 - `connect.*`
 - `credentials.*`
 - `profiles.*`
 
-The callback form:
+That scoped API can then be used directly:
 
 ```ts
-await agentPw.authenticated(facts, async api => {
-  return api.connect.headers({ path: '/acme/connections/docs' })
+const api = agentPw.scope({
+  rights: [{ action: 'credential.use', root: '/acme' }],
 })
+
+await api.connect.headers({ path: '/acme/connections/docs' })
 ```
 
-is the ergonomic “operate within this authorization context” surface for embedders.
+The framework only accepts the authorization facts it checks itself: path-based rights. Apps can derive those rights from Biscuits, sessions, or any other permission store.
 
 ## OAuth Runtime Ownership
 

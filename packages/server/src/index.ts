@@ -1,16 +1,15 @@
 import { createQueryHelpers } from './db/queries.js'
-import { AgentPwConflictError, AgentPwInputError } from './errors.js'
+import { AgentPwAuthorizationError, AgentPwConflictError, AgentPwInputError } from './errors.js'
 import { decryptCredentials, encryptCredentials } from './lib/credentials-crypto.js'
 import { createLogger } from './lib/logger.js'
 import { isRecord } from './lib/utils.js'
 import { createOAuthService } from './oauth.js'
 import { canonicalizePath, credentialName, validatePath } from './paths.js'
 import { normalizeResource } from './resource-patterns.js'
-import { assertCan as assertRuleCan, can as canRule } from './rules.js'
+import { authorizeRules, can as canRule } from './rules.js'
 import type {
   AgentPw,
   AgentPwOptions,
-  AuthorizedAgentPw,
   ConnectHeadersOption,
   ConnectOAuthOption,
   CredentialAuth,
@@ -20,7 +19,8 @@ import type {
   CredentialRecord,
   CredentialSummary,
   CredentialPutInput,
-  RuleFacts,
+  RuleScope,
+  ScopedAgentPw,
 } from './types.js'
 
 function assertPath(path: string, label: string) {
@@ -185,6 +185,18 @@ function buildHeadersFromValues(option: ConnectHeadersOption, values: Record<str
   }
 
   return headers
+}
+
+function requireRule(scope: RuleScope, action: string, path: string) {
+  const result = authorizeRules({
+    rights: scope.rights,
+    action,
+    path,
+  })
+
+  if (!result.authorized) {
+    throw new AgentPwAuthorizationError(action, path, result.error)
+  }
 }
 
 export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
@@ -458,22 +470,22 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
   }
 
-  function createAuthenticatedApi(facts: RuleFacts): AuthorizedAgentPw {
+  function createScopedApi(scope: RuleScope): ScopedAgentPw {
     return {
       connect: {
         async prepare(input) {
           const path = assertPath(input.path, 'path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          requireRule(scope, 'credential.connect', path)
           const result = await connect.prepare(input)
           if (result.kind === 'ready') {
-            assertRuleCan({ rights: facts.rights, action: 'credential.use', path })
+            requireRule(scope, 'credential.use', path)
           }
           return result
         },
 
         async start(input) {
           const path = assertPath(input.path, 'path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          requireRule(scope, 'credential.connect', path)
           return connect.start(input)
         },
 
@@ -486,25 +498,25 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
           if (!flow) {
             throw new AgentPwInputError(`Unknown OAuth flow '${flowId}'`)
           }
-          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path: flow.path })
+          requireRule(scope, 'credential.connect', flow.path)
           return connect.complete(input)
         },
 
         async saveHeaders(input) {
           const path = assertPath(input.path, 'path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          requireRule(scope, 'credential.connect', path)
           return connect.saveHeaders(input)
         },
 
         async headers(input) {
           const path = assertPath(input.path, 'path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.use', path })
+          requireRule(scope, 'credential.use', path)
           return connect.headers(input)
         },
 
         async disconnect(input) {
           const path = assertPath(input.path, 'path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          requireRule(scope, 'credential.connect', path)
           return connect.disconnect(input)
         },
       },
@@ -512,7 +524,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       credentials: {
         async get(path) {
           const normalizedPath = assertPath(path, 'credential path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.read', path: normalizedPath })
+          requireRule(scope, 'credential.read', normalizedPath)
           return credentials.get(normalizedPath)
         },
 
@@ -520,7 +532,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
           const path = assertListPath(query.path, 'credential path')
           const items = await credentials.list({ path })
           return items.filter(item => canRule({
-            rights: facts.rights,
+            rights: scope.rights,
             action: 'credential.read',
             path: item.path,
           }))
@@ -528,21 +540,21 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 
         async put(input) {
           const path = assertPath(input.path, 'credential path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path })
+          requireRule(scope, 'credential.manage', path)
           return credentials.put(input)
         },
 
         async move(fromPath, toPath) {
           const normalizedFrom = assertPath(fromPath, 'source path')
           const normalizedTo = assertPath(toPath, 'target path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path: normalizedFrom })
-          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path: normalizedTo })
+          requireRule(scope, 'credential.manage', normalizedFrom)
+          requireRule(scope, 'credential.manage', normalizedTo)
           return credentials.move(normalizedFrom, normalizedTo)
         },
 
         async delete(path) {
           const normalizedPath = assertPath(path, 'credential path')
-          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path: normalizedPath })
+          requireRule(scope, 'credential.manage', normalizedPath)
           return credentials.delete(normalizedPath)
         },
       },
@@ -550,7 +562,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       profiles: {
         async get(path) {
           const normalizedPath = assertPath(path, 'profile path')
-          assertRuleCan({ rights: facts.rights, action: 'profile.read', path: normalizedPath })
+          requireRule(scope, 'profile.read', normalizedPath)
           return profiles.get(normalizedPath)
         },
 
@@ -558,7 +570,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
           const path = assertListPath(query.path, 'profile path')
           const items = await profiles.list({ path })
           return items.filter(item => canRule({
-            rights: facts.rights,
+            rights: scope.rights,
             action: 'profile.read',
             path: item.path,
           }))
@@ -566,30 +578,21 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 
         async put(path, data) {
           const normalizedPath = assertPath(path, 'profile path')
-          assertRuleCan({ rights: facts.rights, action: 'profile.manage', path: normalizedPath })
+          requireRule(scope, 'profile.manage', normalizedPath)
           return profiles.put(normalizedPath, data)
         },
 
         async delete(path) {
           const normalizedPath = assertPath(path, 'profile path')
-          assertRuleCan({ rights: facts.rights, action: 'profile.manage', path: normalizedPath })
+          requireRule(scope, 'profile.manage', normalizedPath)
           return profiles.delete(normalizedPath)
         },
       },
     }
   }
 
-  function authenticated(facts: RuleFacts): AuthorizedAgentPw
-  function authenticated<T>(
-    facts: RuleFacts,
-    fn: (api: AuthorizedAgentPw) => Promise<T> | T,
-  ): Promise<T>
-  function authenticated<T>(
-    facts: RuleFacts,
-    fn?: (api: AuthorizedAgentPw) => Promise<T> | T,
-  ) {
-    const api = createAuthenticatedApi(facts)
-    return fn ? Promise.resolve(fn(api)) : api
+  function scope(input: RuleScope): ScopedAgentPw {
+    return createScopedApi(input)
   }
 
   logger.debug('agent.pw initialized')
@@ -598,7 +601,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     profiles,
     credentials,
     connect,
-    authenticated,
+    scope,
   }
 }
 

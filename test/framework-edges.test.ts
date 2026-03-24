@@ -133,13 +133,9 @@ describe('createAgentPw edge cases', () => {
       values: {},
     })).rejects.toThrow('connect.saveHeaders requires a headers option')
 
-    await expect(agentPw.authenticated({
+    await expect(agentPw.scope({
       rights: [{ action: 'credential.read', root: '/elsewhere' }],
-      userId: 'user_123',
-      orgId: null,
-      homePath: null,
-      scopes: [],
-    }, api => api.credentials.get('/org/connections/resend'))).rejects.toBeInstanceOf(AgentPwAuthorizationError)
+    }).credentials.get('/org/connections/resend')).rejects.toBeInstanceOf(AgentPwAuthorizationError)
   })
 
   it('falls back to the existing oauth credential when refresh lookup races to null', async () => {

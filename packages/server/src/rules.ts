@@ -1,11 +1,10 @@
 import { isAncestorOrEqual, pathDepth } from './paths.js'
-import { AgentPwAuthorizationError } from './errors.js'
 import type {
   RuleAuthorizationInput,
   RuleAuthorizationResult,
   RuleConstraint,
-  RuleFacts,
   RuleGrant,
+  RuleScope,
 } from './types.js'
 
 function compareRoots(a: string, b: string) {
@@ -44,8 +43,8 @@ export function hasRuleForPath(rights: RuleGrant[], action: string, path: string
   return coveringRootsForPath(rootsForAction(rights, action), path).length > 0
 }
 
-export function rootsForActionFromFacts(facts: RuleFacts, action: string) {
-  return rootsForAction(facts.rights, action)
+export function rootsForActionFromScope(scope: RuleScope, action: string) {
+  return rootsForAction(scope.rights, action)
 }
 
 export function authorizeRules(input: RuleAuthorizationInput): RuleAuthorizationResult {
@@ -61,13 +60,6 @@ export function authorizeRules(input: RuleAuthorizationInput): RuleAuthorization
 
 export function can(input: RuleAuthorizationInput) {
   return authorizeRules(input).authorized
-}
-
-export function assertCan(input: RuleAuthorizationInput) {
-  const result = authorizeRules(input)
-  if (!result.authorized) {
-    throw new AgentPwAuthorizationError(input.action, input.path, result.error)
-  }
 }
 
 export function normalizeConstraintValues(value: string | string[] | undefined) {

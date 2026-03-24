@@ -19,16 +19,17 @@ export interface RuleConstraint {
   ttl?: string | number
 }
 
-export interface RuleSubject {
-  subject?: string
-  userId?: string | null
+export interface RuleScope {
+  rights: RuleGrant[]
+}
+
+export interface BiscuitSubject {
   orgId?: string | null
   homePath?: string | null
   scopes?: string[]
 }
 
-export interface RuleFacts {
-  rights: RuleGrant[]
+export interface BiscuitTokenFacts extends RuleScope {
   userId: string | null
   orgId: string | null
   homePath: string | null
@@ -305,7 +306,7 @@ export interface ConnectWebHandlers {
   callback(request: Request): Promise<Response>
 }
 
-export interface AuthorizedAgentPw {
+export interface ScopedAgentPw {
   connect: {
     prepare(input: ConnectPrepareInput): Promise<ConnectPrepareResult>
     start(input: ConnectStartInput): Promise<ConnectAuthorizationSession>
@@ -333,6 +334,10 @@ export interface AuthorizedAgentPw {
   }
 }
 
+export type AuthorizedAgentPw = ScopedAgentPw
+export type RuleFacts = BiscuitTokenFacts
+export type RuleSubject = BiscuitSubject
+
 export interface AgentPwOptions {
   db: Database
   encryptionKey: string
@@ -344,14 +349,14 @@ export interface AgentPwOptions {
   oauthClient?: OAuthClientInput
 }
 
-export interface AgentPw extends AuthorizedAgentPw {
-  profiles: AuthorizedAgentPw['profiles'] & {
+export interface AgentPw extends ScopedAgentPw {
+  profiles: ScopedAgentPw['profiles'] & {
     resolve(input: {
       path: string
       resource: string
     }): Promise<CredentialProfileRecord | null>
   }
-  connect: AuthorizedAgentPw['connect'] & {
+  connect: ScopedAgentPw['connect'] & {
     createWebHandlers(options?: {
       callbackPath?: string
       success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>
@@ -360,9 +365,5 @@ export interface AgentPw extends AuthorizedAgentPw {
     createClientMetadataDocument(input: CimdDocumentInput): CimdDocument
     createClientMetadataResponse(input: CimdDocumentInput): Response
   }
-  authenticated(facts: RuleFacts): AuthorizedAgentPw
-  authenticated<T>(
-    facts: RuleFacts,
-    fn: (api: AuthorizedAgentPw) => Promise<T> | T,
-  ): Promise<T>
+  scope(input: RuleScope): ScopedAgentPw
 }

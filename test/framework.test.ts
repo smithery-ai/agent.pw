@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createAgentPw } from 'agent.pw'
-import type { RuleFacts } from '../packages/server/src/types'
+import type { RuleScope } from '../packages/server/src/types'
 import { AgentPwAuthorizationError, AgentPwConflictError } from '../packages/server/src/errors'
 import { deriveEncryptionKey } from '../packages/server/src/lib/credentials-crypto'
 import { BISCUIT_PRIVATE_KEY, createTestDb } from './setup'
@@ -14,13 +14,9 @@ async function createTestAgent() {
   })
 }
 
-function rights(rightsList: RuleFacts['rights']): RuleFacts {
+function rights(rightsList: RuleScope['rights']): RuleScope {
   return {
     rights: rightsList,
-    userId: 'user_123',
-    orgId: 'acme',
-    homePath: null,
-    scopes: [],
   }
 }
 
@@ -260,7 +256,7 @@ describe('createAgentPw', () => {
     })
   })
 
-  it('supports authorized facades over connect, credentials, and profiles', async () => {
+  it('supports scoped APIs over connect, credentials, and profiles', async () => {
     const agentPw = await createTestAgent()
 
     await agentPw.profiles.put('/profiles/resend', {
@@ -283,40 +279,37 @@ describe('createAgentPw', () => {
       secret: { headers: { Authorization: 'Bearer docs-token' } },
     })
 
-    const allowed = await agentPw.authenticated(rights([
+    const api = agentPw.scope(rights([
       { action: 'credential.use', root: '/acme' },
       { action: 'credential.read', root: '/acme' },
       { action: 'credential.manage', root: '/acme' },
       { action: 'credential.connect', root: '/acme' },
       { action: 'profile.read', root: '/profiles' },
       { action: 'profile.manage', root: '/profiles' },
-    ]), async api => {
-      const headers = await api.connect.headers({ path: '/acme/connections/resend' })
-      const credentials = await api.credentials.list({ path: '/acme/connections' })
-      const profiles = await api.profiles.list({ path: '/profiles' })
-      return {
-        headers,
-        credentials,
-        profiles,
-      }
-    })
+    ]))
+
+    const allowed = {
+      headers: await api.connect.headers({ path: '/acme/connections/resend' }),
+      credentials: await api.credentials.list({ path: '/acme/connections' }),
+      profiles: await api.profiles.list({ path: '/profiles' }),
+    }
 
     expect(allowed.headers).toEqual({ Authorization: 'Bearer resend-token' })
     expect(allowed.credentials.map(credential => credential.path)).toEqual(['/acme/connections/resend'])
     expect(allowed.profiles.map(profile => profile.path)).toEqual(['/profiles/resend'])
 
-    const socket = agentPw.authenticated(rights([
+    const socket = agentPw.scope(rights([
       { action: 'credential.use', root: '/acme' },
     ]))
     await expect(socket.connect.headers({ path: '/acme/connections/resend' })).resolves.toEqual({
       Authorization: 'Bearer resend-token',
     })
 
-    await expect(agentPw.authenticated(rights([
+    await expect(agentPw.scope(rights([
       { action: 'credential.connect', root: '/acme' },
-    ]), api => api.connect.prepare({
+    ])).connect.prepare({
       path: '/acme/connections/resend',
       resource: 'https://api.resend.com',
-    }))).rejects.toThrow(AgentPwAuthorizationError)
+    })).rejects.toThrow(AgentPwAuthorizationError)
   })
 })

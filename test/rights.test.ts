@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  assertCan,
   authorizeRules,
   can,
   constraintAppliesToPath,
@@ -9,7 +8,7 @@ import {
   hasRuleForPath,
   normalizeConstraintValues,
   rootsForAction,
-  rootsForActionFromFacts,
+  rootsForActionFromScope,
   rootsForActions,
   uniqueRoots,
 } from 'agent.pw/rules'
@@ -55,7 +54,7 @@ describe('rules helpers', () => {
       '/org_alpha/team',
       '/org_alpha',
     ])
-    expect(rootsForActionFromFacts({ rights }, 'credential.manage')).toEqual(['/org_alpha'])
+    expect(rootsForActionFromScope({ rights }, 'credential.manage')).toEqual(['/org_alpha'])
   })
 
   it('authorizes rules and evaluates request constraints', () => {
@@ -167,10 +166,5 @@ describe('rules helpers', () => {
       action: 'profile.manage',
       path: '/org_alpha/team/tool',
     })).toBe(false)
-    expect(() => assertCan({
-      rights,
-      action: 'profile.manage',
-      path: '/org_alpha/team/tool',
-    })).toThrow("Missing 'profile.manage' for '/org_alpha/team/tool'")
   })
 })
