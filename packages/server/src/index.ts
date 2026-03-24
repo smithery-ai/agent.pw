@@ -364,17 +364,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       }))
     },
 
-    async env(path) {
-      const credential = await getCredential(path)
-      if (!credential) {
-        throw new AgentPwInputError(`No credential exists at '${assertPath(path, 'credential path')}'`)
-      }
-      if (credential.auth.kind !== 'env') {
-        throw new AgentPwInputError(`Credential '${credential.path}' does not store env auth`)
-      }
-      return requireEnvSecret(credential.secret, credential.path)
-    },
-
     put(input) {
       return putCredential(input)
     },
@@ -605,12 +594,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
           const normalizedPath = assertPath(path, 'credential path')
           requireRule(scope, 'credential.read', normalizedPath)
           return credentials.get(normalizedPath)
-        },
-
-        async env(path) {
-          const normalizedPath = assertPath(path, 'credential path')
-          requireRule(scope, 'credential.use', normalizedPath)
-          return credentials.env(normalizedPath)
         },
 
         async list(query = {}) {

@@ -187,7 +187,6 @@ That means the same grant language can protect:
 
 - `connect.headers({ path })`
 - `connect.prepare({ path, resource })`
-- `credentials.env(path)`
 - `credentials.get(path)`
 - `credentials.list({ path })`
 - `profiles.get(path)`

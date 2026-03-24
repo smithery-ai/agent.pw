@@ -337,7 +337,6 @@ export interface ScopedAgentPw {
   }
   credentials: {
     get(path: string): Promise<CredentialRecord | null>
-    env(path: string): Promise<Record<string, string>>
     list(options?: {
       path?: string
     }): Promise<CredentialSummary[]>

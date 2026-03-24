@@ -274,7 +274,6 @@ These credentials are stored and retrieved through `credentials.*`:
 
 - `credentials.put(...)`
 - `credentials.get(...)`
-- `credentials.env(path)`
 
 That keeps `connect.*` focused on resource-backed auth setup, while the vault layer remains flexible enough for CLI and sandbox-agent workflows.
 

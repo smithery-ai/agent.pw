@@ -69,6 +69,11 @@ describe('createAgentPw edge cases', () => {
     expect(await agentPw.credentials.move('/shared/connections/buffered', '/shared/connections/buffered_next')).toBe(false)
     expect(await agentPw.credentials.delete('/shared/connections/buffered_next')).toBe(true)
     expect(await agentPw.credentials.delete('/shared/connections/buffered_next')).toBe(false)
+    await expect(agentPw.credentials.put({
+      path: '/shared/connections/invalid_env',
+      auth: { kind: 'env', label: 'Invalid env' },
+      secret: {},
+    })).rejects.toThrow("Credential '/shared/connections/invalid_env' does not have env auth")
 
     const malformedHeaders = await encryptCredentials(Buffer.alloc(32, 7).toString('base64'), {})
     await agentPw.credentials.put({
@@ -86,9 +91,7 @@ describe('createAgentPw edge cases', () => {
       auth: { kind: 'env', label: 'Malformed env' },
       secret: malformedEnv,
     })
-    await expect(agentPw.credentials.env('/shared/connections/malformed_env')).rejects.toThrow(
-      "Credential '/shared/connections/malformed_env' does not have env auth",
-    )
+    expect((await agentPw.credentials.get('/shared/connections/malformed_env'))?.secret.env).toBeUndefined()
   })
 
   it('validates connect helpers and authorization denials', async () => {

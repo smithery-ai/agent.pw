@@ -270,7 +270,8 @@ await agentPw.credentials.put({
   },
 })
 
-const env = await agentPw.credentials.env('/acme/connections/github_cli')
+const githubCli = await agentPw.credentials.get('/acme/connections/github_cli')
+const env = githubCli?.secret.env
 ```
 
 List stored credentials directly under a path:
