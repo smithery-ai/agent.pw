@@ -1,35 +1,40 @@
 # Security Model
 
-`agent.pw` secures agent auth around five ideas:
+`agent.pw` is an embeddable auth framework for applications that need to store credentials, guide connection setup, and resolve fresh runtime auth safely.
+
+Its security model is built around five ideas:
 
 - exact-path connections
 - encrypted credential storage
 - discovery-first OAuth with framework-owned refresh
 - admin-configured profiles as setup guidance
-- portable path-based rules
+- path-based authorization facts
 
-This document focuses on those trust boundaries and enforcement mechanics.
+This document describes what the framework enforces directly and what an implementer must provide around it.
 
-## Trust Boundary
+## Framework Boundary
 
-The embedding app owns:
+An implementer embeds `agent.pw` inside an application or service.
+
+The implementer owns:
 
 - user identity and sessions
-- UI and interaction flows
-- transport and request execution
-- any external tokens it chooses to issue
-- product-specific metadata around a connection
+- UI, routes, and interaction flows
+- transport and request execution against upstream APIs
+- deployment choices for SQL, `FlowStore`, and secret management
+- application-specific metadata around a connection
+- deriving rights from the application's own auth system
 
 `agent.pw` owns:
 
-- path validation
-- encrypted credential storage
-- OAuth runtime lifecycle
+- path validation and path-scoped lookups
+- encrypted credential persistence
 - guided auth selection through `connect.prepare(...)`
-- profile storage and matching
-- rule enforcement and optional Biscuit compilation
+- OAuth lifecycle operations for stored credentials
+- profile storage and profile matching
+- rule evaluation and optional Biscuit helpers
 
-That split keeps auth state inspectable and reusable without forcing a second server hop.
+That split keeps the framework focused on provider auth state and auth decisions while leaving product-specific control to the embedding app.
 
 ## Connection Boundary
 
@@ -50,6 +55,8 @@ Security implications:
 - apps resolve auth by exact connection path
 - multi-tenant products can scope access uniformly by path ancestry
 - a path is stable enough to use for listing, grants, auditing, and runtime auth
+
+If two callers should not share credentials, they should not share a path.
 
 ## Credential Storage
 
@@ -73,6 +80,12 @@ OAuth credentials may also store encrypted lifecycle material such as:
 - endpoint metadata needed for refresh or revoke
 
 Runtime callers typically consume headers, not raw secret payloads.
+
+From an implementer perspective, the main obligations are:
+
+- protect the encryption key separately from the database
+- control who can read or use a connection path
+- avoid copying decrypted headers or env values into logs or long-lived storage
 
 ## Resource as Setup Target
 
@@ -118,7 +131,7 @@ Deeper matching profiles win when multiple profiles apply. That lets teams expre
 
 ## Guided Auth Flow
 
-The security model for setup is:
+The framework's setup model is:
 
 1. the app chooses a connection `path`
 2. the app identifies the target `resource`
@@ -127,23 +140,23 @@ The security model for setup is:
 5. if discovery is unavailable or incomplete, the framework resolves matching profiles
 6. the framework returns explicit next steps as `oauth` or `headers` options
 
-This matters because apps do not need to re-implement auth decision logic inconsistently across products or runtimes.
+This matters because implementers do not need to re-implement auth decision logic inconsistently across products or runtimes.
 
 Generic env credentials live outside this guided setup flow and are written directly through `credentials.put(...)`.
 
 ## OAuth Lifecycle Ownership
 
-`agent.pw` owns the provider OAuth lifecycle:
+For OAuth-backed credentials, `agent.pw` owns the provider lifecycle once the implementer calls into the framework:
 
+- discover resource and authorization server metadata
 - start authorization
 - validate callback state
 - exchange authorization codes
 - refresh access tokens
 - revoke on disconnect
-- discover resource and authorization server metadata
-- serve hosted callback and client metadata helpers when needed
+- generate hosted callback and client metadata helpers when wanted
 
-The implementation uses `oauth4webapi`, but the key security property is architectural: token lifecycle logic stays attached to the vault instead of being split across apps.
+The implementation uses `oauth4webapi`, but the key security property is architectural: token lifecycle logic stays attached to the stored credential instead of being re-implemented ad hoc across the embedding app.
 
 ### Refresh-Aware Reads
 
@@ -157,7 +170,17 @@ Before returning headers, the framework can:
 4. persist the new encrypted state
 5. return fresh headers
 
-This reduces the chance of apps leaking stale token handling into ad hoc code paths.
+This reduces the chance of apps leaking stale token handling into scattered call sites.
+
+### Integrator-Controlled Routing
+
+`agent.pw` does not require a specific daemon, proxy, or CLI.
+
+The implementer decides:
+
+- where OAuth routes live
+- whether to use `createWebHandlers(...)` or wire routes manually
+- how returned headers or env values are attached to downstream execution
 
 ## FlowStore
 
@@ -218,15 +241,15 @@ The framework only asks for path-based rights because those are the facts it act
 
 ## Biscuits
 
-`agent.pw/biscuit` is an optional transport layer for the same rule model.
+`agent.pw/biscuit` is an optional token helper for the same rule model.
 
-Apps that want Biscuit tokens can compile rules into Biscuits, but the framework does not depend on Biscuit for its own authorization semantics.
+Apps that want Biscuit tokens can compile rules into Biscuits, attenuate them, and extract facts from them, but the framework does not depend on Biscuit for its own authorization semantics.
 
 The core security model stays the same either way:
 
 - paths define the protected namespace
 - rules define the granted actions
-- optional token formats carry those facts to another runtime
+- optional token formats can carry those facts across runtimes
 
 ## SQL Footprint
 
@@ -237,4 +260,14 @@ The framework-owned SQL footprint is intentionally small:
 
 Embedders can place those tables inside a custom SQL schema or prefix them to fit a shared database.
 
-Apps own their own migration or DDL workflow for that footprint. That keeps the vault focused on provider auth configuration and encrypted credential state, while app-specific user/session tables remain in the embedding product.
+Apps own their own migration or DDL workflow for that footprint. That keeps the framework focused on provider auth configuration and encrypted credential state, while app-specific user, session, and audit tables remain in the embedding product.
+
+## Implementer Checklist
+
+When embedding `agent.pw`, verify these boundaries explicitly:
+
+- choose stable connection paths and treat them as authorization boundaries
+- store the encryption key separately from the credential database
+- use a durable `FlowStore` in multi-instance deployments
+- derive least-privilege rights before calling scoped APIs
+- avoid logging decrypted headers, env values, tokens, or OAuth callback secrets
