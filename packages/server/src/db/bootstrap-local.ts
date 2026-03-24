@@ -1,98 +1,122 @@
 import { sql } from 'drizzle-orm'
+import type { SqlNamespaceOptions } from '../types.js'
 import type { Database } from './index'
+import { coerceSqlNamespace, type AgentPwSqlNamespace } from './schema/index.js'
+
+type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace
+
+function quoteIdentifier(identifier: string) {
+  return `"${identifier}"`
+}
+
+function qualifyTable(schema: string, tableName: string) {
+  return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`
+}
 
 /** Bootstrap the local PGlite schema without relying on checked-in Drizzle migrations. */
-export async function bootstrapLocalSchema(db: Database) {
-  await db.execute(sql`CREATE SCHEMA IF NOT EXISTS agentpw`)
+export async function bootstrapLocalSchema(
+  db: Database,
+  options: {
+    sql?: SqlNamespaceInput
+  } = {},
+) {
+  const sqlNamespace = coerceSqlNamespace(options.sql)
+  const schemaName = sqlNamespace.schema
+  const credProfilesTable = sqlNamespace.tableName('cred_profiles')
+  const credentialsTable = sqlNamespace.tableName('credentials')
+  const credProfilesPathIndex = `${credProfilesTable}_path_idx`
+  const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`
+  const credentialsResourceIndex = `${credentialsTable}_resource_idx`
+  const credentialsPathPrimaryKey = `${credentialsTable}_path_pk`
+  const schemaSql = quoteIdentifier(schemaName)
+  const credProfilesSql = qualifyTable(schemaName, credProfilesTable)
+  const credentialsSql = qualifyTable(schemaName, credentialsTable)
 
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.cred_profiles (
+  await db.execute(sql.raw(`CREATE SCHEMA IF NOT EXISTS ${schemaSql}`))
+
+  await db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS ${credProfilesSql} (
       path TEXT PRIMARY KEY,
-      host JSONB NOT NULL,
-      auth JSONB,
-      managed_oauth JSONB,
+      resource_patterns JSONB NOT NULL DEFAULT '[]'::jsonb,
+      auth JSONB NOT NULL DEFAULT '{}'::jsonb,
       display_name TEXT,
       description TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )
-  `)
+  `))
 
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.credentials (
-      host TEXT NOT NULL,
+  await db.execute(sql.raw(`
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesPathIndex)}
+    ON ${credProfilesSql} (path)
+  `))
+
+  await db.execute(sql.raw(`
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesResourcePatternsIndex)}
+    ON ${credProfilesSql} USING gin (resource_patterns)
+  `))
+
+  await db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS ${credentialsSql} (
       path TEXT NOT NULL,
+      resource TEXT NOT NULL DEFAULT '',
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
-      PRIMARY KEY (host, path)
+      CONSTRAINT ${quoteIdentifier(credentialsPathPrimaryKey)} PRIMARY KEY (path)
     )
-  `)
+  `))
 
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS credentials_host_idx
-    ON agentpw.credentials (host)
-  `)
+  await db.execute(sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = '${schemaName}'
+          AND table_name = '${credentialsTable}'
+          AND column_name = 'resource'
+      ) THEN
+        ALTER TABLE ${credentialsSql} ADD COLUMN resource TEXT NOT NULL DEFAULT '';
+      END IF;
+    END $$;
+  `))
 
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS credentials_host_path_idx
-    ON agentpw.credentials (host, path)
-  `)
+  await db.execute(sql.raw(`
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsResourceIndex)}
+    ON ${credentialsSql} (resource)
+  `))
 
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.revocations (
-      revocation_id TEXT PRIMARY KEY,
-      revoked_at TIMESTAMP NOT NULL DEFAULT now(),
-      reason TEXT
-    )
-  `)
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_flows')}
+  `))
 
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.auth_flows (
-      id TEXT PRIMARY KEY,
-      profile_path TEXT,
-      method TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      code_verifier TEXT,
-      scope_path TEXT,
-      token TEXT,
-      identity TEXT,
-      expires_at TIMESTAMP NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT now()
-    )
-  `)
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'verification')}
+  `))
 
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS agentpw.issued_tokens (
-      id TEXT PRIMARY KEY,
-      owner_user_id TEXT,
-      org_id TEXT,
-      name TEXT,
-      token_hash TEXT NOT NULL,
-      revocation_ids JSONB NOT NULL,
-      rights JSONB NOT NULL,
-      constraints JSONB NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      expires_at TIMESTAMP,
-      last_used_at TIMESTAMP,
-      revoked_at TIMESTAMP,
-      revoke_reason TEXT
-    )
-  `)
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_accounts')}
+  `))
 
-  await db.execute(sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS issued_tokens_token_hash_idx
-    ON agentpw.issued_tokens (token_hash)
-  `)
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_sessions')}
+  `))
 
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS issued_tokens_owner_user_created_idx
-    ON agentpw.issued_tokens (owner_user_id, created_at)
-  `)
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_users')}
+  `))
 
-  await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS issued_tokens_org_created_idx
-    ON agentpw.issued_tokens (org_id, created_at)
-  `)
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_verifications')}
+  `))
+
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'issued_tokens')}
+  `))
+
+  await db.execute(sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'revocations')}
+  `))
 }

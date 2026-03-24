@@ -16,7 +16,7 @@ import {
   KeyPair,
   SignatureAlgorithm,
 } from '@smithery/biscuit'
-import type { TokenConstraint, TokenRight } from './core/types'
+import type { BiscuitSubject, BiscuitTokenFacts, RuleConstraint, RuleGrant } from './types.js'
 
 export const TOKEN_PREFIX = 'apw_'
 
@@ -78,7 +78,7 @@ export function parseTtlSeconds(ttl: string | number): number {
  * Build attenuation block code from restriction constraints.
  * Each constraint adds a check that the request must match.
  */
-function buildAttenuationCode(constraints: TokenConstraint[]): string {
+function buildAttenuationCode(constraints: RuleConstraint[]): string {
   const lines: string[] = []
   const alternatives: string[] = []
 
@@ -221,12 +221,12 @@ export function getPublicKeyHex(privateKeyHex: string): string {
  */
 export function mintToken(
   privateKeyHex: string,
-  userId: string,
-  rights?: TokenRight[],
+  subject: string,
+  rights?: RuleGrant[],
   extraFacts?: string[],
 ): string {
   const lines: string[] = []
-  lines.push(`user_id("${escapeDatalog(userId)}");`)
+  lines.push(`user_id("${escapeDatalog(subject)}");`)
   for (const right of (rights ?? [])) {
     lines.push(`right("${escapeDatalog(right.root)}", "${escapeDatalog(right.action)}");`)
   }
@@ -245,7 +245,7 @@ export function mintToken(
 export function restrictToken(
   tokenBase64: string,
   publicKeyHex: string,
-  constraints: TokenConstraint[]
+  constraints: RuleConstraint[]
 ): string {
   const code = buildAttenuationCode(constraints)
   if (!code) return tokenBase64
@@ -308,8 +308,8 @@ export function mintDescendantToken(
   privateKeyHex: string,
   publicKeyHex: string,
   parentTokenBase64: string,
-  rights: TokenRight[],
-  constraints: TokenConstraint[],
+  rights: RuleGrant[],
+  constraints: RuleConstraint[],
 ): string {
   const parentFacts = extractTokenFacts(parentTokenBase64, publicKeyHex)
   const userId = parentFacts.userId ?? parentFacts.orgId
@@ -377,12 +377,12 @@ export function authorizeRequest(
 export function extractTokenFacts(
   tokenBase64: string,
   publicKeyHex: string,
-) {
+) : BiscuitTokenFacts {
   try {
     const token = parseToken(tokenBase64, publicKeyHex)
     const source = token.getBlockSource(0)
 
-    const rights: TokenRight[] = []
+    const rights: RuleGrant[] = []
     let userId: string | null = null
     let orgId: string | null = null
     let homePath: string | null = null
@@ -467,4 +467,39 @@ export function generateKeyPairHex(): { privateKey: string; publicKey: string } 
     privateKey: kp.getPrivateKey().toString(),
     publicKey: kp.getPublicKey().toString(),
   }
+}
+
+export function compileRulesToBiscuit(input: {
+  privateKeyHex: string
+  subject: string
+  rights?: RuleGrant[]
+  constraints?: RuleConstraint[]
+  extraFacts?: string[]
+}) {
+  const minted = mintToken(input.privateKeyHex, input.subject, input.rights, input.extraFacts)
+  if (!input.constraints || input.constraints.length === 0) {
+    return minted
+  }
+
+  return restrictToken(minted, getPublicKeyHex(input.privateKeyHex), input.constraints)
+}
+
+export function subjectFactsToExtraFacts(subject: BiscuitSubject | undefined) {
+  const facts: string[] = []
+
+  if (!subject) {
+    return facts
+  }
+
+  if (subject.orgId) {
+    facts.push(`org_id("${escapeDatalog(subject.orgId)}");`)
+  }
+  if (subject.homePath) {
+    facts.push(`home_path("${escapeDatalog(subject.homePath)}");`)
+  }
+  for (const scope of subject.scopes ?? []) {
+    facts.push(`scope("${escapeDatalog(scope)}");`)
+  }
+
+  return facts
 }

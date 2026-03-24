@@ -3,11 +3,13 @@ import {
   RESERVED_PATHS,
   deriveDisplayName,
   errorMessage,
+  isRecord,
+  lastItem,
   looksLikeHostname,
   randomId,
   relativeTime,
   validateFlowId,
-} from '@agent.pw/server/utils'
+} from '../packages/server/src/lib/utils'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -31,6 +33,11 @@ describe('utils', () => {
     expect(deriveDisplayName('api.linear.app')).toBe('Linear')
     expect(deriveDisplayName('www.github.com')).toBe('Github')
     expect(RESERVED_PATHS.has('auth')).toBe(true)
+    expect(isRecord({ ok: true })).toBe(true)
+    expect(isRecord([])).toBe(false)
+    expect(isRecord(null)).toBe(false)
+    expect(lastItem(['a', 'b', 'c'])).toBe('c')
+    expect(lastItem([])).toBeUndefined()
   })
 
   it('formats relative times across each display bucket', () => {

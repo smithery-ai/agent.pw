@@ -26,8 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
-      cli_release_created: ${{ steps.release.outputs['packages/cli--release_created'] }}
-      cli_tag_name: ${{ steps.release.outputs['packages/cli--tag_name'] }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -42,57 +40,52 @@ jobs:
           manifest-file: '.release-please-manifest.json'
           config-file: 'release-please-config.json'
 
-  publish-cli:
+  publish-package:
     needs: release-please
-    if: github.event_name == 'push' && needs.release-please.outputs.cli_release_created == 'true'
+    if: github.event_name == 'push' && needs.release-please.outputs.releases_created == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.release-please.outputs.cli_tag_name }}
+      - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter agent.pw build
+      - run: pnpm build
       - run: npm publish --provenance --access public
-        working-directory: packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  publish-cli-manual:
+  publish-package-manual:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.release_ref }}
       - uses: oven-sh/setup-bun@v2
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter agent.pw build
+      - run: pnpm build
       - if: ${{ inputs.dry_run }}
         run: npm publish --provenance --access public --dry-run
-        working-directory: packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - if: ${{ !inputs.dry_run }}
         run: npm publish --provenance --access public
-        working-directory: packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

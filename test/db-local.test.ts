@@ -1,9 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { createDb, createLocalDb } from '@agent.pw/server/db'
+import { createAgentPwSchema, createDb, createLocalDb, createQueryHelpers, migrateLocal } from 'agent.pw/sql'
 
 async function closeLocalDb(db: unknown) {
   await (db as { $client?: { close?: () => Promise<void> } }).$client?.close?.()
@@ -26,11 +26,10 @@ describe('db entrypoints', () => {
     }
   })
 
-  it('bootstraps the local schema for PGlite', async () => {
+  it('bootstraps the default schema', async () => {
     let db: Awaited<ReturnType<typeof createLocalDb>> | undefined
     const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-migrate-'))
     try {
-      const { migrateLocal } = await import('@agent.pw/server/db/migrate-local')
       db = await createLocalDb(dataDir)
       await migrateLocal(db)
 
@@ -42,11 +41,58 @@ describe('db entrypoints', () => {
       `)
 
       expect(result.rows.map(row => row.table_name)).toEqual([
-        'auth_flows',
         'cred_profiles',
         'credentials',
-        'issued_tokens',
-        'revocations',
+      ])
+    } finally {
+      await closeLocalDb(db)
+      await rm(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('supports custom SQL schemas and table prefixes for embedders', async () => {
+    const sqlNamespace = createAgentPwSchema({
+      schema: 'connect_data',
+      tablePrefix: 'smithery_',
+    })
+    const remoteDb = createDb('postgres://user:pass@127.0.0.1:5432/agentpw', {
+      sql: sqlNamespace,
+    })
+    expect(typeof remoteDb.execute).toBe('function')
+
+    const queries = createQueryHelpers(sqlNamespace)
+    let db: Awaited<ReturnType<typeof createLocalDb>> | undefined
+    const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-custom-schema-'))
+    try {
+      db = await createLocalDb(dataDir, {
+        sql: sqlNamespace,
+      })
+      await migrateLocal(db, {
+        sql: sqlNamespace,
+      })
+
+      await queries.upsertCredProfile(db, '/github', {
+        resourcePatterns: ['https://api.github.com/*'],
+        auth: {
+          kind: 'headers',
+          fields: [{ name: 'Authorization', label: 'Token', prefix: 'Bearer ' }],
+        },
+      })
+      expect(await queries.getCredProfile(db, '/github')).toEqual(expect.objectContaining({
+        path: '/github',
+        resourcePatterns: ['https://api.github.com/*'],
+      }))
+
+      const result = await db.execute(sql`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'connect_data'
+        ORDER BY table_name
+      `)
+
+      expect(result.rows.map(row => row.table_name)).toEqual([
+        'smithery_cred_profiles',
+        'smithery_credentials',
       ])
     } finally {
       await closeLocalDb(db)

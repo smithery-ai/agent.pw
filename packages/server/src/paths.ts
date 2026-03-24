@@ -30,10 +30,24 @@ export function validatePath(path: string) {
   return true
 }
 
+/** Normalize path strings to the canonical slash-delimited form used by agent.pw. */
+export function canonicalizePath(path: string) {
+  if (!path.startsWith('/')) {
+    const normalized = `/${path.replace(/^\/+/, '').replace(/\/+/g, '/')}`
+    return normalized.length > 1 && normalized.endsWith('/')
+      ? normalized.slice(0, -1)
+      : normalized
+  }
+
+  const normalized = path.replace(/\/+/g, '/')
+  return normalized.length > 1 && normalized.endsWith('/')
+    ? normalized.slice(0, -1)
+    : normalized
+}
+
 /** Extract the leaf credential name from a full credential path. */
 export function credentialName(path: string) {
-  const name = path.split('/').pop()
-  return name ?? ''
+  return path.slice(path.lastIndexOf('/') + 1)
 }
 
 /** Build the canonical root-level default profile path from a profile slug. */
@@ -69,6 +83,21 @@ export function validateCredentialName(name: string) {
 export function pathDepth(path: string) {
   if (path === '/') return 0
   return path.split('/').filter(Boolean).length
+}
+
+/** Return ancestor roots from deepest to root, inclusive. */
+export function ancestorPaths(path: string) {
+  const normalized = canonicalizePath(path)
+  if (normalized === '/') return ['/']
+
+  const roots: string[] = []
+  let current = normalized
+  while (true) {
+    roots.push(current)
+    if (current === '/') break
+    current = credentialParentPath(current)
+  }
+  return roots
 }
 
 /**

@@ -1,29 +1,35 @@
 import type { AuthScheme } from '../auth-schemes.js'
 
 /**
- * Derive a 32-byte AES-256 encryption key from the biscuit private key.
- * Uses SHA-256 with a domain separator so one secret covers both signing and encryption.
+ * Derive a 32-byte AES-256 encryption key from an application secret.
+ * Uses SHA-256 with a domain separator so callers can derive a stable vault key.
  */
-export async function deriveEncryptionKey(biscuitPrivateKey: string) {
-  const input = new TextEncoder().encode(`${biscuitPrivateKey}:credential-encryption`)
+export async function deriveEncryptionKey(secretSeed: string) {
+  const input = new TextEncoder().encode(`${secretSeed}:credential-encryption`)
   const hash = await crypto.subtle.digest('SHA-256', input)
   return Buffer.from(hash).toString('base64')
 }
 
 /**
- * Credentials stored alongside a connection, encrypted at rest in the database.
- * Used by the proxy to inject auth headers when forwarding to upstream APIs.
+ * Auth material stored alongside a credential, encrypted at rest in the database.
+ * Framework consumers can use the header view directly or read the OAuth payload.
  */
 export type StoredCredentials = {
   headers: Record<string, string>
   oauth?: {
-    refreshToken: string
-    accessToken: string
+    refreshToken?: string | null
+    accessToken?: string | null
     expiresAt?: string
-    tokenUrl: string
-    clientId: string
-    clientSecret?: string
     scopes?: string
+    tokenType?: string
+    resource?: string
+    issuer?: string
+    authorizationUrl?: string
+    tokenUrl?: string
+    revocationUrl?: string
+    clientId?: string
+    clientSecret?: string
+    clientAuthentication?: string
   }
 }
 

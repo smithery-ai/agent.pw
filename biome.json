@@ -19,7 +19,6 @@
     {
       "includes": [
         "drizzle.config.ts",
-        "packages/cli/src/**/*.ts",
         "packages/server/src/**/*.ts",
         "scripts/**/*.ts"
       ],
