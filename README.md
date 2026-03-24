@@ -6,7 +6,7 @@
 
 It lets agent products connect to external services once and reuse those credentials safely across agents, tools, and MCP clients.
 
-Host products embed it in-process to manage provider OAuth and API keys, store encrypted credentials, and resolve fresh authenticated headers at runtime.
+Apps embed it in-process to manage provider OAuth and API keys, store encrypted credentials, and resolve fresh authenticated headers at runtime.
 
 The framework centers on five concepts:
 
@@ -262,7 +262,7 @@ const token = compileRulesToBiscuit({
 })
 ```
 
-Host products can use Biscuits, another token format, or no bearer token format at all. The framework exposes the rule model either way.
+Apps can use Biscuits, another token format, or no bearer token format at all. The framework exposes the rule model either way.
 
 ## Path Model
 
