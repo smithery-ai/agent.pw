@@ -2,14 +2,14 @@
 
 [![npm version](https://img.shields.io/npm/v/agent.pw)](https://www.npmjs.com/package/agent.pw)
 
-`agent.pw` helps apps connect external resources once and reuse the resulting auth safely across agents, tools, and MCP clients.
+`agent.pw` helps apps connect external resources once and reuse the resulting auth safely across agents, tools, MCP clients, and sandboxed CLIs.
 
-It stores encrypted credentials, runs OAuth flows, supports manual header-based auth, and resolves fresh authenticated headers at runtime from a connection `path`.
+It stores encrypted credentials, runs OAuth flows, supports manual header-based auth, stores env secrets, and resolves fresh authenticated headers or env values from a connection `path`.
 
 ## Concepts
 
 - `path`: one saved connection in your app, such as `/acme/connections/github`
-- `resource`: the protected resource that connection talks to, such as `https://api.github.com/` or `https://docs.example.com/mcp`
+- `resource`: the protected resource a connect flow is trying to access, such as `https://api.github.com/` or `https://docs.example.com/mcp`
 - `credential`: the encrypted auth stored at that exact path
 - `profile`: admin-configured setup guidance and polyfills that help `agent.pw` choose the right auth path
 - `rules`: path-based authorization facts that can be enforced directly or compiled into Biscuits
@@ -125,14 +125,21 @@ An empty `options` list means the resource is currently unconfigured.
 
 ## Auth Kinds
 
-At the framework level there are only two auth kinds:
+At the vault level there are three credential kinds:
 
 - `oauth`
 - `headers`
+- `env`
+
+`connect.*` only guides `oauth` and `headers`.
 
 API keys are header auth. Basic auth, bearer tokens, vendor-specific headers, cookies, and similar schemes are all header auth.
 
-Credentials always store resolved runtime headers. OAuth credentials may also store refresh state so `agent.pw` can keep headers fresh.
+Credentials always store the runtime material they need:
+
+- `oauth` and `headers` credentials store resolved runtime headers
+- `env` credentials store env name/value pairs
+- OAuth credentials may also store refresh state so `agent.pw` can keep headers fresh
 
 ## Discovery-First OAuth
 
@@ -223,6 +230,8 @@ await agentPw.profiles.put('/linear', {
 
 Profiles are path-scoped configuration, so apps can keep global defaults and more specific org or workspace overrides.
 
+Apps can also store env-oriented profile hints for custom admin UIs, but `connect.prepare(...)` does not use them in this version.
+
 ## One-Off Credentials
 
 Profiles guide setup, but they do not define what is possible.
@@ -232,10 +241,10 @@ Apps can still store a one-off credential directly:
 ```ts
 await agentPw.credentials.put({
   path: '/acme/connections/manual_resend',
-  resource: 'https://api.resend.com/',
   auth: {
     kind: 'headers',
     label: 'Manual Resend key',
+    resource: 'https://api.resend.com/',
   },
   secret: {
     headers: {
@@ -243,6 +252,25 @@ await agentPw.credentials.put({
     },
   },
 })
+```
+
+Store env credentials directly through the vault layer:
+
+```ts
+await agentPw.credentials.put({
+  path: '/acme/connections/github_cli',
+  auth: {
+    kind: 'env',
+    label: 'GitHub CLI',
+  },
+  secret: {
+    env: {
+      GH_TOKEN: process.env.GH_TOKEN!,
+    },
+  },
+})
+
+const env = await agentPw.credentials.env('/acme/connections/github_cli')
 ```
 
 List stored credentials directly under a path:

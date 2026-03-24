@@ -184,6 +184,7 @@ describe('oauth runtime', () => {
       kind: 'oauth',
       profilePath: '/linear',
       label: 'Linear',
+      resource: 'https://api.linear.app/projects',
     })
     expect(completed.credential.secret).toEqual(expect.objectContaining({
       headers: { Authorization: 'Bearer profile-access-1' },
@@ -197,7 +198,6 @@ describe('oauth runtime', () => {
 
     await agentPw.credentials.put({
       path: completed.path,
-      resource: completed.credential.resource,
       auth: completed.credential.auth,
       secret: {
         ...completed.credential.secret,
@@ -254,11 +254,11 @@ describe('oauth runtime', () => {
       callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
     })
 
-    expect(completed.credential.resource).toBe('https://docs.example.com/mcp')
     expect(completed.credential.auth).toEqual({
       kind: 'oauth',
       profilePath: null,
       label: 'Docs MCP via auth.docs.example.com',
+      resource: 'https://docs.example.com/mcp',
     })
 
     const handlers = agentPw.connect.createWebHandlers({

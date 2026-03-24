@@ -26,7 +26,7 @@ export async function bootstrapLocalSchema(
   const credentialsTable = sqlNamespace.tableName('credentials')
   const credProfilesPathIndex = `${credProfilesTable}_path_idx`
   const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`
-  const credentialsResourceIndex = `${credentialsTable}_resource_idx`
+  const credentialsPathIndex = `${credentialsTable}_path_idx`
   const credentialsPathPrimaryKey = `${credentialsTable}_path_pk`
   const schemaSql = quoteIdentifier(schemaName)
   const credProfilesSql = qualifyTable(schemaName, credProfilesTable)
@@ -59,7 +59,6 @@ export async function bootstrapLocalSchema(
   await db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS ${credentialsSql} (
       path TEXT NOT NULL,
-      resource TEXT NOT NULL DEFAULT '',
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
@@ -71,21 +70,28 @@ export async function bootstrapLocalSchema(
   await db.execute(sql.raw(`
     DO $$
     BEGIN
-      IF NOT EXISTS (
+      IF EXISTS (
         SELECT 1
         FROM information_schema.columns
         WHERE table_schema = '${schemaName}'
           AND table_name = '${credentialsTable}'
           AND column_name = 'resource'
       ) THEN
-        ALTER TABLE ${credentialsSql} ADD COLUMN resource TEXT NOT NULL DEFAULT '';
+        UPDATE ${credentialsSql}
+        SET auth = jsonb_set(auth, '{resource}', to_jsonb(resource), true)
+        WHERE coalesce(resource, '') <> ''
+          AND coalesce(auth->>'resource', '') = ''
+          AND coalesce(auth->>'kind', '') IN ('oauth', 'headers', 'env');
+
+        DROP INDEX IF EXISTS ${quoteIdentifier(`${credentialsTable}_resource_idx`)};
+        ALTER TABLE ${credentialsSql} DROP COLUMN resource;
       END IF;
     END $$;
   `))
 
   await db.execute(sql.raw(`
-    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsResourceIndex)}
-    ON ${credentialsSql} (resource)
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsPathIndex)}
+    ON ${credentialsSql} (path)
   `))
 
   await db.execute(sql.raw(`

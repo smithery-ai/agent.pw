@@ -26,7 +26,6 @@ function createState() {
         putCredential: async input => {
           const record: CredentialRecord = {
             path: input.path,
-            resource: input.resource,
             auth: input.auth,
             secret: Buffer.isBuffer(input.secret) ? { headers: {} } : input.secret,
             createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -172,8 +171,7 @@ describe('oauth service coverage', () => {
 
     state.credentials.set('/org/forced-refresh', {
       path: '/org/forced-refresh',
-      resource: 'https://issuer.example.com/api',
-      auth: { kind: 'oauth', label: 'Forced' },
+      auth: { kind: 'oauth', label: 'Forced', resource: 'https://issuer.example.com/api' },
       secret: {
         headers: { Authorization: 'Bearer stale' },
         oauth: {
@@ -202,8 +200,7 @@ describe('oauth service coverage', () => {
 
     state.credentials.set('/org/no-expiry', {
       path: '/org/no-expiry',
-      resource: 'https://issuer.example.com/api',
-      auth: { kind: 'oauth', label: 'No expiry' },
+      auth: { kind: 'oauth', label: 'No expiry', resource: 'https://issuer.example.com/api' },
       secret: {
         headers: { Authorization: 'Bearer same' },
         oauth: {
@@ -219,10 +216,35 @@ describe('oauth service coverage', () => {
     })
     expect(await service.refreshCredential('/org/no-expiry')).toBe(state.credentials.get('/org/no-expiry'))
 
+    const legacyCredential = {
+      path: '/org/legacy-resource',
+      resource: 'https://issuer.example.com/api',
+      auth: { kind: 'oauth', label: 'Legacy resource' },
+      secret: {
+        headers: { Authorization: 'Bearer legacy-stale' },
+        oauth: {
+          accessToken: 'legacy-stale',
+          refreshToken: 'refresh-token',
+          expiresAt: '2026-01-01T00:00:00.000Z',
+          scopes: 'existing-scope',
+          clientId: 'issuer-client',
+          clientAuthentication: 'none',
+          issuer: 'https://issuer.example.com',
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    state.credentials.set('/org/legacy-resource', legacyCredential)
+    expect(await service.refreshCredential('/org/legacy-resource', true)).toEqual(expect.objectContaining({
+      secret: expect.objectContaining({
+        headers: { Authorization: 'Bearer forced-access' },
+      }),
+    }))
+
     state.credentials.set('/org/invalid-expiry', {
       path: '/org/invalid-expiry',
-      resource: 'https://issuer.example.com/api',
-      auth: { kind: 'oauth', label: 'Invalid expiry' },
+      auth: { kind: 'oauth', label: 'Invalid expiry', resource: 'https://issuer.example.com/api' },
       secret: {
         headers: { Authorization: 'Bearer same-invalid' },
         oauth: {
@@ -238,6 +260,24 @@ describe('oauth service coverage', () => {
       updatedAt: new Date(),
     })
     expect(await service.refreshCredential('/org/invalid-expiry')).toBe(state.credentials.get('/org/invalid-expiry'))
+
+    state.credentials.set('/org/no-resource', {
+      path: '/org/no-resource',
+      auth: { kind: 'oauth', label: 'No resource' },
+      secret: {
+        headers: { Authorization: 'Bearer no-resource' },
+        oauth: {
+          accessToken: 'no-resource',
+          refreshToken: 'refresh',
+          clientId: 'issuer-client',
+          clientAuthentication: 'none',
+          issuer: 'https://issuer.example.com',
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    expect(await service.refreshCredential('/org/no-resource', true)).toBe(state.credentials.get('/org/no-resource'))
   })
 
   it('covers oauth completion without refresh tokens and metadata-sourced client ids', async () => {
@@ -645,8 +685,7 @@ describe('oauth service coverage', () => {
 
     state.credentials.set('/org/post', {
       path: '/org/post',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth', label: 'Post' },
+      auth: { kind: 'oauth', label: 'Post', resource: 'https://docs.example.com/mcp' },
       secret: {
         headers: { Authorization: 'Bearer post' },
         oauth: {
@@ -666,8 +705,7 @@ describe('oauth service coverage', () => {
 
     state.credentials.set('/org/basic', {
       path: '/org/basic',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth', label: 'Basic' },
+      auth: { kind: 'oauth', label: 'Basic', resource: 'https://docs.example.com/mcp' },
       secret: {
         headers: { Authorization: 'Bearer basic' },
         oauth: {
@@ -687,8 +725,7 @@ describe('oauth service coverage', () => {
 
     state.credentials.set('/org/global', {
       path: '/org/global',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth', label: 'Global' },
+      auth: { kind: 'oauth', label: 'Global', resource: 'https://docs.example.com/mcp' },
       secret: {
         headers: { Authorization: 'Bearer global' },
         oauth: {
@@ -706,8 +743,7 @@ describe('oauth service coverage', () => {
 
     state.credentials.set('/org/global-basic', {
       path: '/org/global-basic',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth', label: 'Global basic' },
+      auth: { kind: 'oauth', label: 'Global basic', resource: 'https://docs.example.com/mcp' },
       secret: {
         headers: { Authorization: 'Bearer global-basic' },
         oauth: {
@@ -749,8 +785,7 @@ describe('oauth service coverage', () => {
 
     state.credentials.set('/org/global-refresh', {
       path: '/org/global-refresh',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth', label: 'Refresh' },
+      auth: { kind: 'oauth', label: 'Refresh', resource: 'https://docs.example.com/mcp' },
       secret: {
         headers: { Authorization: 'Bearer stale-refresh' },
         oauth: {
