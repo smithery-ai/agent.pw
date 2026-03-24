@@ -391,6 +391,8 @@ const agentPw = await createAgentPw({
 
 The same `sql` options should be passed to both the database helpers and `createAgentPw(...)`.
 
+Apps own their own SQL migrations or DDL. `agent.pw` exports schema and query helpers, but it does not ship framework-owned migration files.
+
 ## More Docs
 
 - [Architecture](./docs/architecture.md)

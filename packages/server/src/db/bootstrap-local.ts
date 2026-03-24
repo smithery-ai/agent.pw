@@ -13,7 +13,7 @@ function qualifyTable(schema: string, tableName: string) {
   return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`
 }
 
-/** Bootstrap the local PGlite schema without relying on checked-in Drizzle migrations. */
+/** Bootstrap the local PGlite schema without relying on framework-owned migration files. */
 export async function bootstrapLocalSchema(
   db: Database,
   options: {

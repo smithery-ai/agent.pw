@@ -237,4 +237,4 @@ The framework-owned SQL footprint is intentionally small:
 
 Embedders can place those tables inside a custom SQL schema or prefix them to fit a shared database.
 
-That keeps the vault focused on provider auth configuration and encrypted credential state, while app-specific user/session tables remain in the embedding product.
+Apps own their own migration or DDL workflow for that footprint. That keeps the vault focused on provider auth configuration and encrypted credential state, while app-specific user/session tables remain in the embedding product.

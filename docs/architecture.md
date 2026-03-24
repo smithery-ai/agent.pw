@@ -389,6 +389,8 @@ const agentPw = await createAgentPw({
 
 The same namespace options should be passed to both the SQL helpers and `createAgentPw(...)`.
 
+Apps own their own migration or DDL workflow. The framework exposes schema and query helpers, but it does not ship migrations as part of the package contract.
+
 ## Why This Shape
 
 This design keeps the public model simple:

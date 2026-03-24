@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { createAgentPwSchema, createDb, createLocalDb, createQueryHelpers, migrateLocal } from 'agent.pw/sql'
+import { createAgentPwSchema, createDb, createLocalDb, createQueryHelpers } from 'agent.pw/sql'
+import { bootstrapLocalSchema } from '../packages/server/src/db/bootstrap-local'
 
 async function closeLocalDb(db: unknown) {
   await (db as { $client?: { close?: () => Promise<void> } }).$client?.close?.()
@@ -31,7 +32,7 @@ describe('db entrypoints', () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-migrate-'))
     try {
       db = await createLocalDb(dataDir)
-      await migrateLocal(db)
+      await bootstrapLocalSchema(db)
 
       const result = await db.execute(sql`
         SELECT table_name
@@ -67,7 +68,7 @@ describe('db entrypoints', () => {
       db = await createLocalDb(dataDir, {
         sql: sqlNamespace,
       })
-      await migrateLocal(db, {
+      await bootstrapLocalSchema(db, {
         sql: sqlNamespace,
       })
 
@@ -126,7 +127,7 @@ describe('db entrypoints', () => {
         )
       `))
 
-      await migrateLocal(db)
+      await bootstrapLocalSchema(db)
 
       const authResult = await db.execute(sql.raw(`
         SELECT auth->>'resource' AS resource
