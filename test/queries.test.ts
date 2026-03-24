@@ -77,26 +77,25 @@ describe('query layer', () => {
   it('stores credentials by exact path and lists direct children only', async () => {
     await queries.upsertCredential(db, {
       path: '/acme/connections/github',
-      resource: 'https://api.github.com',
-      auth: { kind: 'headers', label: 'GitHub' },
+      auth: { kind: 'headers', label: 'GitHub', resource: 'https://api.github.com' },
       secret: await encryptedHeaders('github-token'),
     })
     await queries.upsertCredential(db, {
       path: '/acme/connections/team/docs',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth', label: 'Docs' },
+      auth: { kind: 'oauth', label: 'Docs', resource: 'https://docs.example.com/mcp' },
       secret: await encryptedHeaders('docs-token'),
     })
     await queries.upsertCredential(db, {
       path: '/acme/elsewhere/notion',
-      resource: 'https://api.notion.com',
-      auth: { kind: 'headers', label: 'Notion' },
+      auth: { kind: 'headers', label: 'Notion', resource: 'https://api.notion.com' },
       secret: await encryptedHeaders('notion-token'),
     })
 
     expect(await queries.getCredential(db, '/acme/connections/github')).toEqual(expect.objectContaining({
       path: '/acme/connections/github',
-      resource: 'https://api.github.com/',
+      auth: expect.objectContaining({
+        resource: 'https://api.github.com/',
+      }),
     }))
 
     expect((await queries.listCredentials(db, { path: '/acme/connections' })).map(row => row.path)).toEqual([

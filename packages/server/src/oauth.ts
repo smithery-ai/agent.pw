@@ -81,10 +81,27 @@ function buildClient(config: OAuthResolvedConfig): oauth.Client {
   }
 }
 
-function oauthConfigFromStoredCredentials(secret: StoredCredentials | undefined, resource: string): OAuthResolvedConfig | null {
+function resourceFromCredentialRecord(credential: CredentialRecord) {
+  if (typeof credential.auth.resource === 'string' && credential.auth.resource.length > 0) {
+    return credential.auth.resource
+  }
+
+  const legacyResource = Reflect.get(credential, 'resource')
+  return typeof legacyResource === 'string' && legacyResource.length > 0 ? legacyResource : undefined
+}
+
+function oauthConfigFromStoredCredentials(
+  secret: StoredCredentials | undefined,
+  resource: string | null | undefined,
+): OAuthResolvedConfig | null {
   const stored = secret?.oauth
   const clientId = stringValue(stored?.clientId)
   if (!clientId) {
+    return null
+  }
+
+  const resolvedResource = stringValue(stored?.resource) ?? stringValue(resource)
+  if (!resolvedResource) {
     return null
   }
 
@@ -100,7 +117,7 @@ function oauthConfigFromStoredCredentials(secret: StoredCredentials | undefined,
       Boolean(stored?.clientSecret),
     ),
     scopes: stringValue(stored?.scopes),
-    resource: stringValue(stored?.resource) ?? normalizeResource(resource),
+    resource: normalizeResource(resolvedResource),
   }
 }
 
@@ -424,7 +441,10 @@ export function createOAuthService(options: {
       return credential
     }
 
-    const oauthConfig = oauthConfigFromStoredCredentials(credential.secret, credential.resource)
+    const oauthConfig = oauthConfigFromStoredCredentials(
+      credential.secret,
+      resourceFromCredentialRecord(credential),
+    )
     if (!oauthConfig) {
       return credential
     }
@@ -442,7 +462,6 @@ export function createOAuthService(options: {
     const processed = await oauth.processRefreshTokenResponse(authorizationServer, client, tokenResponse)
     return options.putCredential({
       path: credential.path,
-      resource: credential.resource,
       auth: credential.auth,
       secret: oauthSecretFromTokenResponse(processed, oauthConfig, credential.secret),
     })
@@ -549,11 +568,11 @@ export function createOAuthService(options: {
 
       const credential = await options.putCredential({
         path: flow.path,
-        resource: flow.resource,
         auth: {
           kind: 'oauth',
           profilePath: flow.option.profilePath ?? null,
           label: flow.option.label,
+          resource: flow.resource,
         },
         secret: oauthSecretFromTokenResponse(processed, flow.oauthConfig),
       })
@@ -578,7 +597,10 @@ export function createOAuthService(options: {
       }
 
       if (credential.auth.kind === 'oauth') {
-        const oauthConfig = oauthConfigFromStoredCredentials(credential.secret, credential.resource)
+        const oauthConfig = oauthConfigFromStoredCredentials(
+          credential.secret,
+          resourceFromCredentialRecord(credential),
+        )
         const revokeMode = input.revoke ?? 'refresh_token'
         if (oauthConfig) {
           const authorizationServer = await resolveAuthorizationServer(oauthConfig, options.customFetch)

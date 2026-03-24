@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { sql } from 'drizzle-orm'
 import { createAgentPw } from 'agent.pw'
 import { AgentPwAuthorizationError, AgentPwConflictError, AgentPwInputError } from '../packages/server/src/errors'
 import { deriveEncryptionKey, encryptCredentials } from '../packages/server/src/lib/credentials-crypto'
@@ -59,8 +60,7 @@ describe('createAgentPw edge cases', () => {
     })
     const stored = await agentPw.credentials.put({
       path: '/shared/connections/buffered',
-      resource: 'https://buffered.example.com',
-      auth: { kind: 'headers', label: 'Buffered' },
+      auth: { kind: 'headers', label: 'Buffered', resource: 'https://buffered.example.com' },
       secret: encrypted,
     })
     expect(stored.secret.headers).toEqual({ Authorization: 'Bearer buffered-token' })
@@ -69,6 +69,26 @@ describe('createAgentPw edge cases', () => {
     expect(await agentPw.credentials.move('/shared/connections/buffered', '/shared/connections/buffered_next')).toBe(false)
     expect(await agentPw.credentials.delete('/shared/connections/buffered_next')).toBe(true)
     expect(await agentPw.credentials.delete('/shared/connections/buffered_next')).toBe(false)
+
+    const malformedHeaders = await encryptCredentials(Buffer.alloc(32, 7).toString('base64'), {})
+    await agentPw.credentials.put({
+      path: '/shared/connections/malformed_headers',
+      auth: { kind: 'headers', label: 'Malformed headers' },
+      secret: malformedHeaders,
+    })
+    await expect(agentPw.connect.headers({ path: '/shared/connections/malformed_headers', refresh: false })).rejects.toThrow(
+      "Credential '/shared/connections/malformed_headers' does not have header-based auth",
+    )
+
+    const malformedEnv = await encryptCredentials(Buffer.alloc(32, 7).toString('base64'), {})
+    await agentPw.credentials.put({
+      path: '/shared/connections/malformed_env',
+      auth: { kind: 'env', label: 'Malformed env' },
+      secret: malformedEnv,
+    })
+    await expect(agentPw.credentials.env('/shared/connections/malformed_env')).rejects.toThrow(
+      "Credential '/shared/connections/malformed_env' does not have env auth",
+    )
   })
 
   it('validates connect helpers and authorization denials', async () => {
@@ -170,8 +190,7 @@ describe('createAgentPw edge cases', () => {
 
     await agentPw.credentials.put({
       path: '/org/connections/docs',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth', label: 'Docs' },
+      auth: { kind: 'oauth', label: 'Docs', resource: 'https://docs.example.com/mcp' },
       secret: {
         headers: { Authorization: 'Bearer docs-token' },
         oauth: {
@@ -226,9 +245,42 @@ describe('createAgentPw edge cases', () => {
 
     await expect(agentPw.credentials.put({
       path: '/org/connections/linear',
-      resource: 'https://api.linear.app',
-      auth: { kind: 'headers' },
+      auth: { kind: 'headers', resource: 'https://api.linear.app' },
       secret: { headers: { Authorization: 'Bearer token' } },
     })).rejects.toThrow("Failed to persist Credential '/org/connections/linear'")
+  })
+
+  it('backfills legacy credential resource columns into auth metadata on startup', async () => {
+    const db = await createTestDb()
+    const encryptionKey = Buffer.alloc(32, 7).toString('base64')
+    const secret = await encryptCredentials(encryptionKey, {
+      headers: { Authorization: 'Bearer legacy' },
+    })
+    await db.execute(sql.raw(`
+      ALTER TABLE agentpw.credentials
+      ADD COLUMN resource TEXT NOT NULL DEFAULT ''
+    `))
+    await db.execute(sql`
+      INSERT INTO agentpw.credentials (path, resource, auth, secret)
+      VALUES (
+        '/legacy/connections/github',
+        'https://api.github.com',
+        '{"kind":"headers","label":"Legacy"}'::jsonb,
+        ${secret}
+      )
+    `)
+
+    const agentPw = await createAgentPw({
+      db,
+      encryptionKey,
+    })
+
+    expect(await agentPw.credentials.get('/legacy/connections/github')).toEqual(expect.objectContaining({
+      auth: expect.objectContaining({
+        kind: 'headers',
+        label: 'Legacy',
+        resource: 'https://api.github.com/',
+      }),
+    }))
   })
 })

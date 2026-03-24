@@ -9,9 +9,8 @@ This repo is the public source of truth for the `agent.pw` architecture.
 The framework is built around one simple runtime model:
 
 - a saved connection lives at an exact `path`
-- that connection talks to a `resource`
 - `agent.pw` stores one encrypted `credential` at that exact path
-- `connect.prepare(...)` decides how that connection should authenticate
+- `connect.prepare(...)` can use a `resource` to decide how that connection should authenticate
 - `connect.headers(...)` returns fresh runtime headers for the same path
 
 Profiles remain path-scoped configuration, but they are setup-time guidance and polyfills rather than the main runtime identity model.
@@ -34,7 +33,7 @@ The framework does not store folder rows. Hierarchy is implicit in the path itse
 
 ### Resource
 
-A `resource` is the protected resource that the connection talks to.
+A `resource` is the protected resource a connect flow is trying to reach.
 
 Examples:
 
@@ -44,7 +43,7 @@ https://api.linear.app/
 https://docs.example.com/mcp
 ```
 
-`resource` is the canonical setup target for configuration, discovery, and stored credentials.
+`resource` is used for setup and discovery. It is not required for every stored credential.
 
 ### Credential
 
@@ -53,12 +52,15 @@ A `credential` is the encrypted auth stored at one exact path.
 Each credential stores:
 
 - `path`
-- `resource`
 - `auth`
 - encrypted `secret`
 - timestamps
 
-At runtime, `secret.headers` is the universal output shape. OAuth credentials may also include stored refresh state.
+At runtime:
+
+- `oauth` and `headers` credentials expose `secret.headers`
+- `env` credentials expose `secret.env`
+- OAuth credentials may also include stored refresh state
 
 ### Profile
 
@@ -155,10 +157,13 @@ Disconnects a stored credential and optionally revokes upstream OAuth tokens.
 
 ## Auth Kinds
 
-At the framework level there are only two auth families:
+At the vault level there are three credential families:
 
 - `oauth`
 - `headers`
+- `env`
+
+`connect.*` only guides `oauth` and `headers`.
 
 Everything manual collapses into header auth:
 
@@ -240,7 +245,6 @@ That lets the framework return a manual setup option without hard-coding the for
 The credential table intentionally stores very little:
 
 - `path`
-- `resource`
 - `auth`
 - encrypted `secret`
 - timestamps
@@ -248,11 +252,31 @@ The credential table intentionally stores very little:
 That is enough because:
 
 - the exact connection path is the runtime identity
-- the resource is the setup target
+- the resource only matters when a connect flow or profile match needs it
 - runtime consumption only needs resolved headers
+- env credentials only need encrypted env pairs
 - OAuth lifecycle state can live inside the encrypted secret payload
 
 Profiles, discovery logic, and option selection happen around the credential. They are not the credential’s primary identity.
+
+## Env Credentials
+
+Some agent runtimes need env-var injection instead of HTTP headers. `agent.pw` supports that as a vault concern, not as part of guided connect.
+
+Examples:
+
+```txt
+/acme/connections/github_cli
+/acme/connections/openai_cli
+```
+
+These credentials are stored and retrieved through `credentials.*`:
+
+- `credentials.put(...)`
+- `credentials.get(...)`
+- `credentials.env(path)`
+
+That keeps `connect.*` focused on resource-backed auth setup, while the vault layer remains flexible enough for CLI and sandbox-agent workflows.
 
 ## Exact-Path Credentials
 

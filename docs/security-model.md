@@ -58,12 +58,13 @@ Credentials are encrypted before being written to SQL.
 The stored model is intentionally small:
 
 - `path`
-- `resource`
 - `auth`
 - encrypted `secret`
 - timestamps
 
-`secret.headers` is the canonical runtime output. OAuth credentials may also store encrypted lifecycle material such as:
+`secret.headers` is the runtime output for `oauth` and `headers` credentials. `env` credentials use `secret.env`.
+
+OAuth credentials may also store encrypted lifecycle material such as:
 
 - `accessToken`
 - `refreshToken`
@@ -75,13 +76,15 @@ Runtime callers typically consume headers, not raw secret payloads.
 
 ## Resource as Setup Target
 
-`resource` is the canonical setup target for every credential, regardless of auth kind.
+`resource` is the canonical setup target for `connect.*` flows.
 
 This matters because:
 
 - discovery-first OAuth starts from the protected resource
 - manual and profile-guided setup still needs a stable target
-- the resource carries the full setup target for the connection
+- profile matching still needs a precise target
+
+It does not need to be a top-level column on every stored credential. When a stored credential needs resource metadata later, `agent.pw` keeps it inside `auth` or encrypted OAuth state.
 
 ## Profiles
 
@@ -92,6 +95,7 @@ They exist to help `agent.pw` guide setup when discovery is not enough.
 Profiles can:
 
 - define a manual header-entry template
+- define an env-template for admin-facing vault setup
 - provide a fixed OAuth configuration
 - override defaults within a path subtree
 - constrain how an app should collect or shape credentials
@@ -124,6 +128,8 @@ The security model for setup is:
 6. the framework returns explicit next steps as `oauth` or `headers` options
 
 This matters because apps do not need to re-implement auth decision logic inconsistently across products or runtimes.
+
+Generic env credentials live outside this guided setup flow and are written directly through `credentials.put(...)`.
 
 ## OAuth Lifecycle Ownership
 
@@ -181,6 +187,7 @@ That means the same grant language can protect:
 
 - `connect.headers({ path })`
 - `connect.prepare({ path, resource })`
+- `credentials.env(path)`
 - `credentials.get(path)`
 - `credentials.list({ path })`
 - `profiles.get(path)`
@@ -194,6 +201,7 @@ This gives embedders a consistent way to evaluate permissions before:
 
 - using a credential
 - connecting a resource
+- resolving env credentials for sandboxes or CLIs
 - listing credentials
 - managing profiles
 

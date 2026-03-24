@@ -15,7 +15,8 @@ export async function deriveEncryptionKey(secretSeed: string) {
  * Framework consumers can use the header view directly or read the OAuth payload.
  */
 export type StoredCredentials = {
-  headers: Record<string, string>
+  headers?: Record<string, string>
+  env?: Record<string, string>
   oauth?: {
     refreshToken?: string | null
     accessToken?: string | null

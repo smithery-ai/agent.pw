@@ -1,4 +1,4 @@
-import { index, type pgSchema, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
+import { index, type pgSchema, primaryKey, timestamp } from 'drizzle-orm/pg-core'
 import { bytea, jsonb, ltree } from './types.js'
 
 type PgSchemaNamespace = ReturnType<typeof pgSchema>
@@ -11,7 +11,6 @@ export function defineCredentialsTable(
 
   return schema.table(tableName, {
     path: ltree('path').notNull(),
-    resource: text('resource').notNull(),
     auth: jsonb<Record<string, unknown>>()('auth').notNull(),
     secret: bytea('secret').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -21,6 +20,6 @@ export function defineCredentialsTable(
       name: `${tableName}_path_pk`,
       columns: [table.path],
     }),
-    index(`${tableName}_resource_idx`).on(table.resource),
+    index(`${tableName}_path_idx`).on(table.path),
   ])
 }

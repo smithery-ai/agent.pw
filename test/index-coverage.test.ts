@@ -105,7 +105,6 @@ describe('index coverage helpers', () => {
 
     await expect(Reflect.apply(agentPw.credentials.put, agentPw.credentials, [{
       path: '/invalid/credential',
-      resource: 'https://invalid.example.com',
       auth: 'bad',
       secret: { headers: {} },
     }])).rejects.toThrow('Expected JSON object')
@@ -172,6 +171,59 @@ describe('index coverage helpers', () => {
         fields: [{ name: 'Authorization', label: 'Token', description: 'Describe', prefix: 'Bearer ', secret: true }],
       }),
     }))
+    await agentPw.profiles.put('/env-template', {
+      resourcePatterns: ['https://cli.example.com/*'],
+      auth: {
+        kind: 'env',
+        label: 'CLI env',
+        fields: [{ name: 'GH_TOKEN', label: 'GitHub token', description: 'Used by gh', secret: true }],
+      },
+    })
+    expect(await agentPw.profiles.get('/env-template')).toEqual(expect.objectContaining({
+      auth: {
+        kind: 'env',
+        label: 'CLI env',
+        fields: [{ name: 'GH_TOKEN', label: 'GitHub token', description: 'Used by gh', secret: true }],
+      },
+    }))
+    await agentPw.profiles.put('/env-empty', {
+      resourcePatterns: ['https://env-empty.example.com/*'],
+      auth: {
+        kind: 'env',
+        fields: [{ name: 'X', label: 'X' }],
+      },
+    })
+    await db.execute(sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"kind":"env","fields":"nope"}'::jsonb
+      WHERE path = '/env-empty'
+    `))
+    expect(await agentPw.profiles.get('/env-empty')).toEqual(expect.objectContaining({
+      auth: {
+        kind: 'env',
+        label: undefined,
+        fields: [],
+      },
+    }))
+    await agentPw.profiles.put('/env-fallback', {
+      resourcePatterns: ['https://env-fallback.example.com/*'],
+      auth: {
+        kind: 'env',
+        fields: [{ name: 'X', label: 'X' }],
+      },
+    })
+    await db.execute(sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"kind":"env","fields":[{"name":1,"label":"Bad"},{"name":"GH_TOKEN","label":1},{"name":"GH_TOKEN","label":"GitHub token","description":1,"secret":"no"}]}'::jsonb
+      WHERE path = '/env-fallback'
+    `))
+    expect(await agentPw.profiles.get('/env-fallback')).toEqual(expect.objectContaining({
+      auth: {
+        kind: 'env',
+        label: undefined,
+        fields: [{ name: 'GH_TOKEN', label: 'GitHub token', description: undefined, secret: undefined }],
+      },
+    }))
 
     await agentPw.profiles.put('/field-empty', {
       resourcePatterns: ['https://empty.example.com/*'],
@@ -198,8 +250,7 @@ describe('index coverage helpers', () => {
     })
     await agentPw.credentials.put({
       path: '/broken/credential',
-      resource: 'https://broken.example.com',
-      auth: { kind: 'headers' },
+      auth: { kind: 'headers', resource: 'https://broken.example.com' },
       secret,
     })
     await db.execute(sql.raw(`
@@ -211,8 +262,7 @@ describe('index coverage helpers', () => {
 
     await agentPw.credentials.put({
       path: '/listed/credential',
-      resource: 'https://listed.example.com',
-      auth: { kind: 'headers' },
+      auth: { kind: 'headers', resource: 'https://listed.example.com' },
       secret: { headers: { Authorization: 'Bearer listed' } },
     })
     expect(await agentPw.credentials.list({ path: '/listed' })).toEqual([expect.objectContaining({
@@ -221,6 +271,7 @@ describe('index coverage helpers', () => {
         kind: 'headers',
         profilePath: null,
         label: null,
+        resource: 'https://listed.example.com/',
       },
     })])
     expect(Array.isArray(await agentPw.credentials.list())).toBe(true)
@@ -346,8 +397,7 @@ describe('index coverage helpers', () => {
       })
       const manual = await api.credentials.put({
         path: '/acme/connections/manual',
-        resource: 'https://manual.example.com',
-        auth: { kind: 'headers' },
+        auth: { kind: 'headers', resource: 'https://manual.example.com' },
         secret: { headers: { Authorization: 'Bearer manual' } },
       })
       const moved = await api.credentials.move('/acme/connections/manual', '/acme/connections/manual_next')
