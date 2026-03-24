@@ -1,247 +1,231 @@
 # Security Model
 
-`agent.pw` secures agent auth around four ideas:
+`agent.pw` secures agent auth around five ideas:
 
-- explicit binding roots
+- exact-path connections
 - encrypted credential storage
-- refresh-aware OAuth runtime ownership
+- discovery-first OAuth with framework-owned refresh
+- admin-configured profiles as setup guidance
 - portable path-based rules
 
-This document focuses on those trust boundaries and enforcement mechanics. The full system structure is described in [architecture.md](./architecture.md).
+This document focuses on those trust boundaries and enforcement mechanics.
 
 ## Trust Boundary
 
-The host product owns:
+The embedding app owns:
 
 - user identity and sessions
 - UI and interaction flows
-- runtime orchestration
-- network transport and any external tokens it chooses to issue
+- transport and request execution
+- any external tokens it chooses to issue
+- product-specific metadata around a connection
 
 `agent.pw` owns:
 
-- path validation and tree-based resolution
-- provider auth definitions
+- path validation
 - encrypted credential storage
-- OAuth token lifecycle for provider credentials
-- rule evaluation over binding roots
-- optional Biscuit compilation helpers
+- OAuth runtime lifecycle
+- guided auth selection through `connect.prepare(...)`
+- profile storage and matching
+- rule enforcement and optional Biscuit compilation
 
-That split keeps the auth substrate inspectable and reusable without forcing a second server hop.
+That split keeps auth state inspectable and reusable without forcing a second server hop.
 
-## Resource Security Model
+## Connection Boundary
 
-### Credential Profiles
+The core security boundary is the connection `path`.
 
-Profiles define how to authenticate to a provider at a path.
+Examples:
+
+```txt
+/acme/connections/github
+/acme/connections/docs
+/acme/workspaces/finance/connections/linear
+```
+
+Each exact path stores one credential.
+
+Security implications:
+
+- apps resolve auth by exact connection path
+- multi-tenant products can scope access uniformly by path ancestry
+- a path is stable enough to use for listing, grants, auditing, and runtime auth
+
+## Credential Storage
+
+Credentials are encrypted before being written to SQL.
+
+The stored model is intentionally small:
+
+- `path`
+- `resource`
+- `auth`
+- encrypted `secret`
+- timestamps
+
+`secret.headers` is the canonical runtime output. OAuth credentials may also store encrypted lifecycle material such as:
+
+- `accessToken`
+- `refreshToken`
+- `expiresAt`
+- `scopes`
+- endpoint metadata needed for refresh or revoke
+
+Runtime callers typically consume headers, not raw secret payloads.
+
+## Resource as Setup Target
+
+`resource` is the canonical setup target for every credential, regardless of auth kind.
+
+This matters because:
+
+- discovery-first OAuth starts from the protected resource
+- manual and profile-guided setup still needs a stable target
+- the resource carries the full setup target for the connection
+
+## Profiles
+
+Profiles are configuration, not secrets.
+
+They exist to help `agent.pw` guide setup when discovery is not enough.
+
+Profiles can:
+
+- define a manual header-entry template
+- provide a fixed OAuth configuration
+- override defaults within a path subtree
+- constrain how an app should collect or shape credentials
+
+They do not define the full space of allowed credentials. Apps can still store one-off manual credentials directly.
+
+### Path-Scoped Configuration
+
+Profiles live at paths and match connection paths by ancestry.
 
 Examples:
 
 ```txt
 /github
 /acme/github
-/acme/ws_eng/github
+/acme/workspaces/finance/linear
 ```
 
-Profiles are configuration, not secrets. Their security properties are:
+Deeper matching profiles win when multiple profiles apply. That lets teams express defaults and more specific overrides without flattening configuration into a single global row.
 
-- path-local overrides stay explicit
-- deeper definitions shadow broader definitions
-- same-depth ambiguity is rejected
+## Guided Auth Flow
 
-Profiles are optional when a binding targets a discovered OAuth resource directly. They remain useful when a product needs an explicit auth definition, a polyfill, or a path-scoped override.
+The security model for setup is:
 
-### Auth Bindings
+1. the app chooses a connection `path`
+2. the app identifies the target `resource`
+3. `connect.prepare(...)` checks for an existing credential
+4. if none exists, the framework tries discovery-first OAuth
+5. if discovery is unavailable or incomplete, the framework resolves matching profiles
+6. the framework returns explicit next steps as `oauth` or `headers` options
 
-Bindings are the runtime root of trust for one saved connection in a host product.
-
-A binding declares:
-
-- `root`
-- `target`
-
-`root` chooses the namespace subtree the connection can use for credential lookup and storage.
-
-`target` chooses how that connection authenticates:
-
-- a profile target points at a `Credential Profile`
-- a resource target points at a discovered OAuth resource such as an MCP server
-
-The shorthand `{ root, profilePath }` remains valid for profile-backed bindings.
-
-Runtime operations should execute against an explicit binding rather than against inferred request hosts or global user state. This matters for multi-tenant products because one user may operate across multiple roots during the same session.
-
-An exact `credentialPath` may also be supplied by a caller, but that is an optional leaf override. It does not replace the role of the binding root as the namespace boundary.
-
-### Credentials
-
-Credentials store provider auth material encrypted at rest.
-
-Security properties:
-
-- secrets are encrypted before persistence
-- runtime code resolves credentials through framework APIs instead of reading raw ciphertext directly
-- refreshable OAuth material stays with the credential record that runtime resolution uses
-
-### Rules
-
-Rules are path grants:
-
-```txt
-right(root, action)
-```
-
-Examples:
-
-```txt
-credential.use on /acme
-credential.manage on /acme/ws_eng
-```
-
-Rules are the framework’s canonical authorization facts. They can be enforced directly or compiled into another transport format later.
-
-## Path Semantics
-
-All policy is expressed over absolute slash-delimited paths.
-
-Examples:
-
-```txt
-/acme
-/acme/shared
-/acme/ws_eng
-/acme/ws_eng/user_alice
-/acme/connections/github_primary
-```
-
-The framework does not store folder rows. Parent-child relationships are derived from path ancestry.
-
-This gives the security model three properties:
-
-- every resource has a stable namespace
-- subtree scoping is uniform across profiles, credentials, and bindings
-- authorization can be evaluated against roots rather than against ad hoc object ids
-
-## Resolution Guarantees
-
-### Profile Resolution
-
-Given a binding root or candidate root:
-
-1. find profiles whose path is applicable to that root
-2. choose the deepest applicable match
-3. fall back to a global default such as `/github`
-4. reject same-depth conflicts
-
-That makes organization-specific overrides explicit without flattening all provider knowledge into a single global row.
-
-### Credential Resolution
-
-Given an explicit binding:
-
-1. find credentials under the binding root
-2. keep only credentials tagged to the binding target
-3. choose the deepest applicable stored credential
-4. reject same-depth conflicts
-
-The framework stores `host` as metadata, but host is not the canonical runtime identity.
-
-### Refresh-Aware Reads
-
-Binding reads are refresh-aware when OAuth state is present.
-
-Before returning headers, the framework can:
-
-1. inspect the credential expiry
-2. refresh through the configured provider flow when needed
-3. persist the refreshed credential state
-4. return fresh headers
-
-This prevents host products from accidentally resolving stale provider tokens because the refresh logic stays attached to the vault itself.
+This matters because apps do not need to re-implement auth decision logic inconsistently across products or runtimes.
 
 ## OAuth Lifecycle Ownership
 
-The framework owns the provider OAuth runtime lifecycle.
+`agent.pw` owns the provider OAuth lifecycle:
 
-That includes:
+- start authorization
+- validate callback state
+- exchange authorization codes
+- refresh access tokens
+- revoke on disconnect
+- discover resource and authorization server metadata
+- serve hosted callback and client metadata helpers when needed
 
-- generating PKCE authorization requests
-- validating callback state
-- exchanging authorization codes
-- refreshing access tokens
-- optionally revoking provider tokens on disconnect
-- discovering resource and authorization server metadata when the binding target is a resource
+The implementation uses `oauth4webapi`, but the key security property is architectural: token lifecycle logic stays attached to the vault instead of being split across apps.
 
-The implementation uses `oauth4webapi`, but the important security property is architectural: embedded products do not need to re-implement provider token lifecycle logic outside the vault.
+### Refresh-Aware Reads
 
-### Flow State
+`connect.headers({ path })` is refresh-aware by default for OAuth credentials.
 
-Pending OAuth flow state is stored behind `FlowStore`.
+Before returning headers, the framework can:
 
-This is intentional:
+1. load the credential at the exact path
+2. inspect expiry
+3. refresh if needed
+4. persist the new encrypted state
+5. return fresh headers
 
-- products can choose storage that matches their runtime model
-- flow state can live in SQL, KV, or another shared ephemeral backend
-- the framework does not silently assume single-process memory in production
+This reduces the chance of apps leaking stale token handling into ad hoc code paths.
 
-An in-memory flow store exists only as an explicit helper for local development or tests.
+## FlowStore
 
-### Hosted OAuth and Client Metadata
+Pending OAuth flow state lives behind `FlowStore`.
 
-Embedded MCP clients often need two small hosted endpoints:
+This is an intentional security boundary:
 
-- an OAuth callback
-- a client metadata document
+- apps can choose storage that matches their deployment model
+- multi-instance products can use shared KV or SQL
+- local development can use explicit in-memory storage
 
-The framework provides helpers to generate those responses without turning HTTP routing into the core abstraction. The hosted surface remains thin and declarative, while the auth lifecycle and storage stay inside the framework.
+The framework does not silently rely on process-local memory in production.
 
-## Encrypted Storage
+## Rules
 
-Credential secrets are encrypted with an application-provided encryption key before they are written to SQL.
+Rules are path-based grants such as:
 
-The stored OAuth payload includes only the material needed for provider auth lifecycle:
+```txt
+credential.use on /acme
+credential.manage on /acme/connections
+profile.read on /
+```
 
-- `accessToken`
-- `refreshToken`
-- `expiresAt`
-- `scopes`
-- `tokenType`
+Rules are the authorization facts that the framework understands directly.
 
-Runtime callers typically consume resolved headers, not the raw secret payload.
+That means the same grant language can protect:
 
-## Rule Enforcement
+- `connect.headers({ path })`
+- `connect.prepare({ path, resource })`
+- `credentials.get(path)`
+- `credentials.list({ path })`
+- `profiles.get(path)`
+- `profiles.list({ path })`
 
-The framework can evaluate rules directly.
+## Authenticated Facade
 
-Examples:
+`agentPw.authenticated(facts)` returns a scoped API that enforces rules automatically.
 
-- does `credential.use` on `/acme` cover `/acme/connections/github_primary`?
-- which roots are visible for `credential.manage`?
-- does a path constraint narrow a runtime request correctly?
+This gives embedders a consistent way to evaluate permissions before:
 
-This enforcement path lives in `agent.pw/rules` and does not require Biscuit or any other token system.
+- using a credential
+- connecting a resource
+- listing credentials
+- managing profiles
 
-## Biscuit as an Optional Transport
+The callback form:
 
-`agent.pw/biscuit` compiles rules into Biscuit tokens for products that want capability-bearing tokens.
+```ts
+await agentPw.authenticated(facts, async api => {
+  return api.connect.headers({ path: '/acme/connections/docs' })
+})
+```
 
-That module can:
+keeps authorization local to the operation and avoids leaking unchecked raw helpers into higher-level code.
 
-- mint tokens from rule grants
-- add attenuation constraints such as host, method, path, or TTL
-- verify or inspect Biscuit payloads
+## Biscuits
 
-The security model stays the same either way:
+`agent.pw/biscuit` is an optional transport layer for the same rule model.
 
-- roots define the resource scope
+Apps that want Biscuit tokens can compile rules into Biscuits, but the framework does not depend on Biscuit for its own authorization semantics.
+
+The core security model stays the same either way:
+
+- paths define the protected namespace
 - rules define the granted actions
-- optional token transports carry those facts to another runtime
+- optional token formats carry those facts to another runtime
 
 ## SQL Footprint
 
-The current framework-owned SQL footprint is intentionally small:
+The framework-owned SQL footprint is intentionally small:
 
 - `cred_profiles`
 - `credentials`
 
-That keeps the vault focused on provider auth definitions and encrypted credential state. User auth, application sessions, and product-specific metadata remain in the embedding product.
+Embedders can place those tables inside a custom SQL schema or prefix them to fit a shared database.
+
+That keeps the vault focused on provider auth configuration and encrypted credential state, while app-specific user/session tables remain in the embedding product.

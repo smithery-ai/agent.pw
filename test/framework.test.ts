@@ -1,146 +1,322 @@
 import { describe, expect, it } from 'vitest'
 import { createAgentPw } from 'agent.pw'
-import type { StoredCredentials } from '../packages/server/src/lib/credentials-crypto'
+import type { RuleFacts } from '../packages/server/src/types'
+import { AgentPwAuthorizationError, AgentPwConflictError } from '../packages/server/src/errors'
 import { deriveEncryptionKey } from '../packages/server/src/lib/credentials-crypto'
 import { BISCUIT_PRIVATE_KEY, createTestDb } from './setup'
 
-function bearerSecret(token: string): StoredCredentials {
+async function createTestAgent() {
+  const db = await createTestDb()
+  const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
+  return createAgentPw({
+    db,
+    encryptionKey,
+  })
+}
+
+function rights(rightsList: RuleFacts['rights']): RuleFacts {
   return {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    rights: rightsList,
+    userId: 'user_123',
+    orgId: 'acme',
+    homePath: null,
+    scopes: [],
   }
 }
 
+function createDiscoveryFetch() {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+
+    if (url.includes('/.well-known/oauth-protected-resource')) {
+      return Response.json({
+        resource: 'https://docs.example.com/mcp',
+        authorization_servers: ['https://accounts.example.com'],
+      })
+    }
+
+    throw new Error(`Unexpected fetch ${url}`)
+  }
+
+  return fetchImpl
+}
+
 describe('createAgentPw', () => {
-  it('resolves path-scoped credential profiles and credentials', async () => {
-    const db = await createTestDb()
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-    })
-
-    await agentPw.profiles.put('/linear', {
-      host: ['api.linear.global'],
-      oauthConfig: {
-        clientId: 'smithery-client',
-      },
-    })
-    await agentPw.profiles.put('/org_alpha/linear', {
-      host: ['api.linear.org'],
-    })
-    await agentPw.profiles.put('/org_alpha/ws_engineering/linear', {
-      host: ['api.linear.engineering'],
-    })
-
-    expect(await agentPw.profiles.resolve({
-      provider: 'linear',
-      root: '/org_alpha/ws_engineering/service',
-    })).toEqual(expect.objectContaining({
-      path: '/org_alpha/ws_engineering/linear',
-      provider: 'linear',
-    }))
-
-    expect(await agentPw.profiles.resolve({
-      host: 'api.linear.global',
-      root: '/org_beta/service',
-    })).toEqual(expect.objectContaining({
-      path: '/linear',
-    }))
-
-    await agentPw.credentials.put('/org_alpha/linear', {
-      profilePath: '/linear',
-      host: 'api.linear.app',
-      auth: { kind: 'headers' },
-      secret: bearerSecret('org-token'),
-    })
-    await agentPw.credentials.put('/org_alpha/ws_engineering/linear', {
-      profilePath: '/org_alpha/ws_engineering/linear',
-      host: 'api.linear.app',
-      auth: { kind: 'headers' },
-      secret: bearerSecret('engineering-token'),
-    })
-
-    expect(await agentPw.credentials.get('/org_alpha/linear')).toEqual(
-      expect.objectContaining({
-        path: '/org_alpha/linear',
-        profilePath: '/linear',
-        secret: { headers: { Authorization: 'Bearer org-token' } },
-      }),
-    )
-
-    expect(await agentPw.bindings.resolve({
-      root: '/org_alpha/ws_engineering/service',
-      profilePath: '/org_alpha/ws_engineering/linear',
-    })).toEqual(expect.objectContaining({
-      path: '/org_alpha/ws_engineering/linear',
-      profilePath: '/org_alpha/ws_engineering/linear',
-      secret: { headers: { Authorization: 'Bearer engineering-token' } },
-    }))
-
-    expect(await agentPw.bindings.resolveHeaders({
-      root: '/org_alpha/ws_engineering/service',
-      profilePath: '/org_alpha/ws_engineering/linear',
-    })).toEqual({
-      Authorization: 'Bearer engineering-token',
-    })
-  })
-
-  it('returns null when an explicit credential path belongs to another profile', async () => {
-    const db = await createTestDb()
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-    })
-
-    await agentPw.credentials.put('/org_alpha/ws_engineering/team_a/linear', {
-      profilePath: '/linear',
-      host: 'api.linear.app',
-      auth: { kind: 'headers' },
-      secret: bearerSecret('linear-a'),
-    })
-    await agentPw.credentials.put('/org_alpha/ws_engineering/team_a/github', {
-      profilePath: '/github',
-      host: 'api.github.com',
-      auth: { kind: 'headers' },
-      secret: bearerSecret('github-a'),
-    })
-
-    await expect(agentPw.bindings.resolve({
-      root: '/org_alpha/ws_engineering/team_a',
-      profilePath: '/linear',
-      credentialPath: '/org_alpha/ws_engineering/team_a/github',
-      refresh: false,
-    })).resolves.toBeNull()
-  })
-
-  it('stores credentials through explicit bindings', async () => {
-    const db = await createTestDb()
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-    })
+  it('resolves profiles by path and stores exact-path credentials', async () => {
+    const agentPw = await createTestAgent()
 
     await agentPw.profiles.put('/github', {
-      host: ['api.github.com'],
+      resourcePatterns: ['https://api.github.com/*'],
+      auth: {
+        kind: 'oauth',
+        authorizationUrl: 'https://github.com/login/oauth/authorize',
+        tokenUrl: 'https://github.com/login/oauth/access_token',
+        clientId: 'github-client',
+      },
+      displayName: 'GitHub',
+    })
+    await agentPw.profiles.put('/acme/github', {
+      resourcePatterns: ['https://api.github.com/*'],
+      auth: {
+        kind: 'headers',
+        fields: [{ name: 'Authorization', label: 'Access token', prefix: 'Bearer ' }],
+      },
+      displayName: 'Acme GitHub',
     })
 
-    const stored = await agentPw.bindings.put({
-      root: '/org_alpha/connections/github_1',
-      profilePath: '/github',
-      secret: bearerSecret('github-token'),
+    expect(await agentPw.profiles.resolve({
+      path: '/acme/connections/github_primary',
+      resource: 'https://api.github.com/repos/acme/app',
+    })).toEqual(expect.objectContaining({
+      path: '/acme/github',
+      displayName: 'Acme GitHub',
+    }))
+    expect((await agentPw.profiles.list({ path: '/acme' })).map(profile => profile.path)).toEqual([
+      '/acme/github',
+    ])
+
+    const stored = await agentPw.credentials.put({
+      path: '/acme/connections/github_primary',
+      resource: 'https://api.github.com',
+      auth: {
+        kind: 'headers',
+        profilePath: '/acme/github',
+        label: 'Acme GitHub',
+      },
+      secret: {
+        headers: {
+          Authorization: 'Bearer github-token',
+        },
+      },
     })
 
     expect(stored).toEqual(expect.objectContaining({
-      path: '/org_alpha/connections/github_1/github',
-      profilePath: '/github',
-      host: 'api.github.com',
-      profile: expect.objectContaining({
-        path: '/github',
-      }),
+      path: '/acme/connections/github_primary',
+      resource: 'https://api.github.com/',
+      auth: {
+        kind: 'headers',
+        profilePath: '/acme/github',
+        label: 'Acme GitHub',
+      },
+      secret: {
+        headers: {
+          Authorization: 'Bearer github-token',
+        },
+      },
     }))
+
+    expect(await agentPw.credentials.get('/acme/connections/github_primary')).toEqual(expect.objectContaining({
+      path: '/acme/connections/github_primary',
+    }))
+    expect((await agentPw.credentials.list({ path: '/acme/connections' })).map(credential => credential.path)).toEqual([
+      '/acme/connections/github_primary',
+    ])
+
+    const ready = await agentPw.connect.prepare({
+      path: '/acme/connections/github_primary',
+      resource: 'https://api.github.com',
+    })
+    expect(ready.kind).toBe('ready')
+    if (ready.kind === 'ready') {
+      expect(ready.headers).toEqual({ Authorization: 'Bearer github-token' })
+    }
+
+    await expect(agentPw.connect.prepare({
+      path: '/acme/connections/github_primary',
+      resource: 'https://docs.example.com/mcp',
+    })).rejects.toThrow(AgentPwConflictError)
+  })
+
+  it('guides header-based connections through prepare and saveHeaders', async () => {
+    const agentPw = await createTestAgent()
+
+    await agentPw.profiles.put('/resend', {
+      resourcePatterns: ['https://api.resend.com*'],
+      auth: {
+        kind: 'headers',
+        label: 'Resend API key',
+        fields: [{ name: 'Authorization', label: 'API key', prefix: 'Bearer ', secret: true }],
+      },
+      displayName: 'Resend',
+    })
+
+    const prepared = await agentPw.connect.prepare({
+      path: '/acme/connections/resend',
+      resource: 'https://api.resend.com',
+    })
+
+    expect(prepared).toEqual({
+      kind: 'options',
+      options: [{
+        kind: 'headers',
+        source: 'profile',
+        resource: 'https://api.resend.com/',
+        profilePath: '/resend',
+        label: 'Resend',
+        fields: [{ name: 'Authorization', label: 'API key', prefix: 'Bearer ', secret: true }],
+      }],
+    })
+
+    if (prepared.kind !== 'options') {
+      throw new Error('Expected connection options')
+    }
+
+    const saved = await agentPw.connect.saveHeaders({
+      path: '/acme/connections/resend',
+      option: prepared.options[0],
+      values: {
+        Authorization: 'rs_123',
+      },
+    })
+
+    expect(saved.auth).toEqual({
+      kind: 'headers',
+      profilePath: '/resend',
+      label: 'Resend',
+    })
+    expect(saved.secret.headers).toEqual({
+      Authorization: 'Bearer rs_123',
+    })
+    expect(await agentPw.connect.headers({ path: '/acme/connections/resend' })).toEqual({
+      Authorization: 'Bearer rs_123',
+    })
+  })
+
+  it('guides existing oauth connections, discovery-first oauth, and profile oauth without scopes', async () => {
+    const db = await createTestDb()
+    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
+    const agentPw = await createAgentPw({
+      db,
+      encryptionKey,
+      oauthFetch: createDiscoveryFetch(),
+    })
+
+    await agentPw.credentials.put({
+      path: '/acme/connections/docs',
+      resource: 'https://docs.example.com/mcp',
+      auth: {
+        kind: 'oauth',
+        label: 'Docs',
+      },
+      secret: {
+        headers: {
+          Authorization: 'Bearer docs-token',
+        },
+        oauth: {
+          accessToken: 'docs-token',
+        },
+      },
+    })
+
+    const ready = await agentPw.connect.prepare({
+      path: '/acme/connections/docs',
+      resource: 'https://docs.example.com/mcp',
+    })
+    expect(ready.kind).toBe('ready')
+    if (ready.kind === 'ready') {
+      expect(ready.headers).toEqual({ Authorization: 'Bearer docs-token' })
+    }
+
+    const discovered = await agentPw.connect.prepare({
+      path: '/acme/connections/docs_fresh',
+      resource: 'https://docs.example.com/mcp',
+    })
+    expect(discovered).toEqual({
+      kind: 'options',
+      options: [{
+        kind: 'oauth',
+        source: 'discovery',
+        resource: 'https://docs.example.com/mcp',
+        authorizationServer: 'https://accounts.example.com',
+        label: 'OAuth via accounts.example.com',
+        scopes: [],
+      }],
+    })
+
+    await agentPw.profiles.put('/no-scopes', {
+      resourcePatterns: ['https://oauth-noscopes.example.com/*'],
+      auth: {
+        kind: 'oauth',
+        authorizationUrl: 'https://oauth-noscopes.example.com/authorize',
+        tokenUrl: 'https://oauth-noscopes.example.com/token',
+        clientId: 'oauth-noscope-client',
+      },
+    })
+
+    const profiled = await agentPw.connect.prepare({
+      path: '/acme/connections/no_scopes',
+      resource: 'https://oauth-noscopes.example.com/api',
+    })
+    expect(profiled).toEqual({
+      kind: 'options',
+      options: [{
+        kind: 'oauth',
+        source: 'profile',
+        resource: 'https://oauth-noscopes.example.com/api',
+        profilePath: '/no-scopes',
+        label: 'no-scopes',
+        scopes: undefined,
+      }],
+    })
+  })
+
+  it('supports authorized facades over connect, credentials, and profiles', async () => {
+    const agentPw = await createTestAgent()
+
+    await agentPw.profiles.put('/profiles/resend', {
+      resourcePatterns: ['https://api.resend.com*'],
+      auth: {
+        kind: 'headers',
+        fields: [{ name: 'Authorization', label: 'API key', prefix: 'Bearer ' }],
+      },
+    })
+    await agentPw.credentials.put({
+      path: '/acme/connections/resend',
+      resource: 'https://api.resend.com',
+      auth: { kind: 'headers', profilePath: '/profiles/resend' },
+      secret: { headers: { Authorization: 'Bearer resend-token' } },
+    })
+    await agentPw.credentials.put({
+      path: '/beta/connections/docs',
+      resource: 'https://docs.example.com/mcp',
+      auth: { kind: 'headers' },
+      secret: { headers: { Authorization: 'Bearer docs-token' } },
+    })
+
+    const allowed = await agentPw.authenticated(rights([
+      { action: 'credential.use', root: '/acme' },
+      { action: 'credential.read', root: '/acme' },
+      { action: 'credential.manage', root: '/acme' },
+      { action: 'credential.connect', root: '/acme' },
+      { action: 'profile.read', root: '/profiles' },
+      { action: 'profile.manage', root: '/profiles' },
+    ]), async api => {
+      const headers = await api.connect.headers({ path: '/acme/connections/resend' })
+      const credentials = await api.credentials.list({ path: '/acme/connections' })
+      const profiles = await api.profiles.list({ path: '/profiles' })
+      return {
+        headers,
+        credentials,
+        profiles,
+      }
+    })
+
+    expect(allowed.headers).toEqual({ Authorization: 'Bearer resend-token' })
+    expect(allowed.credentials.map(credential => credential.path)).toEqual(['/acme/connections/resend'])
+    expect(allowed.profiles.map(profile => profile.path)).toEqual(['/profiles/resend'])
+
+    const socket = agentPw.authenticated(rights([
+      { action: 'credential.use', root: '/acme' },
+    ]))
+    await expect(socket.connect.headers({ path: '/acme/connections/resend' })).resolves.toEqual({
+      Authorization: 'Bearer resend-token',
+    })
+
+    await expect(agentPw.authenticated(rights([
+      { action: 'credential.connect', root: '/acme' },
+    ]), api => api.connect.prepare({
+      path: '/acme/connections/resend',
+      resource: 'https://api.resend.com',
+    }))).rejects.toThrow(AgentPwAuthorizationError)
   })
 })

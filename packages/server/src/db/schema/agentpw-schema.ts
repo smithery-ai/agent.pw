@@ -23,6 +23,7 @@ function normalizeSqlIdentifier(
 export interface AgentPwSqlNamespace {
   schema: string
   tablePrefix: string
+  namespace: ReturnType<typeof pgSchema>
   tables: {
     credProfiles: ReturnType<typeof defineCredProfilesTable>
     credentials: ReturnType<typeof defineCredentialsTable>
@@ -32,10 +33,11 @@ export interface AgentPwSqlNamespace {
   tableName(baseName: 'cred_profiles' | 'credentials'): string
 }
 
-export function createAgentPwSchema(options: SqlNamespaceOptions = {}): AgentPwSqlNamespace {
-  const schema = normalizeSqlIdentifier(options.schema ?? DEFAULT_SQL_SCHEMA, 'SQL schema')
-  const tablePrefix = normalizeSqlIdentifier(options.tablePrefix ?? '', 'table prefix', true)
-  const namespace = pgSchema(schema)
+function buildAgentPwNamespace(
+  namespace: ReturnType<typeof pgSchema>,
+  schema: string,
+  tablePrefix: string,
+): AgentPwSqlNamespace {
   const credProfiles = defineCredProfilesTable(namespace, tablePrefix)
   const credentials = defineCredentialsTable(namespace, tablePrefix)
   const tables = {
@@ -46,6 +48,7 @@ export function createAgentPwSchema(options: SqlNamespaceOptions = {}): AgentPwS
   return {
     schema,
     tablePrefix,
+    namespace,
     tables,
     credProfiles,
     credentials,
@@ -55,7 +58,20 @@ export function createAgentPwSchema(options: SqlNamespaceOptions = {}): AgentPwS
   }
 }
 
-export const defaultSqlNamespace = createAgentPwSchema()
+export const agentpwSchema = pgSchema(DEFAULT_SQL_SCHEMA)
+
+export const defaultSqlNamespace = buildAgentPwNamespace(agentpwSchema, DEFAULT_SQL_SCHEMA, '')
+
+export function createAgentPwSchema(options: SqlNamespaceOptions = {}): AgentPwSqlNamespace {
+  const schema = normalizeSqlIdentifier(options.schema ?? DEFAULT_SQL_SCHEMA, 'SQL schema')
+  const tablePrefix = normalizeSqlIdentifier(options.tablePrefix ?? '', 'table prefix', true)
+
+  if (schema === DEFAULT_SQL_SCHEMA && tablePrefix.length === 0) {
+    return defaultSqlNamespace
+  }
+
+  return buildAgentPwNamespace(pgSchema(schema), schema, tablePrefix)
+}
 
 export function coerceSqlNamespace(
   input?: SqlNamespaceOptions | AgentPwSqlNamespace,

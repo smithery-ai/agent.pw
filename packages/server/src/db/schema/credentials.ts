@@ -10,9 +10,8 @@ export function defineCredentialsTable(
   const tableName = `${tablePrefix}credentials`
 
   return schema.table(tableName, {
-    profilePath: ltree('profile_path').notNull(),
-    host: text('host'),
     path: ltree('path').notNull(),
+    resource: text('resource').notNull(),
     auth: jsonb<Record<string, unknown>>()('auth').notNull(),
     secret: bytea('secret').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -22,8 +21,6 @@ export function defineCredentialsTable(
       name: `${tableName}_path_pk`,
       columns: [table.path],
     }),
-    index(`${tableName}_host_idx`).on(table.host),
-    index(`${tableName}_profile_path_idx`).on(table.profilePath),
-    index(`${tableName}_profile_path_path_idx`).on(table.profilePath, table.path),
+    index(`${tableName}_resource_idx`).on(table.resource),
   ])
 }

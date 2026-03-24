@@ -25,10 +25,8 @@ export async function bootstrapLocalSchema(
   const credProfilesTable = sqlNamespace.tableName('cred_profiles')
   const credentialsTable = sqlNamespace.tableName('credentials')
   const credProfilesPathIndex = `${credProfilesTable}_path_idx`
-  const credProfilesHostIndex = `${credProfilesTable}_host_idx`
-  const credentialsHostIndex = `${credentialsTable}_host_idx`
-  const credentialsProfilePathIndex = `${credentialsTable}_profile_path_idx`
-  const credentialsProfilePathPathIndex = `${credentialsTable}_profile_path_path_idx`
+  const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`
+  const credentialsResourceIndex = `${credentialsTable}_resource_idx`
   const credentialsPathPrimaryKey = `${credentialsTable}_path_pk`
   const schemaSql = quoteIdentifier(schemaName)
   const credProfilesSql = qualifyTable(schemaName, credProfilesTable)
@@ -39,9 +37,8 @@ export async function bootstrapLocalSchema(
   await db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS ${credProfilesSql} (
       path TEXT PRIMARY KEY,
-      host JSONB NOT NULL,
-      auth JSONB,
-      oauth_config JSONB,
+      resource_patterns JSONB NOT NULL DEFAULT '[]'::jsonb,
+      auth JSONB NOT NULL DEFAULT '{}'::jsonb,
       display_name TEXT,
       description TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
@@ -50,41 +47,19 @@ export async function bootstrapLocalSchema(
   `))
 
   await db.execute(sql.raw(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = '${schemaName}'
-          AND table_name = '${credProfilesTable}'
-          AND column_name = 'managed_oauth'
-      ) AND NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = '${schemaName}'
-          AND table_name = '${credProfilesTable}'
-          AND column_name = 'oauth_config'
-      ) THEN
-        ALTER TABLE ${credProfilesSql} RENAME COLUMN managed_oauth TO oauth_config;
-      END IF;
-    END $$;
-  `))
-
-  await db.execute(sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesPathIndex)}
     ON ${credProfilesSql} (path)
   `))
 
   await db.execute(sql.raw(`
-    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesHostIndex)}
-    ON ${credProfilesSql} USING gin (host)
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesResourcePatternsIndex)}
+    ON ${credProfilesSql} USING gin (resource_patterns)
   `))
 
   await db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS ${credentialsSql} (
       path TEXT NOT NULL,
-      profile_path TEXT,
-      host TEXT,
+      resource TEXT NOT NULL DEFAULT '',
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
@@ -101,37 +76,16 @@ export async function bootstrapLocalSchema(
         FROM information_schema.columns
         WHERE table_schema = '${schemaName}'
           AND table_name = '${credentialsTable}'
-          AND column_name = 'profile_path'
+          AND column_name = 'resource'
       ) THEN
-        ALTER TABLE ${credentialsSql} ADD COLUMN profile_path TEXT;
+        ALTER TABLE ${credentialsSql} ADD COLUMN resource TEXT NOT NULL DEFAULT '';
       END IF;
     END $$;
   `))
 
   await db.execute(sql.raw(`
-    UPDATE ${credentialsSql}
-    SET profile_path = path
-    WHERE profile_path IS NULL
-  `))
-
-  await db.execute(sql.raw(`
-    ALTER TABLE ${credentialsSql}
-    ALTER COLUMN profile_path SET NOT NULL
-  `))
-
-  await db.execute(sql.raw(`
-    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsHostIndex)}
-    ON ${credentialsSql} (host)
-  `))
-
-  await db.execute(sql.raw(`
-    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsProfilePathIndex)}
-    ON ${credentialsSql} (profile_path)
-  `))
-
-  await db.execute(sql.raw(`
-    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsProfilePathPathIndex)}
-    ON ${credentialsSql} (profile_path, path)
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsResourceIndex)}
+    ON ${credentialsSql} (resource)
   `))
 
   await db.execute(sql.raw(`

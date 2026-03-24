@@ -1,6 +1,6 @@
 import type { Database } from './db/index.js'
-import type { Logger } from './lib/logger.js'
 import type { StoredCredentials } from './lib/credentials-crypto.js'
+import type { Logger } from './lib/logger.js'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
 
@@ -23,7 +23,6 @@ export interface RuleSubject {
   subject?: string
   userId?: string | null
   orgId?: string | null
-  // Optional legacy metadata for consumers that still model a primary namespace.
   homePath?: string | null
   scopes?: string[]
 }
@@ -32,7 +31,6 @@ export interface RuleFacts {
   rights: RuleGrant[]
   userId: string | null
   orgId: string | null
-  // Optional legacy metadata; not required by the binding-first runtime model.
   homePath: string | null
   scopes: string[]
 }
@@ -58,23 +56,39 @@ export type OAuthClientAuthenticationMethod =
   | 'client_secret_basic'
   | 'client_secret_post'
 
-export interface OAuthProfileConfig {
+export interface HeaderFieldDefinition {
+  name: string
+  label: string
+  description?: string
+  prefix?: string
+  secret?: boolean
+}
+
+export interface CredentialProfileOAuthAuth {
+  kind: 'oauth'
+  label?: string
   issuer?: string
   authorizationUrl?: string
   tokenUrl?: string
   revocationUrl?: string
-  clientId: string
+  clientId?: string
   clientSecret?: string
-  clientAuthentication: OAuthClientAuthenticationMethod
+  clientAuthentication?: OAuthClientAuthenticationMethod
   scopes?: string | string[]
 }
 
+export interface CredentialProfileHeadersAuth {
+  kind: 'headers'
+  label?: string
+  fields: HeaderFieldDefinition[]
+}
+
+export type CredentialProfileAuth = CredentialProfileOAuthAuth | CredentialProfileHeadersAuth
+
 export interface CredentialProfileRecord {
   path: string
-  provider: string
-  host: string[]
-  auth: Record<string, unknown> | null
-  oauthConfig: Record<string, unknown> | null
+  resourcePatterns: string[]
+  auth: CredentialProfileAuth
   displayName: string | null
   description: string | null
   createdAt: Date
@@ -82,19 +96,30 @@ export interface CredentialProfileRecord {
 }
 
 export interface CredentialProfilePutInput {
-  host: string[]
-  auth?: Record<string, unknown>
-  oauthConfig?: Record<string, unknown>
+  resourcePatterns: string[]
+  auth: CredentialProfileAuth
   displayName?: string
   description?: string
 }
 
+export interface HeadersCredentialAuth {
+  kind: 'headers'
+  profilePath?: string | null
+  label?: string | null
+}
+
+export interface OAuthCredentialAuth {
+  kind: 'oauth'
+  profilePath?: string | null
+  label?: string | null
+}
+
+export type CredentialAuth = HeadersCredentialAuth | OAuthCredentialAuth
+
 export interface CredentialSummary {
-  profilePath: string | null
-  target: AuthTarget
-  host: string | null
   path: string
-  auth: Record<string, unknown>
+  resource: string
+  auth: CredentialAuth
   createdAt: Date
   updatedAt: Date
 }
@@ -103,58 +128,10 @@ export interface CredentialRecord extends CredentialSummary {
   secret: StoredCredentials
 }
 
-export interface ProfileAuthTarget {
-  kind: 'profile'
-  profilePath: string
-}
-
-export interface ResourceAuthTarget {
-  kind: 'resource'
+export interface CredentialPutInput {
+  path: string
   resource: string
-  authorizationServer?: string
-}
-
-export type AuthTarget = ProfileAuthTarget | ResourceAuthTarget
-
-export type CredentialPutInput = ({
-  profilePath: string
-  target?: never
-} | {
-  target: AuthTarget
-  profilePath?: never
-}) & {
-  host?: string | null
-  auth?: Record<string, unknown>
-  secret: StoredCredentials | Buffer
-}
-
-export interface ProfileAuthBinding {
-  root: string
-  profilePath: string
-  target?: never
-}
-
-export interface TargetAuthBinding {
-  root: string
-  target: AuthTarget
-  profilePath?: never
-}
-
-export type AuthBinding = ProfileAuthBinding | TargetAuthBinding
-
-// Backward-compatible aliases for the earlier binding-first API names.
-export type ProfileBindingRef = ProfileAuthBinding
-export type TargetBindingRef = TargetAuthBinding
-export type BindingRef = AuthBinding
-
-export interface ResolvedCredential extends CredentialRecord {
-  profile: CredentialProfileRecord | null
-}
-
-export type BindingPutInput = AuthBinding & {
-  credentialPath?: string
-  host?: string | null
-  auth?: Record<string, unknown>
+  auth: CredentialAuth
   secret: StoredCredentials | Buffer
 }
 
@@ -178,15 +155,108 @@ export interface OAuthClientInput {
   initialAccessToken?: string
 }
 
-export interface OAuthResolvedConfig extends OAuthProfileConfig {
-  resource?: string
+export interface OAuthResolvedConfig {
+  issuer?: string
+  authorizationUrl?: string
+  tokenUrl?: string
+  revocationUrl?: string
+  clientId: string
+  clientSecret?: string
+  clientAuthentication: OAuthClientAuthenticationMethod
+  scopes?: string | string[]
+  resource: string
+}
+
+interface ConnectOptionBase {
+  kind: 'oauth' | 'headers'
+  source: 'discovery' | 'profile'
+  resource: string
+  label: string
+  profilePath?: string
+}
+
+export interface ConnectOAuthOption extends ConnectOptionBase {
+  kind: 'oauth'
+  authorizationServer?: string
+  scopes?: string[]
+}
+
+export interface ConnectHeadersOption extends ConnectOptionBase {
+  kind: 'headers'
+  source: 'profile'
+  fields: HeaderFieldDefinition[]
+}
+
+export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption
+
+export interface ConnectPrepareInput {
+  path: string
+  resource: string
+  response?: Response
+}
+
+export interface ConnectReadyResult {
+  kind: 'ready'
+  credential: CredentialRecord
+  headers: Record<string, string>
+}
+
+export interface ConnectOptionsResult {
+  kind: 'options'
+  options: ConnectOption[]
+}
+
+export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult
+
+export interface ConnectStartInput {
+  path: string
+  option: ConnectOAuthOption
+  redirectUri: string
+  scopes?: string | string[]
+  expiresAt?: Date
+  additionalParameters?: Record<string, string>
+  client?: OAuthClientInput
+}
+
+export interface ConnectAuthorizationSession {
+  flowId: string
+  authorizationUrl: string
+  expiresAt: Date
+  path: string
+  resource: string
+  option: ConnectOAuthOption
+}
+
+export interface ConnectCompleteInput {
+  callbackUri: string
+}
+
+export interface ConnectCompleteResult {
+  path: string
+  credential: CredentialRecord
+}
+
+export interface ConnectSaveHeadersInput {
+  path: string
+  option: ConnectHeadersOption
+  values: Record<string, string>
+}
+
+export interface ConnectHeadersInput {
+  path: string
+  refresh?: boolean
+}
+
+export interface ConnectDisconnectInput {
+  path: string
+  revoke?: 'refresh_token' | 'access_token' | 'both'
 }
 
 export interface PendingFlow {
   id: string
-  root: string
-  target: AuthTarget
-  credentialPath?: string
+  path: string
+  resource: string
+  option: ConnectOAuthOption
   redirectUri: string
   codeVerifier: string
   expiresAt: Date
@@ -202,45 +272,6 @@ export interface FlowStore {
   get(id: string): Promise<PendingFlow | null>
   complete(id: string, result?: CompletedFlowResult): Promise<void>
   delete(id: string): Promise<void>
-}
-
-export type OAuthStartAuthorizationInput = AuthBinding & {
-  credentialPath?: string
-  redirectUri: string
-  scopes?: string | string[]
-  expiresAt?: Date
-  additionalParameters?: Record<string, string>
-  client?: OAuthClientInput
-}
-
-export interface OAuthAuthorizationSession {
-  flowId: string
-  authorizationUrl: string
-  expiresAt: Date
-  root: string
-  target: AuthTarget
-  profilePath: string | null
-  credentialPath?: string
-}
-
-export interface OAuthCompleteAuthorizationInput {
-  callbackUri: string
-}
-
-export interface OAuthCompletionResult {
-  binding: AuthBinding
-  credentialPath: string
-  credential: ResolvedCredential
-}
-
-export type OAuthRefreshInput = AuthBinding & {
-  credentialPath?: string
-  force?: boolean
-}
-
-export type OAuthDisconnectInput = AuthBinding & {
-  credentialPath?: string
-  revoke?: 'refresh_token' | 'access_token' | 'both'
 }
 
 export interface CimdDocument {
@@ -267,11 +298,39 @@ export interface CimdDocumentInput {
   tokenEndpointAuthSigningAlg?: string
 }
 
-export interface OAuthWebHandlers {
-  start(request: Request, input: Omit<OAuthStartAuthorizationInput, 'redirectUri'> & {
+export interface ConnectWebHandlers {
+  start(request: Request, input: Omit<ConnectStartInput, 'redirectUri'> & {
     redirectUri?: string
   }): Promise<Response>
   callback(request: Request): Promise<Response>
+}
+
+export interface AuthorizedAgentPw {
+  connect: {
+    prepare(input: ConnectPrepareInput): Promise<ConnectPrepareResult>
+    start(input: ConnectStartInput): Promise<ConnectAuthorizationSession>
+    complete(input: ConnectCompleteInput): Promise<ConnectCompleteResult>
+    saveHeaders(input: ConnectSaveHeadersInput): Promise<CredentialRecord>
+    headers(input: ConnectHeadersInput): Promise<Record<string, string>>
+    disconnect(input: ConnectDisconnectInput): Promise<boolean>
+  }
+  credentials: {
+    get(path: string): Promise<CredentialRecord | null>
+    list(options?: {
+      path?: string
+    }): Promise<CredentialSummary[]>
+    put(input: CredentialPutInput): Promise<CredentialRecord>
+    move(fromPath: string, toPath: string): Promise<boolean>
+    delete(path: string): Promise<boolean>
+  }
+  profiles: {
+    get(path: string): Promise<CredentialProfileRecord | null>
+    list(options?: {
+      path?: string
+    }): Promise<CredentialProfileRecord[]>
+    put(path: string, data: CredentialProfilePutInput): Promise<CredentialProfileRecord>
+    delete(path: string): Promise<boolean>
+  }
 }
 
 export interface AgentPwOptions {
@@ -285,64 +344,25 @@ export interface AgentPwOptions {
   oauthClient?: OAuthClientInput
 }
 
-export interface AgentPw {
-  profiles: {
+export interface AgentPw extends AuthorizedAgentPw {
+  profiles: AuthorizedAgentPw['profiles'] & {
     resolve(input: {
-      provider?: string
-      host?: string
-      root: string
-    }): Promise<CredentialProfileRecord | null>
-    get(path: string): Promise<CredentialProfileRecord | null>
-    list(options?: {
-      root?: string
-    }): Promise<CredentialProfileRecord[]>
-    put(path: string, data: CredentialProfilePutInput): Promise<CredentialProfileRecord>
-    delete(path: string): Promise<boolean>
-  }
-  bindings: {
-    resolve(input: AuthBinding & {
-      credentialPath?: string
-      refresh?: boolean
-    }): Promise<ResolvedCredential | null>
-    resolveHeaders(input: AuthBinding & {
-      credentialPath?: string
-      refresh?: boolean
-    }): Promise<Record<string, string>>
-    put(input: BindingPutInput): Promise<ResolvedCredential>
-  }
-  credentials: {
-    resolve(input: AuthBinding & {
-      credentialPath?: string
-      refresh?: boolean
-    }): Promise<CredentialRecord | null>
-    get(path: string): Promise<CredentialRecord | null>
-    list(options?: {
-      root?: string
-    }): Promise<CredentialSummary[]>
-    put(path: string, input: CredentialPutInput): Promise<CredentialRecord>
-    move(fromPath: string, toPath: string): Promise<boolean>
-    delete(path: string): Promise<boolean>
-  }
-  oauth: {
-    getFlow(id: string): Promise<PendingFlow | null>
-    startAuthorization(input: OAuthStartAuthorizationInput): Promise<OAuthAuthorizationSession>
-    completeAuthorization(input: OAuthCompleteAuthorizationInput): Promise<OAuthCompletionResult>
-    refreshCredential(input: OAuthRefreshInput): Promise<ResolvedCredential | null>
-    disconnect(input: OAuthDisconnectInput): Promise<boolean>
-    discoverResource(input: {
+      path: string
       resource: string
-    }): Promise<{
-      target: ResourceAuthTarget
-      authorizationServers: string[]
-      resourceName?: string
-      scopes?: string[]
-    }>
+    }): Promise<CredentialProfileRecord | null>
+  }
+  connect: AuthorizedAgentPw['connect'] & {
     createWebHandlers(options?: {
       callbackPath?: string
-      success?(result: OAuthCompletionResult, request: Request): Response | Promise<Response>
+      success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>
       error?(error: unknown, request: Request): Response | Promise<Response>
-    }): OAuthWebHandlers
+    }): ConnectWebHandlers
     createClientMetadataDocument(input: CimdDocumentInput): CimdDocument
     createClientMetadataResponse(input: CimdDocumentInput): Response
   }
+  authenticated(facts: RuleFacts): AuthorizedAgentPw
+  authenticated<T>(
+    facts: RuleFacts,
+    fn: (api: AuthorizedAgentPw) => Promise<T> | T,
+  ): Promise<T>
 }

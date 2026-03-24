@@ -1,4 +1,5 @@
 import { isAncestorOrEqual, pathDepth } from './paths.js'
+import { AgentPwAuthorizationError } from './errors.js'
 import type {
   RuleAuthorizationInput,
   RuleAuthorizationResult,
@@ -56,6 +57,17 @@ export function authorizeRules(input: RuleAuthorizationInput): RuleAuthorization
   }
 
   return { authorized: true }
+}
+
+export function can(input: RuleAuthorizationInput) {
+  return authorizeRules(input).authorized
+}
+
+export function assertCan(input: RuleAuthorizationInput) {
+  const result = authorizeRules(input)
+  if (!result.authorized) {
+    throw new AgentPwAuthorizationError(input.action, input.path, result.error)
+  }
 }
 
 export function normalizeConstraintValues(value: string | string[] | undefined) {

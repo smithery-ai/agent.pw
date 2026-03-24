@@ -1,322 +1,378 @@
 # Architecture
 
-## Executive Summary
+This repo is the public source of truth for the `agent.pw` architecture.
 
-The framework has four core resource types and two runtime layers.
+## Summary
 
-Resources:
+`agent.pw` is a credential vault and auth framework for agents.
 
-- `Credential Profile`: how a provider authenticates at a path
-- `Auth Binding`: the runtime handle for one saved connection in a host product
-- `Credential`: encrypted auth material stored under that root
-- `Rules`: path-based authorization facts over one or more roots
+The framework is built around one simple runtime model:
 
-Runtime layers:
+- a saved connection lives at an exact `path`
+- that connection talks to a `resource`
+- `agent.pw` stores one encrypted `credential` at that exact path
+- `connect.prepare(...)` decides how that connection should authenticate
+- `connect.headers(...)` returns fresh runtime headers for the same path
 
-- `OAuth`: start, complete, refresh, and disconnect provider auth
-- optional token compilation helpers such as `agent.pw/biscuit`
-
-The primary runtime contract is explicit. Products pass an `Auth Binding` with `root + target`. Runtime credential resolution starts from that binding rather than from inferred hosts, proxy headers, or framework-owned routes.
-
-## Package Boundary
-
-The public package surface is:
-
-```ts
-import { createAgentPw } from 'agent.pw'
-import * as paths from 'agent.pw/paths'
-import * as oauth from 'agent.pw/oauth'
-import * as rules from 'agent.pw/rules'
-import * as biscuit from 'agent.pw/biscuit'
-import * as sql from 'agent.pw/sql'
-```
-
-`createAgentPw(...)` returns namespaces, not an HTTP app:
-
-- `profiles`
-- `bindings`
-- `credentials`
-- `oauth`
-
-There is no built-in server, daemon, CLI, or proxy surface in this repo.
+Profiles remain path-scoped configuration, but they are setup-time guidance and polyfills rather than the main runtime identity model.
 
 ## Concepts
 
 ### Path
 
-Every durable object lives on a canonical absolute slash-delimited path.
+A `path` is the durable identifier for one saved connection in an app.
 
 Examples:
 
 ```txt
-/github
-/acme/github
-/acme/ws_eng/github
-/acme/connections/github_primary
-/acme/ws_eng/user_alice/notion
+/acme/connections/github
+/acme/connections/docs
+/acme/workspaces/finance/connections/linear
 ```
 
-The framework does not store folder rows. Hierarchy is implicit in path segments.
+The framework does not store folder rows. Hierarchy is implicit in the path itself.
 
-### Credential Profile
+### Resource
 
-A `Credential Profile` defines how to authenticate to a provider at a path.
-
-Profiles can include:
-
-- provider hosts
-- supported auth schemes
-- OAuth client and endpoint configuration
-- org- or workspace-specific overrides
-
-Profiles are tree-scoped. Examples:
-
-```txt
-/github
-/acme/github
-/acme/ws_eng/github
-```
-
-Deeper profiles override broader ones when both apply.
-
-Profiles are optional for discovery-first OAuth resources. They are most useful when a product needs an explicit auth definition, a polyfill, or a path-scoped override.
-
-### Auth Binding
-
-A binding is how a host product tells agent.pw which saved connection it wants to use and how that connection authenticates.
-
-It tells the framework two things:
-
-- `root`: which path subtree to use for storing and resolving credentials
-- `target`: how that connection authenticates
-
-`target` can be:
-
-- `{ kind: 'profile', profilePath }` when the product wants to use a `Credential Profile`
-- `{ kind: 'resource', resource }` when the product wants discovery-first OAuth for a published resource such as an MCP server
+A `resource` is the protected resource that the connection talks to.
 
 Examples:
 
 ```txt
-/acme/connections/github_primary
-/acme/connections/linear_finance
-/{namespace}/{connectionId}
+https://api.github.com/
+https://api.linear.app/
+https://docs.example.com/mcp
 ```
 
-Bindings are the primary runtime identity model for embedded consumers such as Smithery Connect.
-
-If your product has a connection called "Acme GitHub", the binding might look like:
-
-```ts
-const binding = {
-  root: '/acme/connections/github_primary',
-  target: {
-    kind: 'profile',
-    profilePath: '/github',
-  },
-}
-```
-
-A discovery-first MCP binding might look like:
-
-```ts
-const binding = {
-  root: '/acme/connections/docs_mcp',
-  target: {
-    kind: 'resource',
-    resource: 'https://docs.example.com/mcp',
-  },
-}
-```
-
-`root` answers "which part of the path tree belongs to this connection for credential lookup and storage?"
-
-`target` answers "how should this connection authenticate?"
-
-That is why the binding is `root + target`.
-
-- `root` is a namespace boundary and lookup boundary
-- `credentialPath` is an optional exact leaf when a caller wants to pin one specific stored credential
-- when `credentialPath` is omitted, the framework resolves the deepest matching credential under the binding root
-
-In practice, a host product usually knows it is working with a connection such as "Acme GitHub" or "Docs MCP" before it knows the exact credential leaf. The binding starts from that connection root, and `credentialPath` remains an optional override for callers that want to pin one specific stored credential.
-
-For compatibility, the framework still accepts the shorthand `{ root, profilePath }` for profile-backed bindings.
+`resource` is the canonical setup target for configuration, discovery, and stored credentials.
 
 ### Credential
 
-A `Credential` is encrypted auth material stored at a path under a binding root.
+A `credential` is the encrypted auth stored at one exact path.
 
-Credentials are tagged with their auth target. Runtime resolution uses:
+Each credential stores:
 
-- the binding root
-- the binding target
-- the deepest stored matching credential inside that root
+- `path`
+- `resource`
+- `auth`
+- encrypted `secret`
+- timestamps
+
+At runtime, `secret.headers` is the universal output shape. OAuth credentials may also include stored refresh state.
+
+### Profile
+
+A `profile` is admin-configured setup guidance.
+
+Profiles help `agent.pw` when it needs to:
+
+- fall back from discovery to a known OAuth setup
+- collect manual header-based credentials in a guided way
+- override or constrain setup for specific paths
+- support services that do not publish usable discovery metadata
+
+Profiles are path-scoped so apps can express defaults and more specific org or workspace configuration.
+
+They are not required for every connection, and they do not define the complete set of credentials the vault can hold.
+
+### Rules
+
+Rules are path grants such as:
+
+```txt
+credential.use on /acme
+credential.manage on /acme/connections
+profile.read on /
+```
+
+The framework can enforce those rules directly or compile them into Biscuits.
+
+## Public Package Boundary
+
+The public package surface is:
+
+```ts
+import { createAgentPw } from 'agent.pw'
+import * as oauth from 'agent.pw/oauth'
+import * as rules from 'agent.pw/rules'
+import * as biscuit from 'agent.pw/biscuit'
+import * as sql from 'agent.pw/sql'
+import * as paths from 'agent.pw/paths'
+```
+
+`createAgentPw(...)` returns:
+
+- `connect`
+- `credentials`
+- `profiles`
+- `authenticated(...)`
+
+There is no built-in daemon, CLI, proxy surface, or required second server hop in this repo.
+
+## Connect API
+
+The `connect.*` API is the main product surface.
+
+### `connect.prepare({ path, resource, response? })`
+
+This is the entry point for guided auth.
+
+It answers:
+
+What should the app do next for this connection path and resource?
+
+It returns:
+
+- `ready`
+  - a credential already exists at `path`
+  - includes fresh headers and the current credential record
+- `options`
+  - includes a list of auth options the app can present
+  - options are `oauth` or `headers`
+  - an empty list means unconfigured
+
+### `connect.start({ path, option, redirectUri, client? })`
+
+Starts an OAuth flow from one returned OAuth option.
+
+### `connect.complete({ callbackUri })`
+
+Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential.
+
+### `connect.saveHeaders({ path, option, values })`
+
+Stores a manual header-based credential at the exact path.
+
+### `connect.headers({ path, refresh? })`
+
+Returns runtime headers for the exact path.
+
+When the stored credential is OAuth-backed, this call is refresh-aware by default.
+
+### `connect.disconnect({ path, revoke? })`
+
+Disconnects a stored credential and optionally revokes upstream OAuth tokens.
+
+## Auth Kinds
+
+At the framework level there are only two auth families:
+
+- `oauth`
+- `headers`
+
+Everything manual collapses into header auth:
+
+- API keys
+- bearer tokens
+- basic auth
+- custom vendor headers
+- cookies
+
+This keeps the stored model small while still covering the common real-world cases.
+
+## Decision Flow
+
+`connect.prepare(...)` follows one decision path:
+
+1. check whether a credential already exists at `path`
+2. if it does, return `ready`
+3. try discovery-first OAuth for the `resource`
+4. resolve path-scoped profiles that match the `resource`
+5. build an ordered list of `oauth` and `headers` options
+6. return those options
+
+That gives the app a guided flow without forcing it to understand the framework’s internal selection logic.
+
+## Discovery-First OAuth
+
+When a resource publishes usable OAuth metadata, `agent.pw` uses it directly.
+
+MCP servers are one example, but the model is broader than MCP.
+
+The discovery-first flow is:
+
+1. normalize the `resource`
+2. discover protected-resource metadata
+3. resolve the authorization server
+4. start PKCE authorization
+5. exchange the code on callback
+6. store the resulting credential at the connection path
+
+If discovery is unavailable or incomplete, the framework falls back to matching profiles.
+
+## Profiles as Admin Configuration
+
+Profiles are intended for configuration phases, usually performed once by admins.
+
+Two profile shapes matter:
+
+### OAuth profile
+
+Used when admins want a fixed OAuth setup or the resource does not publish enough discovery metadata.
+
+Example fields:
+
+- `issuer`
+- `authorizationUrl`
+- `tokenUrl`
+- `revocationUrl`
+- `clientId`
+- `clientSecret`
+- `clientAuthentication`
+- `scopes`
+
+### Header profile
+
+Used to guide manual credential entry.
+
+Header profiles define field metadata such as:
+
+- `name`
+- `label`
+- `description`
+- `prefix`
+- `secret`
+
+That lets the framework return a manual setup option without hard-coding the form in the app.
+
+## Minimal Stored Model
+
+The credential table intentionally stores very little:
+
+- `path`
+- `resource`
+- `auth`
+- encrypted `secret`
+- timestamps
+
+That is enough because:
+
+- the exact connection path is the runtime identity
+- the resource is the setup target
+- runtime consumption only needs resolved headers
+- OAuth lifecycle state can live inside the encrypted secret payload
+
+Profiles, discovery logic, and option selection happen around the credential. They are not the credential’s primary identity.
+
+## Exact-Path Credentials
+
+One exact path maps to one stored credential.
 
 Examples:
 
 ```txt
-/acme/connections/github_primary/github
-/acme/ws_eng/user_alice/notion_personal
-/acme/shared/linear_bot
+/acme/connections/github
+/acme/connections/resend
+/acme/workspaces/finance/connections/linear
 ```
 
-### Rules
+This keeps runtime resolution simple:
 
-`Rules` are the base authorization model for the framework.
+- `connect.headers({ path })`
+- `credentials.get(path)`
 
-Each rule is a path grant:
+Listing remains path-based:
 
-```txt
-action = credential.use
-root   = /acme
-```
+- `credentials.list({ path })` returns direct children only under that path
 
-The framework can:
+## Authorization Surface
 
-- evaluate those rules directly in application code
-- derive root visibility for list or runtime operations
-- compile the same rule set into Biscuits when a host product wants capability tokens
+The framework exposes rules in two ways:
 
-## Resolution Model
+### Direct enforcement
 
-### Profile Resolution
+Use `agent.pw/rules` with helpers like:
 
-Profile resolution is path-based:
+- `can(...)`
+- `assertCan(...)`
 
-1. start from a candidate root
-2. find profiles whose parent path is an ancestor of that root
-3. prefer the deepest applicable match
-4. fall back to a global default such as `/github`
-5. same-depth ambiguity is an error
+### Scoped facade
 
-### Binding-First Runtime Resolution
+Use `agentPw.authenticated(facts)` to get an API that enforces rules automatically for:
 
-Runtime credential resolution starts from an explicit binding:
+- `connect.*`
+- `credentials.*`
+- `profiles.*`
 
-1. the host product chooses `root + target`
-2. for profile targets, `agent.pw` resolves the `Credential Profile`
-3. for resource targets, `agent.pw` uses discovery metadata directly
-4. `agent.pw` looks for credentials under the binding root tagged to that same target
-5. the deepest stored credential wins
-6. same-depth ambiguity is an error
-
-The framework still stores `host` on credentials because host products may want it as metadata or for adapter logic. It is not the canonical runtime identity model.
-
-An explicit `credentialPath` can still be passed when the caller already knows the exact credential to use. That narrows runtime resolution further, but it is optional and does not replace the binding root.
-
-### Refresh-Aware Resolution
-
-`bindings.resolve(...)` and `bindings.resolveHeaders(...)` are refresh-aware.
-
-If a resolved credential contains refreshable OAuth state and the access token is expired or near expiry, the framework:
-
-1. resolves the binding
-2. refreshes the provider token if needed
-3. persists the new credential state
-4. returns fresh headers
-
-That means embedded products can call binding resolution directly during runtime use instead of re-implementing token freshness logic outside the framework.
-
-## OAuth Runtime
-
-OAuth is implemented with `oauth4webapi`.
-
-The framework owns:
-
-- PKCE authorization start
-- callback completion and code exchange
-- refresh token exchange
-- optional disconnect and token revocation
-- resource metadata discovery and authorization server discovery
-- hosted callback helpers
-- client metadata document generation for MCP-style clients
-
-The framework does not require an app-auth framework or a second server hop.
-
-### Flow State
-
-Pending OAuth handoff state is stored behind a `FlowStore` interface:
+The callback form:
 
 ```ts
-interface FlowStore {
-  create(flow: PendingFlow): Promise<void>
-  get(id: string): Promise<PendingFlow | null>
-  complete(id: string, result?: { identity?: string }): Promise<void>
-  delete(id: string): Promise<void>
-}
+await agentPw.authenticated(facts, async api => {
+  return api.connect.headers({ path: '/acme/connections/docs' })
+})
 ```
 
-This lets one embedded product use SQL, another use KV, and another use an in-memory store for local development. `createInMemoryFlowStore()` is explicit and intended for development or tests.
+is the ergonomic “operate within this authorization context” surface for embedders.
 
-### Hosted OAuth and CIMD
+## OAuth Runtime Ownership
 
-Many MCP clients need a hosted callback and a client metadata document.
+`agent.pw` owns the provider OAuth lifecycle.
 
-`agent.pw` provides both:
+That includes:
 
-- `oauth.createWebHandlers(...)`
-- `oauth.createClientMetadataDocument(...)`
-- `oauth.createClientMetadataResponse(...)`
+- authorization start
+- callback completion
+- token refresh
+- token revocation on disconnect
+- discovery-first resource handling
+- hosted callback helpers
+- client metadata document helpers for CIMD-style clients
 
-That gives embedded products a small hosted surface without making HTTP routing part of the core contract.
+The implementation uses `oauth4webapi`, but the important architectural point is that apps do not need to re-implement provider token lifecycle logic outside the vault.
 
-## Storage Model
+## Flow Storage
 
-`agent.pw` is SQL-first. By default, framework tables live in the `agentpw` schema.
+OAuth handoff state is stored behind a `FlowStore` interface.
 
-Current tables:
+That allows embedders to choose storage that matches their runtime:
 
-- `cred_profiles`
-- `credentials`
+- SQL
+- KV
+- Redis
+- in-memory storage for local development
 
-Important storage choices:
+The framework does not assume process-local memory in production.
 
-- `cred_profiles.path` and `credentials.path` are tree-aware path fields
-- `credentials.profile_path` stores the canonical auth target key used for runtime resolution
-- secrets are encrypted before persistence
-- the SQL schema is framework-owned and versioned with Drizzle migrations
+## Hosted OAuth and Client Metadata
 
-The default namespace is `agentpw` with no table prefix, but embedders can override both through `createAgentPwSchema(...)` and pass the same namespace config into:
+Apps that need to host a callback or serve a Client ID Metadata Document can use:
 
-- `createDb(...)` or `createLocalDb(...)`
-- `migrateLocal(...)` or `bootstrapLocalSchema(...)`
-- `createAgentPw(...)`
+- `connect.createWebHandlers(...)`
+- `connect.createClientMetadataDocument(...)`
+- `connect.createClientMetadataResponse(...)`
 
-That keeps the default package behavior stable while allowing a host product to place agent.pw tables inside its own schema or prefixed namespace.
+These helpers are optional. They do not turn HTTP routing into the core abstraction.
 
-## Rules and Biscuit Compilation
+## SQL Namespace Configuration
 
-The framework treats rules as primary and Biscuit as optional.
+Embedders can place framework tables in a custom schema or prefix them:
 
-`agent.pw/rules` is the portable enforcement layer:
+```ts
+const sql = {
+  schema: 'platform',
+  tablePrefix: 'agentpw_',
+}
 
-- `authorizeRules(...)`
-- `rootsForAction(...)`
-- `coveringRootsForPath(...)`
-- `constraintAppliesToPath(...)`
+const db = createDb(process.env.DATABASE_URL!, { sql })
 
-`agent.pw/biscuit` is the optional compiler and transport helper:
+const agentPw = await createAgentPw({
+  db,
+  sql,
+  encryptionKey,
+  flowStore,
+})
+```
 
-- `compileRulesToBiscuit(...)`
-- `mintToken(...)`
-- `restrictToken(...)`
-- `authorizeRequest(...)`
-- `extractTokenFacts(...)`
+The same namespace options should be passed to both the SQL helpers and `createAgentPw(...)`.
 
-This keeps the authorization model stable even if host products choose a different bearer token format later.
+## Why This Shape
 
-## Embedded Consumer Flow
+This design keeps the public model simple:
 
-An embedded consumer such as Smithery Connect uses the framework like this:
+- apps think in `path` and `resource`
+- `agent.pw` guides auth automatically
+- profiles stay in the background as admin configuration
+- credentials stay minimal and encrypted
+- runtime consumers resolve fresh headers from exact paths
 
-1. choose a binding root such as `/{namespace}/{connectionId}`
-2. choose an auth target:
-   - a `Credential Profile` such as `/github`
-   - or a discovered resource such as `https://docs.example.com/mcp`
-3. start OAuth for that binding
-4. complete OAuth and persist a credential under the binding root
-5. resolve headers from that binding during MCP or API execution
-6. apply rules directly or compile them into Biscuits for downstream runtimes
-
-The product stays in control of discovery, UX, and runtime orchestration. `agent.pw` owns the auth substrate underneath.
+That gives embedders a stable auth substrate without forcing them into a particular UI, token format, or transport layer.

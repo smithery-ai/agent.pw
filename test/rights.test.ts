@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertCan,
   authorizeRules,
+  can,
   constraintAppliesToPath,
   coveringRootsForPath,
   hasActionRight,
@@ -154,5 +156,21 @@ describe('rules helpers', () => {
       'credential.use',
       'credential.manage',
     ])
+
+    expect(can({
+      rights,
+      action: 'credential.use',
+      path: '/org_alpha/team/tool',
+    })).toBe(true)
+    expect(can({
+      rights,
+      action: 'profile.manage',
+      path: '/org_alpha/team/tool',
+    })).toBe(false)
+    expect(() => assertCan({
+      rights,
+      action: 'profile.manage',
+      path: '/org_alpha/team/tool',
+    })).toThrow("Missing 'profile.manage' for '/org_alpha/team/tool'")
   })
 })

@@ -1,43 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  deleteCredential,
-  getCredProfile,
-  getCredProfilesByHostWithinRoot,
-  getCredProfilesByProviderWithinRoot,
-  getCredential,
-  getCredentialsByHostWithinRoot,
-  getCredentialsByProfileWithinRoot,
-  listCredProfiles,
-  listCredentials,
-  upsertCredProfile,
-  upsertCredential,
-} from 'agent.pw/sql'
-import {
-  buildCredentialHeaders,
-  deriveEncryptionKey,
-  encryptCredentials,
-} from '../packages/server/src/lib/credentials-crypto'
-import { publicProfilePath } from 'agent.pw/paths'
-import {
-  BISCUIT_PRIVATE_KEY,
-  createTestDb,
-  type TestDb,
-} from './setup'
+import { createQueryHelpers } from 'agent.pw/sql'
+import { deriveEncryptionKey, encryptCredentials } from '../packages/server/src/lib/credentials-crypto'
+import { BISCUIT_PRIVATE_KEY, createTestDb, type TestDb } from './setup'
 
 let db: TestDb
+const queries = createQueryHelpers()
 
-async function storeBearerCredential(profilePath: string, host: string, path: string, token: string) {
+async function encryptedHeaders(token: string) {
   const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-  const secret = await encryptCredentials(encryptionKey, {
-    headers: buildCredentialHeaders({ type: 'http', scheme: 'bearer' }, token),
-  })
-
-  await upsertCredential(db, {
-    profilePath,
-    host,
-    path,
-    auth: { kind: 'headers' },
-    secret,
+  return encryptCredentials(encryptionKey, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   })
 }
 
@@ -46,85 +20,96 @@ beforeEach(async () => {
 })
 
 describe('query layer', () => {
-  it('resolves credential profiles across the path tree', async () => {
-    await upsertCredProfile(db, publicProfilePath('linear'), {
-      host: ['api.linear.global'],
-      displayName: 'Global Linear',
-      oauthConfig: {
-        clientId: 'smithery-client',
+  it('resolves matching profiles by path depth and resource pattern', async () => {
+    await queries.upsertCredProfile(db, '/github', {
+      resourcePatterns: ['https://api.github.com/*'],
+      auth: {
+        kind: 'oauth',
+        clientId: 'global-client',
+        authorizationUrl: 'https://github.com/login/oauth/authorize',
+        tokenUrl: 'https://github.com/login/oauth/access_token',
       },
+      displayName: 'GitHub',
     })
-    await upsertCredProfile(db, '/org_alpha/linear', {
-      host: ['api.linear.org'],
-      displayName: 'Org Linear',
+    await queries.upsertCredProfile(db, '/acme/github', {
+      resourcePatterns: ['https://api.github.com/*'],
+      auth: {
+        kind: 'headers',
+        fields: [{ name: 'Authorization', label: 'Token', prefix: 'Bearer ' }],
+      },
+      displayName: 'Acme GitHub',
     })
-    await upsertCredProfile(db, '/org_alpha/ws_engineering/linear', {
-      host: ['api.linear.engineering'],
-      displayName: 'Engineering Linear',
-    })
-    await upsertCredProfile(db, '/org_alpha/ws_design/linear', {
-      host: ['api.linear.design'],
-      displayName: 'Design Linear',
+    await queries.upsertCredProfile(db, '/acme/team/github', {
+      resourcePatterns: ['https://api.github.com/repos/*'],
+      auth: {
+        kind: 'headers',
+        fields: [{ name: 'Authorization', label: 'Team token', prefix: 'Bearer ' }],
+      },
+      displayName: 'Team GitHub',
     })
 
-    expect(await getCredProfile(db, publicProfilePath('linear'))).toEqual(
-      expect.objectContaining({
-        path: '/linear',
-        oauthConfig: { clientId: 'smithery-client' },
-      }),
-    )
+    expect(await queries.getCredProfile(db, '/github')).toEqual(expect.objectContaining({
+      path: '/github',
+      resourcePatterns: ['https://api.github.com/*'],
+    }))
 
     expect(
-      (await getCredProfilesByProviderWithinRoot(db, 'linear', '/org_alpha/ws_engineering/service'))
+      (await queries.getMatchingCredProfiles(db, '/acme/team/connections/docs', 'https://api.github.com/repos/acme/app'))
         .map(profile => profile.path),
     ).toEqual([
-      '/org_alpha/ws_engineering/linear',
-      '/org_alpha/linear',
-      '/linear',
+      '/acme/team/github',
+      '/acme/github',
+      '/github',
     ])
 
     expect(
-      (await getCredProfilesByHostWithinRoot(db, 'api.linear.design', '/org_alpha/ws_design/project'))
+      (await queries.getMatchingCredProfiles(db, '/beta/docs', 'https://api.github.com/repos/acme/app'))
         .map(profile => profile.path),
-    ).toEqual(['/org_alpha/ws_design/linear'])
+    ).toEqual(['/github'])
 
-    expect(
-      (await getCredProfilesByHostWithinRoot(db, 'api.linear.global', '/org_beta/service'))
-        .map(profile => profile.path),
-    ).toEqual(['/linear'])
-
-    expect((await listCredProfiles(db, { root: '/org_alpha' })).map(profile => profile.path)).toEqual([
-      '/org_alpha/linear',
-      '/org_alpha/ws_design/linear',
-      '/org_alpha/ws_engineering/linear',
+    expect(await queries.getMatchingCredProfiles(db, '/beta/docs', 'https://gitlab.com/api/v4')).toEqual([])
+    expect((await queries.listCredProfiles(db, { path: '/acme' })).map(profile => profile.path)).toEqual([
+      '/acme/github',
+      '/acme/team/github',
     ])
   })
 
-  it('handles credential lookups within explicit roots', async () => {
-    await storeBearerCredential('/linear', 'api.linear.app', '/root-cred', 'root-token')
-    await storeBearerCredential('/linear', 'api.linear.app', '/org_alpha/linear', 'org-token')
-    await storeBearerCredential('/linear', 'api.linear.app', '/org_alpha/ws_engineering/linear', 'eng-token')
-    await storeBearerCredential('/linear', 'api.linear.app', '/org_beta/linear', 'beta-token')
+  it('stores credentials by exact path and lists direct children only', async () => {
+    await queries.upsertCredential(db, {
+      path: '/acme/connections/github',
+      resource: 'https://api.github.com',
+      auth: { kind: 'headers', label: 'GitHub' },
+      secret: await encryptedHeaders('github-token'),
+    })
+    await queries.upsertCredential(db, {
+      path: '/acme/connections/team/docs',
+      resource: 'https://docs.example.com/mcp',
+      auth: { kind: 'oauth', label: 'Docs' },
+      secret: await encryptedHeaders('docs-token'),
+    })
+    await queries.upsertCredential(db, {
+      path: '/acme/elsewhere/notion',
+      resource: 'https://api.notion.com',
+      auth: { kind: 'headers', label: 'Notion' },
+      secret: await encryptedHeaders('notion-token'),
+    })
 
-    expect(await getCredential(db, '/org_alpha/linear')).toEqual(
-      expect.objectContaining({ path: '/org_alpha/linear' }),
-    )
+    expect(await queries.getCredential(db, '/acme/connections/github')).toEqual(expect.objectContaining({
+      path: '/acme/connections/github',
+      resource: 'https://api.github.com/',
+    }))
 
-    expect((await getCredentialsByProfileWithinRoot(db, '/linear', '/org_alpha')).map(row => row.path)).toEqual([
-      '/org_alpha/linear',
-      '/root-cred',
+    expect((await queries.listCredentials(db, { path: '/acme/connections' })).map(row => row.path)).toEqual([
+      '/acme/connections/github',
     ])
-    expect((await getCredentialsByHostWithinRoot(db, 'api.linear.app', '/org_alpha')).map(row => row.path)).toEqual([
-      '/org_alpha/linear',
-      '/root-cred',
+    expect((await queries.listCredentials(db, { path: '/acme/connections/team' })).map(row => row.path)).toEqual([
+      '/acme/connections/team/docs',
     ])
+    expect(await queries.listCredentials(db)).toEqual([])
 
-    expect((await listCredentials(db, { root: '/org_alpha' })).map(row => row.path)).toEqual([
-      '/org_alpha/linear',
-      '/org_alpha/ws_engineering/linear',
-    ])
-
-    expect(await deleteCredential(db, '/org_alpha/linear')).toBe(true)
-    expect(await deleteCredential(db, '/org_alpha/linear')).toBe(false)
+    expect(await queries.moveCredential(db, '/acme/connections/github', '/acme/connections/github_primary')).toBe(true)
+    expect(await queries.moveCredential(db, '/acme/connections/github', '/acme/connections/github_secondary')).toBe(false)
+    expect(await queries.deleteCredential(db, '/acme/connections/github_primary')).toBe(true)
+    expect(await queries.deleteCredential(db, '/acme/connections/github_primary')).toBe(false)
   })
 })

@@ -2,30 +2,37 @@
 
 [![npm version](https://img.shields.io/npm/v/agent.pw)](https://www.npmjs.com/package/agent.pw)
 
-`agent.pw` is a credential vault and auth framework for agents.
+`agent.pw` helps apps connect external resources once and reuse the resulting auth safely across agents, tools, and MCP clients.
 
-It lets agent products connect to external services once and reuse those credentials safely across agents, tools, and MCP clients.
+It stores encrypted credentials, runs OAuth flows, supports manual header-based auth, and resolves fresh authenticated headers at runtime from a connection `path`.
 
-Apps embed it in-process to manage provider OAuth and API keys, store encrypted credentials, and resolve fresh authenticated headers at runtime.
+## Concepts
 
-The framework centers on five concepts:
+- `path`: one saved connection in your app, such as `/acme/connections/github`
+- `resource`: the protected resource that connection talks to, such as `https://api.github.com/` or `https://docs.example.com/mcp`
+- `credential`: the encrypted auth stored at that exact path
+- `profile`: admin-configured setup guidance and polyfills that help `agent.pw` choose the right auth path
+- `rules`: path-based authorization facts that can be enforced directly or compiled into Biscuits
 
-- `Credential Profile`: a reusable auth definition for providers that need one
-- `Auth Binding`: one saved connection in your product and the auth target it uses
-- `Credential`: encrypted auth material stored under a binding root
-- `OAuth`: start, complete, refresh, and disconnect provider auth flows
-- `Rules`: portable authorization facts that can be enforced directly or compiled into Biscuits
+Profiles are background configuration. End users usually do not need to know they exist.
 
 ## Package Surface
 
 ```ts
 import { createAgentPw } from 'agent.pw'
-import * as paths from 'agent.pw/paths'
 import * as oauth from 'agent.pw/oauth'
 import * as rules from 'agent.pw/rules'
 import * as biscuit from 'agent.pw/biscuit'
 import * as sql from 'agent.pw/sql'
+import * as paths from 'agent.pw/paths'
 ```
+
+`createAgentPw(...)` returns:
+
+- `connect`
+- `credentials`
+- `profiles`
+- `authenticated(...)`
 
 ## Quick Start
 
@@ -34,326 +41,344 @@ import { createAgentPw } from 'agent.pw'
 import { createDb } from 'agent.pw/sql'
 import { createInMemoryFlowStore } from 'agent.pw/oauth'
 
-const db = createDb(process.env.DATABASE_URL!)
+const sql = {
+  schema: 'agentpw',
+  tablePrefix: '',
+}
+
+const db = createDb(process.env.DATABASE_URL!, { sql })
 
 const agentPw = await createAgentPw({
   db,
+  sql,
   encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
   flowStore: createInMemoryFlowStore(),
 })
-
-await agentPw.profiles.put('/github', {
-  host: ['api.github.com'],
-  auth: {
-    authSchemes: [
-      {
-        type: 'oauth2',
-        authorizeUrl: 'https://github.com/login/oauth/authorize',
-        tokenUrl: 'https://github.com/login/oauth/access_token',
-      },
-    ],
-  },
-  oauthConfig: {
-    clientId: process.env.GITHUB_CLIENT_ID!,
-    clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-    scopes: ['repo'],
-  },
-})
-
-const binding = {
-  root: '/acme/connections/github_primary',
-  target: {
-    kind: 'profile',
-    profilePath: '/github',
-  },
-}
-
-const session = await agentPw.oauth.startAuthorization({
-  ...binding,
-  redirectUri: 'https://connect.example.com/oauth/callback',
-})
-
-// Redirect the user to session.authorizationUrl, then later:
-await agentPw.oauth.completeAuthorization({
-  callbackUri: 'https://connect.example.com/oauth/callback?code=...&state=...',
-})
-
-const headers = await agentPw.bindings.resolveHeaders(binding)
 ```
 
-`createInMemoryFlowStore()` is a development helper. Multi-instance products should pass an explicit persistent or shared `FlowStore`.
+`createInMemoryFlowStore()` is a development helper. Multi-instance apps should pass a shared or persistent `FlowStore`.
 
-## Auth Bindings
+## Guided Connect Flow
 
-The framework runtime contract is explicit:
-
-1. define or resolve a `Credential Profile`
-2. create an `Auth Binding` for a connection in your product
-3. start and complete auth against that binding
-4. resolve headers or stored credentials from the same binding later
-
-A binding is how your product tells agent.pw, "this saved connection should use this auth target."
-
-Every binding has:
-
-- `root`: where credentials for this connection live
-- `target`: how this connection authenticates
-
-`target` can be one of two things:
-
-- a `Credential Profile`, for APIs that need an explicit auth definition or an override
-- a discovered `resource`, for MCP servers and other OAuth resources that publish their own metadata
-
-Profile-based example:
+The main API is `connect.*`.
 
 ```ts
-const binding = {
-  root: '/acme/connections/github_primary',
-  target: {
-    kind: 'profile',
-    profilePath: '/github',
-  },
-}
-```
-
-Discovery-first example:
-
-```ts
-const binding = {
-  root: '/acme/connections/docs_mcp',
-  target: {
-    kind: 'resource',
-    resource: 'https://docs.example.com/mcp',
-  },
-}
-```
-
-For a saved connection such as "Acme GitHub", the binding tells agent.pw:
-
-- where to read or store credentials for that connection
-- whether auth comes from a profile or from resource discovery
-
-`root` answers "which part of the path tree belongs to this connection?"
-
-`target` answers "how should this connection authenticate?"
-
-That is why the binding uses `root + target`.
-
-- `root` is a lookup boundary and sharing boundary
-- `credentialPath` is an optional exact leaf when the caller already knows the specific credential to use
-- if no `credentialPath` is provided, agent.pw resolves the deepest matching credential under the binding root
-
-In practice, host products usually know "this is Acme's GitHub connection" or "this is the docs MCP connection" before they know the exact credential leaf. The binding starts from that connection root, and `credentialPath` stays available as an optional override when the caller wants to pin one specific stored credential.
-
-The shorthand `{ root, profilePath }` is still accepted for profile-based bindings. The more general form is `{ root, target }`.
-
-Runtime resolution does not depend on request hosts, proxy headers, or a framework-owned HTTP server.
-
-## Discovery-First MCP OAuth
-
-When a server publishes OAuth discovery metadata, agent.pw can use it directly without requiring a `Credential Profile`.
-
-```ts
-const discovered = await agentPw.oauth.discoverResource({
+const prepared = await agentPw.connect.prepare({
+  path: '/acme/connections/docs',
   resource: 'https://docs.example.com/mcp',
 })
 
-const binding = {
-  root: '/acme/connections/docs_mcp',
-  target: discovered.target,
+if (prepared.kind === 'ready') {
+  return prepared.headers
 }
 
-const session = await agentPw.oauth.startAuthorization({
-  ...binding,
-  redirectUri: 'https://connect.example.com/oauth/callback',
-  client: {
-    metadata: {
-      redirectUris: ['https://connect.example.com/oauth/callback'],
-      clientName: 'Connect Client',
-      tokenEndpointAuthMethod: 'none',
-    },
-    useDynamicRegistration: true,
+if (prepared.options.length === 0) {
+  throw new Error('This resource is not configured yet')
+}
+
+const option = prepared.options[0]
+
+if (option.kind === 'oauth') {
+  const session = await agentPw.connect.start({
+    path: '/acme/connections/docs',
+    option,
+    redirectUri: 'https://app.example.com/oauth/callback',
+  })
+
+  return Response.redirect(session.authorizationUrl, 302)
+}
+
+await agentPw.connect.saveHeaders({
+  path: '/acme/connections/docs',
+  option,
+  values: {
+    Authorization: 'api-key-value',
   },
 })
-
-await agentPw.oauth.completeAuthorization({
-  callbackUri: 'https://connect.example.com/oauth/callback?code=...&state=...',
-})
-
-const headers = await agentPw.bindings.resolveHeaders(binding)
 ```
 
-Use a `Credential Profile` when you need a polyfill or override for services that do not publish usable discovery metadata.
-
-## Hosted OAuth and CIMD
-
-`agent.pw` includes helpers for embedded products that want to host the OAuth callback flow and serve a client metadata document for MCP-style clients.
+Later, resolve fresh headers for that same connection:
 
 ```ts
-const oauthHandlers = agentPw.oauth.createWebHandlers({
-  callbackPath: '/oauth/callback',
+const headers = await agentPw.connect.headers({
+  path: '/acme/connections/docs',
+})
+```
+
+## `connect.prepare(...)`
+
+`connect.prepare(...)` always answers one question:
+
+What should this app do next for this connection path and resource?
+
+It returns one of:
+
+- `ready`: a credential already exists at `path`
+- `options`: a list of possible auth routes
+
+Each returned option is self-contained. Apps pass the chosen option into either:
+
+- `connect.start(...)` for OAuth
+- `connect.saveHeaders(...)` for manual header-based auth
+
+An empty `options` list means the resource is currently unconfigured.
+
+## Auth Kinds
+
+At the framework level there are only two auth kinds:
+
+- `oauth`
+- `headers`
+
+API keys are header auth. Basic auth, bearer tokens, vendor-specific headers, cookies, and similar schemes are all header auth.
+
+Credentials always store resolved runtime headers. OAuth credentials may also store refresh state so `agent.pw` can keep headers fresh.
+
+## Discovery-First OAuth
+
+When a resource publishes usable OAuth metadata, `agent.pw` uses discovery first. MCP servers are one example, but the flow is not MCP-specific.
+
+```ts
+const prepared = await agentPw.connect.prepare({
+  path: '/acme/connections/docs',
+  resource: 'https://docs.example.com/mcp',
+  response: unauthorizedResponse,
 })
 
-export async function start(request: Request) {
-  return oauthHandlers.start(request, {
-    root: '/acme/connections/github_primary',
-    target: {
-      kind: 'profile',
-      profilePath: '/github',
+if (prepared.kind === 'options') {
+  const oauthOption = prepared.options.find(option => option.kind === 'oauth')
+  if (!oauthOption) {
+    throw new Error('Expected an OAuth option')
+  }
+
+  const session = await agentPw.connect.start({
+    path: '/acme/connections/docs',
+    option: oauthOption,
+    redirectUri: 'https://app.example.com/oauth/callback',
+  })
+
+  return Response.redirect(session.authorizationUrl, 302)
+}
+```
+
+When the callback returns:
+
+```ts
+await agentPw.connect.complete({
+  callbackUri: 'https://app.example.com/oauth/callback?code=...&state=...',
+})
+```
+
+`connect.headers(...)` is refresh-aware by default, so apps do not need to re-implement token refresh outside the vault.
+
+## Profiles
+
+Profiles are admin-side configuration. They help `agent.pw` decide what to do when discovery is unavailable, incomplete, or intentionally overridden.
+
+Profiles are useful for:
+
+- OAuth overrides for known resources
+- header-based setup templates
+- internal APIs that do not publish discovery metadata
+- constraining and documenting the headers an app should collect
+
+Header-based profiles define which fields are expected:
+
+```ts
+await agentPw.profiles.put('/resend', {
+  resourcePatterns: ['https://api.resend.com*'],
+  displayName: 'Resend',
+  auth: {
+    kind: 'headers',
+    label: 'Resend API key',
+    fields: [
+      {
+        name: 'Authorization',
+        label: 'API key',
+        description: 'Your Resend API key',
+        prefix: 'Bearer ',
+        secret: true,
+      },
+    ],
+  },
+})
+```
+
+OAuth profiles define the auth configuration the framework should use when discovery is not enough or an admin wants a fixed setup:
+
+```ts
+await agentPw.profiles.put('/linear', {
+  resourcePatterns: ['https://api.linear.app/*'],
+  displayName: 'Linear',
+  auth: {
+    kind: 'oauth',
+    authorizationUrl: 'https://linear.app/oauth/authorize',
+    tokenUrl: 'https://api.linear.app/oauth/token',
+    clientId: process.env.LINEAR_CLIENT_ID!,
+    clientSecret: process.env.LINEAR_CLIENT_SECRET!,
+    scopes: 'read write',
+  },
+})
+```
+
+Profiles are path-scoped configuration, so apps can keep global defaults and more specific org or workspace overrides.
+
+## One-Off Credentials
+
+Profiles guide setup, but they do not define what is possible.
+
+Apps can still store a one-off credential directly:
+
+```ts
+await agentPw.credentials.put({
+  path: '/acme/connections/manual_resend',
+  resource: 'https://api.resend.com/',
+  auth: {
+    kind: 'headers',
+    label: 'Manual Resend key',
+  },
+  secret: {
+    headers: {
+      Authorization: 'Bearer rs_live_123',
     },
-  })
-}
-
-export async function callback(request: Request) {
-  return oauthHandlers.callback(request)
-}
-
-export async function clientMetadata() {
-  return agentPw.oauth.createClientMetadataResponse({
-    clientId: 'https://connect.example.com/.well-known/oauth-client',
-    redirectUris: ['https://connect.example.com/oauth/callback'],
-    clientName: 'Connect Client',
-    scope: ['mcp.tools.read', 'mcp.resources.read'],
-    tokenEndpointAuthMethod: 'none',
-  })
-}
+  },
+})
 ```
 
-The hosted helper surface is:
-
-- `startAuthorization(...)`
-- `completeAuthorization(...)`
-- `refreshCredential(...)`
-- `disconnect(...)`
-- `createWebHandlers(...)`
-- `createClientMetadataDocument(...)`
-- `createClientMetadataResponse(...)`
-
-Under the hood, OAuth is implemented with [`oauth4webapi`](https://github.com/panva/oauth4webapi).
-
-## Rules and Tokens
-
-Use `agent.pw/rules` for path-based policy checks directly in application code:
+List stored credentials directly under a path:
 
 ```ts
-import { authorizeRules } from 'agent.pw/rules'
+const children = await agentPw.credentials.list({
+  path: '/acme/connections',
+})
+```
 
-const result = authorizeRules({
+`credentials.list({ path })` returns direct children only.
+
+## Authenticated Facade
+
+Use `authenticated(...)` to get a scoped API that enforces rules automatically.
+
+```ts
+const api = agentPw.authenticated({
+  rights: [{ action: 'credential.use', root: '/acme' }],
+  userId: 'user_123',
+  orgId: 'acme',
+  homePath: null,
+  scopes: [],
+})
+
+const headers = await api.connect.headers({
+  path: '/acme/connections/docs',
+})
+```
+
+Or use the callback form:
+
+```ts
+await agentPw.authenticated({
+  rights: [{ action: 'credential.read', root: '/acme' }],
+  userId: 'user_123',
+  orgId: 'acme',
+  homePath: null,
+  scopes: [],
+}, async api => {
+  return api.credentials.list({ path: '/acme/connections' })
+})
+```
+
+## Rules and Biscuits
+
+Rules are the base authorization model.
+
+```ts
+import { can, assertCan } from 'agent.pw/rules'
+
+const allowed = can({
   rights: [{ action: 'credential.use', root: '/acme' }],
   action: 'credential.use',
-  path: '/acme/connections/github_primary',
+  path: '/acme/connections/docs',
+})
+
+assertCan({
+  rights: [{ action: 'credential.manage', root: '/acme' }],
+  action: 'credential.manage',
+  path: '/acme/connections/docs',
 })
 ```
 
-Use `agent.pw/biscuit` when you want to compile the same rules into Biscuit tokens:
+If an app wants Biscuit tokens, it can compile the same rules into Biscuits:
 
 ```ts
-import { compileRulesToBiscuit, subjectFactsToExtraFacts } from 'agent.pw/biscuit'
+import { compileRulesToBiscuit } from 'agent.pw/biscuit'
 
 const token = compileRulesToBiscuit({
   privateKeyHex: process.env.BISCUIT_PRIVATE_KEY!,
   subject: 'agent_finance',
   rights: [{ action: 'credential.use', root: '/acme' }],
-  constraints: [{ hosts: ['api.github.com'], ttl: '10m' }],
-  extraFacts: subjectFactsToExtraFacts({
-    orgId: 'acme',
-    scopes: ['repo'],
-  }),
 })
 ```
 
-Apps can use Biscuits, another token format, or no bearer token format at all. The framework exposes the rule model either way.
+## Hosted OAuth and Client Metadata
 
-## Path Model
-
-Every durable object lives on a canonical slash-delimited path:
-
-```txt
-/github
-/acme/github
-/acme/ws_eng/github
-/acme/connections/github_primary
-/acme/ws_eng/user_alice/notion
-```
-
-The path model applies to:
-
-- `Credential Profiles`
-- `Credentials`
-- `Auth Binding` roots
-- authorization roots in `Rules`
-
-Resolution is tree-based:
-
-- profiles resolve by deepest applicable path, with root-level defaults as fallback
-- credentials resolve by deepest stored credential under an explicit binding root
-- same-depth ambiguity is an error the host product must disambiguate
-
-## SQL
-
-`agent.pw` is SQL-first. The repo ships:
-
-- Drizzle schema in the `agentpw` schema
-- query helpers and local bootstrap utilities
-- generated migrations in [`drizzle`](./drizzle)
-
-Current framework tables:
-
-- `cred_profiles`
-- `credentials`
-
-The default namespace is the `agentpw` schema with no table prefix.
-
-Embedders can opt into a different SQL namespace without changing the default package path:
+Apps that need a hosted OAuth callback and a Client ID Metadata Document can use the built-in helpers:
 
 ```ts
-import { createAgentPwSchema, createDb } from 'agent.pw/sql'
-
-const sqlNamespace = createAgentPwSchema({
-  schema: 'connect_data',
-  tablePrefix: 'smithery_',
+const handlers = agentPw.connect.createWebHandlers({
+  callbackPath: '/oauth/callback',
 })
 
-const db = createDb(process.env.DATABASE_URL!, {
-  sql: sqlNamespace,
-})
+export async function oauthStart(request: Request) {
+  return handlers.start(request, {
+    path: '/acme/connections/docs',
+    option: {
+      kind: 'oauth',
+      source: 'discovery',
+      label: 'Docs',
+      resource: 'https://docs.example.com/mcp',
+    },
+  })
+}
+
+export async function oauthCallback(request: Request) {
+  return handlers.callback(request)
+}
+
+export async function clientMetadata() {
+  return agentPw.connect.createClientMetadataResponse({
+    clientId: 'https://app.example.com/.well-known/oauth-client',
+    redirectUris: ['https://app.example.com/oauth/callback'],
+    clientName: 'App Client',
+    tokenEndpointAuthMethod: 'none',
+  })
+}
+```
+
+Under the hood, OAuth is implemented with [`oauth4webapi`](https://github.com/panva/oauth4webapi).
+
+## SQL Namespace Configuration
+
+Embedders can place `agent.pw` tables in a custom schema or prefix them:
+
+```ts
+const sql = {
+  schema: 'platform',
+  tablePrefix: 'agentpw_',
+}
+
+const db = createDb(process.env.DATABASE_URL!, { sql })
 
 const agentPw = await createAgentPw({
   db,
+  sql,
   encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
-  sql: sqlNamespace,
+  flowStore,
 })
 ```
 
-## Public Docs
+The same `sql` options should be passed to both the database helpers and `createAgentPw(...)`.
 
-The OSS repo is the source of truth for the public architecture:
+## More Docs
 
-- [docs/architecture.md](./docs/architecture.md)
-- [docs/security-model.md](./docs/security-model.md)
-
-## Development
-
-```bash
-pnpm install
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm run db:generate
-```
-
-## Repo Structure
-
-```txt
-packages/server/src/
-  index.ts          createAgentPw(...)
-  oauth.ts          provider OAuth runtime and hosted helpers
-  paths.ts          canonical path helpers
-  rules.ts          rule evaluation helpers
-  biscuit.ts        optional Biscuit compilation and verification helpers
-  db/               Drizzle schema, queries, bootstrap, migrations
-  lib/              encryption, logging, shared helpers
-docs/
-  architecture.md
-  security-model.md
-```
+- [Architecture](./docs/architecture.md)
+- [Security Model](./docs/security-model.md)

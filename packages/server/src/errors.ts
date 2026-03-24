@@ -11,3 +11,15 @@ export class AgentPwInputError extends Error {
     this.name = 'AgentPwInputError'
   }
 }
+
+export class AgentPwAuthorizationError extends Error {
+  action: string
+  path: string
+
+  constructor(action: string, path: string, message = `Missing '${action}' for '${path}'`) {
+    super(message)
+    this.name = 'AgentPwAuthorizationError'
+    this.action = action
+    this.path = path
+  }
+}

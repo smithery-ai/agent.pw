@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAgentPw } from 'agent.pw'
-import { AgentPwConflictError, AgentPwInputError } from '../packages/server/src/errors'
+import { AgentPwAuthorizationError, AgentPwConflictError, AgentPwInputError } from '../packages/server/src/errors'
 import { deriveEncryptionKey, encryptCredentials } from '../packages/server/src/lib/credentials-crypto'
 import type { Logger } from '../packages/server/src/lib/logger'
-import { BISCUIT_PRIVATE_KEY, createTestDb } from './setup'
+import { createTestDb } from './setup'
 
 const silentLogger: Logger = {
   info() {},
@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 describe('createAgentPw edge cases', () => {
-  it('validates profile operations and resolves host conflicts', async () => {
+  it('validates profile and credential operations and surfaces conflicts', async () => {
     const db = await createTestDb()
     const agentPw = await createAgentPw({
       db,
@@ -30,164 +30,137 @@ describe('createAgentPw edge cases', () => {
       clock: () => new Date('2026-01-01T00:00:00.000Z'),
     })
 
-    expect(await agentPw.profiles.resolve({
-      root: '/',
-    })).toBeNull()
-
-    await expect(agentPw.profiles.resolve({
-      provider: 'linear',
-      root: '/../bad-root',
-    })).rejects.toBeInstanceOf(AgentPwInputError)
-
     await expect(agentPw.profiles.get('/')).rejects.toBeInstanceOf(AgentPwInputError)
-    await expect(agentPw.profiles.list({ root: '/../bad-root' })).rejects.toBeInstanceOf(AgentPwInputError)
-    await expect(agentPw.profiles.put('/linear', {
-      host: [],
-    })).rejects.toBeInstanceOf(AgentPwInputError)
+    await expect(agentPw.profiles.put('/shared/github', {
+      resourcePatterns: [],
+      auth: { kind: 'headers', fields: [] },
+    })).rejects.toThrow('Credential Profile resourcePatterns cannot be empty')
 
-    const explicit = await agentPw.profiles.put('/linear', {
-      host: ['api.linear.app'],
-      displayName: 'Linear Cloud',
-      auth: { kind: 'oauth' },
-      description: 'Primary profile',
+    await agentPw.profiles.put('/shared/github', {
+      resourcePatterns: ['https://shared.example.com/*'],
+      auth: { kind: 'headers', fields: [{ name: 'Authorization', label: 'Token' }] },
     })
-    expect(explicit).toEqual(expect.objectContaining({
-      displayName: 'Linear Cloud',
-      description: 'Primary profile',
-      provider: 'linear',
-    }))
-
-    await agentPw.profiles.put('/org_alpha/github', {
-      host: ['shared.host'],
-    })
-    await agentPw.profiles.put('/org_alpha/gitlab', {
-      host: ['shared.host'],
+    await agentPw.profiles.put('/shared/gitlab', {
+      resourcePatterns: ['https://shared.example.com/*'],
+      auth: { kind: 'oauth', authorizationUrl: 'https://auth.example.com/authorize', tokenUrl: 'https://auth.example.com/token', clientId: 'shared-client' },
     })
 
     await expect(agentPw.profiles.resolve({
-      host: 'shared.host',
-      root: '/org_alpha/project',
+      path: '/shared/connections/tool',
+      resource: 'https://shared.example.com/api',
     })).rejects.toBeInstanceOf(AgentPwConflictError)
 
-    expect(await agentPw.profiles.resolve({
-      provider: 'linear',
-      host: 'other.host',
-      root: '/',
-    })).toBeNull()
+    await expect(agentPw.credentials.get('/')).rejects.toBeInstanceOf(AgentPwInputError)
+    await expect(agentPw.credentials.list({ path: '/../bad' })).rejects.toBeInstanceOf(AgentPwInputError)
+    await expect(agentPw.connect.headers({ path: '/missing' })).rejects.toThrow("No credential exists at '/missing'")
 
-    expect(await agentPw.profiles.delete('/linear')).toBe(true)
-    expect(await agentPw.profiles.delete('/linear')).toBe(false)
+    const encrypted = await encryptCredentials(Buffer.alloc(32, 7).toString('base64'), {
+      headers: { Authorization: 'Bearer buffered-token' },
+    })
+    const stored = await agentPw.credentials.put({
+      path: '/shared/connections/buffered',
+      resource: 'https://buffered.example.com',
+      auth: { kind: 'headers', label: 'Buffered' },
+      secret: encrypted,
+    })
+    expect(stored.secret.headers).toEqual({ Authorization: 'Bearer buffered-token' })
 
-    expect((await agentPw.profiles.list()).map(profile => profile.path)).toEqual([
-      '/org_alpha/github',
-      '/org_alpha/gitlab',
-    ])
-    expect(await agentPw.profiles.get('/missing')).toBeNull()
-    expect(await agentPw.profiles.get('/org_alpha/github')).toEqual(expect.objectContaining({
-      path: '/org_alpha/github',
-      provider: 'github',
-    }))
-    expect((await agentPw.profiles.list({ root: '/org_alpha' })).map(profile => profile.path)).toEqual([
-      '/org_alpha/github',
-      '/org_alpha/gitlab',
-    ])
+    expect(await agentPw.credentials.move('/shared/connections/buffered', '/shared/connections/buffered_next')).toBe(true)
+    expect(await agentPw.credentials.move('/shared/connections/buffered', '/shared/connections/buffered_next')).toBe(false)
+    expect(await agentPw.credentials.delete('/shared/connections/buffered_next')).toBe(true)
+    expect(await agentPw.credentials.delete('/shared/connections/buffered_next')).toBe(false)
   })
 
-  it('validates credential operations and supports buffer secrets', async () => {
+  it('validates connect helpers and authorization denials', async () => {
     const db = await createTestDb()
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
+    const encryptionKey = await deriveEncryptionKey('ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad')
     const agentPw = await createAgentPw({
       db,
       encryptionKey,
     })
 
-    expect(await agentPw.credentials.resolve({
-      root: '/',
-      profilePath: '/linear',
-      credentialPath: '/linear',
-    })).toBeNull()
-    expect(await agentPw.credentials.resolve({
-      root: '/',
-      profilePath: '/linear',
-    })).toBeNull()
-    expect(await agentPw.bindings.resolveHeaders({
-      root: '/',
-      profilePath: '/linear',
-    })).toEqual({})
-
-    await expect(agentPw.credentials.resolve({
-      root: '/../bad-root',
-      profilePath: '/linear',
-    })).rejects.toBeInstanceOf(AgentPwInputError)
-
-    await expect(agentPw.credentials.resolve({
-      root: '/org_alpha',
-      profilePath: '/linear',
-      credentialPath: '/org_beta/linear',
-    })).rejects.toBeInstanceOf(AgentPwInputError)
-
-    await expect(agentPw.credentials.get('/')).rejects.toBeInstanceOf(AgentPwInputError)
-    await expect(agentPw.credentials.list({ root: '/../bad-root' })).rejects.toBeInstanceOf(AgentPwInputError)
-
-    const encryptedBuffer = await encryptCredentials(encryptionKey, {
-      headers: { Authorization: 'Bearer buffered-token' },
+    await agentPw.profiles.put('/resend', {
+      resourcePatterns: ['https://api.resend.com*'],
+      auth: {
+        kind: 'headers',
+        fields: [{ name: 'Authorization', label: 'API key', prefix: 'Bearer ' }],
+      },
     })
-    const stored = await agentPw.credentials.put('/org_alpha/linear', {
-      profilePath: '/linear',
-      secret: encryptedBuffer,
+
+    const prepared = await agentPw.connect.prepare({
+      path: '/org/connections/resend',
+      resource: 'https://api.resend.com',
     })
-    expect(stored).toEqual(expect.objectContaining({
-      auth: { kind: 'opaque' },
-      path: '/org_alpha/linear',
-      profilePath: '/linear',
-      secret: { headers: { Authorization: 'Bearer buffered-token' } },
+    expect(prepared.kind).toBe('options')
+    if (prepared.kind !== 'options') {
+      throw new Error('Expected options')
+    }
+
+    await expect(agentPw.connect.saveHeaders({
+      path: '/org/connections/resend',
+      option: prepared.options[0],
+      values: {},
+    })).rejects.toThrow("Missing header value for 'Authorization'")
+
+    await expect(agentPw.connect.saveHeaders({
+      path: '/org/connections/raw',
+      option: {
+        kind: 'headers',
+        source: 'profile',
+        label: 'Raw token',
+        profilePath: '/resend',
+        resource: 'https://api.resend.com/',
+        fields: [{ name: 'Authorization', label: 'Token' }],
+      },
+      values: { Authorization: 'plain-token' },
+    })).resolves.toEqual(expect.objectContaining({
+      secret: {
+        headers: {
+          Authorization: 'plain-token',
+        },
+      },
     }))
 
-    expect(await agentPw.credentials.move('/org_alpha/linear', '/org_alpha/linear-next')).toBe(true)
-    expect(await agentPw.credentials.move('/org_alpha/linear', '/org_alpha/linear-next')).toBe(false)
-    expect(await agentPw.credentials.delete('/org_alpha/linear-next')).toBe(true)
-    expect(await agentPw.credentials.delete('/org_alpha/linear-next')).toBe(false)
+    await expect(agentPw.connect.saveHeaders({
+      path: '/org/connections/resend',
+      option: {
+        kind: 'oauth',
+        source: 'profile',
+        label: 'Wrong',
+        profilePath: '/resend',
+        resource: 'https://api.resend.com/',
+      },
+      values: {},
+    })).rejects.toThrow('connect.saveHeaders requires a headers option')
 
-    await agentPw.credentials.put('/org_alpha/linear-second', {
-      profilePath: '/linear',
-      secret: { headers: { Authorization: 'Bearer second' } },
-    })
-    expect(await agentPw.credentials.get('/missing')).toBeNull()
-    expect((await agentPw.credentials.list()).map(credential => credential.path)).toEqual([
-      '/org_alpha/linear-second',
-    ])
-    expect((await agentPw.credentials.list({ root: '/org_alpha' })).map(credential => credential.path)).toEqual([
-      '/org_alpha/linear-second',
-    ])
-    expect(await agentPw.credentials.resolve({
-      root: '/org_alpha',
-      profilePath: '/linear',
-      credentialPath: '/org_alpha/linear-second',
-    })).toEqual(expect.objectContaining({
-      path: '/org_alpha/linear-second',
-    }))
-
-    const bindingStored = await agentPw.bindings.put({
-      root: '/org_alpha/custom',
-      profilePath: '/custom',
-      secret: { headers: { Authorization: 'Bearer custom' } },
-    })
-    expect(bindingStored).toEqual(expect.objectContaining({
-      host: null,
-      path: '/org_alpha/custom/custom',
-      profile: null,
-    }))
+    await expect(agentPw.authenticated({
+      rights: [{ action: 'credential.read', root: '/elsewhere' }],
+      userId: 'user_123',
+      orgId: null,
+      homePath: null,
+      scopes: [],
+    }, api => api.credentials.get('/org/connections/resend'))).rejects.toBeInstanceOf(AgentPwAuthorizationError)
   })
 
-  it('surfaces defensive persistence failures for profiles', async () => {
+  it('falls back to the existing oauth credential when refresh lookup races to null', async () => {
     vi.doMock('../packages/server/src/db/queries.js', async importOriginal => {
       const actual = await importOriginal<typeof import('../packages/server/src/db/queries.js')>()
       const helpers = actual.createQueryHelpers()
+      let reads = 0
       return {
         ...actual,
         createQueryHelpers: vi.fn(() => ({
           ...helpers,
-          getCredProfile: vi.fn(async () => null),
+          getCredential: vi.fn(async (_db, path) => {
+            if (path !== '/org/connections/docs') {
+              return helpers.getCredential(_db, path)
+            }
+            reads += 1
+            if (reads <= 2) {
+              return helpers.getCredential(_db, path)
+            }
+            return null
+          }),
         })),
       }
     })
@@ -197,15 +170,39 @@ describe('createAgentPw edge cases', () => {
     const agentPw = await createMockedAgentPw({
       db,
       encryptionKey: Buffer.alloc(32, 7).toString('base64'),
-      logger: silentLogger,
     })
 
-    await expect(agentPw.profiles.put('/linear', {
-      host: ['api.linear.app'],
-    })).rejects.toThrow("Failed to persist Credential Profile '/linear'")
+    await agentPw.credentials.put({
+      path: '/org/connections/docs',
+      resource: 'https://docs.example.com/mcp',
+      auth: { kind: 'oauth', label: 'Docs' },
+      secret: {
+        headers: { Authorization: 'Bearer docs-token' },
+        oauth: {
+          accessToken: 'docs-token',
+        },
+      },
+    })
+
+    await expect(agentPw.connect.prepare({
+      path: '/org/connections/docs',
+      resource: 'https://docs.example.com/mcp',
+    })).resolves.toEqual(expect.objectContaining({
+      kind: 'ready',
+      credential: expect.objectContaining({
+        path: '/org/connections/docs',
+        auth: expect.objectContaining({
+          kind: 'oauth',
+          label: 'Docs',
+        }),
+      }),
+      headers: {
+        Authorization: 'Bearer docs-token',
+      },
+    }))
   })
 
-  it('surfaces defensive persistence failures for credentials', async () => {
+  it('surfaces defensive persistence failures for profiles and credentials', async () => {
     vi.doMock('../packages/server/src/db/queries.js', async importOriginal => {
       const actual = await importOriginal<typeof import('../packages/server/src/db/queries.js')>()
       const helpers = actual.createQueryHelpers()
@@ -213,6 +210,7 @@ describe('createAgentPw edge cases', () => {
         ...actual,
         createQueryHelpers: vi.fn(() => ({
           ...helpers,
+          getCredProfile: vi.fn(async () => null),
           getCredential: vi.fn(async () => null),
         })),
       }
@@ -223,12 +221,18 @@ describe('createAgentPw edge cases', () => {
     const agentPw = await createMockedAgentPw({
       db,
       encryptionKey: Buffer.alloc(32, 7).toString('base64'),
-      logger: silentLogger,
     })
 
-    await expect(agentPw.credentials.put('/linear', {
-      profilePath: '/linear',
-      secret: { headers: {} },
-    })).rejects.toThrow("Failed to persist Credential '/linear'")
+    await expect(agentPw.profiles.put('/linear', {
+      resourcePatterns: ['https://api.linear.app/*'],
+      auth: { kind: 'headers', fields: [{ name: 'Authorization', label: 'Token' }] },
+    })).rejects.toThrow("Failed to persist Credential Profile '/linear'")
+
+    await expect(agentPw.credentials.put({
+      path: '/org/connections/linear',
+      resource: 'https://api.linear.app',
+      auth: { kind: 'headers' },
+      secret: { headers: { Authorization: 'Bearer token' } },
+    })).rejects.toThrow("Failed to persist Credential '/org/connections/linear'")
   })
 })

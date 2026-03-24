@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { createAgentPw } from 'agent.pw'
 import { createInMemoryFlowStore } from 'agent.pw/oauth'
 import { deriveEncryptionKey } from '../packages/server/src/lib/credentials-crypto'
-import { AgentPwInputError } from '../packages/server/src/errors'
 import { BISCUIT_PRIVATE_KEY, createTestDb } from './setup'
 
 function createOAuthFetch() {
@@ -22,8 +21,8 @@ function createOAuthFetch() {
     if (url === 'https://accounts.example.com/token') {
       if (body.get('grant_type') === 'authorization_code') {
         return Response.json({
-          access_token: 'access-1',
-          refresh_token: 'refresh-1',
+          access_token: 'profile-access-1',
+          refresh_token: 'profile-refresh-1',
           expires_in: 3600,
           scope: 'read write',
           token_type: 'Bearer',
@@ -32,8 +31,8 @@ function createOAuthFetch() {
 
       if (body.get('grant_type') === 'refresh_token') {
         return Response.json({
-          access_token: 'access-2',
-          refresh_token: 'refresh-2',
+          access_token: 'profile-access-2',
+          refresh_token: 'profile-refresh-2',
           expires_in: 7200,
           scope: 'read write',
           token_type: 'Bearer',
@@ -45,60 +44,40 @@ function createOAuthFetch() {
       return new Response(null, { status: 200 })
     }
 
-    throw new Error(`Unexpected oauth fetch: ${url}`)
-  }
-
-  return { fetchImpl, calls }
-}
-
-function createDiscoveryOAuthFetch() {
-  const calls: Array<{
-    url: string
-    body: URLSearchParams
-  }> = []
-
-  const fetchImpl: typeof fetch = async (input, init) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    const body = init?.body instanceof URLSearchParams
-      ? init.body
-      : new URLSearchParams(typeof init?.body === 'string' ? init.body : undefined)
-
-    calls.push({ url, body })
-
     if (url.includes('/.well-known/oauth-protected-resource')) {
       return Response.json({
-        resource: 'https://mcp.example.com',
-        authorization_servers: ['https://auth.mcp.example.com'],
+        resource: 'https://docs.example.com/mcp',
+        authorization_servers: ['https://auth.docs.example.com'],
         scopes_supported: ['mcp.tools.read'],
-        resource_name: 'Example MCP',
+        resource_name: 'Docs MCP',
       })
     }
 
     if (
-      url === 'https://auth.mcp.example.com/.well-known/oauth-authorization-server'
-      || url === 'https://auth.mcp.example.com/.well-known/openid-configuration'
+      url === 'https://auth.docs.example.com/.well-known/oauth-authorization-server'
+      || url === 'https://auth.docs.example.com/.well-known/openid-configuration'
     ) {
       return Response.json({
-        issuer: 'https://auth.mcp.example.com',
-        authorization_endpoint: 'https://auth.mcp.example.com/authorize',
-        token_endpoint: 'https://auth.mcp.example.com/token',
-        revocation_endpoint: 'https://auth.mcp.example.com/revoke',
-        registration_endpoint: 'https://auth.mcp.example.com/register',
+        issuer: 'https://auth.docs.example.com',
+        authorization_endpoint: 'https://auth.docs.example.com/authorize',
+        token_endpoint: 'https://auth.docs.example.com/token',
+        revocation_endpoint: 'https://auth.docs.example.com/revoke',
+        registration_endpoint: 'https://auth.docs.example.com/register',
       })
     }
 
-    if (url === 'https://auth.mcp.example.com/register') {
+    if (url === 'https://auth.docs.example.com/register') {
       return Response.json({
         client_id: 'https://app.example.com/.well-known/oauth-client',
         token_endpoint_auth_method: 'none',
       }, { status: 201 })
     }
 
-    if (url === 'https://auth.mcp.example.com/token') {
+    if (url === 'https://auth.docs.example.com/token') {
       if (body.get('grant_type') === 'authorization_code') {
         return Response.json({
-          access_token: 'mcp-access-1',
-          refresh_token: 'mcp-refresh-1',
+          access_token: 'docs-access-1',
+          refresh_token: 'docs-refresh-1',
           expires_in: 3600,
           scope: 'mcp.tools.read',
           token_type: 'Bearer',
@@ -107,8 +86,8 @@ function createDiscoveryOAuthFetch() {
 
       if (body.get('grant_type') === 'refresh_token') {
         return Response.json({
-          access_token: 'mcp-access-2',
-          refresh_token: 'mcp-refresh-2',
+          access_token: 'docs-access-2',
+          refresh_token: 'docs-refresh-2',
           expires_in: 3600,
           scope: 'mcp.tools.read',
           token_type: 'Bearer',
@@ -116,11 +95,11 @@ function createDiscoveryOAuthFetch() {
       }
     }
 
-    if (url === 'https://auth.mcp.example.com/revoke') {
+    if (url === 'https://auth.docs.example.com/revoke') {
       return new Response(null, { status: 200 })
     }
 
-    throw new Error(`Unexpected discovery fetch: ${url}`)
+    throw new Error(`Unexpected oauth fetch: ${url}`)
   }
 
   return { fetchImpl, calls }
@@ -136,41 +115,6 @@ async function createOAuthAgent() {
     encryptionKey,
     flowStore,
     oauthFetch: fetchImpl,
-  })
-
-  await agentPw.profiles.put('/linear', {
-    host: ['api.linear.app'],
-    auth: {
-      authSchemes: [
-        {
-          type: 'oauth2',
-          authorizeUrl: 'https://accounts.example.com/authorize',
-          tokenUrl: 'https://accounts.example.com/token',
-        },
-      ],
-    },
-    oauthConfig: {
-      clientId: 'client-linear',
-      clientSecret: 'secret-linear',
-      clientAuthentication: 'client_secret_post',
-      revocationUrl: 'https://accounts.example.com/revoke',
-      scopes: ['read', 'write'],
-    },
-  })
-
-  return { agentPw, calls }
-}
-
-async function createDiscoveryOAuthAgent() {
-  const db = await createTestDb()
-  const flowStore = createInMemoryFlowStore()
-  const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-  const { fetchImpl, calls } = createDiscoveryOAuthFetch()
-  const agentPw = await createAgentPw({
-    db,
-    encryptionKey,
-    flowStore,
-    oauthFetch: fetchImpl,
     oauthClient: {
       useDynamicRegistration: true,
       metadata: {
@@ -181,267 +125,189 @@ async function createDiscoveryOAuthAgent() {
     },
   })
 
+  await agentPw.profiles.put('/linear', {
+    resourcePatterns: ['https://api.linear.app/*'],
+    auth: {
+      kind: 'oauth',
+      authorizationUrl: 'https://accounts.example.com/authorize',
+      tokenUrl: 'https://accounts.example.com/token',
+      revocationUrl: 'https://accounts.example.com/revoke',
+      clientId: 'client-linear',
+      clientSecret: 'secret-linear',
+      clientAuthentication: 'client_secret_post',
+      scopes: ['read', 'write'],
+    },
+    displayName: 'Linear',
+  })
+
   return { agentPw, calls }
 }
 
 describe('oauth runtime', () => {
-  it('starts and completes OAuth authorization flows', async () => {
+  it('runs profile-backed oauth end to end and refreshes stale credentials', async () => {
     const { agentPw, calls } = await createOAuthAgent()
 
-    const session = await agentPw.oauth.startAuthorization({
-      root: '/org_alpha/connections/linear_1',
+    const prepared = await agentPw.connect.prepare({
+      path: '/org_alpha/connections/linear_1',
+      resource: 'https://api.linear.app/projects',
+    })
+    expect(prepared.kind).toBe('options')
+    if (prepared.kind !== 'options') {
+      throw new Error('Expected oauth options')
+    }
+
+    const option = prepared.options[0]
+    expect(option).toEqual(expect.objectContaining({
+      kind: 'oauth',
+      source: 'profile',
       profilePath: '/linear',
-      credentialPath: '/org_alpha/connections/linear_1/custom_linear',
+      label: 'Linear',
+    }))
+
+    const session = await agentPw.connect.start({
+      path: '/org_alpha/connections/linear_1',
+      option,
       redirectUri: 'https://app.example.com/oauth/callback',
     })
 
     expect(session.flowId).toHaveLength(96)
     expect(session.authorizationUrl).toContain('https://accounts.example.com/authorize')
     expect(session.authorizationUrl).toContain('client_id=client-linear')
-    expect(session.authorizationUrl).toContain(`state=${session.flowId}`)
-    expect(await agentPw.oauth.getFlow(session.flowId)).toEqual(expect.objectContaining({
-      id: session.flowId,
-      root: '/org_alpha/connections/linear_1',
-      target: {
-        kind: 'profile',
-        profilePath: '/linear',
-      },
-    }))
+    expect(session.authorizationUrl).toContain('resource=https%3A%2F%2Fapi.linear.app%2Fprojects')
 
-    const result = await agentPw.oauth.completeAuthorization({
+    const completed = await agentPw.connect.complete({
       callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
     })
 
-    expect(result.credentialPath).toBe('/org_alpha/connections/linear_1/custom_linear')
-    expect(result.credential.secret).toEqual(expect.objectContaining({
-      headers: { Authorization: 'Bearer access-1' },
+    expect(completed.path).toBe('/org_alpha/connections/linear_1')
+    expect(completed.credential.auth).toEqual({
+      kind: 'oauth',
+      profilePath: '/linear',
+      label: 'Linear',
+    })
+    expect(completed.credential.secret).toEqual(expect.objectContaining({
+      headers: { Authorization: 'Bearer profile-access-1' },
       oauth: expect.objectContaining({
-        accessToken: 'access-1',
-        refreshToken: 'refresh-1',
-        scopes: 'read write',
-        tokenType: 'bearer',
+        accessToken: 'profile-access-1',
+        refreshToken: 'profile-refresh-1',
+        clientId: 'client-linear',
+        clientSecret: 'secret-linear',
       }),
     }))
-    expect(await agentPw.oauth.getFlow(session.flowId)).toBeNull()
-    expect(calls.map(call => call.url)).toContain('https://accounts.example.com/token')
-  })
 
-  it('refreshes expired credentials before resolving headers', async () => {
-    const { agentPw } = await createOAuthAgent()
-
-    await agentPw.bindings.put({
-      root: '/org_alpha/connections/linear_2',
-      profilePath: '/linear',
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.resource,
+      auth: completed.credential.auth,
       secret: {
+        ...completed.credential.secret,
         headers: { Authorization: 'Bearer stale' },
         oauth: {
+          ...completed.credential.secret.oauth,
           accessToken: 'stale',
-          refreshToken: 'refresh-1',
           expiresAt: '2020-01-01T00:00:00.000Z',
-          scopes: 'read write',
         },
       },
     })
 
-    expect(await agentPw.bindings.resolveHeaders({
-      root: '/org_alpha/connections/linear_2',
-      profilePath: '/linear',
-    })).toEqual({
-      Authorization: 'Bearer access-2',
+    expect(await agentPw.connect.headers({ path: completed.path })).toEqual({
+      Authorization: 'Bearer profile-access-2',
     })
-
-    const resolved = await agentPw.oauth.refreshCredential({
-      root: '/org_alpha/connections/linear_2',
-      profilePath: '/linear',
-      force: true,
-    })
-    expect(resolved?.secret.oauth).toEqual(expect.objectContaining({
-      accessToken: 'access-2',
-      refreshToken: 'refresh-2',
-    }))
-  })
-
-  it('supports discovery-first MCP OAuth without a credential profile', async () => {
-    const { agentPw, calls } = await createDiscoveryOAuthAgent()
-
-    const discovered = await agentPw.oauth.discoverResource({
-      resource: 'https://mcp.example.com',
-    })
-    expect(discovered).toEqual({
-      target: {
-        kind: 'resource',
-        resource: 'https://mcp.example.com/',
-      },
-      authorizationServers: ['https://auth.mcp.example.com'],
-      resourceName: 'Example MCP',
-      scopes: ['mcp.tools.read'],
-    })
-
-    const binding = {
-      root: '/org_alpha/connections/mcp_1',
-      target: {
-        kind: 'resource' as const,
-        resource: 'https://mcp.example.com',
-      },
-    }
-
-    const session = await agentPw.oauth.startAuthorization({
-      ...binding,
-      redirectUri: 'https://app.example.com/oauth/callback',
-    })
-    expect(session.authorizationUrl).toContain('https://auth.mcp.example.com/authorize')
-    expect(session.authorizationUrl).toContain('resource=https%3A%2F%2Fmcp.example.com%2F')
-    expect(session.target).toEqual({
-      kind: 'resource',
-      resource: 'https://mcp.example.com/',
-    })
-    expect(session.profilePath).toBeNull()
-
-    const result = await agentPw.oauth.completeAuthorization({
-      callbackUri: `https://app.example.com/oauth/callback?code=code-789&state=${session.flowId}`,
-    })
-
-    expect(result.binding).toEqual({
-      root: '/org_alpha/connections/mcp_1',
-      target: {
-        kind: 'resource',
-        resource: 'https://mcp.example.com/',
-      },
-    })
-    expect(result.credential.target).toEqual({
-      kind: 'resource',
-      resource: 'https://mcp.example.com/',
-    })
-    expect(result.credential.profilePath).toBeNull()
-    expect(result.credential.path).toBe('/org_alpha/connections/mcp_1/credential')
-    expect(result.credential.secret.headers).toEqual({
-      Authorization: 'Bearer mcp-access-1',
-    })
-
-    const refreshed = await agentPw.oauth.refreshCredential({
-      ...binding,
-      force: true,
-    })
-    expect(refreshed?.secret.oauth).toEqual(expect.objectContaining({
-      accessToken: 'mcp-access-2',
-      refreshToken: 'mcp-refresh-2',
-      resource: 'https://mcp.example.com/',
-      clientId: 'https://app.example.com/.well-known/oauth-client',
-    }))
-
-    expect(await agentPw.bindings.resolveHeaders(binding)).toEqual({
-      Authorization: 'Bearer mcp-access-2',
-    })
-
-    expect(await agentPw.oauth.disconnect({
-      ...binding,
-      revoke: 'both',
-    })).toBe(true)
+    expect(await agentPw.connect.disconnect({ path: completed.path, revoke: 'both' })).toBe(true)
 
     expect(calls.map(call => call.url)).toEqual(expect.arrayContaining([
-      'https://auth.mcp.example.com/register',
-      'https://auth.mcp.example.com/token',
-      'https://auth.mcp.example.com/revoke',
+      'https://accounts.example.com/token',
+      'https://accounts.example.com/revoke',
     ]))
   })
 
-  it('hosts callback helpers, serves CIMD, and disconnects credentials', async () => {
+  it('runs discovery-first oauth, hosted handlers, and cimd helpers', async () => {
     const { agentPw, calls } = await createOAuthAgent()
 
-    const metadata = agentPw.oauth.createClientMetadataDocument({
-      clientId: 'https://app.example.com/.well-known/client.json',
-      redirectUris: ['https://app.example.com/oauth/callback'],
-      clientName: 'Connect Client',
-      scope: ['mcp.tools.read', 'mcp.resources.read'],
-      tokenEndpointAuthMethod: 'none',
-    })
-    expect(metadata).toEqual(expect.objectContaining({
-      client_id: 'https://app.example.com/.well-known/client.json',
-      token_endpoint_auth_method: 'none',
-      grant_types: ['authorization_code', 'refresh_token'],
-    }))
-
-    const metadataResponse = agentPw.oauth.createClientMetadataResponse({
-      clientId: 'https://app.example.com/.well-known/client.json',
-      redirectUris: ['https://app.example.com/oauth/callback'],
-    })
-    expect(metadataResponse.headers.get('content-type')).toContain('application/json')
-
-    const handlers = agentPw.oauth.createWebHandlers({
-      callbackPath: '/connect/callback',
+    const prepared = await agentPw.connect.prepare({
+      path: '/org_alpha/connections/docs_mcp',
+      resource: 'https://docs.example.com/mcp',
     })
 
-    const startResponse = await handlers.start(
-      new Request('https://app.example.com/connect/start'),
-      {
-        root: '/org_alpha/connections/linear_3',
-        profilePath: '/linear',
-      },
-    )
-    expect(startResponse.status).toBe(302)
-    const location = startResponse.headers.get('location')
-    expect(location).toContain('redirect_uri=https%3A%2F%2Fapp.example.com%2Fconnect%2Fcallback')
-    const state = new URL(String(location)).searchParams.get('state')
-    expect(state).toBeTruthy()
-    if (!state) {
-      throw new Error('missing state')
+    expect(prepared.kind).toBe('options')
+    if (prepared.kind !== 'options') {
+      throw new Error('Expected discovery options')
     }
 
-    const callbackResponse = await handlers.callback(
-      new Request(`https://app.example.com/connect/callback?code=code-456&state=${state}`),
-    )
+    const oauthOption = prepared.options.find(option => option.kind === 'oauth' && option.source === 'discovery')
+    if (!oauthOption || oauthOption.kind !== 'oauth') {
+      throw new Error('Expected discovery-backed oauth option')
+    }
+
+    const session = await agentPw.connect.start({
+      path: '/org_alpha/connections/docs_mcp',
+      option: oauthOption,
+      redirectUri: 'https://app.example.com/oauth/callback',
+      additionalParameters: { prompt: 'consent' },
+    })
+
+    expect(session.authorizationUrl).toContain('https://auth.docs.example.com/authorize')
+    expect(session.authorizationUrl).toContain('client_id=https%3A%2F%2Fapp.example.com%2F.well-known%2Foauth-client')
+    expect(session.authorizationUrl).toContain('prompt=consent')
+
+    const completed = await agentPw.connect.complete({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
+    })
+
+    expect(completed.credential.resource).toBe('https://docs.example.com/mcp')
+    expect(completed.credential.auth).toEqual({
+      kind: 'oauth',
+      profilePath: null,
+      label: 'Docs MCP via auth.docs.example.com',
+    })
+
+    const handlers = agentPw.connect.createWebHandlers({
+      callbackPath: '/oauth/callback',
+    })
+    const startResponse = await handlers.start(new Request('https://app.example.com/connect'), {
+      path: '/org_alpha/connections/docs_mcp_next',
+      option: oauthOption,
+    })
+    expect(startResponse.status).toBe(302)
+
+    const callbackState = new URL(startResponse.headers.get('location') ?? '').searchParams.get('state')
+    const callbackResponse = await handlers.callback(new Request(
+      `https://app.example.com/oauth/callback?code=code-789&state=${callbackState}`,
+    ))
     expect(callbackResponse.status).toBe(200)
     expect(await callbackResponse.text()).toContain('Authorization complete')
 
-    expect(await agentPw.oauth.disconnect({
-      root: '/org_alpha/connections/linear_3',
-      profilePath: '/linear',
-      revoke: 'both',
-    })).toBe(true)
-
-    expect(await agentPw.credentials.resolve({
-      root: '/org_alpha/connections/linear_3',
-      profilePath: '/linear',
-      refresh: false,
-    })).toBeNull()
-    expect(calls.filter(call => call.url === 'https://accounts.example.com/revoke')).toHaveLength(2)
-  })
-
-  it('requires an explicit flow store for hosted OAuth and returns default callback errors', async () => {
-    const db = await createTestDb()
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey: await deriveEncryptionKey(BISCUIT_PRIVATE_KEY),
+    expect(agentPw.connect.createClientMetadataDocument({
+      clientId: 'https://app.example.com/.well-known/oauth-client',
+      redirectUris: ['https://app.example.com/oauth/callback'],
+      clientName: 'Connect Client',
+      scope: ['mcp.tools.read'],
+      tokenEndpointAuthMethod: 'none',
+    })).toEqual({
+      client_id: 'https://app.example.com/.well-known/oauth-client',
+      redirect_uris: ['https://app.example.com/oauth/callback'],
+      response_types: ['code'],
+      grant_types: ['authorization_code', 'refresh_token'],
+      token_endpoint_auth_method: 'none',
+      client_name: 'Connect Client',
+      scope: 'mcp.tools.read',
+      jwks_uri: undefined,
+      jwks: undefined,
+      token_endpoint_auth_signing_alg: undefined,
     })
 
-    await agentPw.profiles.put('/github', {
-      host: ['api.github.com'],
-      auth: {
-        authSchemes: [
-          {
-            type: 'oauth2',
-            authorizeUrl: 'https://github.com/login/oauth/authorize',
-            tokenUrl: 'https://github.com/login/oauth/access_token',
-          },
-        ],
-      },
-      oauthConfig: {
-        clientId: 'client-github',
-      },
+    const cimdResponse = agentPw.connect.createClientMetadataResponse({
+      clientId: 'https://app.example.com/.well-known/oauth-client',
+      redirectUris: ['https://app.example.com/oauth/callback'],
+      clientName: 'Connect Client',
+      scope: ['mcp.tools.read'],
+      tokenEndpointAuthMethod: 'none',
     })
-
-    await expect(agentPw.oauth.startAuthorization({
-      root: '/org_alpha/connections/github_1',
-      profilePath: '/github',
-      redirectUri: 'https://app.example.com/oauth/callback',
-    })).rejects.toBeInstanceOf(AgentPwInputError)
-
-    const callbackResponse = await agentPw.oauth.createWebHandlers().callback(
-      new Request('https://app.example.com/oauth/callback?code=missing&state=missing'),
-    )
-    expect(callbackResponse.status).toBe(400)
-    expect(await callbackResponse.json()).toEqual({
-      error: "OAuth flows require an explicit flowStore",
-    })
+    expect(cimdResponse.status).toBe(200)
+    expect(cimdResponse.headers.get('cache-control')).toBe('public, max-age=300')
+    expect(calls.map(call => call.url)).toEqual(expect.arrayContaining([
+      'https://auth.docs.example.com/register',
+      'https://auth.docs.example.com/token',
+    ]))
   })
 })

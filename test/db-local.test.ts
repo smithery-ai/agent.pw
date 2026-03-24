@@ -1,9 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { createAgentPwSchema, createLocalDb, createDb, createQueryHelpers, migrateLocal } from 'agent.pw/sql'
+import { createAgentPwSchema, createDb, createLocalDb, createQueryHelpers, migrateLocal } from 'agent.pw/sql'
 
 async function closeLocalDb(db: unknown) {
   await (db as { $client?: { close?: () => Promise<void> } }).$client?.close?.()
@@ -26,7 +26,7 @@ describe('db entrypoints', () => {
     }
   })
 
-  it('bootstraps the local schema for PGlite', async () => {
+  it('bootstraps the default schema', async () => {
     let db: Awaited<ReturnType<typeof createLocalDb>> | undefined
     const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-migrate-'))
     try {
@@ -72,14 +72,16 @@ describe('db entrypoints', () => {
       })
 
       await queries.upsertCredProfile(db, '/github', {
-        host: ['api.github.com'],
+        resourcePatterns: ['https://api.github.com/*'],
+        auth: {
+          kind: 'headers',
+          fields: [{ name: 'Authorization', label: 'Token', prefix: 'Bearer ' }],
+        },
       })
-      expect(await queries.getCredProfile(db, '/github')).toEqual(
-        expect.objectContaining({
-          path: '/github',
-          host: ['api.github.com'],
-        }),
-      )
+      expect(await queries.getCredProfile(db, '/github')).toEqual(expect.objectContaining({
+        path: '/github',
+        resourcePatterns: ['https://api.github.com/*'],
+      }))
 
       const result = await db.execute(sql`
         SELECT table_name

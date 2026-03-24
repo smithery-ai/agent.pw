@@ -1,57 +1,45 @@
-import {
-  createQueryHelpers,
-} from './db/queries.js'
-import {
-  authTargetFromKey,
-  authTargetKey,
-  authTargetProfilePath,
-  normalizeBindingRef,
-  normalizeCredentialTargetInput,
-  normalizeRoot,
-  resolveBindingCredentialPath,
-} from './auth-targets.js'
+import { createQueryHelpers } from './db/queries.js'
 import { AgentPwConflictError, AgentPwInputError } from './errors.js'
 import { decryptCredentials, encryptCredentials } from './lib/credentials-crypto.js'
 import { createLogger } from './lib/logger.js'
-import { deriveDisplayName } from './lib/utils.js'
+import { isRecord } from './lib/utils.js'
 import { createOAuthService } from './oauth.js'
-import {
-  canonicalizePath,
-  credentialName,
-  validatePath,
-} from './paths.js'
+import { canonicalizePath, credentialName, validatePath } from './paths.js'
+import { normalizeResource } from './resource-patterns.js'
+import { assertCan as assertRuleCan, can as canRule } from './rules.js'
 import type {
   AgentPw,
   AgentPwOptions,
-  AuthTarget,
-  BindingRef,
-  BindingPutInput,
+  AuthorizedAgentPw,
+  ConnectHeadersOption,
+  ConnectOAuthOption,
+  CredentialAuth,
+  CredentialProfileAuth,
+  CredentialProfilePutInput,
   CredentialProfileRecord,
   CredentialRecord,
   CredentialSummary,
-  ResolvedCredential,
+  CredentialPutInput,
+  RuleFacts,
 } from './types.js'
 
-function toProfileRecord(row: {
-  path: string
-  host: string[]
-  auth: Record<string, unknown> | null
-  oauthConfig: Record<string, unknown> | null
-  displayName: string | null
-  description: string | null
-  createdAt: Date
-  updatedAt: Date
-}): CredentialProfileRecord {
-  return {
-    ...row,
-    provider: credentialName(row.path),
+function assertPath(path: string, label: string) {
+  const normalized = canonicalizePath(path)
+  if (!validatePath(normalized) || normalized === '/') {
+    throw new AgentPwInputError(`Invalid ${label} '${path}'`)
   }
+  return normalized
 }
 
-function resolveSingleMatch<T extends { path: string }>(
-  matches: T[],
-  description: string,
-): T | undefined {
+function assertListPath(path: string | undefined, label: string) {
+  const normalized = canonicalizePath(path ?? '/')
+  if (!validatePath(normalized)) {
+    throw new AgentPwInputError(`Invalid ${label} '${path}'`)
+  }
+  return normalized
+}
+
+function resolveSingleMatch<T extends { path: string }>(matches: T[], description: string): T | undefined {
   if (matches.length === 0) {
     return undefined
   }
@@ -69,63 +57,146 @@ function resolveSingleMatch<T extends { path: string }>(
   return conflicts[0]
 }
 
-function assertPath(path: string, label: string) {
-  const normalized = canonicalizePath(path)
-  if (!validatePath(normalized) || normalized === '/') {
-    throw new AgentPwInputError(`Invalid ${label} '${path}'`)
+function parseProfileAuth(value: unknown): CredentialProfileAuth {
+  if (!isRecord(value)) {
+    throw new AgentPwInputError('Invalid profile auth payload')
+  }
+  if (value.kind === 'oauth') {
+    return {
+      kind: 'oauth',
+      label: typeof value.label === 'string' ? value.label : undefined,
+      issuer: typeof value.issuer === 'string' ? value.issuer : undefined,
+      authorizationUrl: typeof value.authorizationUrl === 'string' ? value.authorizationUrl : undefined,
+      tokenUrl: typeof value.tokenUrl === 'string' ? value.tokenUrl : undefined,
+      revocationUrl: typeof value.revocationUrl === 'string' ? value.revocationUrl : undefined,
+      clientId: typeof value.clientId === 'string' ? value.clientId : undefined,
+      clientSecret: typeof value.clientSecret === 'string' ? value.clientSecret : undefined,
+      clientAuthentication:
+        value.clientAuthentication === 'client_secret_basic'
+          || value.clientAuthentication === 'client_secret_post'
+          || value.clientAuthentication === 'none'
+          ? value.clientAuthentication
+          : undefined,
+      scopes: Array.isArray(value.scopes)
+        ? value.scopes.filter((entry): entry is string => typeof entry === 'string')
+        : typeof value.scopes === 'string'
+          ? value.scopes
+          : undefined,
+    }
+  }
+  if (value.kind === 'headers') {
+    const fields = Array.isArray(value.fields)
+      ? value.fields
+          .filter(isRecord)
+          .map(field => ({
+            name: typeof field.name === 'string' ? field.name : '',
+            label: typeof field.label === 'string' ? field.label : '',
+            description: typeof field.description === 'string' ? field.description : undefined,
+            prefix: typeof field.prefix === 'string' ? field.prefix : undefined,
+            secret: typeof field.secret === 'boolean' ? field.secret : undefined,
+          }))
+          .filter(field => field.name.length > 0 && field.label.length > 0)
+      : []
+
+    return {
+      kind: 'headers',
+      label: typeof value.label === 'string' ? value.label : undefined,
+      fields,
+    }
+  }
+  throw new AgentPwInputError('Invalid profile auth kind')
+}
+
+function parseCredentialAuth(value: unknown): CredentialAuth {
+  if (!isRecord(value) || (value.kind !== 'oauth' && value.kind !== 'headers')) {
+    throw new AgentPwInputError('Invalid credential auth payload')
+  }
+
+  return {
+    kind: value.kind,
+    profilePath: typeof value.profilePath === 'string' ? value.profilePath : null,
+    label: typeof value.label === 'string' ? value.label : null,
+  }
+}
+
+function toJsonRecord(value: unknown) {
+  const normalized = JSON.parse(JSON.stringify(value))
+  if (!isRecord(normalized)) {
+    throw new AgentPwInputError('Expected JSON object')
   }
   return normalized
+}
+
+function toProfileRecord(row: {
+  path: string
+  resourcePatterns: string[]
+  auth: Record<string, unknown>
+  displayName: string | null
+  description: string | null
+  createdAt: Date
+  updatedAt: Date
+}): CredentialProfileRecord {
+  return {
+    path: row.path,
+    resourcePatterns: row.resourcePatterns,
+    auth: parseProfileAuth(row.auth),
+    displayName: row.displayName,
+    description: row.description,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
 }
 
 async function decryptCredentialRecord(
   encryptionKey: string,
   row: {
-    profilePath: string
-    host: string | null
     path: string
+    resource: string
     auth: Record<string, unknown>
     secret: Buffer
     createdAt: Date
     updatedAt: Date
   },
 ): Promise<CredentialRecord> {
-  const target = authTargetFromKey(row.profilePath)
   return {
-    profilePath: authTargetProfilePath(target),
-    target,
-    host: row.host,
     path: row.path,
-    auth: row.auth,
+    resource: row.resource,
+    auth: parseCredentialAuth(row.auth),
     secret: await decryptCredentials(encryptionKey, row.secret),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
 }
 
+function extractFlowId(callbackUri: string) {
+  const url = new URL(callbackUri)
+  return url.searchParams.get('state')
+}
+
+function buildHeadersFromValues(option: ConnectHeadersOption, values: Record<string, string>) {
+  const headers: Record<string, string> = {}
+
+  for (const field of option.fields) {
+    const value = values[field.name]
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new AgentPwInputError(`Missing header value for '${field.name}'`)
+    }
+    headers[field.name] = field.prefix ? `${field.prefix}${value}` : value
+  }
+
+  return headers
+}
+
 export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
   const logger = options.logger ?? createLogger('agentpw').logger
-  const clock = options.clock ?? (() => new Date())
   const encryptionKey = options.encryptionKey
   const queries = createQueryHelpers(options.sql)
 
   const profiles: AgentPw['profiles'] = {
     async resolve(input) {
-      const root = canonicalizePath(input.root)
-      if (!validatePath(root)) {
-        throw new AgentPwInputError(`Invalid root '${input.root}'`)
-      }
-
-      let matches = input.provider
-        ? await queries.getCredProfilesByProviderWithinRoot(options.db, input.provider, root)
-        : input.host
-          ? await queries.getCredProfilesByHostWithinRoot(options.db, input.host, root)
-          : []
-
-      const { host } = input
-      if (host) {
-        matches = matches.filter(profile => profile.host.includes(host))
-      }
-
+      const path = assertPath(input.path, 'path')
+      const resource = normalizeResource(input.resource)
+      const matches = await queries.getMatchingCredProfiles(options.db, path, resource)
       const selected = resolveSingleMatch(matches, 'Credential Profile')
       return selected ? toProfileRecord(selected) : null
     },
@@ -137,22 +208,21 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 
     async list(query = {}) {
       const rows = await queries.listCredProfiles(options.db, {
-        root: query.root ? normalizeRoot(query.root, 'profile root') : '/',
+        path: assertListPath(query.path, 'profile path'),
       })
       return rows.map(toProfileRecord)
     },
 
-    async put(path, data) {
+    async put(path, data: CredentialProfilePutInput) {
       const profilePath = assertPath(path, 'profile path')
-      if (data.host.length === 0) {
-        throw new AgentPwInputError('Credential Profile host list cannot be empty')
+      if (data.resourcePatterns.length === 0) {
+        throw new AgentPwInputError('Credential Profile resourcePatterns cannot be empty')
       }
 
       await queries.upsertCredProfile(options.db, profilePath, {
-        host: data.host,
-        auth: data.auth,
-        oauthConfig: data.oauthConfig,
-        displayName: data.displayName ?? deriveDisplayName(String(data.host[0])),
+        resourcePatterns: data.resourcePatterns,
+        auth: toJsonRecord(data.auth),
+        displayName: data.displayName,
         description: data.description,
       })
 
@@ -168,181 +238,66 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
   }
 
-  async function resolveBindingInternal(
-    input: BindingRef & {
-      credentialPath?: string
-    },
-  ): Promise<ResolvedCredential | null> {
-    const binding = normalizeBindingRef(input)
-    const targetKey = authTargetKey(binding.target)
-    const profile = binding.target.kind === 'profile'
-      ? await profiles.get(binding.target.profilePath)
-      : null
-    const exactPath = input.credentialPath
-      ? resolveBindingCredentialPath({
-          ...binding,
-          credentialPath: input.credentialPath,
-        })
-      : null
-
-    if (exactPath) {
-      const exact = await queries.getCredential(options.db, exactPath)
-      if (!exact || exact.profilePath !== targetKey) {
-        return null
-      }
-
-      const decrypted = await decryptCredentialRecord(encryptionKey, exact)
-      return { ...decrypted, profile }
-    }
-
-    const matches = await queries.getCredentialsByProfileWithinRoot(options.db, targetKey, binding.root)
-    const selected = resolveSingleMatch(matches, 'Credential')
-    if (!selected) {
-      return null
-    }
-
-    const decrypted = await decryptCredentialRecord(encryptionKey, selected)
-    return { ...decrypted, profile }
+  async function getCredential(path: string) {
+    const selected = await queries.getCredential(options.db, assertPath(path, 'credential path'))
+    return selected ? decryptCredentialRecord(encryptionKey, selected) : null
   }
 
-  async function putCredential(path: string, input: {
-    target: AuthTarget
-    host?: string | null
-    auth?: Record<string, unknown>
-    secret: CredentialRecord['secret'] | Buffer
-  }) {
-    const credentialPath = assertPath(path, 'credential path')
-    const profilePath = authTargetKey(input.target)
+  async function putCredential(input: CredentialPutInput) {
+    const path = assertPath(input.path, 'credential path')
+    const resource = normalizeResource(input.resource)
     const secret = Buffer.isBuffer(input.secret)
       ? input.secret
       : await encryptCredentials(encryptionKey, input.secret)
 
     await queries.upsertCredential(options.db, {
-      profilePath,
-      host: input.host ?? null,
-      path: credentialPath,
-      auth: input.auth ?? { kind: 'opaque' },
+      path,
+      resource,
+      auth: toJsonRecord(input.auth),
       secret,
     })
 
-    const stored = await queries.getCredential(options.db, credentialPath)
+    const stored = await queries.getCredential(options.db, path)
     if (!stored) {
-      throw new Error(`Failed to persist Credential '${credentialPath}'`)
+      throw new Error(`Failed to persist Credential '${path}'`)
     }
 
     return decryptCredentialRecord(encryptionKey, stored)
   }
 
-  async function putBinding(input: BindingPutInput) {
-    const binding = normalizeBindingRef(input)
-    const profile = binding.target.kind === 'profile'
-      ? await profiles.get(binding.target.profilePath)
-      : null
-    const credentialPath = resolveBindingCredentialPath({
-      ...binding,
-      credentialPath: input.credentialPath,
-    })
-    const host = input.host
-      ?? profile?.host[0]
-      ?? (binding.target.kind === 'resource' ? new URL(binding.target.resource).host : null)
-    const credential = await putCredential(credentialPath, {
-      target: binding.target,
-      host,
-      auth: input.auth,
-      secret: input.secret,
-    })
-
-    return {
-      ...credential,
-      profile,
-    }
-  }
-
   const oauth = createOAuthService({
     flowStore: options.flowStore,
-    clock,
+    clock: options.clock ?? (() => new Date()),
     customFetch: options.oauthFetch,
     defaultClient: options.oauthClient,
     getProfile(path) {
       return profiles.get(path)
     },
-    resolveBinding(input) {
-      return resolveBindingInternal(input)
-    },
-    putBinding,
+    getCredential,
+    putCredential,
     deleteCredential(path) {
       return queries.deleteCredential(options.db, assertPath(path, 'credential path'))
     },
   })
 
-  const bindings: AgentPw['bindings'] = {
-    async resolve(input) {
-      const resolved = await resolveBindingInternal(input)
-      if (!input.refresh && input.refresh !== undefined) {
-        return resolved
-      }
-      const binding = normalizeBindingRef(input)
-      return oauth.refreshCredential({
-        root: binding.root,
-        target: binding.target,
-        credentialPath: input.credentialPath,
-      })
-    },
-
-    async resolveHeaders(input) {
-      const resolved = await bindings.resolve(input)
-      return resolved?.secret.headers ?? {}
-    },
-
-    put(input) {
-      return putBinding(input)
-    },
-  }
-
   const credentials: AgentPw['credentials'] = {
-    async resolve(input) {
-      const binding = normalizeBindingRef(input)
-      const resolved = await bindings.resolve({
-        root: binding.root,
-        target: binding.target,
-        credentialPath: input.credentialPath,
-        refresh: input.refresh,
-      })
-      if (!resolved) {
-        return null
-      }
-
-      const { profile, ...credential } = resolved
-      return credential
-    },
-
-    async get(path) {
-      const selected = await queries.getCredential(options.db, assertPath(path, 'credential path'))
-      return selected ? decryptCredentialRecord(encryptionKey, selected) : null
-    },
+    get: getCredential,
 
     async list(query = {}) {
       const rows = await queries.listCredentials(options.db, {
-        root: query.root ? normalizeRoot(query.root, 'credential root') : '/',
+        path: assertListPath(query.path, 'credential path'),
       })
       return rows.map<CredentialSummary>(row => ({
-        profilePath: authTargetProfilePath(authTargetFromKey(row.profilePath)),
-        target: authTargetFromKey(row.profilePath),
-        host: row.host,
         path: row.path,
-        auth: row.auth,
+        resource: row.resource,
+        auth: parseCredentialAuth(row.auth),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       }))
     },
 
-    put(path, input) {
-      return putCredential(path, {
-        target: normalizeCredentialTargetInput(input),
-        host: input.host,
-        auth: input.auth,
-        secret: input.secret,
-      })
+    put(input) {
+      return putCredential(input)
     },
 
     move(fromPath, toPath) {
@@ -358,15 +313,294 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
     },
   }
 
+  const connect: AgentPw['connect'] = {
+    async prepare(input) {
+      const path = assertPath(input.path, 'path')
+      const resource = normalizeResource(input.resource)
+      const existing = await getCredential(path)
+
+      if (existing) {
+        if (existing.resource !== resource) {
+          throw new AgentPwConflictError(
+            `Credential '${path}' is already connected to '${existing.resource}', not '${resource}'`,
+          )
+        }
+        const credential = existing.auth.kind === 'oauth'
+          ? await oauth.refreshCredential(path) ?? existing
+          : existing
+        return {
+          kind: 'ready',
+          credential,
+          headers: credential.secret.headers,
+        }
+      }
+
+      const optionsList: Array<ConnectOAuthOption | ConnectHeadersOption> = []
+
+      try {
+        const discovered = await oauth.discoverResource({
+          resource,
+          response: input.response,
+        })
+        for (const authorizationServer of discovered.authorizationServers) {
+          const issuerHost = new URL(authorizationServer).host
+          optionsList.push({
+            kind: 'oauth',
+            source: 'discovery',
+            resource,
+            authorizationServer,
+            label: discovered.resourceName
+              ? `${discovered.resourceName} via ${issuerHost}`
+              : `OAuth via ${issuerHost}`,
+            scopes: discovered.scopes,
+          })
+        }
+      } catch {
+        // Discovery is preferred but optional. Fallback profiles are checked next.
+      }
+
+      const profile = await profiles.resolve({ path, resource })
+      if (profile) {
+        if (profile.auth.kind === 'oauth') {
+          optionsList.push({
+            kind: 'oauth',
+            source: 'profile',
+            resource,
+            profilePath: profile.path,
+            label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
+            scopes: Array.isArray(profile.auth.scopes)
+              ? profile.auth.scopes
+              : typeof profile.auth.scopes === 'string'
+                ? profile.auth.scopes.split(/\s+/).filter(Boolean)
+                : undefined,
+          })
+        } else {
+          optionsList.push({
+            kind: 'headers',
+            source: 'profile',
+            resource,
+            profilePath: profile.path,
+            label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
+            fields: profile.auth.fields,
+          })
+        }
+      }
+
+      return {
+        kind: 'options',
+        options: optionsList,
+      }
+    },
+
+    start(input) {
+      if (input.option.kind !== 'oauth') {
+        throw new AgentPwInputError('connect.start requires an oauth option')
+      }
+      return oauth.startAuthorization({
+        ...input,
+        path: assertPath(input.path, 'path'),
+      })
+    },
+
+    complete(input) {
+      return oauth.completeAuthorization(input)
+    },
+
+    async saveHeaders(input) {
+      const path = assertPath(input.path, 'path')
+      if (input.option.kind !== 'headers') {
+        throw new AgentPwInputError('connect.saveHeaders requires a headers option')
+      }
+
+      const headers = buildHeadersFromValues(input.option, input.values)
+      return putCredential({
+        path,
+        resource: input.option.resource,
+        auth: {
+          kind: 'headers',
+          profilePath: input.option.profilePath ?? null,
+          label: input.option.label,
+        },
+        secret: { headers },
+      })
+    },
+
+    async headers(input) {
+      const path = assertPath(input.path, 'path')
+      const credential = input.refresh === false
+        ? await getCredential(path)
+        : await oauth.refreshCredential(path)
+
+      if (!credential) {
+        throw new AgentPwInputError(`No credential exists at '${path}'`)
+      }
+
+      return credential.secret.headers
+    },
+
+    disconnect(input) {
+      return oauth.disconnect({
+        path: assertPath(input.path, 'path'),
+        revoke: input.revoke,
+      })
+    },
+
+    createWebHandlers(optionsForHandlers) {
+      return oauth.createWebHandlers(optionsForHandlers)
+    },
+
+    createClientMetadataDocument(input) {
+      return oauth.createClientMetadataDocument(input)
+    },
+
+    createClientMetadataResponse(input) {
+      return oauth.createClientMetadataResponse(input)
+    },
+  }
+
+  function createAuthenticatedApi(facts: RuleFacts): AuthorizedAgentPw {
+    return {
+      connect: {
+        async prepare(input) {
+          const path = assertPath(input.path, 'path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          const result = await connect.prepare(input)
+          if (result.kind === 'ready') {
+            assertRuleCan({ rights: facts.rights, action: 'credential.use', path })
+          }
+          return result
+        },
+
+        async start(input) {
+          const path = assertPath(input.path, 'path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          return connect.start(input)
+        },
+
+        async complete(input) {
+          const flowId = extractFlowId(input.callbackUri)
+          if (!flowId) {
+            throw new AgentPwInputError('OAuth callback is missing state')
+          }
+          const flow = await oauth.getFlow(flowId)
+          if (!flow) {
+            throw new AgentPwInputError(`Unknown OAuth flow '${flowId}'`)
+          }
+          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path: flow.path })
+          return connect.complete(input)
+        },
+
+        async saveHeaders(input) {
+          const path = assertPath(input.path, 'path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          return connect.saveHeaders(input)
+        },
+
+        async headers(input) {
+          const path = assertPath(input.path, 'path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.use', path })
+          return connect.headers(input)
+        },
+
+        async disconnect(input) {
+          const path = assertPath(input.path, 'path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.connect', path })
+          return connect.disconnect(input)
+        },
+      },
+
+      credentials: {
+        async get(path) {
+          const normalizedPath = assertPath(path, 'credential path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.read', path: normalizedPath })
+          return credentials.get(normalizedPath)
+        },
+
+        async list(query = {}) {
+          const path = assertListPath(query.path, 'credential path')
+          const items = await credentials.list({ path })
+          return items.filter(item => canRule({
+            rights: facts.rights,
+            action: 'credential.read',
+            path: item.path,
+          }))
+        },
+
+        async put(input) {
+          const path = assertPath(input.path, 'credential path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path })
+          return credentials.put(input)
+        },
+
+        async move(fromPath, toPath) {
+          const normalizedFrom = assertPath(fromPath, 'source path')
+          const normalizedTo = assertPath(toPath, 'target path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path: normalizedFrom })
+          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path: normalizedTo })
+          return credentials.move(normalizedFrom, normalizedTo)
+        },
+
+        async delete(path) {
+          const normalizedPath = assertPath(path, 'credential path')
+          assertRuleCan({ rights: facts.rights, action: 'credential.manage', path: normalizedPath })
+          return credentials.delete(normalizedPath)
+        },
+      },
+
+      profiles: {
+        async get(path) {
+          const normalizedPath = assertPath(path, 'profile path')
+          assertRuleCan({ rights: facts.rights, action: 'profile.read', path: normalizedPath })
+          return profiles.get(normalizedPath)
+        },
+
+        async list(query = {}) {
+          const path = assertListPath(query.path, 'profile path')
+          const items = await profiles.list({ path })
+          return items.filter(item => canRule({
+            rights: facts.rights,
+            action: 'profile.read',
+            path: item.path,
+          }))
+        },
+
+        async put(path, data) {
+          const normalizedPath = assertPath(path, 'profile path')
+          assertRuleCan({ rights: facts.rights, action: 'profile.manage', path: normalizedPath })
+          return profiles.put(normalizedPath, data)
+        },
+
+        async delete(path) {
+          const normalizedPath = assertPath(path, 'profile path')
+          assertRuleCan({ rights: facts.rights, action: 'profile.manage', path: normalizedPath })
+          return profiles.delete(normalizedPath)
+        },
+      },
+    }
+  }
+
+  function authenticated(facts: RuleFacts): AuthorizedAgentPw
+  function authenticated<T>(
+    facts: RuleFacts,
+    fn: (api: AuthorizedAgentPw) => Promise<T> | T,
+  ): Promise<T>
+  function authenticated<T>(
+    facts: RuleFacts,
+    fn?: (api: AuthorizedAgentPw) => Promise<T> | T,
+  ) {
+    const api = createAuthenticatedApi(facts)
+    return fn ? Promise.resolve(fn(api)) : api
+  }
+
   logger.debug('agent.pw initialized')
 
   return {
     profiles,
-    bindings,
     credentials,
-    oauth,
+    connect,
+    authenticated,
   }
 }
 
 export type * from './types.js'
-export { AgentPwConflictError, AgentPwInputError } from './errors.js'
+export { AgentPwAuthorizationError, AgentPwConflictError, AgentPwInputError } from './errors.js'
