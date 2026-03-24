@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/pglite'
 import * as schema from '../packages/server/src/db/schema/index'
-import { bootstrapLocalSchema } from 'agent.pw/sql'
+import { bootstrapLocalSchema } from '../packages/server/src/db/bootstrap-local'
 import { mintToken } from 'agent.pw/biscuit'
 import type { RuleGrant } from '../packages/server/src/types'
 

@@ -73,11 +73,11 @@ describe('createAgentPw', () => {
 
     const stored = await agentPw.credentials.put({
       path: '/acme/connections/github_primary',
-      resource: 'https://api.github.com',
       auth: {
         kind: 'headers',
         profilePath: '/acme/github',
         label: 'Acme GitHub',
+        resource: 'https://api.github.com',
       },
       secret: {
         headers: {
@@ -88,11 +88,11 @@ describe('createAgentPw', () => {
 
     expect(stored).toEqual(expect.objectContaining({
       path: '/acme/connections/github_primary',
-      resource: 'https://api.github.com/',
       auth: {
         kind: 'headers',
         profilePath: '/acme/github',
         label: 'Acme GitHub',
+        resource: 'https://api.github.com/',
       },
       secret: {
         headers: {
@@ -169,6 +169,7 @@ describe('createAgentPw', () => {
       kind: 'headers',
       profilePath: '/resend',
       label: 'Resend',
+      resource: 'https://api.resend.com/',
     })
     expect(saved.secret.headers).toEqual({
       Authorization: 'Bearer rs_123',
@@ -189,10 +190,10 @@ describe('createAgentPw', () => {
 
     await agentPw.credentials.put({
       path: '/acme/connections/docs',
-      resource: 'https://docs.example.com/mcp',
       auth: {
         kind: 'oauth',
         label: 'Docs',
+        resource: 'https://docs.example.com/mcp',
       },
       secret: {
         headers: {
@@ -268,14 +269,12 @@ describe('createAgentPw', () => {
     })
     await agentPw.credentials.put({
       path: '/acme/connections/resend',
-      resource: 'https://api.resend.com',
-      auth: { kind: 'headers', profilePath: '/profiles/resend' },
+      auth: { kind: 'headers', profilePath: '/profiles/resend', resource: 'https://api.resend.com' },
       secret: { headers: { Authorization: 'Bearer resend-token' } },
     })
     await agentPw.credentials.put({
       path: '/beta/connections/docs',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'headers' },
+      auth: { kind: 'headers', resource: 'https://docs.example.com/mcp' },
       secret: { headers: { Authorization: 'Bearer docs-token' } },
     })
 
@@ -311,5 +310,85 @@ describe('createAgentPw', () => {
       path: '/acme/connections/resend',
       resource: 'https://api.resend.com',
     })).rejects.toThrow(AgentPwAuthorizationError)
+  })
+
+  it('stores env credentials in the vault layer and scopes env access separately', async () => {
+    const agentPw = await createTestAgent()
+
+    const stored = await agentPw.credentials.put({
+      path: '/acme/connections/github_cli',
+      auth: {
+        kind: 'env',
+        label: 'GitHub CLI',
+      },
+      secret: {
+        env: {
+          GH_TOKEN: 'ghp_123',
+        },
+      },
+    })
+
+    expect(stored.auth).toEqual({
+      kind: 'env',
+      label: 'GitHub CLI',
+      profilePath: null,
+      resource: null,
+    })
+    expect((await agentPw.credentials.get('/acme/connections/github_cli'))?.secret.env).toEqual({
+      GH_TOKEN: 'ghp_123',
+    })
+    expect(await agentPw.credentials.get('/acme/connections/missing')).toBeNull()
+    await agentPw.credentials.put({
+      path: '/acme/connections/github_headers',
+      auth: {
+        kind: 'headers',
+        resource: 'https://api.github.com',
+      },
+      secret: {
+        headers: {
+          Authorization: 'Bearer ghp_header',
+        },
+      },
+    })
+    expect((await agentPw.credentials.get('/acme/connections/github_headers'))?.secret.env).toBeUndefined()
+    await expect(agentPw.connect.prepare({
+      path: '/acme/connections/github_cli',
+      resource: 'https://api.github.com',
+    })).rejects.toThrow(AgentPwConflictError)
+    await expect(agentPw.connect.headers({ path: '/acme/connections/github_cli' })).rejects.toThrow(
+      "Credential '/acme/connections/github_cli' stores env auth",
+    )
+
+    const scoped = agentPw.scope(rights([
+      { action: 'credential.read', root: '/acme' },
+    ]))
+    await expect(scoped.credentials.get('/acme/connections/github_cli')).resolves.toEqual(expect.objectContaining({
+      auth: expect.objectContaining({
+        kind: 'env',
+      }),
+      secret: expect.objectContaining({
+        env: {
+          GH_TOKEN: 'ghp_123',
+        },
+      }),
+    }))
+    await expect(agentPw.scope(rights([
+      { action: 'credential.use', root: '/acme' },
+    ])).credentials.get('/acme/connections/github_cli')).rejects.toThrow(AgentPwAuthorizationError)
+    await expect(agentPw.scope(rights([
+      { action: 'credential.use', root: '/acme' },
+      { action: 'credential.read', root: '/acme' },
+    ])).credentials.get('/acme/connections/github_cli')).resolves.toEqual(expect.objectContaining({
+      secret: expect.objectContaining({
+        env: {
+          GH_TOKEN: 'ghp_123',
+        },
+      }),
+    }))
+    await expect(agentPw.scope(rights([
+      { action: 'credential.use', root: '/acme' },
+    ])).connect.headers({ path: '/acme/connections/github_headers' })).resolves.toEqual({
+      Authorization: 'Bearer ghp_header',
+    })
   })
 })

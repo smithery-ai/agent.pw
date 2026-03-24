@@ -7,4 +7,3 @@ coverage/
 .env*.local
 .context/
 .infisical.json
-drizzle/
