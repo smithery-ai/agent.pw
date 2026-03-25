@@ -173,11 +173,11 @@ async function resolveAuthorizationServer(
 ) {
   if (config.issuer) {
     const issuer = assertUrl(config.issuer, 'oauth issuer')
-    const response = await oauth.discoveryRequest(
-      issuer,
-      customFetch ? { [oauth.customFetch]: customFetch } : undefined,
-    )
-    return oauth.processDiscoveryResponse(issuer, response)
+    const authorizationServer = await discoverAuthorizationServerMetadata(issuer, customFetch)
+    if (!authorizationServer) {
+      throw new AgentPwInputError(`Authorization server '${config.issuer}' does not publish usable metadata`)
+    }
+    return authorizationServer
   }
 
   if (!(config.authorizationUrl && config.tokenUrl)) {
@@ -190,6 +190,76 @@ async function resolveAuthorizationServer(
     token_endpoint: config.tokenUrl,
     revocation_endpoint: config.revocationUrl,
   } satisfies oauth.AuthorizationServer
+}
+
+type AuthorizationServerDiscoveryAttempt = {
+  url: URL
+  request(): Promise<Response>
+}
+
+function buildAuthorizationServerDiscoveryAttempts(
+  issuer: URL,
+  customFetch: typeof fetch | undefined,
+) {
+  const pathname = issuer.pathname === '/' ? '' : issuer.pathname.replace(/\/$/, '')
+  const discoveryOptions = customFetch ? { [oauth.customFetch]: customFetch } : undefined
+  const attempts: AuthorizationServerDiscoveryAttempt[] = [{
+    url: pathname
+      ? new URL(`/.well-known/oauth-authorization-server${pathname}`, issuer.origin)
+      : new URL('/.well-known/oauth-authorization-server', issuer.origin),
+    request: () => oauth.discoveryRequest(issuer, {
+      ...discoveryOptions,
+      algorithm: 'oauth2',
+    }),
+  }]
+
+  if (pathname) {
+    const oidcInsertedUrl = new URL(`/.well-known/openid-configuration${pathname}`, issuer.origin)
+    attempts.push({
+      url: oidcInsertedUrl,
+      // oauth4webapi does not expose the MCP-preferred prepended OIDC path variant.
+      request: () => (customFetch ?? fetch)(oidcInsertedUrl, {
+        headers: {
+          Accept: 'application/json',
+        },
+      }),
+    })
+  }
+
+  attempts.push({
+    url: pathname
+      ? new URL(`${pathname}/.well-known/openid-configuration`, issuer.origin)
+      : new URL('/.well-known/openid-configuration', issuer.origin),
+    request: () => oauth.discoveryRequest(issuer, {
+      ...discoveryOptions,
+      algorithm: 'oidc',
+    }),
+  })
+
+  return attempts
+}
+
+async function discoverAuthorizationServerMetadata(
+  issuer: URL,
+  customFetch: typeof fetch | undefined,
+) {
+  for (const attempt of buildAuthorizationServerDiscoveryAttempts(issuer, customFetch)) {
+    const response = await attempt.request()
+
+    if (!response.ok) {
+      if (response.status >= 400 && response.status < 500) {
+        await response.body?.cancel()
+        continue
+      }
+      throw new AgentPwInputError(
+        `Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}' with HTTP ${response.status}`,
+      )
+    }
+
+    return oauth.processDiscoveryResponse(issuer, response)
+  }
+
+  return null
 }
 
 async function discoverResource(
@@ -330,11 +400,10 @@ async function resolveOAuthConfigForResourceOption(
   }
 
   const issuerUrl = assertUrl(issuer, 'authorization server')
-  const discoveryResponse = await oauth.discoveryRequest(
-    issuerUrl,
-    customFetch ? { [oauth.customFetch]: customFetch } : undefined,
-  )
-  const authorizationServer = await oauth.processDiscoveryResponse(issuerUrl, discoveryResponse)
+  const authorizationServer = await discoverAuthorizationServerMetadata(issuerUrl, customFetch)
+  if (!authorizationServer) {
+    throw new AgentPwInputError(`Authorization server '${issuer}' does not publish usable metadata`)
+  }
   const shouldRegisterDynamically = Boolean(client.useDynamicRegistration || (!client.clientId && client.metadata))
   let clientId = client.clientId ?? client.metadata?.clientId
   let clientSecret = client.clientSecret

@@ -450,16 +450,14 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
                 : undefined,
           })
         } else {
-          if (profile.auth.kind === 'headers') {
-            optionsList.push({
-              kind: 'headers',
-              source: 'profile',
-              resource,
-              profilePath: profile.path,
-              label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
-              fields: profile.auth.fields,
-            })
-          }
+          optionsList.push({
+            kind: 'headers',
+            source: 'profile',
+            resource,
+            profilePath: profile.path,
+            label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
+            fields: profile.auth.fields,
+          })
         }
       }
 

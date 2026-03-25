@@ -280,6 +280,231 @@ describe('oauth service coverage', () => {
     expect(await service.refreshCredential('/org/no-resource', true)).toBe(state.credentials.get('/org/no-resource'))
   })
 
+  it('discovers authorization server metadata in MCP order for root and path issuers', async () => {
+    const state = createState()
+    const flowStore = createInMemoryFlowStore()
+    const calls: string[] = []
+
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      calls.push(url)
+
+      if (url === 'https://root-auth.example.com/.well-known/oauth-authorization-server') {
+        return Response.json({
+          issuer: 'https://root-auth.example.com',
+          authorization_endpoint: 'https://root-auth.example.com/authorize',
+          token_endpoint: 'https://root-auth.example.com/token',
+        })
+      }
+
+      if (url === 'https://path-auth.example.com/.well-known/oauth-authorization-server/tenant') {
+        return new Response('not found', { status: 404 })
+      }
+
+      if (url === 'https://path-auth.example.com/.well-known/openid-configuration/tenant') {
+        return new Response('not found', { status: 404 })
+      }
+
+      if (url === 'https://path-auth.example.com/tenant/.well-known/openid-configuration') {
+        return Response.json({
+          issuer: 'https://path-auth.example.com/tenant',
+          authorization_endpoint: 'https://path-auth.example.com/authorize',
+          token_endpoint: 'https://path-auth.example.com/token',
+        })
+      }
+
+      throw new Error(`Unexpected fetch ${url}`)
+    }
+
+    state.profiles.set('/root-auth', {
+      path: '/root-auth',
+      resourcePatterns: ['https://root-auth.example.com/*'],
+      auth: {
+        kind: 'oauth',
+        issuer: 'https://root-auth.example.com',
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    state.profiles.set('/path-auth', {
+      path: '/path-auth',
+      resourcePatterns: ['https://path-auth.example.com/*'],
+      auth: {
+        kind: 'oauth',
+        issuer: 'https://path-auth.example.com/tenant',
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    })
+
+    const rootSession = await service.startAuthorization({
+      path: '/org/root-auth',
+      option: {
+        kind: 'oauth',
+        source: 'profile',
+        label: 'Root auth',
+        profilePath: '/root-auth',
+        resource: 'https://root-auth.example.com/api',
+      },
+      redirectUri: 'https://app.example.com/oauth/callback',
+      client: {
+        clientId: 'root-client',
+      },
+    })
+
+    const pathSession = await service.startAuthorization({
+      path: '/org/path-auth',
+      option: {
+        kind: 'oauth',
+        source: 'profile',
+        label: 'Path auth',
+        profilePath: '/path-auth',
+        resource: 'https://path-auth.example.com/api',
+      },
+      redirectUri: 'https://app.example.com/oauth/callback',
+      client: {
+        clientId: 'path-client',
+      },
+    })
+
+    expect(rootSession.authorizationUrl).toContain('https://root-auth.example.com/authorize')
+    expect(pathSession.authorizationUrl).toContain('https://path-auth.example.com/authorize')
+    expect(calls).toEqual([
+      'https://root-auth.example.com/.well-known/oauth-authorization-server',
+      'https://path-auth.example.com/.well-known/oauth-authorization-server/tenant',
+      'https://path-auth.example.com/.well-known/openid-configuration/tenant',
+      'https://path-auth.example.com/tenant/.well-known/openid-configuration',
+    ])
+  })
+
+  it('rejects profile issuers that do not publish usable metadata', async () => {
+    const state = createState()
+    const flowStore = createInMemoryFlowStore()
+
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+
+      if (
+        url === 'https://missing-issuer.example.com/.well-known/oauth-authorization-server'
+        || url === 'https://missing-issuer.example.com/.well-known/openid-configuration'
+      ) {
+        return new Response('not found', { status: 404 })
+      }
+
+      throw new Error(`Unexpected fetch ${url}`)
+    }
+
+    state.profiles.set('/missing-issuer', {
+      path: '/missing-issuer',
+      resourcePatterns: ['https://missing-issuer.example.com/*'],
+      auth: {
+        kind: 'oauth',
+        issuer: 'https://missing-issuer.example.com',
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    })
+
+    await expect(service.startAuthorization({
+      path: '/org/missing-issuer',
+      option: {
+        kind: 'oauth',
+        source: 'profile',
+        label: 'Missing issuer',
+        profilePath: '/missing-issuer',
+        resource: 'https://missing-issuer.example.com/api',
+      },
+      redirectUri: 'https://app.example.com/oauth/callback',
+      client: {
+        clientId: 'missing-client',
+      },
+    })).rejects.toThrow("Authorization server 'https://missing-issuer.example.com' does not publish usable metadata")
+  })
+
+  it('uses global fetch for the MCP prepended OIDC fallback when no custom fetch is configured', async () => {
+    const state = createState()
+    const flowStore = createInMemoryFlowStore()
+    const calls: string[] = []
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      calls.push(url)
+
+      if (url === 'https://global-path-auth.example.com/.well-known/oauth-authorization-server/tenant') {
+        return new Response('not found', { status: 404 })
+      }
+
+      if (url === 'https://global-path-auth.example.com/.well-known/openid-configuration/tenant') {
+        return Response.json({
+          issuer: 'https://global-path-auth.example.com/tenant',
+          authorization_endpoint: 'https://global-path-auth.example.com/authorize',
+          token_endpoint: 'https://global-path-auth.example.com/token',
+        })
+      }
+
+      throw new Error(`Unexpected fetch ${url}`)
+    }) as typeof fetch
+
+    try {
+      state.profiles.set('/global-path-auth', {
+        path: '/global-path-auth',
+        resourcePatterns: ['https://global-path-auth.example.com/*'],
+        auth: {
+          kind: 'oauth',
+          issuer: 'https://global-path-auth.example.com/tenant',
+        },
+        displayName: null,
+        description: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const service = state.service({
+        flowStore,
+      })
+
+      const session = await service.startAuthorization({
+        path: '/org/global-path-auth',
+        option: {
+          kind: 'oauth',
+          source: 'profile',
+          label: 'Global path auth',
+          profilePath: '/global-path-auth',
+          resource: 'https://global-path-auth.example.com/api',
+        },
+        redirectUri: 'https://app.example.com/oauth/callback',
+        client: {
+          clientId: 'global-path-client',
+        },
+      })
+
+      expect(session.authorizationUrl).toContain('https://global-path-auth.example.com/authorize')
+      expect(calls).toEqual([
+        'https://global-path-auth.example.com/.well-known/oauth-authorization-server/tenant',
+        'https://global-path-auth.example.com/.well-known/openid-configuration/tenant',
+      ])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('covers oauth completion without refresh tokens and metadata-sourced client ids', async () => {
     const state = createState()
     const flowStore = createInMemoryFlowStore()
@@ -457,6 +682,75 @@ describe('oauth service coverage', () => {
       },
       redirectUri: 'https://app.example.com/oauth/callback',
     })).rejects.toThrow('Dynamic client registration requires client metadata')
+
+    const noAuthorizationMetadataService = state.service({
+      flowStore,
+      customFetch: async (input) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+        if (url.includes('/.well-known/oauth-protected-resource')) {
+          return Response.json({
+            resource: 'https://docs.example.com/mcp',
+            authorization_servers: ['https://auth.example.com'],
+          })
+        }
+        if (
+          url === 'https://auth.example.com/.well-known/oauth-authorization-server'
+          || url === 'https://auth.example.com/.well-known/openid-configuration'
+        ) {
+          return new Response('not found', { status: 404 })
+        }
+        throw new Error(`Unexpected fetch ${url}`)
+      },
+      defaultClient: {
+        clientId: 'docs-client',
+        clientAuthentication: 'none',
+      },
+    })
+    await expect(noAuthorizationMetadataService.startAuthorization({
+      path: '/org/docs',
+      option: {
+        kind: 'oauth',
+        source: 'discovery',
+        label: 'Docs',
+        resource: 'https://docs.example.com/mcp',
+      },
+      redirectUri: 'https://app.example.com/oauth/callback',
+    })).rejects.toThrow("Authorization server 'https://auth.example.com' does not publish usable metadata")
+
+    state.profiles.set('/issuer-500', {
+      path: '/issuer-500',
+      resourcePatterns: ['https://issuer-500.example.com/*'],
+      auth: {
+        kind: 'oauth',
+        issuer: 'https://issuer-500.example.com',
+        clientId: 'issuer-500-client',
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    const discoveryFailureService = state.service({
+      flowStore,
+      customFetch: async (input) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+        if (url === 'https://issuer-500.example.com/.well-known/oauth-authorization-server') {
+          return new Response('boom', { status: 500 })
+        }
+        throw new Error(`Unexpected fetch ${url}`)
+      },
+    })
+    await expect(discoveryFailureService.startAuthorization({
+      path: '/org/issuer-500',
+      option: {
+        kind: 'oauth',
+        source: 'profile',
+        label: 'Issuer 500',
+        profilePath: '/issuer-500',
+        resource: 'https://issuer-500.example.com/api',
+      },
+      redirectUri: 'https://app.example.com/oauth/callback',
+    })).rejects.toThrow("Authorization server discovery failed for 'https://issuer-500.example.com/'")
 
     const noAdvertisedService = state.service({
       flowStore,
