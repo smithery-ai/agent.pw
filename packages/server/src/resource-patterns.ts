@@ -15,6 +15,38 @@ export function normalizeResource(resource: string) {
   return parsed.toString()
 }
 
+function trimTrailingSlash(pathname: string) {
+  if (pathname.length > 1 && pathname.endsWith('/')) {
+    return pathname.slice(0, -1)
+  }
+  return pathname
+}
+
+function notionResourceAlias(resource: string) {
+  const url = new URL(resource)
+  const pathname = trimTrailingSlash(url.pathname)
+
+  if (url.origin === 'https://mcp.notion.com' && pathname === '/mcp') {
+    return 'https://api.notion.com/'
+  }
+
+  if (url.origin === 'https://api.notion.com') {
+    return 'https://mcp.notion.com/mcp'
+  }
+
+  return null
+}
+
+export function matchingResources(resource: string) {
+  const normalized = normalizeResource(resource)
+  const matches = new Set([normalized])
+  const notionAlias = notionResourceAlias(normalized)
+  if (notionAlias) {
+    matches.add(notionAlias)
+  }
+  return [...matches]
+}
+
 export function normalizeResourcePattern(pattern: string) {
   const normalized = pattern.trim()
   if (normalized.length === 0) {

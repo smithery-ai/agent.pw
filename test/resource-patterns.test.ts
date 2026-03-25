@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { AgentPwInputError } from '../packages/server/src/errors'
 import {
   anyResourcePatternMatches,
+  matchingResources,
   normalizeResource,
   normalizeResourcePattern,
   resourcePatternMatches,
@@ -20,6 +21,20 @@ describe('resource pattern helpers', () => {
       'https://api.example.com/*',
     ], 'https://api.example.com/v1/users')).toBe(true)
     expect(resourcePatternMatches('https://api.example.com/*', 'https://files.example.com/v1/users')).toBe(false)
+  })
+
+  it('matches equivalent Notion MCP and API resources', () => {
+    expect(matchingResources('https://mcp.notion.com/mcp/')).toEqual([
+      'https://mcp.notion.com/mcp/',
+      'https://api.notion.com/',
+    ])
+    expect(matchingResources('https://api.notion.com')).toEqual([
+      'https://api.notion.com/',
+      'https://mcp.notion.com/mcp',
+    ])
+    expect(matchingResources('https://example.com/path')).toEqual([
+      'https://example.com/path',
+    ])
   })
 
   it('rejects invalid resources and resource patterns', () => {

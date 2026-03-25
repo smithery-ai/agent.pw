@@ -411,6 +411,26 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
       }
 
       const optionsList: Array<ConnectOAuthOption | ConnectHeadersOption> = []
+      const profile = await profiles.resolve({ path, resource })
+
+      if (profile?.auth.kind === 'oauth') {
+        optionsList.push({
+          kind: 'oauth',
+          source: 'profile',
+          resource,
+          profilePath: profile.path,
+          label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
+          scopes: Array.isArray(profile.auth.scopes)
+            ? profile.auth.scopes
+            : typeof profile.auth.scopes === 'string'
+              ? profile.auth.scopes.split(/\s+/).filter(Boolean)
+              : undefined,
+        })
+        return {
+          kind: 'options',
+          options: optionsList,
+        }
+      }
 
       try {
         const discovered = await oauth.discoverResource({
@@ -434,32 +454,16 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
         // Discovery is preferred but optional. Fallback profiles are checked next.
       }
 
-      const profile = await profiles.resolve({ path, resource })
       if (profile) {
-        if (profile.auth.kind === 'oauth') {
+        if (profile.auth.kind === 'headers') {
           optionsList.push({
-            kind: 'oauth',
+            kind: 'headers',
             source: 'profile',
             resource,
             profilePath: profile.path,
             label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
-            scopes: Array.isArray(profile.auth.scopes)
-              ? profile.auth.scopes
-              : typeof profile.auth.scopes === 'string'
-                ? profile.auth.scopes.split(/\s+/).filter(Boolean)
-                : undefined,
+            fields: profile.auth.fields,
           })
-        } else {
-          if (profile.auth.kind === 'headers') {
-            optionsList.push({
-              kind: 'headers',
-              source: 'profile',
-              resource,
-              profilePath: profile.path,
-              label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
-              fields: profile.auth.fields,
-            })
-          }
         }
       }
 
