@@ -437,6 +437,74 @@ describe('oauth service coverage', () => {
     })).rejects.toThrow("Authorization server 'https://missing-issuer.example.com' does not publish usable metadata")
   })
 
+  it('uses global fetch for the MCP prepended OIDC fallback when no custom fetch is configured', async () => {
+    const state = createState()
+    const flowStore = createInMemoryFlowStore()
+    const calls: string[] = []
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      calls.push(url)
+
+      if (url === 'https://global-path-auth.example.com/.well-known/oauth-authorization-server/tenant') {
+        return new Response('not found', { status: 404 })
+      }
+
+      if (url === 'https://global-path-auth.example.com/.well-known/openid-configuration/tenant') {
+        return Response.json({
+          issuer: 'https://global-path-auth.example.com/tenant',
+          authorization_endpoint: 'https://global-path-auth.example.com/authorize',
+          token_endpoint: 'https://global-path-auth.example.com/token',
+        })
+      }
+
+      throw new Error(`Unexpected fetch ${url}`)
+    }) as typeof fetch
+
+    try {
+      state.profiles.set('/global-path-auth', {
+        path: '/global-path-auth',
+        resourcePatterns: ['https://global-path-auth.example.com/*'],
+        auth: {
+          kind: 'oauth',
+          issuer: 'https://global-path-auth.example.com/tenant',
+        },
+        displayName: null,
+        description: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const service = state.service({
+        flowStore,
+      })
+
+      const session = await service.startAuthorization({
+        path: '/org/global-path-auth',
+        option: {
+          kind: 'oauth',
+          source: 'profile',
+          label: 'Global path auth',
+          profilePath: '/global-path-auth',
+          resource: 'https://global-path-auth.example.com/api',
+        },
+        redirectUri: 'https://app.example.com/oauth/callback',
+        client: {
+          clientId: 'global-path-client',
+        },
+      })
+
+      expect(session.authorizationUrl).toContain('https://global-path-auth.example.com/authorize')
+      expect(calls).toEqual([
+        'https://global-path-auth.example.com/.well-known/oauth-authorization-server/tenant',
+        'https://global-path-auth.example.com/.well-known/openid-configuration/tenant',
+      ])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('covers oauth completion without refresh tokens and metadata-sourced client ids', async () => {
     const state = createState()
     const flowStore = createInMemoryFlowStore()

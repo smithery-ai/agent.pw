@@ -192,35 +192,59 @@ async function resolveAuthorizationServer(
   } satisfies oauth.AuthorizationServer
 }
 
-function buildAuthorizationServerDiscoveryUrls(issuer: URL) {
-  const pathname = issuer.pathname === '/' ? '' : issuer.pathname.replace(/\/$/, '')
+type AuthorizationServerDiscoveryAttempt = {
+  url: URL
+  request(): Promise<Response>
+}
 
-  if (!pathname) {
-    return [
-      new URL('/.well-known/oauth-authorization-server', issuer.origin),
-      new URL('/.well-known/openid-configuration', issuer.origin),
-    ]
+function buildAuthorizationServerDiscoveryAttempts(
+  issuer: URL,
+  customFetch: typeof fetch | undefined,
+) {
+  const pathname = issuer.pathname === '/' ? '' : issuer.pathname.replace(/\/$/, '')
+  const discoveryOptions = customFetch ? { [oauth.customFetch]: customFetch } : undefined
+  const attempts: AuthorizationServerDiscoveryAttempt[] = [{
+    url: pathname
+      ? new URL(`/.well-known/oauth-authorization-server${pathname}`, issuer.origin)
+      : new URL('/.well-known/oauth-authorization-server', issuer.origin),
+    request: () => oauth.discoveryRequest(issuer, {
+      ...discoveryOptions,
+      algorithm: 'oauth2',
+    }),
+  }]
+
+  if (pathname) {
+    const oidcInsertedUrl = new URL(`/.well-known/openid-configuration${pathname}`, issuer.origin)
+    attempts.push({
+      url: oidcInsertedUrl,
+      // oauth4webapi does not expose the MCP-preferred prepended OIDC path variant.
+      request: () => (customFetch ?? fetch)(oidcInsertedUrl, {
+        headers: {
+          Accept: 'application/json',
+        },
+      }),
+    })
   }
 
-  return [
-    new URL(`/.well-known/oauth-authorization-server${pathname}`, issuer.origin),
-    new URL(`/.well-known/openid-configuration${pathname}`, issuer.origin),
-    new URL(`${pathname}/.well-known/openid-configuration`, issuer.origin),
-  ]
+  attempts.push({
+    url: pathname
+      ? new URL(`${pathname}/.well-known/openid-configuration`, issuer.origin)
+      : new URL('/.well-known/openid-configuration', issuer.origin),
+    request: () => oauth.discoveryRequest(issuer, {
+      ...discoveryOptions,
+      algorithm: 'oidc',
+    }),
+  })
+
+  return attempts
 }
 
 async function discoverAuthorizationServerMetadata(
   issuer: URL,
   customFetch: typeof fetch | undefined,
 ) {
-  const fetchImpl = customFetch ?? fetch
-
-  for (const url of buildAuthorizationServerDiscoveryUrls(issuer)) {
-    const response = await fetchImpl(url, {
-      headers: {
-        Accept: 'application/json',
-      },
-    })
+  for (const attempt of buildAuthorizationServerDiscoveryAttempts(issuer, customFetch)) {
+    const response = await attempt.request()
 
     if (!response.ok) {
       if (response.status >= 400 && response.status < 500) {
@@ -228,7 +252,7 @@ async function discoverAuthorizationServerMetadata(
         continue
       }
       throw new AgentPwInputError(
-        `Authorization server discovery failed for '${issuer.toString()}' at '${url.toString()}' with HTTP ${response.status}`,
+        `Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}' with HTTP ${response.status}`,
       )
     }
 
