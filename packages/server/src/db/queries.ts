@@ -4,7 +4,7 @@ import {
   type InferSelectModel,
 } from 'drizzle-orm'
 import { canonicalizePath, credentialParentPath, isAncestorOrEqual, validatePath } from '../paths.js'
-import { anyResourcePatternMatches, matchingResources, normalizeResource, normalizeResourcePattern } from '../resource-patterns.js'
+import { anyResourcePatternMatches, normalizeResource, normalizeResourcePattern } from '../resource-patterns.js'
 import type { SqlNamespaceOptions } from '../types.js'
 import type { Database } from './index.js'
 import {
@@ -80,14 +80,14 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     resource: string,
   ): Promise<CredProfileRow[]> {
     const normalizedPath = canonicalizePath(path)
-    const resources = matchingResources(resource)
+    const normalizedResource = normalizeResource(resource)
     const rows = await db.select().from(credProfiles)
 
     return rows
       .filter((profile) => {
         const profileScope = credentialParentPath(profile.path)
         return isAncestorOrEqual(profileScope, normalizedPath)
-          && resources.some(resourceOption => anyResourcePatternMatches(profile.resourcePatterns, resourceOption))
+          && anyResourcePatternMatches(profile.resourcePatterns, normalizedResource)
       })
       .sort(sortByDeepestPath)
   }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { createAgentPw } from 'agent.pw'
-import { createInMemoryFlowStore } from 'agent.pw/oauth'
 import type { RuleScope } from '../packages/server/src/types'
 import { AgentPwAuthorizationError, AgentPwConflictError } from '../packages/server/src/errors'
 import { deriveEncryptionKey } from '../packages/server/src/lib/credentials-crypto'
@@ -36,33 +35,6 @@ function createDiscoveryFetch() {
   }
 
   return fetchImpl
-}
-
-function createNotionDiscoveryFetch() {
-  const calls: string[] = []
-
-  const fetchImpl: typeof fetch = async (input) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    calls.push(url)
-
-    if (url.includes('/.well-known/oauth-protected-resource')) {
-      return Response.json({
-        resource: 'https://mcp.notion.com/mcp',
-        authorization_servers: ['https://mcp.notion.com'],
-      })
-    }
-
-    if (
-      url === 'https://mcp.notion.com/.well-known/oauth-authorization-server'
-      || url === 'https://mcp.notion.com/.well-known/openid-configuration'
-    ) {
-      return new Response('not found', { status: 404 })
-    }
-
-    throw new Error(`Unexpected fetch ${url}`)
-  }
-
-  return { fetchImpl, calls }
 }
 
 describe('createAgentPw', () => {
@@ -283,68 +255,6 @@ describe('createAgentPw', () => {
         scopes: undefined,
       }],
     })
-  })
-
-  it('resolves direct Notion MCP resources to the existing Notion profile', async () => {
-    const db = await createTestDb()
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const flowStore = createInMemoryFlowStore()
-    const { fetchImpl, calls } = createNotionDiscoveryFetch()
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-      flowStore,
-      oauthFetch: fetchImpl,
-    })
-
-    await agentPw.profiles.put('/notion', {
-      resourcePatterns: ['https://api.notion.com/*'],
-      auth: {
-        kind: 'oauth',
-        authorizationUrl: 'https://api.notion.com/v1/oauth/authorize',
-        tokenUrl: 'https://api.notion.com/v1/oauth/token',
-        clientId: 'notion-client',
-      },
-      displayName: 'Notion',
-    })
-
-    expect(await agentPw.profiles.resolve({
-      path: '/acme/connections/notion',
-      resource: 'https://mcp.notion.com/mcp',
-    })).toEqual(expect.objectContaining({
-      path: '/notion',
-      displayName: 'Notion',
-    }))
-
-    const prepared = await agentPw.connect.prepare({
-      path: '/acme/connections/notion',
-      resource: 'https://mcp.notion.com/mcp',
-    })
-
-    expect(prepared).toEqual({
-      kind: 'options',
-      options: [{
-        kind: 'oauth',
-        source: 'profile',
-        resource: 'https://mcp.notion.com/mcp',
-        profilePath: '/notion',
-        label: 'Notion',
-        scopes: undefined,
-      }],
-    })
-
-    if (prepared.kind !== 'options') {
-      throw new Error('Expected oauth options')
-    }
-
-    const session = await agentPw.connect.start({
-      path: '/acme/connections/notion',
-      option: prepared.options[0],
-      redirectUri: 'https://app.example.com/oauth/callback',
-    })
-
-    expect(session.authorizationUrl).toContain('https://api.notion.com/v1/oauth/authorize')
-    expect(calls).not.toContain('https://mcp.notion.com/.well-known/openid-configuration')
   })
 
   it('supports scoped APIs over connect, credentials, and profiles', async () => {
