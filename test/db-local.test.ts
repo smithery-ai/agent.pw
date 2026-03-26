@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { createAgentPwSchema, createDb, createLocalDb, createQueryHelpers, migrateLocal } from 'agent.pw/sql'
+import { createAgentPwSchema, createDb, createLocalDb, createQueryHelpers } from 'agent.pw/sql'
+import { bootstrapLocalSchema } from '../packages/server/src/db/bootstrap-local'
 
 async function closeLocalDb(db: unknown) {
   await (db as { $client?: { close?: () => Promise<void> } }).$client?.close?.()
@@ -31,7 +32,7 @@ describe('db entrypoints', () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-migrate-'))
     try {
       db = await createLocalDb(dataDir)
-      await migrateLocal(db)
+      await bootstrapLocalSchema(db)
 
       const result = await db.execute(sql`
         SELECT table_name
@@ -67,7 +68,7 @@ describe('db entrypoints', () => {
       db = await createLocalDb(dataDir, {
         sql: sqlNamespace,
       })
-      await migrateLocal(db, {
+      await bootstrapLocalSchema(db, {
         sql: sqlNamespace,
       })
 
@@ -94,6 +95,55 @@ describe('db entrypoints', () => {
         'smithery_cred_profiles',
         'smithery_credentials',
       ])
+    } finally {
+      await closeLocalDb(db)
+      await rm(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('migrates legacy credential resources into auth metadata for local schemas', async () => {
+    let db: Awaited<ReturnType<typeof createLocalDb>> | undefined
+    const dataDir = await mkdtemp(join(tmpdir(), 'agentpw-legacy-resource-'))
+    try {
+      db = await createLocalDb(dataDir)
+      await db.execute(sql`CREATE SCHEMA IF NOT EXISTS agentpw`)
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS agentpw.credentials (
+          path TEXT PRIMARY KEY,
+          resource TEXT NOT NULL DEFAULT '',
+          auth JSONB NOT NULL,
+          secret BYTEA NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP NOT NULL DEFAULT now()
+        )
+      `))
+      await db.execute(sql.raw(`
+        INSERT INTO agentpw.credentials (path, resource, auth, secret)
+        VALUES (
+          '/acme/connections/legacy',
+          'https://api.github.com',
+          '{"kind":"headers","label":"Legacy"}'::jsonb,
+          '\\x00'::bytea
+        )
+      `))
+
+      await bootstrapLocalSchema(db)
+
+      const authResult = await db.execute(sql.raw(`
+        SELECT auth->>'resource' AS resource
+        FROM agentpw.credentials
+        WHERE path = '/acme/connections/legacy'
+      `))
+      expect(authResult.rows).toEqual([{ resource: 'https://api.github.com' }])
+
+      const columnResult = await db.execute(sql.raw(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'agentpw'
+          AND table_name = 'credentials'
+        ORDER BY column_name
+      `))
+      expect(columnResult.rows.map(row => row.column_name)).not.toContain('resource')
     } finally {
       await closeLocalDb(db)
       await rm(dataDir, { recursive: true, force: true })

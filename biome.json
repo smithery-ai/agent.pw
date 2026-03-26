@@ -18,7 +18,6 @@
   "overrides": [
     {
       "includes": [
-        "drizzle.config.ts",
         "packages/server/src/**/*.ts",
         "scripts/**/*.ts"
       ],

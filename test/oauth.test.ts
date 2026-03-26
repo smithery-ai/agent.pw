@@ -202,6 +202,7 @@ describe("oauth runtime", () => {
 			kind: "oauth",
 			profilePath: "/linear",
 			label: "Linear",
+			resource: "https://api.linear.app/projects",
 		});
 		expect(completed.credential.secret).toEqual(
 			expect.objectContaining({
@@ -292,6 +293,7 @@ describe("oauth runtime", () => {
 			kind: "oauth",
 			profilePath: null,
 			label: "Docs MCP via auth.docs.example.com",
+			resource: "https://docs.example.com/mcp",
 		});
 
 		const handlers = agentPw.connect.createWebHandlers({
@@ -434,6 +436,7 @@ describe("oauth runtime", () => {
 			kind: "oauth",
 			profilePath: "/docs",
 			label: "Docs Profile",
+			resource: "https://docs.example.com/mcp",
 		});
 	});
 

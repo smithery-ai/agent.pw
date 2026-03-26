@@ -123,13 +123,32 @@ function buildClient(config: OAuthResolvedConfig): oauth.Client {
 	};
 }
 
+function resourceFromCredentialRecord(credential: CredentialRecord) {
+	if (
+		typeof credential.auth.resource === "string" &&
+		credential.auth.resource.length > 0
+	) {
+		return credential.auth.resource;
+	}
+
+	const legacyResource = Reflect.get(credential, "resource");
+	return typeof legacyResource === "string" && legacyResource.length > 0
+		? legacyResource
+		: undefined;
+}
+
 function oauthConfigFromStoredCredentials(
 	secret: StoredCredentials | undefined,
-	resource: string,
+	resource: string | null | undefined,
 ): OAuthResolvedConfig | null {
 	const stored = secret?.oauth;
 	const clientId = stringValue(stored?.clientId);
 	if (!clientId) {
+		return null;
+	}
+
+	const resolvedResource = stringValue(stored?.resource) ?? stringValue(resource);
+	if (!resolvedResource) {
 		return null;
 	}
 
@@ -145,7 +164,7 @@ function oauthConfigFromStoredCredentials(
 			Boolean(stored?.clientSecret),
 		),
 		scopes: stringValue(stored?.scopes),
-		resource: stringValue(stored?.resource) ?? normalizeResource(resource),
+		resource: normalizeResource(resolvedResource),
 	};
 }
 
@@ -172,7 +191,7 @@ function oauthSecretFromTokenResponse(
 	response: oauth.TokenEndpointResponse,
 	oauthConfig: OAuthResolvedConfig,
 	existing?: StoredCredentials,
-): StoredCredentials {
+): StoredCredentials & { headers: Record<string, string> } {
 	const accessToken = response.access_token;
 	const refreshToken =
 		response.refresh_token ?? existing?.oauth?.refreshToken ?? null;
@@ -236,11 +255,16 @@ async function resolveAuthorizationServer(
 ) {
 	if (config.issuer) {
 		const issuer = assertUrl(config.issuer, "oauth issuer");
-		const response = await oauth.discoveryRequest(
+		const authorizationServer = await discoverAuthorizationServerMetadata(
 			issuer,
-			customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+			customFetch,
 		);
-		return oauth.processDiscoveryResponse(issuer, response);
+		if (!authorizationServer) {
+			throw new AgentPwInputError(
+				`Authorization server '${config.issuer}' does not publish usable metadata`,
+			);
+		}
+		return authorizationServer;
 	}
 
 	if (!(config.authorizationUrl && config.tokenUrl)) {
@@ -255,6 +279,92 @@ async function resolveAuthorizationServer(
 		token_endpoint: config.tokenUrl,
 		revocation_endpoint: config.revocationUrl,
 	} satisfies oauth.AuthorizationServer;
+}
+
+type AuthorizationServerDiscoveryAttempt = {
+	url: URL;
+	request(): Promise<Response>;
+};
+
+function buildAuthorizationServerDiscoveryAttempts(
+	issuer: URL,
+	customFetch: typeof fetch | undefined,
+) {
+	const pathname =
+		issuer.pathname === "/" ? "" : issuer.pathname.replace(/\/$/, "");
+	const discoveryOptions = customFetch
+		? { [oauth.customFetch]: customFetch }
+		: undefined;
+	const attempts: AuthorizationServerDiscoveryAttempt[] = [
+		{
+			url: pathname
+				? new URL(
+						`/.well-known/oauth-authorization-server${pathname}`,
+						issuer.origin,
+					)
+				: new URL("/.well-known/oauth-authorization-server", issuer.origin),
+			request: () =>
+				oauth.discoveryRequest(issuer, {
+					...discoveryOptions,
+					algorithm: "oauth2",
+				}),
+		},
+	];
+
+	if (pathname) {
+		const oidcInsertedUrl = new URL(
+			`/.well-known/openid-configuration${pathname}`,
+			issuer.origin,
+		);
+		attempts.push({
+			url: oidcInsertedUrl,
+			request: () =>
+				(customFetch ?? fetch)(oidcInsertedUrl, {
+					headers: {
+						Accept: "application/json",
+					},
+				}),
+		});
+	}
+
+	attempts.push({
+		url: pathname
+			? new URL(`${pathname}/.well-known/openid-configuration`, issuer.origin)
+			: new URL("/.well-known/openid-configuration", issuer.origin),
+		request: () =>
+			oauth.discoveryRequest(issuer, {
+				...discoveryOptions,
+				algorithm: "oidc",
+			}),
+	});
+
+	return attempts;
+}
+
+async function discoverAuthorizationServerMetadata(
+	issuer: URL,
+	customFetch: typeof fetch | undefined,
+) {
+	for (const attempt of buildAuthorizationServerDiscoveryAttempts(
+		issuer,
+		customFetch,
+	)) {
+		const response = await attempt.request();
+
+		if (!response.ok) {
+			if (response.status >= 400 && response.status < 500) {
+				await response.body?.cancel();
+				continue;
+			}
+			throw new AgentPwInputError(
+				`Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}' with HTTP ${response.status}`,
+			);
+		}
+
+		return oauth.processDiscoveryResponse(issuer, response);
+	}
+
+	return null;
 }
 
 async function discoverResource(
@@ -417,14 +527,15 @@ async function resolveOAuthConfigForResourceOption(
 	}
 
 	const issuerUrl = assertUrl(issuer, "authorization server");
-	const discoveryResponse = await oauth.discoveryRequest(
+	const authorizationServer = await discoverAuthorizationServerMetadata(
 		issuerUrl,
-		customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+		customFetch,
 	);
-	const authorizationServer = await oauth.processDiscoveryResponse(
-		issuerUrl,
-		discoveryResponse,
-	);
+	if (!authorizationServer) {
+		throw new AgentPwInputError(
+			`Authorization server '${issuer}' does not publish usable metadata`,
+		);
+	}
 	const shouldRegisterDynamically = Boolean(
 		client.useDynamicRegistration || (!client.clientId && client.metadata),
 	);
@@ -561,7 +672,7 @@ export function createOAuthService(options: {
 
 		const oauthConfig = oauthConfigFromStoredCredentials(
 			credential.secret,
-			credential.resource,
+			resourceFromCredentialRecord(credential),
 		);
 		if (!oauthConfig) {
 			return credential;
@@ -589,7 +700,6 @@ export function createOAuthService(options: {
 		);
 		return options.putCredential({
 			path: credential.path,
-			resource: credential.resource,
 			auth: credential.auth,
 			secret: oauthSecretFromTokenResponse(
 				processed,
@@ -745,11 +855,11 @@ export function createOAuthService(options: {
 
 			const credential = await options.putCredential({
 				path: flow.path,
-				resource: flow.resource,
 				auth: {
 					kind: "oauth",
 					profilePath: flow.option.profilePath ?? null,
 					label: flow.option.label,
+					resource: flow.resource,
 				},
 				secret,
 			});
@@ -778,7 +888,7 @@ export function createOAuthService(options: {
 			if (credential.auth.kind === "oauth") {
 				const oauthConfig = oauthConfigFromStoredCredentials(
 					credential.secret,
-					credential.resource,
+					resourceFromCredentialRecord(credential),
 				);
 				const revokeMode = input.revoke ?? "refresh_token";
 				if (oauthConfig) {

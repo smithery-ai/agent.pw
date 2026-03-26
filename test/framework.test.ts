@@ -90,11 +90,12 @@ describe("createAgentPw", () => {
 		const stored = await agentPw.credentials.put({
 			path: "/acme/connections/github_primary",
 			resource: "https://api.github.com",
-			auth: {
-				kind: "headers",
-				profilePath: "/acme/github",
-				label: "Acme GitHub",
-			},
+					auth: {
+						kind: "headers",
+						profilePath: "/acme/github",
+						label: "Acme GitHub",
+						resource: "https://api.github.com/",
+					},
 			secret: {
 				headers: {
 					Authorization: "Bearer github-token",
@@ -106,11 +107,12 @@ describe("createAgentPw", () => {
 			expect.objectContaining({
 				path: "/acme/connections/github_primary",
 				resource: "https://api.github.com/",
-				auth: {
-					kind: "headers",
-					profilePath: "/acme/github",
-					label: "Acme GitHub",
-				},
+					auth: {
+						kind: "headers",
+						profilePath: "/acme/github",
+						label: "Acme GitHub",
+						resource: "https://api.github.com/",
+					},
 				secret: {
 					headers: {
 						Authorization: "Bearer github-token",
@@ -211,6 +213,7 @@ describe("createAgentPw", () => {
 			kind: "headers",
 			profilePath: "/resend",
 			label: "Resend",
+			resource: "https://api.resend.com/",
 		});
 		expect(saved.secret.headers).toEqual({
 			Authorization: "Bearer rs_123",
@@ -343,6 +346,7 @@ describe("createAgentPw", () => {
 						kind: "headers",
 						profilePath: "/resend",
 						label: "Resend",
+						resource: "https://api.resend.com/",
 					},
 				}),
 				resolution: {

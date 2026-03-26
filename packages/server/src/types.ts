@@ -84,6 +84,13 @@ export interface HeaderFieldDefinition {
 	secret?: boolean;
 }
 
+export interface EnvFieldDefinition {
+	name: string;
+	label: string;
+	description?: string;
+	secret?: boolean;
+}
+
 export interface CredentialProfileOAuthAuth {
 	kind: "oauth";
 	label?: string;
@@ -103,9 +110,16 @@ export interface CredentialProfileHeadersAuth {
 	fields: HeaderFieldDefinition[];
 }
 
+export interface CredentialProfileEnvAuth {
+	kind: "env";
+	label?: string;
+	fields: EnvFieldDefinition[];
+}
+
 export type CredentialProfileAuth =
 	| CredentialProfileOAuthAuth
-	| CredentialProfileHeadersAuth;
+	| CredentialProfileHeadersAuth
+	| CredentialProfileEnvAuth;
 
 export interface CredentialProfileRecord {
 	path: string;
@@ -124,23 +138,31 @@ export interface CredentialProfilePutInput {
 	description?: string;
 }
 
-export interface HeadersCredentialAuth {
+interface CredentialAuthBase {
+	profilePath?: string | null;
+	label?: string | null;
+	resource?: string | null;
+}
+
+export interface HeadersCredentialAuth extends CredentialAuthBase {
 	kind: "headers";
-	profilePath?: string | null;
-	label?: string | null;
 }
 
-export interface OAuthCredentialAuth {
+export interface OAuthCredentialAuth extends CredentialAuthBase {
 	kind: "oauth";
-	profilePath?: string | null;
-	label?: string | null;
 }
 
-export type CredentialAuth = HeadersCredentialAuth | OAuthCredentialAuth;
+export interface EnvCredentialAuth extends CredentialAuthBase {
+	kind: "env";
+}
+
+export type CredentialAuth =
+	| HeadersCredentialAuth
+	| OAuthCredentialAuth
+	| EnvCredentialAuth;
 
 export interface CredentialSummary {
 	path: string;
-	resource: string;
 	auth: CredentialAuth;
 	createdAt: Date;
 	updatedAt: Date;
@@ -152,7 +174,6 @@ export interface CredentialRecord extends CredentialSummary {
 
 export interface CredentialPutInput {
 	path: string;
-	resource: string;
 	auth: CredentialAuth;
 	secret: StoredCredentials | Buffer;
 }

@@ -40,20 +40,17 @@ describe('query edge cases', () => {
   it('rejects invalid list paths and still returns direct children for root lists', async () => {
     await queries.upsertCredential(db, {
       path: '/acme/github',
-      resource: 'https://api.github.com',
-      auth: { kind: 'headers' },
+      auth: { kind: 'headers', resource: 'https://api.github.com' },
       secret: await secret('gh'),
     })
     await queries.upsertCredential(db, {
       path: '/acme/team/docs',
-      resource: 'https://docs.example.com/mcp',
-      auth: { kind: 'oauth' },
+      auth: { kind: 'oauth', resource: 'https://docs.example.com/mcp' },
       secret: await secret('docs'),
     })
     await queries.upsertCredential(db, {
       path: '/top',
-      resource: 'https://top.example.com',
-      auth: { kind: 'headers' },
+      auth: { kind: 'headers', resource: 'https://top.example.com' },
       secret: await secret('top'),
     })
 
@@ -61,5 +58,13 @@ describe('query edge cases', () => {
     await expect(queries.listCredentials(db, { path: '/../bad' })).rejects.toThrow("Invalid path '/../bad'")
 
     expect((await queries.listCredentials(db)).map(row => row.path)).toEqual(['/top'])
+  })
+
+  it('rejects malformed credential auth payloads before writing', async () => {
+    await expect(Reflect.apply(queries.upsertCredential, queries, [db, {
+      path: '/bad/auth',
+      auth: 'broken',
+      secret: await secret('bad'),
+    }])).rejects.toThrow('Invalid credential auth payload')
   })
 })

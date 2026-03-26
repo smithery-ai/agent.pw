@@ -294,9 +294,26 @@ describe("index coverage helpers", () => {
 					kind: "headers",
 					profilePath: null,
 					label: null,
+					resource: "https://listed.example.com/",
 				},
 			}),
 		]);
+		await expect(
+			agentPw.credentials.put({
+				path: "/broken/headerless",
+				auth: { kind: "headers" },
+				secret: {},
+			}),
+		).rejects.toThrow(
+			"Credential '/broken/headerless' does not have header-based auth",
+		);
+		await expect(
+			agentPw.credentials.put({
+				path: "/broken/envless",
+				auth: { kind: "env" },
+				secret: { headers: { Authorization: "Bearer wrong" } },
+			}),
+		).rejects.toThrow("Credential '/broken/envless' does not have env auth");
 		expect(Array.isArray(await agentPw.credentials.list())).toBe(true);
 
 		await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toThrow(

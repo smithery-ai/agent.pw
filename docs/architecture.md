@@ -53,12 +53,15 @@ A `credential` is the encrypted auth stored at one exact path.
 Each credential stores:
 
 - `path`
-- `resource`
 - `auth`
 - encrypted `secret`
 - timestamps
 
-At runtime, `secret.headers` is the universal output shape. OAuth credentials may also include stored refresh state.
+At runtime:
+
+- `oauth` and `headers` credentials expose `secret.headers`
+- `env` credentials expose `secret.env`
+- OAuth credentials may also include stored refresh state
 
 ### Profile
 
@@ -131,6 +134,10 @@ It returns:
   - options are `oauth` or `headers`
   - an empty list means unconfigured
 
+### `connect.start({ path, option, redirectUri, client? })`
+
+Starts an OAuth flow from one returned OAuth option.
+
 ### `connect.resolve({ path, resource, response? })`
 
 Returns the library-selected route as structured metadata:
@@ -140,10 +147,6 @@ Returns the library-selected route as structured metadata:
 - `reason`
 - `profilePath`
 - `option`
-
-### `connect.start({ path, option, redirectUri, client? })`
-
-Starts an OAuth flow from one returned OAuth option.
 
 ### `connect.startForResource({ path, resource, redirectUri, context?, ... })`
 
@@ -174,10 +177,13 @@ Disconnects a stored credential and optionally revokes upstream OAuth tokens.
 
 ## Auth Kinds
 
-At the framework level there are only two auth families:
+At the vault level there are three credential families:
 
 - `oauth`
 - `headers`
+- `env`
+
+`connect.*` only guides `oauth` and `headers`.
 
 Everything manual collapses into header auth:
 
@@ -199,7 +205,7 @@ This keeps the stored model small while still covering the common real-world cas
 4. if a profile matches, use it as the authoritative route
 5. otherwise try discovery for the `resource`
 6. build `oauth` or `headers` options from the chosen route
-6. return those options
+7. return those options
 
 That gives the app a guided flow without forcing it to understand the framework’s internal selection logic.
 
@@ -259,7 +265,6 @@ That lets the framework return a manual setup option without hard-coding the for
 The credential table intentionally stores very little:
 
 - `path`
-- `resource`
 - `auth`
 - encrypted `secret`
 - timestamps
@@ -267,11 +272,30 @@ The credential table intentionally stores very little:
 That is enough because:
 
 - the exact connection path is the runtime identity
-- the resource is the setup target
+- the resource only matters when a connect flow or profile match needs it
 - runtime consumption only needs resolved headers
+- env credentials only need encrypted env pairs
 - OAuth lifecycle state can live inside the encrypted secret payload
 
 Profiles, discovery logic, and option selection happen around the credential. They are not the credential’s primary identity.
+
+## Env Credentials
+
+Some agent runtimes need env-var injection instead of HTTP headers. `agent.pw` supports that as a vault concern, not as part of guided connect.
+
+Examples:
+
+```txt
+/acme/connections/github_cli
+/acme/connections/openai_cli
+```
+
+These credentials are stored and retrieved through `credentials.*`:
+
+- `credentials.put(...)`
+- `credentials.get(...)`
+
+That keeps `connect.*` focused on resource-backed auth setup, while the vault layer remains flexible enough for CLI and sandbox-agent workflows.
 
 ## Exact-Path Credentials
 
@@ -384,6 +408,8 @@ const agentPw = await createAgentPw({
 ```
 
 The same namespace options should be passed to both the SQL helpers and `createAgentPw(...)`.
+
+Apps own their own migration or DDL workflow. The framework exposes schema and query helpers, but it does not ship migrations as part of the package contract.
 
 ## Why This Shape
 

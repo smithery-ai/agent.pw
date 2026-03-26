@@ -36,6 +36,18 @@ function normalizeListPath(path: string | undefined) {
   return normalized
 }
 
+function normalizeCredentialAuthRecord(auth: Record<string, unknown>) {
+  const normalized = JSON.parse(JSON.stringify(auth))
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) {
+    throw new Error('Invalid credential auth payload')
+  }
+  const resource = Reflect.get(normalized, 'resource')
+  if (typeof resource === 'string') {
+    Reflect.set(normalized, 'resource', normalizeResource(resource))
+  }
+  return normalized
+}
+
 export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
   const sqlNamespace = coerceSqlNamespace(namespaceInput)
   const { credProfiles, credentials } = sqlNamespace.tables
@@ -144,7 +156,6 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     db: Database,
     data: {
       path: string
-      resource: string
       auth: Record<string, unknown>
       secret: Buffer
     },
@@ -153,15 +164,13 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       .insert(credentials)
       .values({
         path: data.path,
-        resource: normalizeResource(data.resource),
-        auth: data.auth,
+        auth: normalizeCredentialAuthRecord(data.auth),
         secret: data.secret,
       })
       .onConflictDoUpdate({
         target: credentials.path,
         set: {
-          resource: normalizeResource(data.resource),
-          auth: data.auth,
+          auth: normalizeCredentialAuthRecord(data.auth),
           secret: data.secret,
           updatedAt: new Date(),
         },
@@ -178,7 +187,6 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       await tx.delete(credentials).where(eq(credentials.path, fromPath))
       await tx.insert(credentials).values({
         path: toPath,
-        resource: row.resource,
         auth: row.auth,
         secret: row.secret,
         createdAt: row.createdAt,

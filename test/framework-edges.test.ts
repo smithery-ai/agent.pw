@@ -63,6 +63,58 @@ describe("createAgentPw edge cases", () => {
 				clientId: "shared-client",
 			},
 		});
+		await expect(
+			agentPw.profiles.put("/shared/env", {
+				resourcePatterns: ["https://env.example.com/*"],
+				auth: {
+					kind: "env",
+					label: "Env vars",
+					fields: [
+						{
+							name: "API_KEY",
+							label: "API key",
+							description: "Stored as an env secret",
+							secret: true,
+						},
+						{} as never,
+					],
+				},
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				path: "/shared/env",
+				auth: {
+					kind: "env",
+					label: "Env vars",
+					fields: [
+						{
+							name: "API_KEY",
+							label: "API key",
+							description: "Stored as an env secret",
+							secret: true,
+						},
+					],
+				},
+			}),
+		);
+		await expect(
+			agentPw.profiles.put("/shared/env_empty", {
+				resourcePatterns: ["https://env-empty.example.com/*"],
+				auth: {
+					kind: "env",
+					fields: null as never,
+				},
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				path: "/shared/env_empty",
+				auth: {
+					kind: "env",
+					label: undefined,
+					fields: [],
+				},
+			}),
+		);
 
 		await expect(
 			agentPw.profiles.resolve({
@@ -96,6 +148,20 @@ describe("createAgentPw edge cases", () => {
 		expect(stored.secret.headers).toEqual({
 			Authorization: "Bearer buffered-token",
 		});
+		expect(
+			Reflect.get(
+				await agentPw.credentials.put({
+					path: "/shared/connections/no_resource",
+					auth: { kind: "headers", label: "No resource" },
+					secret: {
+						headers: {
+							Authorization: "Bearer no-resource",
+						},
+					},
+				}),
+				"resource",
+			),
+		).toBeUndefined();
 
 		expect(
 			await agentPw.credentials.move(
@@ -198,6 +264,35 @@ describe("createAgentPw edge cases", () => {
 				})
 				.credentials.get("/org/connections/resend"),
 		).rejects.toBeInstanceOf(AgentPwAuthorizationError);
+
+		await agentPw.credentials.put({
+			path: "/org/connections/env_only",
+			auth: {
+				kind: "env",
+				label: "Env only",
+				resource: "https://env.example.com/api",
+			},
+			secret: {
+				env: {
+					API_KEY: "env-secret",
+				},
+			},
+		});
+
+		await expect(
+			agentPw.connect.prepare({
+				path: "/org/connections/env_only",
+				resource: "https://env.example.com/api",
+			}),
+		).rejects.toThrow(
+			"Credential '/org/connections/env_only' stores env auth and cannot be used with connect.prepare",
+		);
+
+		await expect(
+			agentPw.connect.headers({ path: "/org/connections/env_only" }),
+		).rejects.toThrow(
+			"Credential '/org/connections/env_only' stores env auth",
+		);
 	});
 
 	it("falls back to the existing oauth credential when refresh lookup races to null", async () => {

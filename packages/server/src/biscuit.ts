@@ -1,5 +1,5 @@
 /**
- * Biscuit token operations for the auth proxy.
+ * Biscuit token operations for agent.pw integrations.
  *
  * Identity and descendant-rights model:
  * - Authority block: identity and rights facts

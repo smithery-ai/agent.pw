@@ -1,3 +1,4 @@
+import { backfillCredentialResourcesToAuth } from "./db/legacy.js";
 import { createQueryHelpers } from "./db/queries.js";
 import {
 	AgentPwAuthorizationError,
@@ -7,6 +8,7 @@ import {
 import {
 	decryptCredentials,
 	encryptCredentials,
+	type StoredCredentials,
 } from "./lib/credentials-crypto.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
@@ -132,23 +134,93 @@ function parseProfileAuth(value: unknown): CredentialProfileAuth {
 			fields,
 		};
 	}
+	if (value.kind === "env") {
+		const fields = Array.isArray(value.fields)
+			? value.fields
+					.filter(isRecord)
+					.map((field) => ({
+						name: typeof field.name === "string" ? field.name : "",
+						label: typeof field.label === "string" ? field.label : "",
+						description:
+							typeof field.description === "string"
+								? field.description
+								: undefined,
+						secret:
+							typeof field.secret === "boolean" ? field.secret : undefined,
+					}))
+					.filter((field) => field.name.length > 0 && field.label.length > 0)
+			: [];
+
+		return {
+			kind: "env",
+			label: typeof value.label === "string" ? value.label : undefined,
+			fields,
+		};
+	}
 	throw new AgentPwInputError("Invalid profile auth kind");
 }
 
 function parseCredentialAuth(value: unknown): CredentialAuth {
 	if (
 		!isRecord(value) ||
-		(value.kind !== "oauth" && value.kind !== "headers")
+		(value.kind !== "oauth" &&
+			value.kind !== "headers" &&
+			value.kind !== "env")
 	) {
 		throw new AgentPwInputError("Invalid credential auth payload");
 	}
+
+	const resource =
+		typeof value.resource === "string" ? normalizeResource(value.resource) : null;
 
 	return {
 		kind: value.kind,
 		profilePath:
 			typeof value.profilePath === "string" ? value.profilePath : null,
 		label: typeof value.label === "string" ? value.label : null,
+		...(resource ? { resource } : {}),
 	};
+}
+
+function credentialResource(auth: CredentialAuth) {
+	return typeof auth.resource === "string"
+		? normalizeResource(auth.resource)
+		: null;
+}
+
+function normalizeCredentialAuth(auth: CredentialAuth): CredentialAuth {
+	return {
+		...auth,
+		resource: credentialResource(auth),
+	};
+}
+
+function requireHeadersSecret(secret: StoredCredentials, path: string) {
+	if (!secret.headers || Object.keys(secret.headers).length === 0) {
+		throw new AgentPwInputError(
+			`Credential '${path}' does not have header-based auth`,
+		);
+	}
+	return secret.headers;
+}
+
+function requireEnvSecret(secret: StoredCredentials, path: string) {
+	if (!secret.env || Object.keys(secret.env).length === 0) {
+		throw new AgentPwInputError(`Credential '${path}' does not have env auth`);
+	}
+	return secret.env;
+}
+
+function validateSecretForAuth(
+	auth: CredentialAuth,
+	secret: StoredCredentials,
+	path: string,
+) {
+	if (auth.kind === "env") {
+		requireEnvSecret(secret, path);
+		return;
+	}
+	requireHeadersSecret(secret, path);
 }
 
 function toJsonRecord(value: unknown) {
@@ -183,17 +255,18 @@ async function decryptCredentialRecord(
 	encryptionKey: string,
 	row: {
 		path: string;
-		resource: string;
 		auth: Record<string, unknown>;
 		secret: Buffer;
 		createdAt: Date;
 		updatedAt: Date;
 	},
 ): Promise<CredentialRecord> {
+	const auth = parseCredentialAuth(row.auth);
+	const resource = credentialResource(auth);
 	return {
 		path: row.path,
-		resource: row.resource,
-		auth: parseCredentialAuth(row.auth),
+		...(resource ? { resource } : {}),
+		auth,
 		secret: await decryptCredentials(encryptionKey, row.secret),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
@@ -238,6 +311,8 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 	const logger = options.logger ?? createLogger("agentpw").logger;
 	const encryptionKey = options.encryptionKey;
 	const queries = createQueryHelpers(options.sql);
+
+	await backfillCredentialResourcesToAuth(options.db, { sql: options.sql });
 
 	const profiles: AgentPw["profiles"] = {
 		async resolve(input) {
@@ -309,15 +384,25 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 
 	async function putCredential(input: CredentialPutInput) {
 		const path = assertPath(input.path, "credential path");
-		const resource = normalizeResource(input.resource);
+		const parsedAuth = parseCredentialAuth(toJsonRecord(input.auth));
+		const legacyResource = Reflect.get(input, "resource");
+		const auth = normalizeCredentialAuth({
+			...parsedAuth,
+			...(typeof legacyResource === "string" && !credentialResource(parsedAuth)
+				? { resource: normalizeResource(legacyResource) }
+				: {}),
+		});
+		const plaintextSecret = Buffer.isBuffer(input.secret) ? undefined : input.secret;
+		if (plaintextSecret) {
+			validateSecretForAuth(auth, plaintextSecret, path);
+		}
 		const secret = Buffer.isBuffer(input.secret)
 			? input.secret
 			: await encryptCredentials(encryptionKey, input.secret);
 
 		await queries.upsertCredential(options.db, {
 			path,
-			resource,
-			auth: toJsonRecord(input.auth),
+			auth: toJsonRecord(auth),
 			secret,
 		});
 
@@ -376,9 +461,16 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 		const existing = await getCredential(path);
 
 		if (existing) {
-			if (existing.resource !== resource) {
+			if (existing.auth.kind === "env") {
 				throw new AgentPwConflictError(
-					`Credential '${path}' is already connected to '${existing.resource}', not '${resource}'`,
+					`Credential '${path}' stores env auth and cannot be used with connect.prepare`,
+				);
+			}
+
+			const existingResource = credentialResource(existing.auth);
+			if (existingResource && existingResource !== resource) {
+				throw new AgentPwConflictError(
+					`Credential '${path}' is already connected to '${existingResource}', not '${resource}'`,
 				);
 			}
 
@@ -497,7 +589,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			});
 			return rows.map<CredentialSummary>((row) => ({
 				path: row.path,
-				resource: row.resource,
 				auth: parseCredentialAuth(row.auth),
 				createdAt: row.createdAt,
 				updatedAt: row.updatedAt,
@@ -541,7 +632,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 				return {
 					kind: "ready",
 					credential,
-					headers: credential.secret.headers,
+					headers: requireHeadersSecret(credential.secret, credential.path),
 				};
 			}
 
@@ -573,7 +664,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 				return {
 					kind: "ready",
 					credential,
-					headers: credential.secret.headers,
+					headers: requireHeadersSecret(credential.secret, credential.path),
 					resolution: resolved.resolution,
 				};
 			}
@@ -626,11 +717,11 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			const headers = buildHeadersFromValues(input.option, input.values);
 			return putCredential({
 				path,
-				resource: input.option.resource,
 				auth: {
 					kind: "headers",
 					profilePath: input.option.profilePath ?? null,
 					label: input.option.label,
+					resource: input.option.resource,
 				},
 				secret: { headers },
 			});
@@ -646,8 +737,11 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			if (!credential) {
 				throw new AgentPwInputError(`No credential exists at '${path}'`);
 			}
+			if (credential.auth.kind === "env") {
+				throw new AgentPwInputError(`Credential '${path}' stores env auth`);
+			}
 
-			return credential.secret.headers;
+			return requireHeadersSecret(credential.secret, credential.path);
 		},
 
 		disconnect(input) {
