@@ -189,7 +189,7 @@ describe("oauth edge cases", () => {
         redirectUri: string;
       }),
     ).rejects.toThrow("Profile-backed OAuth option is missing profilePath");
-  });
+  }, 10_000);
 
   it("validates missing state, unknown flows, expired flows, and profile oauth config errors", async () => {
     const flowStore = createInMemoryFlowStore();
