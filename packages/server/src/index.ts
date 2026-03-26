@@ -594,15 +594,15 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
     });
   }
 
-function toConnectFlow(flow: PendingFlow): ConnectFlow {
-  return {
-    flowId: flow.id,
-    path: flow.path,
-    resource: flow.resource,
-    option: flow.option,
-    expiresAt: flow.expiresAt,
-  };
-}
+  function toConnectFlow(flow: PendingFlow): ConnectFlow {
+    return {
+      flowId: flow.id,
+      path: flow.path,
+      resource: flow.resource,
+      option: flow.option,
+      expiresAt: flow.expiresAt,
+    };
+  }
 
   async function resolveConnection(input: ConnectPrepareInput): Promise<
     AgentPwResult<{
