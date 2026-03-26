@@ -1,34 +1,35 @@
-import { sql } from 'drizzle-orm'
-import type { SqlNamespaceOptions } from '../types.js'
-import { coerceSqlNamespace, type AgentPwSqlNamespace } from './schema/index.js'
-import type { Database } from './index.js'
+import { sql } from "drizzle-orm";
+import type { SqlNamespaceOptions } from "../types.js";
+import { coerceSqlNamespace, type AgentPwSqlNamespace } from "./schema/index.js";
+import type { Database } from "./index.js";
 
-type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace
+type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace;
 
 function quoteIdentifier(identifier: string) {
-  return `"${identifier.replaceAll('"', '""')}"`
+  return `"${identifier.replaceAll('"', '""')}"`;
 }
 
 function quoteLiteral(identifier: string) {
-  return `'${identifier.replaceAll("'", "''")}'`
+  return `'${identifier.replaceAll("'", "''")}'`;
 }
 
 function qualifyTable(schema: string, tableName: string) {
-  return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`
+  return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`;
 }
 
 export async function backfillCredentialResourcesToAuth(
   db: Database,
   options: {
-    sql?: SqlNamespaceInput
+    sql?: SqlNamespaceInput;
   } = {},
 ) {
-  const sqlNamespace = coerceSqlNamespace(options.sql)
-  const schemaName = sqlNamespace.schema
-  const credentialsTable = sqlNamespace.tableName('credentials')
-  const credentialsSql = qualifyTable(schemaName, credentialsTable)
+  const sqlNamespace = coerceSqlNamespace(options.sql);
+  const schemaName = sqlNamespace.schema;
+  const credentialsTable = sqlNamespace.tableName("credentials");
+  const credentialsSql = qualifyTable(schemaName, credentialsTable);
 
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     DO $$
     BEGIN
       IF EXISTS (
@@ -47,5 +48,6 @@ export async function backfillCredentialResourcesToAuth(
         `)};
       END IF;
     END $$;
-  `))
+  `),
+  );
 }
