@@ -40,12 +40,7 @@ import * as paths from "agent.pw/paths";
 import { createAgentPw } from "agent.pw";
 import { createDb } from "agent.pw/sql";
 import { createInMemoryFlowStore } from "agent.pw/oauth";
-import type { AgentPwResult } from "agent.pw/types";
-
-function unwrap<T>(result: AgentPwResult<T>): T {
-  if (result.ok) return result.value;
-  throw new Error(result.error.message);
-}
+import { unwrap } from "okay-error";
 
 const sql = {
   schema: "agentpw",
