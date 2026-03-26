@@ -71,7 +71,10 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
 
   const { credProfiles, credentials } = sqlNamespace.value.tables;
 
-  async function getCredProfile(db: Database, path: string): Promise<AgentPwResult<CredProfileRow | null>> {
+  async function getCredProfile(
+    db: Database,
+    path: string,
+  ): Promise<AgentPwResult<CredProfileRow | null>> {
     return ok((await db.select().from(credProfiles).where(eq(credProfiles.path, path)))[0] ?? null);
   }
 
@@ -89,7 +92,10 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     const rows =
       path.value === "/"
         ? await db.select().from(credProfiles)
-        : await db.select().from(credProfiles).where(like(credProfiles.path, `${path.value}/%`));
+        : await db
+            .select()
+            .from(credProfiles)
+            .where(like(credProfiles.path, `${path.value}/%`));
 
     return ok(rows.sort((a, b) => a.path.localeCompare(b.path)));
   }
@@ -176,7 +182,10 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     return ok(deleted.length > 0);
   }
 
-  async function getCredential(db: Database, path: string): Promise<AgentPwResult<CredentialRow | null>> {
+  async function getCredential(
+    db: Database,
+    path: string,
+  ): Promise<AgentPwResult<CredentialRow | null>> {
     return ok((await db.select().from(credentials).where(eq(credentials.path, path)))[0] ?? null);
   }
 
@@ -194,7 +203,10 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     const rows =
       path.value === "/"
         ? await db.select().from(credentials)
-        : await db.select().from(credentials).where(like(credentials.path, `${path.value}/%`));
+        : await db
+            .select()
+            .from(credentials)
+            .where(like(credentials.path, `${path.value}/%`));
 
     return ok(
       rows

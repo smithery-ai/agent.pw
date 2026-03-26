@@ -116,20 +116,24 @@ async function createOAuthAgent() {
   const flowStore = createInMemoryFlowStore();
   const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
   const { fetchImpl, calls } = createOAuthFetch();
-  const agentPw = wrapAgentPw(must(await createAgentPw({
-    db,
-    encryptionKey,
-    flowStore,
-    oauthFetch: fetchImpl,
-    oauthClient: {
-      useDynamicRegistration: true,
-      metadata: {
-        redirectUris: ["https://app.example.com/oauth/callback"],
-        clientName: "Connect Client",
-        tokenEndpointAuthMethod: "none",
-      },
-    },
-  })));
+  const agentPw = wrapAgentPw(
+    must(
+      await createAgentPw({
+        db,
+        encryptionKey,
+        flowStore,
+        oauthFetch: fetchImpl,
+        oauthClient: {
+          useDynamicRegistration: true,
+          metadata: {
+            redirectUris: ["https://app.example.com/oauth/callback"],
+            clientName: "Connect Client",
+            tokenEndpointAuthMethod: "none",
+          },
+        },
+      }),
+    ),
+  );
 
   await agentPw.profiles.put("/linear", {
     resourcePatterns: ["https://api.linear.app/*"],
@@ -302,13 +306,15 @@ describe("oauth runtime", () => {
     expect(callbackResponse.status).toBe(200);
     expect(await callbackResponse.text()).toContain("Authorization complete");
 
-    expect(agentPw.connect.createClientMetadataDocument({
-      clientId: "https://app.example.com/.well-known/oauth-client",
-      redirectUris: ["https://app.example.com/oauth/callback"],
-      clientName: "Connect Client",
-      scope: ["mcp.tools.read"],
-      tokenEndpointAuthMethod: "none",
-    })).toEqual({
+    expect(
+      agentPw.connect.createClientMetadataDocument({
+        clientId: "https://app.example.com/.well-known/oauth-client",
+        redirectUris: ["https://app.example.com/oauth/callback"],
+        clientName: "Connect Client",
+        scope: ["mcp.tools.read"],
+        tokenEndpointAuthMethod: "none",
+      }),
+    ).toEqual({
       client_id: "https://app.example.com/.well-known/oauth-client",
       redirect_uris: ["https://app.example.com/oauth/callback"],
       response_types: ["code"],

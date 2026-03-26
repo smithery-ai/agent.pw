@@ -8,10 +8,14 @@ import { must, mustAsync, wrapAgentPw } from "./support/results";
 async function createTestAgent() {
   const db = await createTestDb();
   const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
-  return wrapAgentPw(must(await createAgentPw({
-    db,
-    encryptionKey,
-  })));
+  return wrapAgentPw(
+    must(
+      await createAgentPw({
+        db,
+        encryptionKey,
+      }),
+    ),
+  );
 }
 
 function rights(rightsList: RuleScope["rights"]): RuleScope {
@@ -346,11 +350,15 @@ describe("createAgentPw", () => {
   it("guides existing oauth connections, discovery-first oauth, and profile oauth without scopes", async () => {
     const db = await createTestDb();
     const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
-    const agentPw = wrapAgentPw(must(await createAgentPw({
-      db,
-      encryptionKey,
-      oauthFetch: createDiscoveryFetch(),
-    })));
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+          oauthFetch: createDiscoveryFetch(),
+        }),
+      ),
+    );
 
     await agentPw.credentials.put({
       path: "/acme/connections/docs",

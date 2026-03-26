@@ -156,7 +156,9 @@ export async function encryptSecret(
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(secret);
-  const ciphertext = await result(crypto.subtle.encrypt({ name: "AES-GCM", iv }, key.value, plaintext));
+  const ciphertext = await result(
+    crypto.subtle.encrypt({ name: "AES-GCM", iv }, key.value, plaintext),
+  );
   if (!ciphertext.ok) {
     return err(
       cryptoError("encryptSecret", "Failed to encrypt secret", {

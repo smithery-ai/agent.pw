@@ -41,9 +41,7 @@ export function resourcePatternMatches(pattern: string, resource: string): Agent
     return normalizedResource;
   }
 
-  const regex = new RegExp(
-    `^${normalizedPattern.value.split("*").map(escapeRegex).join(".*")}$`,
-  );
+  const regex = new RegExp(`^${normalizedPattern.value.split("*").map(escapeRegex).join(".*")}$`);
   return ok(regex.test(normalizedResource.value));
 }
 

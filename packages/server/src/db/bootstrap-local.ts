@@ -1,43 +1,44 @@
-import { sql } from 'drizzle-orm'
-import type { SqlNamespaceOptions } from '../types.js'
-import type { Database } from './index'
-import { coerceSqlNamespace, type AgentPwSqlNamespace } from './schema/index.js'
+import { sql } from "drizzle-orm";
+import type { SqlNamespaceOptions } from "../types.js";
+import type { Database } from "./index";
+import { coerceSqlNamespace, type AgentPwSqlNamespace } from "./schema/index.js";
 
-type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace
+type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace;
 
 function quoteIdentifier(identifier: string) {
-  return `"${identifier}"`
+  return `"${identifier}"`;
 }
 
 function qualifyTable(schema: string, tableName: string) {
-  return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`
+  return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`;
 }
 
 /** Bootstrap the local PGlite schema without relying on framework-owned migration files. */
 export async function bootstrapLocalSchema(
   db: Database,
   options: {
-    sql?: SqlNamespaceInput
+    sql?: SqlNamespaceInput;
   } = {},
 ) {
-  const sqlNamespace = coerceSqlNamespace(options.sql)
+  const sqlNamespace = coerceSqlNamespace(options.sql);
   if (!sqlNamespace.ok) {
-    return sqlNamespace
+    return sqlNamespace;
   }
-  const schemaName = sqlNamespace.value.schema
-  const credProfilesTable = sqlNamespace.value.tableName('cred_profiles')
-  const credentialsTable = sqlNamespace.value.tableName('credentials')
-  const credProfilesPathIndex = `${credProfilesTable}_path_idx`
-  const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`
-  const credentialsPathIndex = `${credentialsTable}_path_idx`
-  const credentialsPathPrimaryKey = `${credentialsTable}_path_pk`
-  const schemaSql = quoteIdentifier(schemaName)
-  const credProfilesSql = qualifyTable(schemaName, credProfilesTable)
-  const credentialsSql = qualifyTable(schemaName, credentialsTable)
+  const schemaName = sqlNamespace.value.schema;
+  const credProfilesTable = sqlNamespace.value.tableName("cred_profiles");
+  const credentialsTable = sqlNamespace.value.tableName("credentials");
+  const credProfilesPathIndex = `${credProfilesTable}_path_idx`;
+  const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`;
+  const credentialsPathIndex = `${credentialsTable}_path_idx`;
+  const credentialsPathPrimaryKey = `${credentialsTable}_path_pk`;
+  const schemaSql = quoteIdentifier(schemaName);
+  const credProfilesSql = qualifyTable(schemaName, credProfilesTable);
+  const credentialsSql = qualifyTable(schemaName, credentialsTable);
 
-  await db.execute(sql.raw(`CREATE SCHEMA IF NOT EXISTS ${schemaSql}`))
+  await db.execute(sql.raw(`CREATE SCHEMA IF NOT EXISTS ${schemaSql}`));
 
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     CREATE TABLE IF NOT EXISTS ${credProfilesSql} (
       path TEXT PRIMARY KEY,
       resource_patterns JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -47,19 +48,25 @@ export async function bootstrapLocalSchema(
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )
-  `))
+  `),
+  );
 
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesPathIndex)}
     ON ${credProfilesSql} (path)
-  `))
+  `),
+  );
 
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesResourcePatternsIndex)}
     ON ${credProfilesSql} USING gin (resource_patterns)
-  `))
+  `),
+  );
 
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     CREATE TABLE IF NOT EXISTS ${credentialsSql} (
       path TEXT NOT NULL,
       auth JSONB NOT NULL,
@@ -68,9 +75,11 @@ export async function bootstrapLocalSchema(
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
       CONSTRAINT ${quoteIdentifier(credentialsPathPrimaryKey)} PRIMARY KEY (path)
     )
-  `))
+  `),
+  );
 
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     DO $$
     BEGIN
       IF EXISTS (
@@ -90,42 +99,61 @@ export async function bootstrapLocalSchema(
         ALTER TABLE ${credentialsSql} DROP COLUMN resource;
       END IF;
     END $$;
-  `))
+  `),
+  );
 
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsPathIndex)}
     ON ${credentialsSql} (path)
-  `))
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_flows')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "auth_flows")}
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'verification')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "verification")}
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_accounts')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "auth_accounts")}
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_sessions')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "auth_sessions")}
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_users')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "auth_users")}
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'auth_verifications')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "auth_verifications")}
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'issued_tokens')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "issued_tokens")}
+  `),
+  );
 
-  await db.execute(sql.raw(`
-    DROP TABLE IF EXISTS ${qualifyTable(schemaName, 'revocations')}
-  `))
+  await db.execute(
+    sql.raw(`
+    DROP TABLE IF EXISTS ${qualifyTable(schemaName, "revocations")}
+  `),
+  );
 }

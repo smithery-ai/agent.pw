@@ -29,17 +29,16 @@ export function createDb(
 }
 
 let bundledPGliteAssetsPromise: Promise<
-  AgentPwResult<
-    | {
-        fsBundle: Blob;
-        wasmModule: WebAssembly.Module;
-      }
-    | null
-  >
+  AgentPwResult<{
+    fsBundle: Blob;
+    wasmModule: WebAssembly.Module;
+  } | null>
 > | null = null;
 type WasmByteSource = ArrayBuffer | Uint8Array;
 
-async function compileWasmModule(bytes: WasmByteSource): Promise<AgentPwResult<WebAssembly.Module>> {
+async function compileWasmModule(
+  bytes: WasmByteSource,
+): Promise<AgentPwResult<WebAssembly.Module>> {
   const compileFn = Reflect.get(WebAssembly, "compile");
   if (typeof compileFn === "function") {
     const module = await compileFn.call(WebAssembly, bytes);
@@ -64,13 +63,10 @@ async function compileWasmModule(bytes: WasmByteSource): Promise<AgentPwResult<W
 }
 
 async function loadBundledPGliteAssets(): Promise<
-  AgentPwResult<
-    | {
-        fsBundle: Blob;
-        wasmModule: WebAssembly.Module;
-      }
-    | null
-  >
+  AgentPwResult<{
+    fsBundle: Blob;
+    wasmModule: WebAssembly.Module;
+  } | null>
 > {
   const wasmPath = process.env.AGENTPW_PGLITE_WASM_PATH?.trim();
   const dataPath = process.env.AGENTPW_PGLITE_DATA_PATH?.trim();

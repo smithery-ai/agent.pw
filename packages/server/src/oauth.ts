@@ -1,12 +1,6 @@
 import { err, ok, result } from "okay-error";
 import * as oauth from "oauth4webapi";
-import {
-  expiredError,
-  inputError,
-  internalError,
-  notFoundError,
-  oauthError,
-} from "./errors.js";
+import { expiredError, inputError, internalError, notFoundError, oauthError } from "./errors.js";
 import { buildCredentialHeaders, type StoredCredentials } from "./lib/credentials-crypto.js";
 import { isRecord, randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
@@ -249,7 +243,10 @@ async function resolveAuthorizationServer(
     if (!issuer.ok) {
       return issuer;
     }
-    const authorizationServer = await discoverAuthorizationServerMetadata(issuer.value, customFetch);
+    const authorizationServer = await discoverAuthorizationServerMetadata(
+      issuer.value,
+      customFetch,
+    );
     if (!authorizationServer.ok) {
       return authorizationServer;
     }
@@ -520,7 +517,9 @@ function parseProfileOAuthConfig(
 
   if (!clientId) {
     return err(
-      inputError(`Credential Profile '${profile.path}' requires a clientId or default oauth client`),
+      inputError(
+        `Credential Profile '${profile.path}' requires a clientId or default oauth client`,
+      ),
     );
   }
 
@@ -580,7 +579,10 @@ async function resolveOAuthConfigForResourceOption(
     return issuerUrl;
   }
 
-  const authorizationServer = await discoverAuthorizationServerMetadata(issuerUrl.value, customFetch);
+  const authorizationServer = await discoverAuthorizationServerMetadata(
+    issuerUrl.value,
+    customFetch,
+  );
   if (!authorizationServer.ok) {
     return authorizationServer;
   }
@@ -649,7 +651,9 @@ async function resolveOAuthConfigForResourceOption(
 
   if (!clientId) {
     return err(
-      inputError(`Resource '${option.resource}' requires a clientId or dynamic client registration`),
+      inputError(
+        `Resource '${option.resource}' requires a clientId or dynamic client registration`,
+      ),
     );
   }
 
@@ -701,7 +705,12 @@ export function createOAuthService(options: {
         return profile;
       }
       if (!profile.value) {
-        return err(notFoundError("credential-profile", `Credential Profile '${option.profilePath}' does not exist`));
+        return err(
+          notFoundError(
+            "credential-profile",
+            `Credential Profile '${option.profilePath}' does not exist`,
+          ),
+        );
       }
       return parseProfileOAuthConfig(
         profile.value,
@@ -779,11 +788,7 @@ export function createOAuthService(options: {
       );
     }
     const processed = await result(
-      oauth.processRefreshTokenResponse(
-        authorizationServer.value,
-        client,
-        tokenResponse.value,
-      ),
+      oauth.processRefreshTokenResponse(authorizationServer.value, client, tokenResponse.value),
     );
     if (!processed.ok) {
       return err(
@@ -845,9 +850,11 @@ export function createOAuthService(options: {
         return authorizationServer;
       }
       if (!authorizationServer.value.authorization_endpoint) {
-        return err(inputError(
-          `OAuth option for '${input.option.resource}' is missing an authorization endpoint`,
-        ));
+        return err(
+          inputError(
+            `OAuth option for '${input.option.resource}' is missing an authorization endpoint`,
+          ),
+        );
       }
 
       const flowId = validateFlowId(undefined) ?? randomId() + randomId();
@@ -925,7 +932,10 @@ export function createOAuthService(options: {
         return err(expiredError("oauth-flow", `OAuth flow '${flow.id}' has expired`));
       }
 
-      const authorizationServer = await resolveAuthorizationServer(flow.oauthConfig, options.customFetch);
+      const authorizationServer = await resolveAuthorizationServer(
+        flow.oauthConfig,
+        options.customFetch,
+      );
       if (!authorizationServer.ok) {
         return authorizationServer;
       }
@@ -937,12 +947,7 @@ export function createOAuthService(options: {
       }
 
       const validated = result(() =>
-        oauth.validateAuthResponse(
-          authorizationServer.value,
-          client,
-          callbackUrl.value,
-          flow.id,
-        ),
+        oauth.validateAuthResponse(authorizationServer.value, client, callbackUrl.value, flow.id),
       );
       if (!validated.ok) {
         return err(
@@ -990,7 +995,9 @@ export function createOAuthService(options: {
       }
 
       const existing =
-        input.merge === "preserve-non-auth-headers" ? await options.getCredential(flow.path) : ok(null);
+        input.merge === "preserve-non-auth-headers"
+          ? await options.getCredential(flow.path)
+          : ok(null);
       if (!existing.ok) {
         return existing;
       }
@@ -1242,7 +1249,9 @@ export function createOAuthService(options: {
         redirectUris.push(redirectUri.value.toString());
       }
 
-      const jwksUri = input.jwksUri ? assertUrl(input.jwksUri, "jwks uri") : ok<URL | undefined>(undefined);
+      const jwksUri = input.jwksUri
+        ? assertUrl(input.jwksUri, "jwks uri")
+        : ok<URL | undefined>(undefined);
       if (!jwksUri.ok) {
         return jwksUri;
       }

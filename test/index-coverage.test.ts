@@ -50,13 +50,19 @@ function createProfileFetch() {
 describe("index coverage helpers", () => {
   it("rejects malformed auth payloads and invalid json writes", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(
-      "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
-    ));
-    const agentPw = wrapAgentPw(must(await createAgentPw({
-      db,
-      encryptionKey,
-    })));
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(
+        "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+      ),
+    );
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+        }),
+      ),
+    );
 
     await agentPw.profiles.put("/valid", {
       resourcePatterns: ["https://valid.example.com/*"],
@@ -254,9 +260,11 @@ describe("index coverage helpers", () => {
       }),
     );
 
-    const secret = await mustAsync(encryptCredentials(encryptionKey, {
-      headers: { Authorization: "Bearer broken" },
-    }));
+    const secret = await mustAsync(
+      encryptCredentials(encryptionKey, {
+        headers: { Authorization: "Bearer broken" },
+      }),
+    );
     await agentPw.credentials.put({
       path: "/broken/credential",
       resource: "https://broken.example.com",
@@ -317,15 +325,21 @@ describe("index coverage helpers", () => {
 
   it("covers the authorized facade across connect, credentials, and profiles", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(
-      "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
-    ));
-    const agentPw = wrapAgentPw(must(await createAgentPw({
-      db,
-      encryptionKey,
-      flowStore: createInMemoryFlowStore(),
-      oauthFetch: createProfileFetch(),
-    })));
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(
+        "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+      ),
+    );
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+          flowStore: createInMemoryFlowStore(),
+          oauthFetch: createProfileFetch(),
+        }),
+      ),
+    );
 
     await agentPw.profiles.put("/linear", {
       resourcePatterns: ["https://api.linear.app/*"],

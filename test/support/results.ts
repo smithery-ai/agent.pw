@@ -49,11 +49,19 @@ function wrapMethods<T extends Record<string, unknown>>(value: T): T {
       if (next && typeof next === "object" && "ok" in (next as Result<unknown, unknown>)) {
         return must(next as Result<unknown, unknown>);
       }
-      if (!next || typeof next !== "object" || typeof (next as Promise<unknown>).then !== "function") {
+      if (
+        !next ||
+        typeof next !== "object" ||
+        typeof (next as Promise<unknown>).then !== "function"
+      ) {
         return next;
       }
       return (next as Promise<unknown>).then((resolved) => {
-        if (resolved && typeof resolved === "object" && "ok" in (resolved as Result<unknown, unknown>)) {
+        if (
+          resolved &&
+          typeof resolved === "object" &&
+          "ok" in (resolved as Result<unknown, unknown>)
+        ) {
           return must(resolved as Result<unknown, unknown>);
         }
         return resolved;

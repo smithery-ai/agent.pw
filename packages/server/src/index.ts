@@ -162,7 +162,9 @@ function parseCredentialAuth(value: unknown): AgentPwResult<CredentialAuth> {
   }
 
   const resource =
-    typeof value.resource === "string" ? normalizeResource(value.resource) : ok<string | null>(null);
+    typeof value.resource === "string"
+      ? normalizeResource(value.resource)
+      : ok<string | null>(null);
   if (!resource.ok) {
     return resource;
   }
@@ -348,7 +350,11 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
         return resource;
       }
 
-      const matches = await queryHelpers.getMatchingCredProfiles(options.db, path.value, resource.value);
+      const matches = await queryHelpers.getMatchingCredProfiles(
+        options.db,
+        path.value,
+        resource.value,
+      );
       if (!matches.ok) {
         return matches;
       }
@@ -431,9 +437,13 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
       }
       if (!stored.value) {
         return err(
-          persistenceError("upsertCredProfile", `Failed to persist Credential Profile '${profilePath.value}'`, {
-            path: profilePath.value,
-          }),
+          persistenceError(
+            "upsertCredProfile",
+            `Failed to persist Credential Profile '${profilePath.value}'`,
+            {
+              path: profilePath.value,
+            },
+          ),
         );
       }
       return toProfileRecord(stored.value);
@@ -481,7 +491,9 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
     }
 
     const parsedResource =
-      typeof input.resource === "string" ? normalizeResource(input.resource) : ok<string | null>(null);
+      typeof input.resource === "string"
+        ? normalizeResource(input.resource)
+        : ok<string | null>(null);
     if (!parsedResource.ok) {
       return parsedResource;
     }
@@ -913,15 +925,17 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
         return credential;
       }
       if (!credential.value) {
-        return err(notFoundError("credential", `No credential exists at '${path.value}'`, { path: path.value }));
+        return err(
+          notFoundError("credential", `No credential exists at '${path.value}'`, {
+            path: path.value,
+          }),
+        );
       }
       if (credential.value.auth.kind === "env") {
         return err(
-          unsupportedCredentialKindError(
-            "env",
-            `Credential '${path.value}' stores env auth`,
-            { path: path.value },
-          ),
+          unsupportedCredentialKindError("env", `Credential '${path.value}' stores env auth`, {
+            path: path.value,
+          }),
         );
       }
 
@@ -1104,13 +1118,15 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
           if (!items.ok) {
             return items;
           }
-          return ok(items.value.filter((item) =>
-            canRule({
-              rights: scope.rights,
-              action: "credential.read",
-              path: item.path,
-            }),
-          ));
+          return ok(
+            items.value.filter((item) =>
+              canRule({
+                rights: scope.rights,
+                action: "credential.read",
+                path: item.path,
+              }),
+            ),
+          );
         },
 
         async put(input) {
@@ -1180,13 +1196,15 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
           if (!items.ok) {
             return items;
           }
-          return ok(items.value.filter((item) =>
-            canRule({
-              rights: scope.rights,
-              action: "profile.read",
-              path: item.path,
-            }),
-          ));
+          return ok(
+            items.value.filter((item) =>
+              canRule({
+                rights: scope.rights,
+                action: "profile.read",
+                path: item.path,
+              }),
+            ),
+          );
         },
 
         async put(path, data) {

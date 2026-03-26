@@ -94,13 +94,17 @@ async function createAgent(
 ) {
   const db = await createTestDb();
   const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
-  return wrapAgentPw(must(await createAgentPw({
-    db,
-    encryptionKey,
-    flowStore: options.flowStore,
-    oauthFetch: options.oauthFetch,
-    oauthClient: options.oauthClient,
-  })));
+  return wrapAgentPw(
+    must(
+      await createAgentPw({
+        db,
+        encryptionKey,
+        flowStore: options.flowStore,
+        oauthFetch: options.oauthFetch,
+        oauthClient: options.oauthClient,
+      }),
+    ),
+  );
 }
 
 afterEach(() => {
@@ -442,10 +446,7 @@ describe("oauth edge cases", () => {
         return Response.json({ path: result.path }, { status: 201 });
       },
       error(error) {
-        return Response.json(
-          { error: error.message },
-          { status: 418 },
-        );
+        return Response.json({ error: error.message }, { status: 418 });
       },
     });
 
