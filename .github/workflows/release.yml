@@ -37,8 +37,8 @@ jobs:
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
-          manifest-file: '.release-please-manifest.json'
-          config-file: 'release-please-config.json'
+          manifest-file: ".release-please-manifest.json"
+          config-file: "release-please-config.json"
 
   publish-package:
     needs: release-please
@@ -55,7 +55,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: npm publish --provenance --access public
@@ -78,7 +78,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - if: ${{ inputs.dry_run }}

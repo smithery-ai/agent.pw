@@ -1,94 +1,89 @@
-import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js'
-import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
-import { readFile } from 'node:fs/promises'
-import postgres from 'postgres'
-import type { SqlNamespaceOptions } from '../types.js'
-import { coerceSqlNamespace, type schemaTables, type AgentPwSqlNamespace } from './schema/index.js'
+import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
+import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { readFile } from "node:fs/promises";
+import postgres from "postgres";
+import type { SqlNamespaceOptions } from "../types.js";
+import { coerceSqlNamespace, type schemaTables, type AgentPwSqlNamespace } from "./schema/index.js";
 
-type PostgresDatabase = ReturnType<typeof drizzlePg<typeof schemaTables>>
-type PgliteDatabase = ReturnType<typeof drizzlePglite<typeof schemaTables>>
+type PostgresDatabase = ReturnType<typeof drizzlePg<typeof schemaTables>>;
+type PgliteDatabase = ReturnType<typeof drizzlePglite<typeof schemaTables>>;
 
 /** Database type that works with both postgres-js and PGlite drivers. */
-export type Database = PostgresDatabase | PgliteDatabase
+export type Database = PostgresDatabase | PgliteDatabase;
 
-type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace
+type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace;
 
 /** Create a database connection using postgres-js (for deployed/Smithery mode). */
 export function createDb(
   connectionString: string,
   options: {
-    sql?: SqlNamespaceInput
+    sql?: SqlNamespaceInput;
   } = {},
 ): Database {
-  const sqlNamespace = coerceSqlNamespace(options.sql)
-  const client = postgres(connectionString)
-  return drizzlePg(client, { schema: sqlNamespace.tables })
+  const sqlNamespace = coerceSqlNamespace(options.sql);
+  const client = postgres(connectionString);
+  return drizzlePg(client, { schema: sqlNamespace.tables });
 }
 
 let bundledPGliteAssetsPromise: Promise<{
-  fsBundle: Blob
-  wasmModule: WebAssembly.Module
-} | null> | null = null
-type WasmByteSource = ArrayBuffer | Uint8Array
+  fsBundle: Blob;
+  wasmModule: WebAssembly.Module;
+} | null> | null = null;
+type WasmByteSource = ArrayBuffer | Uint8Array;
 
 async function compileWasmModule(bytes: WasmByteSource): Promise<WebAssembly.Module> {
-  const compileFn = Reflect.get(WebAssembly, 'compile')
-  if (typeof compileFn === 'function') {
-    const module = await compileFn.call(WebAssembly, bytes)
+  const compileFn = Reflect.get(WebAssembly, "compile");
+  if (typeof compileFn === "function") {
+    const module = await compileFn.call(WebAssembly, bytes);
     if (module instanceof WebAssembly.Module) {
-      return module
+      return module;
     }
   }
 
   /* v8 ignore next -- retained only for runtimes without WebAssembly.compile */
-  const moduleCtor = Reflect.get(WebAssembly, 'Module')
-  if (typeof moduleCtor === 'function') {
-    const module = Reflect.construct(moduleCtor, [bytes])
+  const moduleCtor = Reflect.get(WebAssembly, "Module");
+  if (typeof moduleCtor === "function") {
+    const module = Reflect.construct(moduleCtor, [bytes]);
     if (module instanceof WebAssembly.Module) {
-      return module
+      return module;
     }
   }
 
-  throw new TypeError('WebAssembly.Module is unavailable in this runtime')
+  throw new TypeError("WebAssembly.Module is unavailable in this runtime");
 }
 
 async function loadBundledPGliteAssets() {
-  const wasmPath = process.env.AGENTPW_PGLITE_WASM_PATH?.trim()
-  const dataPath = process.env.AGENTPW_PGLITE_DATA_PATH?.trim()
+  const wasmPath = process.env.AGENTPW_PGLITE_WASM_PATH?.trim();
+  const dataPath = process.env.AGENTPW_PGLITE_DATA_PATH?.trim();
 
   if (!(wasmPath && dataPath)) {
-    return null
+    return null;
   }
 
   if (!bundledPGliteAssetsPromise) {
     bundledPGliteAssetsPromise = (async () => {
-      const [wasmBytes, dataBytes] = await Promise.all([
-        readFile(wasmPath),
-        readFile(dataPath),
-      ])
+      const [wasmBytes, dataBytes] = await Promise.all([readFile(wasmPath), readFile(dataPath)]);
 
       return {
-        fsBundle: new Blob([dataBytes], { type: 'application/octet-stream' }),
+        fsBundle: new Blob([dataBytes], { type: "application/octet-stream" }),
         wasmModule: await compileWasmModule(wasmBytes),
-      }
-    })()
+      };
+    })();
   }
 
-  return bundledPGliteAssetsPromise
+  return bundledPGliteAssetsPromise;
 }
 
 /** Create a local database using PGlite (for CLI/local mode). */
 export async function createLocalDb(
   dataDir: string,
   options: {
-    sql?: SqlNamespaceInput
+    sql?: SqlNamespaceInput;
   } = {},
 ): Promise<Database> {
-  const { PGlite } = await import('@electric-sql/pglite')
-  const sqlNamespace = coerceSqlNamespace(options.sql)
-  const bundledAssets = await loadBundledPGliteAssets()
-  const client = bundledAssets
-    ? new PGlite({ dataDir, ...bundledAssets })
-    : new PGlite(dataDir)
-  return drizzlePglite(client, { schema: sqlNamespace.tables })
+  const { PGlite } = await import("@electric-sql/pglite");
+  const sqlNamespace = coerceSqlNamespace(options.sql);
+  const bundledAssets = await loadBundledPGliteAssets();
+  const client = bundledAssets ? new PGlite({ dataDir, ...bundledAssets }) : new PGlite(dataDir);
+  return drizzlePglite(client, { schema: sqlNamespace.tables });
 }

@@ -231,10 +231,10 @@ Example:
 
 ```ts
 const api = agentPw.scope({
-  rights: [{ action: 'credential.use', root: '/acme' }],
-})
+  rights: [{ action: "credential.use", root: "/acme" }],
+});
 
-await api.connect.headers({ path: '/acme/connections/docs' })
+await api.connect.headers({ path: "/acme/connections/docs" });
 ```
 
 The framework only asks for path-based rights because those are the facts it actually checks. Apps can derive those rights from Biscuits, sessions, or any other permission store.

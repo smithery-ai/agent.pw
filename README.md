@@ -19,12 +19,12 @@ Profiles are background configuration. End users usually do not need to know the
 ## Package Surface
 
 ```ts
-import { createAgentPw } from 'agent.pw'
-import * as oauth from 'agent.pw/oauth'
-import * as rules from 'agent.pw/rules'
-import * as biscuit from 'agent.pw/biscuit'
-import * as sql from 'agent.pw/sql'
-import * as paths from 'agent.pw/paths'
+import { createAgentPw } from "agent.pw";
+import * as oauth from "agent.pw/oauth";
+import * as rules from "agent.pw/rules";
+import * as biscuit from "agent.pw/biscuit";
+import * as sql from "agent.pw/sql";
+import * as paths from "agent.pw/paths";
 ```
 
 `createAgentPw(...)` returns:
@@ -37,23 +37,23 @@ import * as paths from 'agent.pw/paths'
 ## Quick Start
 
 ```ts
-import { createAgentPw } from 'agent.pw'
-import { createDb } from 'agent.pw/sql'
-import { createInMemoryFlowStore } from 'agent.pw/oauth'
+import { createAgentPw } from "agent.pw";
+import { createDb } from "agent.pw/sql";
+import { createInMemoryFlowStore } from "agent.pw/oauth";
 
 const sql = {
-  schema: 'agentpw',
-  tablePrefix: '',
-}
+  schema: "agentpw",
+  tablePrefix: "",
+};
 
-const db = createDb(process.env.DATABASE_URL!, { sql })
+const db = createDb(process.env.DATABASE_URL!, { sql });
 
 const agentPw = await createAgentPw({
   db,
   sql,
   encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
   flowStore: createInMemoryFlowStore(),
-})
+});
 ```
 
 `createInMemoryFlowStore()` is a development helper. Multi-instance apps should pass a shared or persistent `FlowStore`.
@@ -64,45 +64,45 @@ The main API is `connect.*`.
 
 ```ts
 const prepared = await agentPw.connect.prepare({
-  path: '/acme/connections/docs',
-  resource: 'https://docs.example.com/mcp',
-})
+  path: "/acme/connections/docs",
+  resource: "https://docs.example.com/mcp",
+});
 
-if (prepared.kind === 'ready') {
-  return prepared.headers
+if (prepared.kind === "ready") {
+  return prepared.headers;
 }
 
 if (prepared.options.length === 0) {
-  throw new Error('This resource is not configured yet')
+  throw new Error("This resource is not configured yet");
 }
 
-const option = prepared.options[0]
+const option = prepared.options[0];
 
-if (option.kind === 'oauth') {
+if (option.kind === "oauth") {
   const session = await agentPw.connect.start({
-    path: '/acme/connections/docs',
+    path: "/acme/connections/docs",
     option,
-    redirectUri: 'https://app.example.com/oauth/callback',
-  })
+    redirectUri: "https://app.example.com/oauth/callback",
+  });
 
-  return Response.redirect(session.authorizationUrl, 302)
+  return Response.redirect(session.authorizationUrl, 302);
 }
 
 await agentPw.connect.saveHeaders({
-  path: '/acme/connections/docs',
+  path: "/acme/connections/docs",
   option,
   values: {
-    Authorization: 'api-key-value',
+    Authorization: "api-key-value",
   },
-})
+});
 ```
 
 Later, resolve fresh headers for that same connection:
 
 ```ts
 const headers = await agentPw.connect.headers({
-  path: '/acme/connections/docs',
-})
+  path: "/acme/connections/docs",
+});
 ```
 
 ## `connect.prepare(...)`
@@ -147,24 +147,24 @@ When a resource publishes usable OAuth metadata, `agent.pw` uses discovery first
 
 ```ts
 const prepared = await agentPw.connect.prepare({
-  path: '/acme/connections/docs',
-  resource: 'https://docs.example.com/mcp',
+  path: "/acme/connections/docs",
+  resource: "https://docs.example.com/mcp",
   response: unauthorizedResponse,
-})
+});
 
-if (prepared.kind === 'options') {
-  const oauthOption = prepared.options.find(option => option.kind === 'oauth')
+if (prepared.kind === "options") {
+  const oauthOption = prepared.options.find((option) => option.kind === "oauth");
   if (!oauthOption) {
-    throw new Error('Expected an OAuth option')
+    throw new Error("Expected an OAuth option");
   }
 
   const session = await agentPw.connect.start({
-    path: '/acme/connections/docs',
+    path: "/acme/connections/docs",
     option: oauthOption,
-    redirectUri: 'https://app.example.com/oauth/callback',
-  })
+    redirectUri: "https://app.example.com/oauth/callback",
+  });
 
-  return Response.redirect(session.authorizationUrl, 302)
+  return Response.redirect(session.authorizationUrl, 302);
 }
 ```
 
@@ -172,8 +172,8 @@ When the callback returns:
 
 ```ts
 await agentPw.connect.complete({
-  callbackUri: 'https://app.example.com/oauth/callback?code=...&state=...',
-})
+  callbackUri: "https://app.example.com/oauth/callback?code=...&state=...",
+});
 ```
 
 `connect.headers(...)` is refresh-aware by default, so apps do not need to re-implement token refresh outside the vault.
@@ -192,40 +192,40 @@ Profiles are useful for:
 Header-based profiles define which fields are expected:
 
 ```ts
-await agentPw.profiles.put('/resend', {
-  resourcePatterns: ['https://api.resend.com*'],
-  displayName: 'Resend',
+await agentPw.profiles.put("/resend", {
+  resourcePatterns: ["https://api.resend.com*"],
+  displayName: "Resend",
   auth: {
-    kind: 'headers',
-    label: 'Resend API key',
+    kind: "headers",
+    label: "Resend API key",
     fields: [
       {
-        name: 'Authorization',
-        label: 'API key',
-        description: 'Your Resend API key',
-        prefix: 'Bearer ',
+        name: "Authorization",
+        label: "API key",
+        description: "Your Resend API key",
+        prefix: "Bearer ",
         secret: true,
       },
     ],
   },
-})
+});
 ```
 
 OAuth profiles define the auth configuration the framework should use when discovery is not enough or an admin wants a fixed setup:
 
 ```ts
-await agentPw.profiles.put('/linear', {
-  resourcePatterns: ['https://api.linear.app/*'],
-  displayName: 'Linear',
+await agentPw.profiles.put("/linear", {
+  resourcePatterns: ["https://api.linear.app/*"],
+  displayName: "Linear",
   auth: {
-    kind: 'oauth',
-    authorizationUrl: 'https://linear.app/oauth/authorize',
-    tokenUrl: 'https://api.linear.app/oauth/token',
+    kind: "oauth",
+    authorizationUrl: "https://linear.app/oauth/authorize",
+    tokenUrl: "https://api.linear.app/oauth/token",
     clientId: process.env.LINEAR_CLIENT_ID!,
     clientSecret: process.env.LINEAR_CLIENT_SECRET!,
-    scopes: 'read write',
+    scopes: "read write",
   },
-})
+});
 ```
 
 Profiles are path-scoped configuration, so apps can keep global defaults and more specific org or workspace overrides.
@@ -240,46 +240,46 @@ Apps can still store a one-off credential directly:
 
 ```ts
 await agentPw.credentials.put({
-  path: '/acme/connections/manual_resend',
+  path: "/acme/connections/manual_resend",
   auth: {
-    kind: 'headers',
-    label: 'Manual Resend key',
-    resource: 'https://api.resend.com/',
+    kind: "headers",
+    label: "Manual Resend key",
+    resource: "https://api.resend.com/",
   },
   secret: {
     headers: {
-      Authorization: 'Bearer rs_live_123',
+      Authorization: "Bearer rs_live_123",
     },
   },
-})
+});
 ```
 
 Store env credentials directly through the vault layer:
 
 ```ts
 await agentPw.credentials.put({
-  path: '/acme/connections/github_cli',
+  path: "/acme/connections/github_cli",
   auth: {
-    kind: 'env',
-    label: 'GitHub CLI',
+    kind: "env",
+    label: "GitHub CLI",
   },
   secret: {
     env: {
       GH_TOKEN: process.env.GH_TOKEN!,
     },
   },
-})
+});
 
-const githubCli = await agentPw.credentials.get('/acme/connections/github_cli')
-const env = githubCli?.secret.env
+const githubCli = await agentPw.credentials.get("/acme/connections/github_cli");
+const env = githubCli?.secret.env;
 ```
 
 List stored credentials directly under a path:
 
 ```ts
 const children = await agentPw.credentials.list({
-  path: '/acme/connections',
-})
+  path: "/acme/connections",
+});
 ```
 
 `credentials.list({ path })` returns direct children only.
@@ -290,12 +290,12 @@ Use `scope(...)` to get a scoped API that enforces rules automatically.
 
 ```ts
 const api = agentPw.scope({
-  rights: [{ action: 'credential.use', root: '/acme' }],
-})
+  rights: [{ action: "credential.use", root: "/acme" }],
+});
 
 const headers = await api.connect.headers({
-  path: '/acme/connections/docs',
-})
+  path: "/acme/connections/docs",
+});
 ```
 
 Apps are responsible for deriving those rights from whatever auth system they use, such as a Biscuit token, a session, or an internal permission store.
@@ -307,29 +307,29 @@ Apps are responsible for deriving those rights from whatever auth system they us
 Rules are the base authorization model.
 
 ```ts
-import { can } from 'agent.pw/rules'
+import { can } from "agent.pw/rules";
 
 const allowed = can({
-  rights: [{ action: 'credential.use', root: '/acme' }],
-  action: 'credential.use',
-  path: '/acme/connections/docs',
-})
+  rights: [{ action: "credential.use", root: "/acme" }],
+  action: "credential.use",
+  path: "/acme/connections/docs",
+});
 ```
 
 if (!allowed) {
-  throw new Error('Missing credential.use for /acme/connections/docs')
+throw new Error('Missing credential.use for /acme/connections/docs')
 }
 
 If an app wants Biscuit tokens, it can compile the same rules into Biscuits:
 
 ```ts
-import { compileRulesToBiscuit } from 'agent.pw/biscuit'
+import { compileRulesToBiscuit } from "agent.pw/biscuit";
 
 const token = compileRulesToBiscuit({
   privateKeyHex: process.env.BISCUIT_PRIVATE_KEY!,
-  subject: 'agent_finance',
-  rights: [{ action: 'credential.use', root: '/acme' }],
-})
+  subject: "agent_finance",
+  rights: [{ action: "credential.use", root: "/acme" }],
+});
 ```
 
 ## Hosted OAuth and Client Metadata
@@ -338,32 +338,32 @@ Apps that need a hosted OAuth callback and a Client ID Metadata Document can use
 
 ```ts
 const handlers = agentPw.connect.createWebHandlers({
-  callbackPath: '/oauth/callback',
-})
+  callbackPath: "/oauth/callback",
+});
 
 export async function oauthStart(request: Request) {
   return handlers.start(request, {
-    path: '/acme/connections/docs',
+    path: "/acme/connections/docs",
     option: {
-      kind: 'oauth',
-      source: 'discovery',
-      label: 'Docs',
-      resource: 'https://docs.example.com/mcp',
+      kind: "oauth",
+      source: "discovery",
+      label: "Docs",
+      resource: "https://docs.example.com/mcp",
     },
-  })
+  });
 }
 
 export async function oauthCallback(request: Request) {
-  return handlers.callback(request)
+  return handlers.callback(request);
 }
 
 export async function clientMetadata() {
   return agentPw.connect.createClientMetadataResponse({
-    clientId: 'https://app.example.com/.well-known/oauth-client',
-    redirectUris: ['https://app.example.com/oauth/callback'],
-    clientName: 'App Client',
-    tokenEndpointAuthMethod: 'none',
-  })
+    clientId: "https://app.example.com/.well-known/oauth-client",
+    redirectUris: ["https://app.example.com/oauth/callback"],
+    clientName: "App Client",
+    tokenEndpointAuthMethod: "none",
+  });
 }
 ```
 
@@ -375,18 +375,18 @@ Embedders can place `agent.pw` tables in a custom schema or prefix them:
 
 ```ts
 const sql = {
-  schema: 'platform',
-  tablePrefix: 'agentpw_',
-}
+  schema: "platform",
+  tablePrefix: "agentpw_",
+};
 
-const db = createDb(process.env.DATABASE_URL!, { sql })
+const db = createDb(process.env.DATABASE_URL!, { sql });
 
 const agentPw = await createAgentPw({
   db,
   sql,
   encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
   flowStore,
-})
+});
 ```
 
 The same `sql` options should be passed to both the database helpers and `createAgentPw(...)`.

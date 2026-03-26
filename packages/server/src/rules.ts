@@ -1,50 +1,44 @@
-import { isAncestorOrEqual, pathDepth } from './paths.js'
+import { isAncestorOrEqual, pathDepth } from "./paths.js";
 import type {
   RuleAuthorizationInput,
   RuleAuthorizationResult,
   RuleConstraint,
   RuleGrant,
   RuleScope,
-} from './types.js'
+} from "./types.js";
 
 function compareRoots(a: string, b: string) {
-  return pathDepth(b) - pathDepth(a) || a.localeCompare(b)
+  return pathDepth(b) - pathDepth(a) || a.localeCompare(b);
 }
 
 export function uniqueRoots(roots: string[]) {
-  return [...new Set(roots)].sort(compareRoots)
+  return [...new Set(roots)].sort(compareRoots);
 }
 
 export function rootsForAction(rights: RuleGrant[], action: string) {
-  return uniqueRoots(
-    rights
-      .filter(right => right.action === action)
-      .map(right => right.root),
-  )
+  return uniqueRoots(rights.filter((right) => right.action === action).map((right) => right.root));
 }
 
 export function rootsForActions(rights: RuleGrant[], actions: string[]) {
   return uniqueRoots(
-    rights
-      .filter(right => actions.includes(right.action))
-      .map(right => right.root),
-  )
+    rights.filter((right) => actions.includes(right.action)).map((right) => right.root),
+  );
 }
 
 export function hasActionRight(rights: RuleGrant[], action: string) {
-  return rights.some(right => right.action === action)
+  return rights.some((right) => right.action === action);
 }
 
 export function coveringRootsForPath(roots: string[], path: string) {
-  return roots.filter(root => isAncestorOrEqual(root, path)).sort(compareRoots)
+  return roots.filter((root) => isAncestorOrEqual(root, path)).sort(compareRoots);
 }
 
 export function hasRuleForPath(rights: RuleGrant[], action: string, path: string) {
-  return coveringRootsForPath(rootsForAction(rights, action), path).length > 0
+  return coveringRootsForPath(rootsForAction(rights, action), path).length > 0;
 }
 
 export function rootsForActionFromScope(scope: RuleScope, action: string) {
-  return rootsForAction(scope.rights, action)
+  return rootsForAction(scope.rights, action);
 }
 
 export function authorizeRules(input: RuleAuthorizationInput): RuleAuthorizationResult {
@@ -52,63 +46,63 @@ export function authorizeRules(input: RuleAuthorizationInput): RuleAuthorization
     return {
       authorized: false,
       error: `Missing '${input.action}' for '${input.path}'`,
-    }
+    };
   }
 
-  return { authorized: true }
+  return { authorized: true };
 }
 
 export function can(input: RuleAuthorizationInput) {
-  return authorizeRules(input).authorized
+  return authorizeRules(input).authorized;
 }
 
 export function normalizeConstraintValues(value: string | string[] | undefined) {
   if (value === undefined) {
-    return []
+    return [];
   }
-  return Array.isArray(value) ? value : [value]
+  return Array.isArray(value) ? value : [value];
 }
 
 export function constraintAppliesToPath(
   constraint: RuleConstraint,
   input: {
-    action: string
-    host: string
-    method: string
-    path: string
-    root: string
-    service?: string
+    action: string;
+    host: string;
+    method: string;
+    path: string;
+    root: string;
+    service?: string;
   },
 ) {
-  const actions = normalizeConstraintValues(constraint.actions)
+  const actions = normalizeConstraintValues(constraint.actions);
   if (actions.length > 0 && !actions.includes(input.action)) {
-    return false
+    return false;
   }
 
-  const hosts = normalizeConstraintValues(constraint.hosts)
+  const hosts = normalizeConstraintValues(constraint.hosts);
   if (hosts.length > 0 && !hosts.includes(input.host)) {
-    return false
+    return false;
   }
 
-  const methods = normalizeConstraintValues(constraint.methods)
+  const methods = normalizeConstraintValues(constraint.methods);
   if (methods.length > 0 && !methods.includes(input.method.toUpperCase())) {
-    return false
+    return false;
   }
 
-  const roots = normalizeConstraintValues(constraint.roots)
+  const roots = normalizeConstraintValues(constraint.roots);
   if (roots.length > 0 && !roots.includes(input.root)) {
-    return false
+    return false;
   }
 
-  const services = normalizeConstraintValues(constraint.services)
+  const services = normalizeConstraintValues(constraint.services);
   if (services.length > 0 && !(input.service && services.includes(input.service))) {
-    return false
+    return false;
   }
 
-  const paths = normalizeConstraintValues(constraint.paths)
-  if (paths.length > 0 && !paths.some(path => input.path.startsWith(path))) {
-    return false
+  const paths = normalizeConstraintValues(constraint.paths);
+  if (paths.length > 0 && !paths.some((path) => input.path.startsWith(path))) {
+    return false;
   }
 
-  return true
+  return true;
 }
