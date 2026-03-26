@@ -9,9 +9,8 @@ This repo is the public source of truth for the `agent.pw` architecture.
 The framework is built around one simple runtime model:
 
 - a saved connection lives at an exact `path`
-- that connection talks to a `resource`
 - `agent.pw` stores one encrypted `credential` at that exact path
-- `connect.prepare(...)` decides how that connection should authenticate
+- `connect.prepare(...)` can use a `resource` to decide how that connection should authenticate
 - `connect.headers(...)` returns fresh runtime headers for the same path
 
 Profiles remain path-scoped configuration, but they are setup-time guidance and polyfills rather than the main runtime identity model.
@@ -34,7 +33,7 @@ The framework does not store folder rows. Hierarchy is implicit in the path itse
 
 ### Resource
 
-A `resource` is the protected resource that the connection talks to.
+A `resource` is the protected resource a connect flow is trying to reach.
 
 Examples:
 
@@ -44,7 +43,7 @@ https://api.linear.app/
 https://docs.example.com/mcp
 ```
 
-`resource` is the canonical setup target for configuration, discovery, and stored credentials.
+`resource` is used for setup and discovery. It is not required for every stored credential.
 
 ### Credential
 

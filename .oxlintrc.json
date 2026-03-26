@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "coverage",
+    "**/dist",
+    ".context",
+    "**/.context",
+    ".claude",
+    "**/.claude",
+    ".workers-biscuit-pr"
+  ],
+  "rules": {
+    "typescript/no-explicit-any": "error"
+  },
+  "overrides": [
+    {
+      "files": ["packages/server/src/**/*.ts"],
+      "rules": {
+        "typescript/consistent-type-assertions": [
+          "warn",
+          {
+            "assertionStyle": "never"
+          }
+        ]
+      }
+    }
+  ]
+}

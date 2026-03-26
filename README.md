@@ -88,7 +88,8 @@ if (prepared.value.kind === "ready") {
 
 const [option] = prepared.value.options;
 if (!option) {
-  throw new Error("This resource is not configured yet");
+  console.error("This resource is not configured yet");
+  return;
 }
 
 if (option.kind === "oauth") {
