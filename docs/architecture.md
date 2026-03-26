@@ -137,23 +137,13 @@ It returns:
 
 Starts an OAuth flow from one returned OAuth option.
 
-### `connect.resolve({ path, resource, response? })`
+### `connect.complete({ callbackUri, preserveExistingHeaders? })`
 
-Returns the library-selected route as structured metadata:
-
-- `canonicalResource`
-- `source`
-- `reason`
-- `profilePath`
-- `option`
-
-### `connect.complete({ callbackUri, merge? })`
-
-Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential plus any flow context and flow reason.
+Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential.
 
 ### `connect.getFlow(flowId)`
 
-Returns the current pending flow state, including stored app context and the flow reason.
+Returns the current pending flow state for a known flow ID.
 
 ### `connect.saveHeaders({ path, option, values })`
 
@@ -201,7 +191,7 @@ This keeps the stored model small while still covering the common real-world cas
 6. build `oauth` or `headers` options from the chosen route
 7. return those options
 
-That gives the app a guided flow without forcing it to understand the framework’s internal selection logic.
+Each `prepare(...)` result also includes `resolution`, so apps can inspect the canonical resource, selected source, and chosen option without a second API call.
 
 ## Profile-Aware OAuth
 
@@ -217,9 +207,7 @@ The OAuth flow is:
 4. exchange the code on callback
 5. store the resulting credential at the connection path
 
-Flow context is stored inside the `FlowStore`, so embedders do not need parallel flow KV for app metadata.
-
-Challenge-origin semantics are stored there too. If a flow was started from a real `auth_required` runtime signal, callers pass `reason: "auth_required"` into `connect.start(...)`, and the continuation path can read that invariant back from `agent.pw` instead of reconstructing it from deployment metadata.
+Flow state stays narrowly scoped to OAuth continuation data: path, resource, option, expiry, and PKCE state.
 
 ## Profiles as Admin Configuration
 

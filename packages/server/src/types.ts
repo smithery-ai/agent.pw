@@ -5,12 +5,6 @@ import type { Logger } from "./lib/logger.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
 
-export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
-
-export interface JsonObject {
-  [key: string]: JsonValue;
-}
-
 interface AgentPwErrorBase {
   message: string;
   cause?: unknown;
@@ -317,14 +311,10 @@ export interface ConnectOptionsResult {
 
 export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult;
 
-export type ConnectStartReason = "manual" | "auth_required";
-
 export interface ConnectStartInput {
   path: string;
   option: ConnectOAuthOption;
   redirectUri: string;
-  context?: JsonObject;
-  reason?: ConnectStartReason;
   scopes?: string | string[];
   expiresAt?: Date;
   additionalParameters?: Record<string, string>;
@@ -338,20 +328,16 @@ export interface ConnectAuthorizationSession {
   path: string;
   resource: string;
   option: ConnectOAuthOption;
-  context?: JsonObject;
-  reason: ConnectStartReason;
 }
 
 export interface ConnectCompleteInput {
   callbackUri: string;
-  merge?: "replace" | "preserve-non-auth-headers";
+  preserveExistingHeaders?: boolean;
 }
 
 export interface ConnectCompleteResult {
   path: string;
   credential: CredentialRecord;
-  context?: JsonObject;
-  reason: ConnectStartReason;
 }
 
 export interface ConnectSaveHeadersInput {
@@ -379,14 +365,6 @@ export interface PendingFlow {
   codeVerifier: string;
   expiresAt: Date;
   oauthConfig: OAuthResolvedConfig;
-  context?: JsonObject;
-  reason: ConnectStartReason;
-}
-
-export interface CompletedFlowResult {
-  identity?: string;
-  context?: JsonObject;
-  reason: ConnectStartReason;
 }
 
 export interface ConnectFlow {
@@ -395,14 +373,12 @@ export interface ConnectFlow {
   resource: string;
   option: ConnectOAuthOption;
   expiresAt: Date;
-  context?: JsonObject;
-  reason: ConnectStartReason;
 }
 
 export interface FlowStore {
   create(flow: PendingFlow): Promise<void>;
   get(id: string): Promise<PendingFlow | null>;
-  complete(id: string, result?: CompletedFlowResult): Promise<void>;
+  complete(id: string): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
@@ -442,9 +418,8 @@ export interface ConnectWebHandlers {
 
 export interface ScopedAgentPw {
   connect: {
-    resolve(input: ConnectPrepareInput): Promise<AgentPwResult<ConnectResolutionResult>>;
     prepare(input: ConnectPrepareInput): Promise<AgentPwResult<ConnectPrepareResult>>;
-    getFlow(flowId: string): Promise<AgentPwResult<ConnectFlow | null>>;
+    getFlow(flowId: string): Promise<AgentPwResult<ConnectFlow>>;
     start(input: ConnectStartInput): Promise<AgentPwResult<ConnectAuthorizationSession>>;
     complete(input: ConnectCompleteInput): Promise<AgentPwResult<ConnectCompleteResult>>;
     saveHeaders(input: ConnectSaveHeadersInput): Promise<AgentPwResult<CredentialRecord>>;

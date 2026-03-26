@@ -2,14 +2,13 @@ import { err, ok, result } from "okay-error";
 import * as oauth from "oauth4webapi";
 import { expiredError, inputError, internalError, notFoundError, oauthError } from "./errors.js";
 import { buildCredentialHeaders, type StoredCredentials } from "./lib/credentials-crypto.js";
-import { isRecord, randomId, validateFlowId } from "./lib/utils.js";
+import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
   AgentPwError,
   AgentPwResult,
   CimdDocument,
   CimdDocumentInput,
-  CompletedFlowResult,
   ConnectAuthorizationSession,
   ConnectCompleteInput,
   ConnectCompleteResult,
@@ -21,8 +20,6 @@ import type {
   CredentialPutInput,
   CredentialRecord,
   FlowStore,
-  JsonObject,
-  JsonValue,
   OAuthClientAuthenticationMethod,
   OAuthClientInput,
   OAuthResolvedConfig,
@@ -48,42 +45,12 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function isJsonValue(value: unknown): value is JsonValue {
-  return (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    (Array.isArray(value) && value.every(isJsonValue)) ||
-    isJsonObject(value)
-  );
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return isRecord(value) && Object.values(value).every(isJsonValue);
-}
-
-function jsonObject(value: unknown, label: string): AgentPwResult<JsonObject | undefined> {
-  if (value == null) {
-    return ok(undefined);
-  }
-  const normalized = result(() => JSON.parse(JSON.stringify(value)));
-  if (!normalized.ok || !isJsonObject(normalized.value)) {
-    return err(inputError(`${label} must be a JSON object`, { field: label }));
-  }
-  return ok(normalized.value);
-}
-
 function toScopeString(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.join(" ") : value;
 }
 
 function defaultExpiry(clock: () => Date) {
   return new Date(clock().getTime() + 10 * 60 * 1000);
-}
-
-function normalizeStartReason(value: ConnectStartInput["reason"]): PendingFlow["reason"] {
-  return value === "auth_required" ? "auth_required" : "manual";
 }
 
 function normalizeClientAuthentication(
@@ -216,9 +183,9 @@ const AUTH_HEADER_NAMES = new Set(["authorization", "proxy-authorization"]);
 function mergeHeaders(
   existing: Record<string, string> | undefined,
   next: Record<string, string>,
-  mode: ConnectCompleteInput["merge"],
+  preserveExistingHeaders: boolean | undefined,
 ) {
-  if (mode !== "preserve-non-auth-headers" || !existing) {
+  if (!preserveExistingHeaders || !existing) {
     return next;
   }
 
@@ -489,7 +456,7 @@ export function createInMemoryFlowStore(): FlowStore {
     async get(id) {
       return store.get(id) ?? null;
     },
-    async complete(id, _result?: CompletedFlowResult) {
+    async complete(id) {
       store.delete(id);
     },
     async delete(id) {
@@ -811,7 +778,11 @@ export function createOAuthService(options: {
       if (!flowStore.ok) {
         return flowStore;
       }
-      return ok(await flowStore.value.get(id));
+      const flow = await flowStore.value.get(id);
+      if (!flow) {
+        return err(notFoundError("oauth-flow", `Unknown OAuth flow '${id}'`));
+      }
+      return ok(flow);
     },
 
     async discoverResource(input: { resource: string; response?: Response }) {
@@ -833,11 +804,6 @@ export function createOAuthService(options: {
       if (!redirectUri.ok) {
         return redirectUri;
       }
-      const context = jsonObject(input.context, "OAuth context");
-      if (!context.ok) {
-        return context;
-      }
-      const reason = normalizeStartReason(input.reason);
       const oauthConfig = await resolveOAuthConfigForOption(input.option, input.client);
       if (!oauthConfig.ok) {
         return oauthConfig;
@@ -888,8 +854,6 @@ export function createOAuthService(options: {
         codeVerifier,
         expiresAt: input.expiresAt ?? defaultExpiry(options.clock),
         oauthConfig: oauthConfig.value,
-        context: context.value,
-        reason,
       };
       await flowStore.value.create(flow);
 
@@ -900,8 +864,6 @@ export function createOAuthService(options: {
         path: flow.path,
         resource: flow.resource,
         option: flow.option,
-        context: flow.context,
-        reason: flow.reason,
       });
     },
 
@@ -923,10 +885,11 @@ export function createOAuthService(options: {
         return err(inputError("OAuth callback is missing state"));
       }
 
-      const flow = await flowStore.value.get(flowId);
-      if (!flow) {
-        return err(notFoundError("oauth-flow", `Unknown OAuth flow '${flowId}'`));
+      const flowResult = await this.getFlow(flowId);
+      if (!flowResult.ok) {
+        return flowResult;
       }
+      const flow = flowResult.value;
       if (flow.expiresAt.getTime() <= options.clock().getTime()) {
         await flowStore.value.delete(flow.id);
         return err(expiredError("oauth-flow", `OAuth flow '${flow.id}' has expired`));
@@ -994,16 +957,19 @@ export function createOAuthService(options: {
         );
       }
 
-      const existing =
-        input.merge === "preserve-non-auth-headers"
-          ? await options.getCredential(flow.path)
-          : ok(null);
+      const existing = input.preserveExistingHeaders
+        ? await options.getCredential(flow.path)
+        : ok(null);
       if (!existing.ok) {
         return existing;
       }
 
       const secret = oauthSecretFromTokenResponse(processed.value, flow.oauthConfig);
-      secret.headers = mergeHeaders(existing.value?.secret.headers, secret.headers, input.merge);
+      secret.headers = mergeHeaders(
+        existing.value?.secret.headers,
+        secret.headers,
+        input.preserveExistingHeaders,
+      );
 
       const credential = await options.putCredential({
         path: flow.path,
@@ -1019,16 +985,11 @@ export function createOAuthService(options: {
         return credential;
       }
 
-      await flowStore.value.complete(flow.id, {
-        context: flow.context,
-        reason: flow.reason,
-      });
+      await flowStore.value.complete(flow.id);
 
       return ok({
         path: flow.path,
         credential: credential.value,
-        context: flow.context,
-        reason: flow.reason,
       });
     },
 

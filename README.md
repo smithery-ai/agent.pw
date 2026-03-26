@@ -46,24 +46,24 @@ const sql = {
   tablePrefix: "",
 };
 
-const db = createDb(process.env.DATABASE_URL!, { sql });
-if (!db.ok) {
-  console.error(db.error.message);
+const dbResult = createDb(process.env.DATABASE_URL!, { sql });
+const db = dbResult.ok ? dbResult.value : null;
+if (!db) {
+  console.error(dbResult.error.message);
   process.exit(1);
 }
 
 const agentPwResult = await createAgentPw({
-  db: db.value,
+  db,
   sql,
   encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
   flowStore: createInMemoryFlowStore(),
 });
-if (!agentPwResult.ok) {
+const agentPw = agentPwResult.ok ? agentPwResult.value : null;
+if (!agentPw) {
   console.error(agentPwResult.error.message);
   process.exit(1);
 }
-
-const agentPw = agentPwResult.value;
 ```
 
 `createInMemoryFlowStore()` is a development helper. Multi-instance apps should pass a shared or persistent `FlowStore`.
@@ -73,20 +73,21 @@ const agentPw = agentPwResult.value;
 The main API is `connect.*`, with `prepare(...)` as the choice-bearing entry point.
 
 ```ts
-const prepared = await agentPw.connect.prepare({
+const preparedResult = await agentPw.connect.prepare({
   path: "/acme/connections/docs",
   resource: "https://docs.example.com/mcp",
 });
-if (!prepared.ok) {
-  console.error(prepared.error.message);
+const prepared = preparedResult.ok ? preparedResult.value : null;
+if (!prepared) {
+  console.error(preparedResult.error.message);
   return;
 }
 
-if (prepared.value.kind === "ready") {
-  return prepared.value.headers;
+if (prepared.kind === "ready") {
+  return prepared.headers;
 }
 
-const [option] = prepared.value.options;
+const [option] = prepared.options;
 if (!option) {
   console.error("This resource is not configured yet");
   return;
@@ -97,18 +98,14 @@ if (option.kind === "oauth") {
     path: "/acme/connections/docs",
     option,
     redirectUri: "https://app.example.com/oauth/callback",
-    reason: "auth_required",
-    context: {
-      userId: "user_123",
-      connectionId: "docs",
-    },
   });
-  if (!started.ok) {
+  const session = started.ok ? started.value : null;
+  if (!session) {
     console.error(started.error.message);
     return;
   }
 
-  return Response.redirect(started.value.authorizationUrl, 302);
+  return Response.redirect(session.authorizationUrl, 302);
 }
 
 const saved = await agentPw.connect.saveHeaders({
@@ -153,9 +150,7 @@ Each returned option is self-contained. Apps pass the chosen option into either:
 
 An empty `options` list means the resource is currently unconfigured.
 
-If the flow started because the runtime already observed a real auth challenge, pass `reason: "auth_required"` into `connect.start(...)`. That persists the challenge-origin reason inside the flow so continuation code does not have to reconstruct that state from app-owned metadata.
-
-`connect.resolve(...)` exposes the same library decision as structured metadata:
+Each `prepare(...)` result includes `resolution`, which exposes the library decision as structured metadata:
 
 - `canonicalResource`
 - `source`: `profile`, `discovery`, or `null`
@@ -186,17 +181,17 @@ Credentials always store the runtime material they need:
 When a known profile matches, `agent.pw` prefers that profile and skips generic discovery. Otherwise it falls back to resource discovery. MCP servers are one example, but the flow is not MCP-specific.
 
 ```ts
-const resolution = await agentPw.connect.resolve({
+const prepared = await agentPw.connect.prepare({
   path: "/acme/connections/docs",
   resource: "https://docs.example.com/mcp",
   response: unauthorizedResponse,
 });
-if (!resolution.ok) {
-  console.error(resolution.error.message);
+if (!prepared.ok || prepared.value.kind !== "options") {
+  console.error(prepared.ok ? "Resource is already connected" : prepared.error.message);
   return;
 }
 
-console.log(resolution.value);
+console.log(prepared.value.resolution);
 // {
 //   canonicalResource: 'https://docs.example.com/mcp',
 //   source: 'profile',
@@ -211,15 +206,14 @@ When the callback returns:
 ```ts
 const completed = await agentPw.connect.complete({
   callbackUri: "https://app.example.com/oauth/callback?code=...&state=...",
-  merge: "preserve-non-auth-headers",
+  preserveExistingHeaders: true,
 });
 if (!completed.ok) {
   console.error(completed.error.message);
   return;
 }
 
-console.log(completed.value.context);
-console.log(completed.value.reason);
+console.log(completed.value.credential);
 ```
 
 Pending OAuth state is readable through the same API surface:

@@ -257,43 +257,67 @@ describe("createAgentPw", () => {
     });
 
     expect(
-      await agentPw.connect.resolve({
+      await agentPw.connect.prepare({
         path: "/acme/connections/resend",
         resource: "https://api.resend.com",
       }),
     ).toEqual({
-      canonicalResource: "https://api.resend.com/",
-      source: "profile",
-      reason: "matched-profile",
-      profilePath: "/resend",
-      option: {
-        kind: "headers",
+      kind: "options",
+      options: [
+        {
+          kind: "headers",
+          source: "profile",
+          resource: "https://api.resend.com/",
+          profilePath: "/resend",
+          label: "Resend",
+          fields: [
+            {
+              name: "Authorization",
+              label: "API key",
+              prefix: "Bearer ",
+              secret: true,
+            },
+          ],
+        },
+      ],
+      resolution: {
+        canonicalResource: "https://api.resend.com/",
         source: "profile",
-        resource: "https://api.resend.com/",
+        reason: "matched-profile",
         profilePath: "/resend",
-        label: "Resend",
-        fields: [
-          {
-            name: "Authorization",
-            label: "API key",
-            prefix: "Bearer ",
-            secret: true,
-          },
-        ],
+        option: {
+          kind: "headers",
+          source: "profile",
+          resource: "https://api.resend.com/",
+          profilePath: "/resend",
+          label: "Resend",
+          fields: [
+            {
+              name: "Authorization",
+              label: "API key",
+              prefix: "Bearer ",
+              secret: true,
+            },
+          ],
+        },
       },
     });
 
     expect(
-      await agentPw.connect.resolve({
+      await agentPw.connect.prepare({
         path: "/acme/connections/unconfigured",
         resource: "https://unknown.example.com",
       }),
     ).toEqual({
-      canonicalResource: "https://unknown.example.com/",
-      source: null,
-      reason: "unconfigured",
-      profilePath: null,
-      option: null,
+      kind: "options",
+      options: [],
+      resolution: {
+        canonicalResource: "https://unknown.example.com/",
+        source: null,
+        reason: "unconfigured",
+        profilePath: null,
+        option: null,
+      },
     });
 
     await agentPw.connect.saveHeaders({

@@ -344,7 +344,7 @@ describe("oauth runtime", () => {
     );
   });
 
-  it("persists challenge-origin oauth flow semantics inside agent.pw", async () => {
+  it("stores pending oauth flows until oauth completion", async () => {
     const { agentPw } = await createOAuthAgent();
 
     await agentPw.profiles.put("/docs", {
@@ -362,12 +362,15 @@ describe("oauth runtime", () => {
       displayName: "Docs Profile",
     });
 
-    const resolution = await agentPw.connect.resolve({
+    const prepared = await agentPw.connect.prepare({
       path: "/org_alpha/connections/docs_profiled",
       resource: "https://docs.example.com/mcp",
     });
+    if (prepared.kind !== "options") {
+      throw new Error("Expected authorization options");
+    }
 
-    expect(resolution).toEqual({
+    expect(prepared.resolution).toEqual({
       canonicalResource: "https://docs.example.com/mcp",
       source: "profile",
       reason: "matched-profile",
@@ -381,32 +384,13 @@ describe("oauth runtime", () => {
         scopes: ["docs.read"],
       },
     });
-
-    const prepared = await agentPw.connect.prepare({
-      path: "/org_alpha/connections/docs_profiled",
-      resource: "https://docs.example.com/mcp",
-    });
-    if (prepared.kind !== "options") {
-      throw new Error("Expected authorization options");
-    }
-
-    expect(prepared.resolution).toEqual(resolution);
     const started = await agentPw.connect.start({
       path: "/org_alpha/connections/docs_profiled",
       option: prepared.options[0],
       redirectUri: "https://app.example.com/oauth/callback",
-      reason: "auth_required",
-      context: {
-        userId: "user_123",
-        namespaceId: "org_alpha",
-        connectionId: "docs_profiled",
-        fromChallenge: true,
-        authTrail: ["challenge", { step: 1, provider: "docs" }],
-      },
     });
 
     expect(started.authorizationUrl).toContain("https://accounts.example.com/authorize");
-    expect(started.reason).toBe("auth_required");
 
     expect(await agentPw.connect.getFlow(started.flowId)).toEqual({
       flowId: started.flowId,
@@ -414,35 +398,21 @@ describe("oauth runtime", () => {
       resource: "https://docs.example.com/mcp",
       option: started.option,
       expiresAt: started.expiresAt,
-      context: {
-        userId: "user_123",
-        namespaceId: "org_alpha",
-        connectionId: "docs_profiled",
-        fromChallenge: true,
-        authTrail: ["challenge", { step: 1, provider: "docs" }],
-      },
-      reason: "auth_required",
     });
 
     const completed = await agentPw.connect.complete({
       callbackUri: `https://app.example.com/oauth/callback?code=code-999&state=${started.flowId}`,
     });
 
-    expect(completed.context).toEqual({
-      userId: "user_123",
-      namespaceId: "org_alpha",
-      connectionId: "docs_profiled",
-      fromChallenge: true,
-      authTrail: ["challenge", { step: 1, provider: "docs" }],
-    });
-    expect(completed.reason).toBe("auth_required");
     expect(completed.credential.auth).toEqual({
       kind: "oauth",
       profilePath: "/docs",
       label: "Docs Profile",
       resource: "https://docs.example.com/mcp",
     });
-    expect(await agentPw.connect.getFlow(started.flowId)).toBeNull();
+    await expect(agentPw.connect.getFlow(started.flowId)).rejects.toThrow(
+      `Unknown OAuth flow '${started.flowId}'`,
+    );
   });
 
   it("preserves non-auth headers when oauth completion requests merge", async () => {
@@ -477,46 +447,16 @@ describe("oauth runtime", () => {
       path: "/org_alpha/connections/linear_merge",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
-      reason: "auth_required",
-      context: {
-        source: "challenge",
-      },
     });
 
     const completed = await agentPw.connect.complete({
       callbackUri: `https://app.example.com/oauth/callback?code=code-merge&state=${session.flowId}`,
-      merge: "preserve-non-auth-headers",
+      preserveExistingHeaders: true,
     });
 
-    expect(completed.context).toEqual({ source: "challenge" });
-    expect(completed.reason).toBe("auth_required");
     expect(completed.credential.secret.headers).toEqual({
       Authorization: "Bearer profile-access-1",
       "X-Smithery-Connection": "conn_123",
     });
-  });
-
-  it("rejects non-object oauth context payloads", async () => {
-    const { agentPw } = await createOAuthAgent();
-
-    const prepared = await agentPw.connect.prepare({
-      path: "/org_alpha/connections/linear_bad_context",
-      resource: "https://api.linear.app/projects",
-    });
-    if (prepared.kind !== "options") {
-      throw new Error("Expected oauth options");
-    }
-    const option = prepared.options[0];
-
-    await expect(
-      Reflect.apply(agentPw.connect.start, agentPw.connect, [
-        {
-          path: "/org_alpha/connections/linear_bad_context",
-          option,
-          redirectUri: "https://app.example.com/oauth/callback",
-          context: ["bad-context"],
-        },
-      ]),
-    ).rejects.toThrow("OAuth context must be a JSON object");
   });
 });

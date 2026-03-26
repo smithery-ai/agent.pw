@@ -410,7 +410,9 @@ describe("index coverage helpers", () => {
           callbackUri: "https://app.example.com/oauth/callback?code=missing&state=unknown",
         }),
       ).rejects.toThrow("Unknown OAuth flow 'unknown'");
-      const missingFlow = await api.connect.getFlow("missing-flow");
+      await expect(api.connect.getFlow("missing-flow")).rejects.toThrow(
+        "Unknown OAuth flow 'missing-flow'",
+      );
 
       const directSession = await api.connect.start({
         path: "/acme/connections/linear_direct",
@@ -421,17 +423,12 @@ describe("index coverage helpers", () => {
         path: "/acme/connections/linear",
         option: oauthOption,
         redirectUri: "https://app.example.com/oauth/callback",
-        reason: "auth_required",
       });
       const startedFlow = await api.connect.getFlow(session.flowId);
       const completed = await api.connect.complete({
         callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
       });
       const preparedReady = await api.connect.prepare({
-        path: "/acme/connections/linear",
-        resource: "https://api.linear.app/projects",
-      });
-      const resolvedReady = await api.connect.resolve({
         path: "/acme/connections/linear",
         resource: "https://api.linear.app/projects",
       });
@@ -491,12 +488,10 @@ describe("index coverage helpers", () => {
       return {
         readProfile,
         allProfiles,
-        missingFlow,
         directSession,
         startedFlow,
         completed,
         preparedReady,
-        resolvedReady,
         readyAgain,
         headers,
         readCredential,
@@ -516,7 +511,6 @@ describe("index coverage helpers", () => {
       "/linear",
       "/profiles/temp",
     ]);
-    expect(result.missingFlow).toBeNull();
     expect(result.directSession.path).toBe("/acme/connections/linear_direct");
     expect(result.startedFlow).toEqual({
       flowId: expect.any(String),
@@ -531,13 +525,10 @@ describe("index coverage helpers", () => {
         scopes: ["read", "write"],
       },
       expiresAt: expect.any(Date),
-      context: undefined,
-      reason: "auth_required",
     });
     expect(result.completed.path).toBe("/acme/connections/linear");
-    expect(result.completed.reason).toBe("auth_required");
     expect(result.preparedReady.kind).toBe("ready");
-    expect(result.resolvedReady).toEqual({
+    expect(result.preparedReady.resolution).toEqual({
       canonicalResource: "https://api.linear.app/projects",
       source: null,
       reason: "existing-credential",

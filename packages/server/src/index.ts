@@ -594,17 +594,15 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
     });
   }
 
-  function toConnectFlow(flow: PendingFlow): ConnectFlow {
-    return {
-      flowId: flow.id,
-      path: flow.path,
-      resource: flow.resource,
-      option: flow.option,
-      expiresAt: flow.expiresAt,
-      context: flow.context,
-      reason: flow.reason,
-    };
-  }
+function toConnectFlow(flow: PendingFlow): ConnectFlow {
+  return {
+    flowId: flow.id,
+    path: flow.path,
+    resource: flow.resource,
+    option: flow.option,
+    expiresAt: flow.expiresAt,
+  };
+}
 
   async function resolveConnection(input: ConnectPrepareInput): Promise<
     AgentPwResult<{
@@ -820,11 +818,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
   };
 
   const connect: AgentPw["connect"] = {
-    async resolve(input) {
-      const resolved = await resolveConnection(input);
-      return resolved.ok ? ok(resolved.value.resolution) : resolved;
-    },
-
     async prepare(input) {
       const resolved = await resolveConnection(input);
       if (!resolved.ok) {
@@ -865,7 +858,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
       if (!flow.ok) {
         return flow;
       }
-      return ok(flow.value ? toConnectFlow(flow.value) : null);
+      return ok(toConnectFlow(flow.value));
     },
 
     start(input) {
@@ -969,28 +962,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
   function createScopedApi(scope: RuleScope): ScopedAgentPw {
     return {
       connect: {
-        async resolve(input) {
-          const path = assertPath(input.path, "path");
-          if (!path.ok) {
-            return path;
-          }
-          const allowed = requireRule(scope, "credential.connect", path.value);
-          if (!allowed.ok) {
-            return allowed;
-          }
-          const result = await connect.resolve(input);
-          if (!result.ok) {
-            return result;
-          }
-          if (result.value.reason === "existing-credential") {
-            const useRule = requireRule(scope, "credential.use", path.value);
-            if (!useRule.ok) {
-              return useRule;
-            }
-          }
-          return result;
-        },
-
         async prepare(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
@@ -1017,9 +988,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
           const flow = await oauth.getFlow(flowId);
           if (!flow.ok) {
             return flow;
-          }
-          if (!flow.value) {
-            return ok(null);
           }
           const allowed = requireRule(scope, "credential.connect", flow.value.path);
           if (!allowed.ok) {
@@ -1048,9 +1016,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
           const flow = await oauth.getFlow(flowId);
           if (!flow.ok) {
             return flow;
-          }
-          if (!flow.value) {
-            return err(notFoundError("oauth-flow", `Unknown OAuth flow '${flowId}'`));
           }
           const allowed = requireRule(scope, "credential.connect", flow.value.path);
           if (!allowed.ok) {
