@@ -369,7 +369,7 @@ describe("createAgentPw edge cases", () => {
 
 		reads = 0;
 		await expect(
-			agentPw.connect.startForResource({
+			agentPw.connect.connect({
 				path: "/org/connections/docs",
 				resource: "https://docs.example.com/mcp",
 				redirectUri: "https://app.example.com/oauth/callback",

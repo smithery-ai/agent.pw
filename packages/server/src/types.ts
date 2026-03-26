@@ -174,6 +174,7 @@ export interface CredentialRecord extends CredentialSummary {
 
 export interface CredentialPutInput {
 	path: string;
+	resource?: string;
 	auth: CredentialAuth;
 	secret: StoredCredentials | Buffer;
 }
@@ -234,7 +235,7 @@ export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
 
 export interface ConnectResolutionResult {
 	canonicalResource: string;
-	source: ConnectOption["source"] | "derived-profile" | null;
+	source: ConnectOption["source"] | null;
 	reason:
 		| "existing-credential"
 		| "matched-profile"
@@ -306,9 +307,9 @@ export interface ConnectStartForResourceReadyResult extends ConnectReadyResult {
 	resolution: ConnectResolutionResult;
 }
 
-export interface ConnectStartForResourceAuthorizationResult
-	extends ConnectAuthorizationSession {
+export interface ConnectStartForResourceAuthorizationResult {
 	kind: "authorization";
+	session: ConnectAuthorizationSession;
 	resolution: ConnectResolutionResult;
 }
 
@@ -323,6 +324,12 @@ export interface ConnectStartForResourceUnconfiguredResult {
 	resolution: ConnectResolutionResult;
 }
 
+export type ConnectForResourceResult =
+	| ConnectStartForResourceReadyResult
+	| ConnectStartForResourceAuthorizationResult
+	| ConnectStartForResourceHeadersResult
+	| ConnectStartForResourceUnconfiguredResult;
+
 export interface ConnectCompleteInput {
 	callbackUri: string;
 	merge?: "replace" | "preserve-non-auth-headers";
@@ -332,7 +339,6 @@ export interface ConnectCompleteResult {
 	path: string;
 	credential: CredentialRecord;
 	context?: JsonObject;
-	outcome: "connected";
 	reason: ConnectStartReason;
 	requiresUpstreamAuthorization: boolean;
 }
@@ -434,43 +440,7 @@ export interface ScopedAgentPw {
 		prepare(input: ConnectPrepareInput): Promise<ConnectPrepareResult>;
 		getFlow(flowId: string): Promise<ConnectFlow | null>;
 		start(input: ConnectStartInput): Promise<ConnectAuthorizationSession>;
-		startFromChallenge(
-			input: ConnectStartInput,
-		): Promise<ConnectAuthorizationSession>;
-		connect(
-			input: ConnectStartForResourceInput,
-		): Promise<
-			| ConnectStartForResourceReadyResult
-			| ConnectStartForResourceAuthorizationResult
-			| ConnectStartForResourceHeadersResult
-			| ConnectStartForResourceUnconfiguredResult
-		>;
-		connectFromChallenge(
-			input: ConnectStartForResourceInput,
-		): Promise<
-			| ConnectStartForResourceReadyResult
-			| ConnectStartForResourceAuthorizationResult
-			| ConnectStartForResourceHeadersResult
-			| ConnectStartForResourceUnconfiguredResult
-		>;
-		/** @deprecated Use connect(...) instead. */
-		startForResource(
-			input: ConnectStartForResourceInput,
-		): Promise<
-			| ConnectStartForResourceReadyResult
-			| ConnectStartForResourceAuthorizationResult
-			| ConnectStartForResourceHeadersResult
-			| ConnectStartForResourceUnconfiguredResult
-		>;
-		/** @deprecated Use connectFromChallenge(...) instead. */
-		startForResourceFromChallenge(
-			input: ConnectStartForResourceInput,
-		): Promise<
-			| ConnectStartForResourceReadyResult
-			| ConnectStartForResourceAuthorizationResult
-			| ConnectStartForResourceHeadersResult
-			| ConnectStartForResourceUnconfiguredResult
-		>;
+		connect(input: ConnectStartForResourceInput): Promise<ConnectForResourceResult>;
 		complete(input: ConnectCompleteInput): Promise<ConnectCompleteResult>;
 		saveHeaders(input: ConnectSaveHeadersInput): Promise<CredentialRecord>;
 		headers(input: ConnectHeadersInput): Promise<Record<string, string>>;

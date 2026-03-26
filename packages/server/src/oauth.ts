@@ -885,7 +885,6 @@ export function createOAuthService(options: {
 				path: flow.path,
 				credential,
 				context: flow.context,
-				outcome: "connected",
 				reason: flow.reason,
 				requiresUpstreamAuthorization: flow.requiresUpstreamAuthorization,
 			};

@@ -397,10 +397,11 @@ describe("oauth runtime", () => {
 			},
 		});
 
-		const started = await agentPw.connect.startForResourceFromChallenge({
+		const started = await agentPw.connect.connect({
 			path: "/org_alpha/connections/docs_profiled",
 			resource: "https://docs.example.com/mcp",
 			redirectUri: "https://app.example.com/oauth/callback",
+			reason: "auth_required",
 			context: {
 				userId: "user_123",
 				namespaceId: "org_alpha",
@@ -416,18 +417,18 @@ describe("oauth runtime", () => {
 		}
 
 		expect(started.resolution).toEqual(resolution);
-		expect(started.authorizationUrl).toContain(
+		expect(started.session.authorizationUrl).toContain(
 			"https://accounts.example.com/authorize",
 		);
-		expect(started.reason).toBe("auth_required");
-		expect(started.requiresUpstreamAuthorization).toBe(true);
+		expect(started.session.reason).toBe("auth_required");
+		expect(started.session.requiresUpstreamAuthorization).toBe(true);
 
-		expect(await agentPw.connect.getFlow(started.flowId)).toEqual({
-			flowId: started.flowId,
+		expect(await agentPw.connect.getFlow(started.session.flowId)).toEqual({
+			flowId: started.session.flowId,
 			path: "/org_alpha/connections/docs_profiled",
 			resource: "https://docs.example.com/mcp",
-			option: started.option,
-			expiresAt: started.expiresAt,
+			option: started.session.option,
+			expiresAt: started.session.expiresAt,
 			context: {
 				userId: "user_123",
 				namespaceId: "org_alpha",
@@ -440,10 +441,9 @@ describe("oauth runtime", () => {
 		});
 
 		const completed = await agentPw.connect.complete({
-			callbackUri: `https://app.example.com/oauth/callback?code=code-999&state=${started.flowId}`,
+			callbackUri: `https://app.example.com/oauth/callback?code=code-999&state=${started.session.flowId}`,
 		});
 
-		expect(completed.outcome).toBe("connected");
 		expect(completed.context).toEqual({
 			userId: "user_123",
 			namespaceId: "org_alpha",
@@ -459,7 +459,7 @@ describe("oauth runtime", () => {
 			label: "Docs Profile",
 			resource: "https://docs.example.com/mcp",
 		});
-		expect(await agentPw.connect.getFlow(started.flowId)).toBeNull();
+		expect(await agentPw.connect.getFlow(started.session.flowId)).toBeNull();
 	});
 
 	it("preserves non-auth headers when oauth completion requests merge", async () => {
@@ -490,10 +490,11 @@ describe("oauth runtime", () => {
 			},
 		});
 
-		const session = await agentPw.connect.startFromChallenge({
+		const session = await agentPw.connect.start({
 			path: "/org_alpha/connections/linear_merge",
 			option,
 			redirectUri: "https://app.example.com/oauth/callback",
+			reason: "auth_required",
 			context: {
 				source: "challenge",
 			},

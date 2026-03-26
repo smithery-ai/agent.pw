@@ -413,10 +413,11 @@ describe("index coverage helpers", () => {
 				option: oauthOption,
 				redirectUri: "https://app.example.com/oauth/callback",
 			});
-			const session = await api.connect.startFromChallenge({
+			const session = await api.connect.start({
 				path: "/acme/connections/linear",
 				option: oauthOption,
 				redirectUri: "https://app.example.com/oauth/callback",
+				reason: "auth_required",
 			});
 			const startedFlow = await api.connect.getFlow(session.flowId);
 			const completed = await api.connect.complete({
@@ -435,12 +436,12 @@ describe("index coverage helpers", () => {
 				resource: "https://api.linear.app/projects",
 				redirectUri: "https://app.example.com/oauth/callback",
 			});
-			const startedReadyFromChallenge =
-				await api.connect.connectFromChallenge({
-					path: "/acme/connections/linear",
-					resource: "https://api.linear.app/projects",
-					redirectUri: "https://app.example.com/oauth/callback",
-				});
+			const startedReadyFromChallenge = await api.connect.connect({
+				path: "/acme/connections/linear",
+				resource: "https://api.linear.app/projects",
+				redirectUri: "https://app.example.com/oauth/callback",
+				reason: "auth_required",
+			});
 
 			const headers = await api.connect.headers({
 				path: "/acme/connections/linear",

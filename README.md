@@ -78,7 +78,7 @@ if (started.kind === 'ready') {
 }
 
 if (started.kind === 'authorization') {
-  return Response.redirect(started.authorizationUrl, 302)
+  return Response.redirect(started.session.authorizationUrl, 302)
 }
 
 if (started.kind === 'headers') {
@@ -127,9 +127,7 @@ For framework integrations that do not want to own option-selection logic, use `
 - `headers`: collect manual header values and call `connect.saveHeaders(...)`
 - `unconfigured`: no auth route is currently available
 
-If the flow started because the runtime already observed a real auth challenge, use `connect.startFromChallenge(...)` or `connect.connectFromChallenge(...)`. That persists `reason: "auth_required"` and `requiresUpstreamAuthorization: true` inside the flow so continuation code does not have to reconstruct that state from app-owned metadata.
-
-`connect.startForResource(...)` and `connect.startForResourceFromChallenge(...)` remain as compatibility aliases.
+If the flow started because the runtime already observed a real auth challenge, pass `reason: 'auth_required'` into `connect.start(...)` or `connect.connect(...)`. That persists `reason: "auth_required"` and `requiresUpstreamAuthorization: true` inside the flow so continuation code does not have to reconstruct that state from app-owned metadata.
 
 `connect.resolve(...)` exposes the same library decision as structured metadata:
 

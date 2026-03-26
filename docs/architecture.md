@@ -138,10 +138,6 @@ It returns:
 
 Starts an OAuth flow from one returned OAuth option.
 
-### `connect.startFromChallenge({ ... })`
-
-Starts an OAuth flow that is known to come from a real runtime auth challenge. The flow itself persists `reason: "auth_required"` and `requiresUpstreamAuthorization: true`.
-
 ### `connect.resolve({ path, resource, response? })`
 
 Returns the library-selected route as structured metadata:
@@ -160,12 +156,6 @@ Runs resolution and returns one stable result:
 - `authorization`
 - `headers`
 - `unconfigured`
-
-### `connect.connectFromChallenge({ path, resource, redirectUri, context?, ... })`
-
-Runs the same high-level resolution flow, but marks the resulting OAuth flow as challenge-originated so downstream continuation does not have to re-decide whether upstream authorization is required.
-
-`connect.startForResource(...)` and `connect.startForResourceFromChallenge(...)` remain as compatibility aliases.
 
 ### `connect.complete({ callbackUri, merge? })`
 
@@ -239,7 +229,7 @@ The OAuth flow is:
 
 Flow context is stored inside the `FlowStore`, so embedders do not need parallel flow KV for app metadata.
 
-Challenge-origin semantics are stored there too. If a flow was started from a real `auth_required` runtime signal, the continuation path can read that invariant back from `agent.pw` instead of reconstructing it from deployment metadata.
+Challenge-origin semantics are stored there too. If a flow was started from a real `auth_required` runtime signal, callers pass `reason: "auth_required"` into `connect.start(...)` or `connect.connect(...)`, and the continuation path can read that invariant back from `agent.pw` instead of reconstructing it from deployment metadata.
 
 ## Profiles as Admin Configuration
 

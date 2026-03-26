@@ -388,11 +388,10 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 	async function putCredential(input: CredentialPutInput) {
 		const path = assertPath(input.path, "credential path");
 		const parsedAuth = parseCredentialAuth(toJsonRecord(input.auth));
-		const legacyResource = Reflect.get(input, "resource");
 		const auth = normalizeCredentialAuth({
 			...parsedAuth,
-			...(typeof legacyResource === "string" && !credentialResource(parsedAuth)
-				? { resource: normalizeResource(legacyResource) }
+			...(typeof input.resource === "string" && !credentialResource(parsedAuth)
+				? { resource: normalizeResource(input.resource) }
 				: {}),
 		});
 		const plaintextSecret = Buffer.isBuffer(input.secret) ? undefined : input.secret;
@@ -678,7 +677,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 		return {
 			kind: "authorization" as const,
 			resolution: resolved.resolution,
-			...session,
+			session,
 		};
 	}
 
@@ -724,30 +723,8 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			});
 		},
 
-		startFromChallenge(input) {
-			return connect.start({
-				...input,
-				reason: "auth_required",
-			});
-		},
-
 		connect(input) {
 			return connectForResource(input);
-		},
-
-		connectFromChallenge(input) {
-			return connect.connect({
-				...input,
-				reason: "auth_required",
-			});
-		},
-
-		startForResource(input) {
-			return connect.connect(input);
-		},
-
-		startForResourceFromChallenge(input) {
-			return connect.connectFromChallenge(input);
 		},
 
 		complete(input) {
@@ -823,17 +800,6 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			return result;
 		};
 
-		const scopedConnectFromChallenge: ScopedAgentPw["connect"]["connectFromChallenge"] =
-			async (input) => {
-				const path = assertPath(input.path, "path");
-				requireRule(scope, "credential.connect", path);
-				const result = await connect.connectFromChallenge(input);
-				if (result.kind === "ready") {
-					requireRule(scope, "credential.use", path);
-				}
-				return result;
-			};
-
 		return {
 			connect: {
 				async resolve(input) {
@@ -871,19 +837,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 					return connect.start(input);
 				},
 
-				async startFromChallenge(input) {
-					const path = assertPath(input.path, "path");
-					requireRule(scope, "credential.connect", path);
-					return connect.startFromChallenge(input);
-				},
-
 				connect: scopedConnect,
-
-				connectFromChallenge: scopedConnectFromChallenge,
-
-				startForResource: scopedConnect,
-
-				startForResourceFromChallenge: scopedConnectFromChallenge,
 
 				async complete(input) {
 					const flowId = extractFlowId(input.callbackUri);
