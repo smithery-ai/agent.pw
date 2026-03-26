@@ -430,13 +430,13 @@ describe("index coverage helpers", () => {
 				path: "/acme/connections/linear",
 				resource: "https://api.linear.app/projects",
 			});
-			const startedReady = await api.connect.startForResource({
+			const startedReady = await api.connect.connect({
 				path: "/acme/connections/linear",
 				resource: "https://api.linear.app/projects",
 				redirectUri: "https://app.example.com/oauth/callback",
 			});
 			const startedReadyFromChallenge =
-				await api.connect.startForResourceFromChallenge({
+				await api.connect.connectFromChallenge({
 					path: "/acme/connections/linear",
 					resource: "https://api.linear.app/projects",
 					redirectUri: "https://app.example.com/oauth/callback",

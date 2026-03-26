@@ -437,6 +437,23 @@ export interface ScopedAgentPw {
 		startFromChallenge(
 			input: ConnectStartInput,
 		): Promise<ConnectAuthorizationSession>;
+		connect(
+			input: ConnectStartForResourceInput,
+		): Promise<
+			| ConnectStartForResourceReadyResult
+			| ConnectStartForResourceAuthorizationResult
+			| ConnectStartForResourceHeadersResult
+			| ConnectStartForResourceUnconfiguredResult
+		>;
+		connectFromChallenge(
+			input: ConnectStartForResourceInput,
+		): Promise<
+			| ConnectStartForResourceReadyResult
+			| ConnectStartForResourceAuthorizationResult
+			| ConnectStartForResourceHeadersResult
+			| ConnectStartForResourceUnconfiguredResult
+		>;
+		/** @deprecated Use connect(...) instead. */
 		startForResource(
 			input: ConnectStartForResourceInput,
 		): Promise<
@@ -445,6 +462,7 @@ export interface ScopedAgentPw {
 			| ConnectStartForResourceHeadersResult
 			| ConnectStartForResourceUnconfiguredResult
 		>;
+		/** @deprecated Use connectFromChallenge(...) instead. */
 		startForResourceFromChallenge(
 			input: ConnectStartForResourceInput,
 		): Promise<

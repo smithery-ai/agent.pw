@@ -25,6 +25,7 @@ import type {
 	ConnectOption,
 	ConnectPrepareInput,
 	ConnectResolutionResult,
+	ConnectStartForResourceInput,
 	CredentialAuth,
 	CredentialProfileAuth,
 	CredentialProfilePutInput,
@@ -630,6 +631,57 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 		},
 	};
 
+	async function connectForResource(input: ConnectStartForResourceInput) {
+		const resolved = await resolveConnection(input);
+
+		if (resolved.existing) {
+			const credential =
+				resolved.existing.auth.kind === "oauth"
+					? ((await oauth.refreshCredential(resolved.path)) ??
+						resolved.existing)
+					: resolved.existing;
+			return {
+				kind: "ready" as const,
+				credential,
+				headers: requireHeadersSecret(credential.secret, credential.path),
+				resolution: resolved.resolution,
+			};
+		}
+
+		const option = resolved.resolution.option;
+		if (!option) {
+			return {
+				kind: "unconfigured" as const,
+				resolution: resolved.resolution,
+			};
+		}
+		if (option.kind === "headers") {
+			return {
+				kind: "headers" as const,
+				option,
+				resolution: resolved.resolution,
+			};
+		}
+
+		const session = await oauth.startAuthorization({
+			path: resolved.path,
+			option,
+			redirectUri: input.redirectUri,
+			context: input.context,
+			reason: input.reason,
+			scopes: input.scopes,
+			expiresAt: input.expiresAt,
+			additionalParameters: input.additionalParameters,
+			client: input.client,
+		});
+
+		return {
+			kind: "authorization" as const,
+			resolution: resolved.resolution,
+			...session,
+		};
+	}
+
 	const connect: AgentPw["connect"] = {
 		async resolve(input) {
 			const resolved = await resolveConnection(input);
@@ -679,62 +731,23 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			});
 		},
 
-		async startForResource(input) {
-			const resolved = await resolveConnection(input);
-
-			if (resolved.existing) {
-				const credential =
-					resolved.existing.auth.kind === "oauth"
-						? ((await oauth.refreshCredential(resolved.path)) ??
-							resolved.existing)
-						: resolved.existing;
-				return {
-					kind: "ready",
-					credential,
-					headers: requireHeadersSecret(credential.secret, credential.path),
-					resolution: resolved.resolution,
-				};
-			}
-
-			const option = resolved.resolution.option;
-			if (!option) {
-				return {
-					kind: "unconfigured",
-					resolution: resolved.resolution,
-				};
-			}
-			if (option.kind === "headers") {
-				return {
-					kind: "headers",
-					option,
-					resolution: resolved.resolution,
-				};
-			}
-
-			const session = await oauth.startAuthorization({
-				path: resolved.path,
-				option,
-				redirectUri: input.redirectUri,
-				context: input.context,
-				reason: input.reason,
-				scopes: input.scopes,
-				expiresAt: input.expiresAt,
-				additionalParameters: input.additionalParameters,
-				client: input.client,
-			});
-
-			return {
-				kind: "authorization",
-				resolution: resolved.resolution,
-				...session,
-			};
+		connect(input) {
+			return connectForResource(input);
 		},
 
-		startForResourceFromChallenge(input) {
-			return connect.startForResource({
+		connectFromChallenge(input) {
+			return connect.connect({
 				...input,
 				reason: "auth_required",
 			});
+		},
+
+		startForResource(input) {
+			return connect.connect(input);
+		},
+
+		startForResourceFromChallenge(input) {
+			return connect.connectFromChallenge(input);
 		},
 
 		complete(input) {
@@ -800,6 +813,27 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 	};
 
 	function createScopedApi(scope: RuleScope): ScopedAgentPw {
+		const scopedConnect: ScopedAgentPw["connect"]["connect"] = async (input) => {
+			const path = assertPath(input.path, "path");
+			requireRule(scope, "credential.connect", path);
+			const result = await connect.connect(input);
+			if (result.kind === "ready") {
+				requireRule(scope, "credential.use", path);
+			}
+			return result;
+		};
+
+		const scopedConnectFromChallenge: ScopedAgentPw["connect"]["connectFromChallenge"] =
+			async (input) => {
+				const path = assertPath(input.path, "path");
+				requireRule(scope, "credential.connect", path);
+				const result = await connect.connectFromChallenge(input);
+				if (result.kind === "ready") {
+					requireRule(scope, "credential.use", path);
+				}
+				return result;
+			};
+
 		return {
 			connect: {
 				async resolve(input) {
@@ -843,25 +877,13 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 					return connect.startFromChallenge(input);
 				},
 
-				async startForResource(input) {
-					const path = assertPath(input.path, "path");
-					requireRule(scope, "credential.connect", path);
-					const result = await connect.startForResource(input);
-					if (result.kind === "ready") {
-						requireRule(scope, "credential.use", path);
-					}
-					return result;
-				},
+				connect: scopedConnect,
 
-				async startForResourceFromChallenge(input) {
-					const path = assertPath(input.path, "path");
-					requireRule(scope, "credential.connect", path);
-					const result = await connect.startForResourceFromChallenge(input);
-					if (result.kind === "ready") {
-						requireRule(scope, "credential.use", path);
-					}
-					return result;
-				},
+				connectFromChallenge: scopedConnectFromChallenge,
+
+				startForResource: scopedConnect,
+
+				startForResourceFromChallenge: scopedConnectFromChallenge,
 
 				async complete(input) {
 					const flowId = extractFlowId(input.callbackUri);

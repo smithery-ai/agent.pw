@@ -225,7 +225,7 @@ describe("createAgentPw", () => {
 		});
 	});
 
-	it("returns high-level header and unconfigured start results", async () => {
+	it("returns high-level header and unconfigured connect results", async () => {
 		const agentPw = await createTestAgent();
 
 		await agentPw.profiles.put("/resend", {
@@ -246,7 +246,7 @@ describe("createAgentPw", () => {
 		});
 
 		expect(
-			await agentPw.connect.startForResource({
+			await agentPw.connect.connect({
 				path: "/acme/connections/resend",
 				resource: "https://api.resend.com",
 				redirectUri: "https://app.example.com/oauth/callback",
@@ -292,7 +292,7 @@ describe("createAgentPw", () => {
 		});
 
 		expect(
-			await agentPw.connect.startForResource({
+			await agentPw.connect.connect({
 				path: "/acme/connections/unconfigured",
 				resource: "https://unknown.example.com",
 				redirectUri: "https://app.example.com/oauth/callback",
@@ -331,7 +331,7 @@ describe("createAgentPw", () => {
 		});
 
 		await expect(
-			agentPw.connect.startForResource({
+			agentPw.connect.connect({
 				path: "/acme/connections/resend",
 				resource: "https://api.resend.com",
 				redirectUri: "https://app.example.com/oauth/callback",

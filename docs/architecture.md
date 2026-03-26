@@ -152,7 +152,7 @@ Returns the library-selected route as structured metadata:
 - `profilePath`
 - `option`
 
-### `connect.startForResource({ path, resource, redirectUri, context?, ... })`
+### `connect.connect({ path, resource, redirectUri, context?, ... })`
 
 Runs resolution and returns one stable result:
 
@@ -161,9 +161,11 @@ Runs resolution and returns one stable result:
 - `headers`
 - `unconfigured`
 
-### `connect.startForResourceFromChallenge({ path, resource, redirectUri, context?, ... })`
+### `connect.connectFromChallenge({ path, resource, redirectUri, context?, ... })`
 
 Runs the same high-level resolution flow, but marks the resulting OAuth flow as challenge-originated so downstream continuation does not have to re-decide whether upstream authorization is required.
+
+`connect.startForResource(...)` and `connect.startForResourceFromChallenge(...)` remain as compatibility aliases.
 
 ### `connect.complete({ callbackUri, merge? })`
 
