@@ -8,6 +8,7 @@
  * - Route handlers evaluate right(root, operation) against canonical object paths
  */
 
+import { err, ok } from "okay-error";
 import {
   Biscuit,
   PrivateKey,
@@ -16,7 +17,14 @@ import {
   KeyPair,
   SignatureAlgorithm,
 } from "@smithery/biscuit";
-import type { BiscuitSubject, BiscuitTokenFacts, RuleConstraint, RuleGrant } from "./types.js";
+import { inputError } from "./errors.js";
+import type {
+  AgentPwResult,
+  BiscuitSubject,
+  BiscuitTokenFacts,
+  RuleConstraint,
+  RuleGrant,
+} from "./types.js";
 
 export const TOKEN_PREFIX = "apw_";
 
@@ -57,15 +65,15 @@ function normalizeFactStatement(fact: string): string {
   return trimmed.endsWith(";") ? trimmed : `${trimmed};`;
 }
 
-export function parseTtlSeconds(ttl: string | number): number {
-  if (typeof ttl === "number") return ttl;
-  if (/^\d+$/.test(ttl)) return parseInt(ttl, 10);
+export function parseTtlSeconds(ttl: string | number): AgentPwResult<number> {
+  if (typeof ttl === "number") return ok(ttl);
+  if (/^\d+$/.test(ttl)) return ok(parseInt(ttl, 10));
   const match = ttl.match(/^(\d+)(s|m|h|d)$/);
-  if (!match) throw new Error(`Invalid TTL format: ${ttl}`);
+  if (!match) return err(inputError(`Invalid TTL format: ${ttl}`));
   const value = parseInt(match[1], 10);
   const unit = match[2];
   const multiplier = unit === "s" ? 1 : unit === "m" ? 60 : unit === "h" ? 3600 : 86400;
-  return value * multiplier;
+  return ok(value * multiplier);
 }
 
 // ─── Attenuation Block Code ─────────────────────────────────────────────────
@@ -74,7 +82,7 @@ export function parseTtlSeconds(ttl: string | number): number {
  * Build attenuation block code from restriction constraints.
  * Each constraint adds a check that the request must match.
  */
-function buildAttenuationCode(constraints: RuleConstraint[]): string {
+function buildAttenuationCode(constraints: RuleConstraint[]): AgentPwResult<string> {
   const lines: string[] = [];
   const alternatives: string[] = [];
 
@@ -134,7 +142,8 @@ function buildAttenuationCode(constraints: RuleConstraint[]): string {
   for (const c of constraints) {
     if (c.ttl !== undefined) {
       const seconds = parseTtlSeconds(c.ttl);
-      if (minTtl === undefined || seconds < minTtl) minTtl = seconds;
+      if (!seconds.ok) return seconds;
+      if (minTtl === undefined || seconds.value < minTtl) minTtl = seconds.value;
     }
   }
   if (minTtl !== undefined) {
@@ -142,7 +151,7 @@ function buildAttenuationCode(constraints: RuleConstraint[]): string {
     lines.push(`check if time($t), $t <= ${expiry.toISOString()};`);
   }
 
-  return lines.join("\n");
+  return ok(lines.join("\n"));
 }
 
 // ─── Authorizer Code ─────────────────────────────────────────────────────────
@@ -238,15 +247,16 @@ export function restrictToken(
   tokenBase64: string,
   publicKeyHex: string,
   constraints: RuleConstraint[],
-): string {
+): AgentPwResult<string> {
   const code = buildAttenuationCode(constraints);
-  if (!code) return tokenBase64;
+  if (!code.ok) return code;
+  if (!code.value) return ok(tokenBase64);
 
   const token = parseToken(tokenBase64, publicKeyHex);
   const blk = Biscuit.block_builder();
-  blk.addCode(code);
+  blk.addCode(code.value);
   const attenuated = token.appendBlock(blk);
-  return addPrefix(attenuated.toBase64());
+  return ok(addPrefix(attenuated.toBase64()));
 }
 
 export function extractAuthorityExtraFacts(tokenBase64: string, publicKeyHex: string): string[] {
@@ -300,11 +310,11 @@ export function mintDescendantToken(
   parentTokenBase64: string,
   rights: RuleGrant[],
   constraints: RuleConstraint[],
-): string {
+): AgentPwResult<string> {
   const parentFacts = extractTokenFacts(parentTokenBase64, publicKeyHex);
   const userId = parentFacts.userId ?? parentFacts.orgId;
   if (!userId) {
-    throw new Error("Parent token has no identity");
+    return err(inputError("Parent token has no identity"));
   }
 
   const extraFacts = extractAuthorityExtraFacts(parentTokenBase64, publicKeyHex);
@@ -465,7 +475,7 @@ export function compileRulesToBiscuit(input: {
 }) {
   const minted = mintToken(input.privateKeyHex, input.subject, input.rights, input.extraFacts);
   if (!input.constraints || input.constraints.length === 0) {
-    return minted;
+    return ok(minted);
   }
 
   return restrictToken(minted, getPublicKeyHex(input.privateKeyHex), input.constraints);

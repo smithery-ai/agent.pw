@@ -16,6 +16,7 @@
     {
       "files": ["packages/server/src/**/*.ts"],
       "rules": {
+        "no-throw-literal": "error",
         "typescript/consistent-type-assertions": [
           "warn",
           {

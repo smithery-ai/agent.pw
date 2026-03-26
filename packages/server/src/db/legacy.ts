@@ -24,8 +24,11 @@ export async function backfillCredentialResourcesToAuth(
   } = {},
 ) {
   const sqlNamespace = coerceSqlNamespace(options.sql);
-  const schemaName = sqlNamespace.schema;
-  const credentialsTable = sqlNamespace.tableName("credentials");
+  if (!sqlNamespace.ok) {
+    return sqlNamespace;
+  }
+  const schemaName = sqlNamespace.value.schema;
+  const credentialsTable = sqlNamespace.value.tableName("credentials");
   const credentialsSql = qualifyTable(schemaName, credentialsTable);
 
   await db.execute(

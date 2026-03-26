@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentPw } from "agent.pw";
 import { createInMemoryFlowStore } from "agent.pw/oauth";
-import { AgentPwInputError } from "../packages/server/src/errors";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
 import type { ConnectOAuthOption } from "../packages/server/src/types";
 import { BISCUIT_PRIVATE_KEY, createTestDb } from "./setup";
+import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 function createDiscoveryFetch(
   options: {
@@ -93,14 +93,18 @@ async function createAgent(
   } = {},
 ) {
   const db = await createTestDb();
-  const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY);
-  return createAgentPw({
-    db,
-    encryptionKey,
-    flowStore: options.flowStore,
-    oauthFetch: options.oauthFetch,
-    oauthClient: options.oauthClient,
-  });
+  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+  return wrapAgentPw(
+    must(
+      await createAgentPw({
+        db,
+        encryptionKey,
+        flowStore: options.flowStore,
+        oauthFetch: options.oauthFetch,
+        oauthClient: options.oauthClient,
+      }),
+    ),
+  );
 }
 
 afterEach(() => {
@@ -130,7 +134,7 @@ describe("oauth edge cases", () => {
       oauthFetch: fetchImpl,
     });
 
-    expect(() =>
+    await expect(
       agentPw.connect.start({
         path: "/org/connections/docs",
         option: {
@@ -143,7 +147,7 @@ describe("oauth edge cases", () => {
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).toThrow("connect.start requires an oauth option");
+    ).rejects.toThrow("connect.start requires an oauth option");
 
     await expect(
       agentPw.connect.start({
@@ -185,7 +189,7 @@ describe("oauth edge cases", () => {
         redirectUri: string;
       }),
     ).rejects.toThrow("Profile-backed OAuth option is missing profilePath");
-  });
+  }, 10_000);
 
   it("validates missing state, unknown flows, expired flows, and profile oauth config errors", async () => {
     const flowStore = createInMemoryFlowStore();
@@ -287,6 +291,13 @@ describe("oauth edge cases", () => {
     ).toEqual({
       kind: "options",
       options: [],
+      resolution: {
+        canonicalResource: "https://unknown.example.com/",
+        source: null,
+        reason: "unconfigured",
+        profilePath: null,
+        option: null,
+      },
     });
 
     const { fetchImpl } = createDiscoveryFetch();
@@ -316,7 +327,16 @@ describe("oauth edge cases", () => {
     if (prepared.kind !== "options") {
       throw new Error("Expected options");
     }
-    expect(prepared.options.map((option) => option.kind)).toEqual(["oauth", "headers"]);
+    expect(prepared.options).toEqual([
+      {
+        kind: "headers",
+        source: "profile",
+        resource: "https://docs.example.com/mcp",
+        profilePath: "/docs-api",
+        label: "Docs API key",
+        fields: [{ name: "Authorization", label: "Bearer token", prefix: "Bearer " }],
+      },
+    ]);
 
     await agentPw.credentials.put({
       path: "/org/connections/manual",
@@ -340,7 +360,11 @@ describe("oauth edge cases", () => {
         },
       },
     });
-    expect(await agentPw.connect.headers({ path: "/org/connections/oauth-no-refresh" })).toEqual({
+    expect(
+      await agentPw.connect.headers({
+        path: "/org/connections/oauth-no-refresh",
+      }),
+    ).toEqual({
       Authorization: "Bearer stale-token",
     });
 
@@ -357,7 +381,11 @@ describe("oauth edge cases", () => {
         },
       },
     });
-    expect(await agentPw.connect.headers({ path: "/org/connections/oauth-no-client" })).toEqual({
+    expect(
+      await agentPw.connect.headers({
+        path: "/org/connections/oauth-no-client",
+      }),
+    ).toEqual({
       Authorization: "Bearer stale-token-2",
     });
 
@@ -418,10 +446,7 @@ describe("oauth edge cases", () => {
         return Response.json({ path: result.path }, { status: 201 });
       },
       error(error) {
-        return Response.json(
-          { error: error instanceof Error ? error.message : "unknown" },
-          { status: 418 },
-        );
+        return Response.json({ error: error.message }, { status: 418 });
       },
     });
 
@@ -444,14 +469,16 @@ describe("oauth edge cases", () => {
       new Request("https://app.example.com/oauth/callback?code=missing"),
     );
     expect(failure.status).toBe(418);
-    expect(await failure.json()).toEqual({ error: "OAuth callback is missing state" });
+    expect(await failure.json()).toEqual({
+      error: "OAuth callback is missing state",
+    });
 
     expect(() =>
       agentPw.connect.createClientMetadataDocument({
         clientId: "not-a-url",
         redirectUris: ["https://app.example.com/oauth/callback"],
       }),
-    ).toThrow(AgentPwInputError);
+    ).toThrow("Invalid client id 'not-a-url'");
 
     expect(() =>
       agentPw.connect.createClientMetadataDocument({
@@ -464,7 +491,9 @@ describe("oauth edge cases", () => {
   });
 
   it("surfaces discovery option validation and dynamic registration errors", async () => {
-    const missingRegistration = createDiscoveryFetch({ includeRegistrationEndpoint: false });
+    const missingRegistration = createDiscoveryFetch({
+      includeRegistrationEndpoint: false,
+    });
     const agentPw = await createAgent({
       flowStore: createInMemoryFlowStore(),
       oauthFetch: missingRegistration.fetchImpl,

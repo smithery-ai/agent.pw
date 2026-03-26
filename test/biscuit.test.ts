@@ -17,6 +17,7 @@ import {
   subjectFactsToExtraFacts,
 } from "agent.pw/biscuit";
 import { BISCUIT_PRIVATE_KEY, ORG_TOKEN, PUBLIC_KEY_HEX, TEST_ORG_ID } from "./setup";
+import { errorOf, must } from "./support/results";
 
 function buildCustomToken(code: string) {
   const builder = Biscuit.builder();
@@ -28,13 +29,13 @@ describe("biscuit helpers", () => {
   it("strips prefixes and parses TTL values", () => {
     expect(stripPrefix("apw_abc")).toBe("abc");
     expect(stripPrefix("plain")).toBe("plain");
-    expect(parseTtlSeconds(60)).toBe(60);
-    expect(parseTtlSeconds("30")).toBe(30);
-    expect(parseTtlSeconds("5s")).toBe(5);
-    expect(parseTtlSeconds("5m")).toBe(300);
-    expect(parseTtlSeconds("2h")).toBe(7200);
-    expect(parseTtlSeconds("1d")).toBe(86400);
-    expect(() => parseTtlSeconds("soon")).toThrow("Invalid TTL format: soon");
+    expect(must(parseTtlSeconds(60))).toBe(60);
+    expect(must(parseTtlSeconds("30"))).toBe(30);
+    expect(must(parseTtlSeconds("5s"))).toBe(5);
+    expect(must(parseTtlSeconds("5m"))).toBe(300);
+    expect(must(parseTtlSeconds("2h"))).toBe(7200);
+    expect(must(parseTtlSeconds("1d"))).toBe(86400);
+    expect(errorOf(parseTtlSeconds("soon")).message).toBe("Invalid TTL format: soon");
   });
 
   it("mints tokens, extracts facts, and derives public metadata", async () => {
@@ -69,19 +70,21 @@ describe("biscuit helpers", () => {
   });
 
   it("restricts tokens against service, method, path, and TTL constraints", () => {
-    const unrestricted = restrictToken(ORG_TOKEN, PUBLIC_KEY_HEX, []);
+    const unrestricted = must(restrictToken(ORG_TOKEN, PUBLIC_KEY_HEX, []));
     expect(unrestricted).toBe(ORG_TOKEN);
 
-    const restricted = restrictToken(ORG_TOKEN, PUBLIC_KEY_HEX, [
-      {
-        hosts: "api.linear.app",
-        services: ["github", "gitlab"],
-        methods: ["GET", "POST"],
-        paths: ["/user", "/repos"],
-        ttl: "5m",
-      },
-      { services: "linear", methods: "HEAD", paths: "/graphql", ttl: 600 },
-    ]);
+    const restricted = must(
+      restrictToken(ORG_TOKEN, PUBLIC_KEY_HEX, [
+        {
+          hosts: "api.linear.app",
+          services: ["github", "gitlab"],
+          methods: ["GET", "POST"],
+          paths: ["/user", "/repos"],
+          ttl: "5m",
+        },
+        { services: "linear", methods: "HEAD", paths: "/graphql", ttl: 600 },
+      ]),
+    );
 
     expect(restricted).not.toBe(ORG_TOKEN);
     expect(
@@ -178,13 +181,15 @@ describe("biscuit helpers", () => {
   });
 
   it("compiles rule grants and constraints into biscuits", () => {
-    const compiled = compileRulesToBiscuit({
-      privateKeyHex: BISCUIT_PRIVATE_KEY,
-      subject: "compiled-user",
-      rights: [{ action: "credential.use", root: "/org_alpha" }],
-      constraints: [{ methods: "GET", paths: "/org_alpha" }],
-      extraFacts: ['org_id("org_alpha")'],
-    });
+    const compiled = must(
+      compileRulesToBiscuit({
+        privateKeyHex: BISCUIT_PRIVATE_KEY,
+        subject: "compiled-user",
+        rights: [{ action: "credential.use", root: "/org_alpha" }],
+        constraints: [{ methods: "GET", paths: "/org_alpha" }],
+        extraFacts: ['org_id("org_alpha")'],
+      }),
+    );
 
     expect(extractTokenFacts(compiled, PUBLIC_KEY_HEX)).toEqual(
       expect.objectContaining({
@@ -194,11 +199,13 @@ describe("biscuit helpers", () => {
       }),
     );
 
-    const unconstrained = compileRulesToBiscuit({
-      privateKeyHex: BISCUIT_PRIVATE_KEY,
-      subject: "compiled-user",
-      rights: [{ action: "credential.use", root: "/org_alpha" }],
-    });
+    const unconstrained = must(
+      compileRulesToBiscuit({
+        privateKeyHex: BISCUIT_PRIVATE_KEY,
+        subject: "compiled-user",
+        rights: [{ action: "credential.use", root: "/org_alpha" }],
+      }),
+    );
     expect(extractTokenFacts(unconstrained, PUBLIC_KEY_HEX)).toEqual(
       expect.objectContaining({
         userId: "compiled-user",
@@ -225,9 +232,11 @@ describe("biscuit helpers", () => {
     expect(authorityLines).toContain(`right("/${TEST_ORG_ID}", "credential.manage");`);
     expect(authorityLines).not.toContain('right("credential.manage");');
 
-    const restricted = restrictToken(token, PUBLIC_KEY_HEX, [
-      { services: "github", methods: "GET", paths: "/user" },
-    ]);
+    const restricted = must(
+      restrictToken(token, PUBLIC_KEY_HEX, [
+        { services: "github", methods: "GET", paths: "/user" },
+      ]),
+    );
     const attenuated = Biscuit.fromBase64(stripPrefix(restricted), publicKey);
     const block = attenuated.getBlockSource(1);
 

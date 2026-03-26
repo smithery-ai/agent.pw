@@ -1,12 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
 import { createAgentPw } from "agent.pw";
 import { createInMemoryFlowStore } from "agent.pw/oauth";
+import { sql } from "drizzle-orm";
+import { describe, expect, it } from "vitest";
 import {
   deriveEncryptionKey,
   encryptCredentials,
 } from "../packages/server/src/lib/credentials-crypto";
 import { createTestDb } from "./setup";
+import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 function createProfileFetch() {
   const fetchImpl: typeof fetch = async (input, init) => {
@@ -49,13 +50,19 @@ function createProfileFetch() {
 describe("index coverage helpers", () => {
   it("rejects malformed auth payloads and invalid json writes", async () => {
     const db = await createTestDb();
-    const encryptionKey = await deriveEncryptionKey(
-      "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(
+        "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+      ),
     );
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-    });
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+        }),
+      ),
+    );
 
     await agentPw.profiles.put("/valid", {
       resourcePatterns: ["https://valid.example.com/*"],
@@ -123,6 +130,7 @@ describe("index coverage helpers", () => {
       Reflect.apply(agentPw.credentials.put, agentPw.credentials, [
         {
           path: "/invalid/credential",
+          resource: "https://invalid.example.com",
           auth: "bad",
           secret: { headers: {} },
         },
@@ -227,75 +235,6 @@ describe("index coverage helpers", () => {
         }),
       }),
     );
-    await agentPw.profiles.put("/env-template", {
-      resourcePatterns: ["https://cli.example.com/*"],
-      auth: {
-        kind: "env",
-        label: "CLI env",
-        fields: [
-          { name: "GH_TOKEN", label: "GitHub token", description: "Used by gh", secret: true },
-        ],
-      },
-    });
-    expect(await agentPw.profiles.get("/env-template")).toEqual(
-      expect.objectContaining({
-        auth: {
-          kind: "env",
-          label: "CLI env",
-          fields: [
-            { name: "GH_TOKEN", label: "GitHub token", description: "Used by gh", secret: true },
-          ],
-        },
-      }),
-    );
-    await agentPw.profiles.put("/env-empty", {
-      resourcePatterns: ["https://env-empty.example.com/*"],
-      auth: {
-        kind: "env",
-        fields: [{ name: "X", label: "X" }],
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"kind":"env","fields":"nope"}'::jsonb
-      WHERE path = '/env-empty'
-    `),
-    );
-    expect(await agentPw.profiles.get("/env-empty")).toEqual(
-      expect.objectContaining({
-        auth: {
-          kind: "env",
-          label: undefined,
-          fields: [],
-        },
-      }),
-    );
-    await agentPw.profiles.put("/env-fallback", {
-      resourcePatterns: ["https://env-fallback.example.com/*"],
-      auth: {
-        kind: "env",
-        fields: [{ name: "X", label: "X" }],
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"kind":"env","fields":[{"name":1,"label":"Bad"},{"name":"GH_TOKEN","label":1},{"name":"GH_TOKEN","label":"GitHub token","description":1,"secret":"no"}]}'::jsonb
-      WHERE path = '/env-fallback'
-    `),
-    );
-    expect(await agentPw.profiles.get("/env-fallback")).toEqual(
-      expect.objectContaining({
-        auth: {
-          kind: "env",
-          label: undefined,
-          fields: [
-            { name: "GH_TOKEN", label: "GitHub token", description: undefined, secret: undefined },
-          ],
-        },
-      }),
-    );
 
     await agentPw.profiles.put("/field-empty", {
       resourcePatterns: ["https://empty.example.com/*"],
@@ -321,12 +260,15 @@ describe("index coverage helpers", () => {
       }),
     );
 
-    const secret = await encryptCredentials(encryptionKey, {
-      headers: { Authorization: "Bearer broken" },
-    });
+    const secret = await mustAsync(
+      encryptCredentials(encryptionKey, {
+        headers: { Authorization: "Bearer broken" },
+      }),
+    );
     await agentPw.credentials.put({
       path: "/broken/credential",
-      auth: { kind: "headers", resource: "https://broken.example.com" },
+      resource: "https://broken.example.com",
+      auth: { kind: "headers" },
       secret,
     });
     await db.execute(
@@ -342,7 +284,8 @@ describe("index coverage helpers", () => {
 
     await agentPw.credentials.put({
       path: "/listed/credential",
-      auth: { kind: "headers", resource: "https://listed.example.com" },
+      resource: "https://listed.example.com",
+      auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer listed" } },
     });
     expect(await agentPw.credentials.list({ path: "/listed" })).toEqual([
@@ -356,6 +299,20 @@ describe("index coverage helpers", () => {
         },
       }),
     ]);
+    await expect(
+      agentPw.credentials.put({
+        path: "/broken/headerless",
+        auth: { kind: "headers" },
+        secret: {},
+      }),
+    ).rejects.toThrow("Credential '/broken/headerless' does not have header-based auth");
+    await expect(
+      agentPw.credentials.put({
+        path: "/broken/envless",
+        auth: { kind: "env" },
+        secret: { headers: { Authorization: "Bearer wrong" } },
+      }),
+    ).rejects.toThrow("Credential '/broken/envless' does not have env auth");
     expect(Array.isArray(await agentPw.credentials.list())).toBe(true);
 
     await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toThrow(
@@ -368,15 +325,21 @@ describe("index coverage helpers", () => {
 
   it("covers the authorized facade across connect, credentials, and profiles", async () => {
     const db = await createTestDb();
-    const encryptionKey = await deriveEncryptionKey(
-      "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(
+        "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+      ),
     );
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-      flowStore: createInMemoryFlowStore(),
-      oauthFetch: createProfileFetch(),
-    });
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+          flowStore: createInMemoryFlowStore(),
+          oauthFetch: createProfileFetch(),
+        }),
+      ),
+    );
 
     await agentPw.profiles.put("/linear", {
       resourcePatterns: ["https://api.linear.app/*"],
@@ -447,14 +410,31 @@ describe("index coverage helpers", () => {
           callbackUri: "https://app.example.com/oauth/callback?code=missing&state=unknown",
         }),
       ).rejects.toThrow("Unknown OAuth flow 'unknown'");
+      await expect(api.connect.getFlow("missing-flow")).rejects.toThrow(
+        "Unknown OAuth flow 'missing-flow'",
+      );
 
+      const directSession = await api.connect.start({
+        path: "/acme/connections/linear_direct",
+        option: oauthOption,
+        redirectUri: "https://app.example.com/oauth/callback",
+      });
       const session = await api.connect.start({
         path: "/acme/connections/linear",
         option: oauthOption,
         redirectUri: "https://app.example.com/oauth/callback",
       });
+      const startedFlow = await api.connect.getFlow(session.flowId);
       const completed = await api.connect.complete({
         callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
+      });
+      const preparedReady = await api.connect.prepare({
+        path: "/acme/connections/linear",
+        resource: "https://api.linear.app/projects",
+      });
+      const readyAgain = await api.connect.prepare({
+        path: "/acme/connections/linear",
+        resource: "https://api.linear.app/projects",
       });
 
       const headers = await api.connect.headers({
@@ -462,7 +442,9 @@ describe("index coverage helpers", () => {
         refresh: false,
       });
       const readCredential = await api.credentials.get("/acme/connections/linear");
-      const listedCredentials = await api.credentials.list({ path: "/acme/connections" });
+      const listedCredentials = await api.credentials.list({
+        path: "/acme/connections",
+      });
       const manualPrepared = await api.connect.prepare({
         path: "/acme/connections/headered",
         resource: "https://headers.example.com",
@@ -489,7 +471,8 @@ describe("index coverage helpers", () => {
       });
       const manual = await api.credentials.put({
         path: "/acme/connections/manual",
-        auth: { kind: "headers", resource: "https://manual.example.com" },
+        resource: "https://manual.example.com",
+        auth: { kind: "headers" },
         secret: { headers: { Authorization: "Bearer manual" } },
       });
       const moved = await api.credentials.move(
@@ -505,7 +488,11 @@ describe("index coverage helpers", () => {
       return {
         readProfile,
         allProfiles,
+        directSession,
+        startedFlow,
         completed,
+        preparedReady,
+        readyAgain,
         headers,
         readCredential,
         listedCredentials,
@@ -524,13 +511,39 @@ describe("index coverage helpers", () => {
       "/linear",
       "/profiles/temp",
     ]);
+    expect(result.directSession.path).toBe("/acme/connections/linear_direct");
+    expect(result.startedFlow).toEqual({
+      flowId: expect.any(String),
+      path: "/acme/connections/linear",
+      resource: "https://api.linear.app/projects",
+      option: {
+        kind: "oauth",
+        source: "profile",
+        resource: "https://api.linear.app/projects",
+        profilePath: "/linear",
+        label: "Linear",
+        scopes: ["read", "write"],
+      },
+      expiresAt: expect.any(Date),
+    });
     expect(result.completed.path).toBe("/acme/connections/linear");
+    expect(result.preparedReady.kind).toBe("ready");
+    expect(result.preparedReady.resolution).toEqual({
+      canonicalResource: "https://api.linear.app/projects",
+      source: null,
+      reason: "existing-credential",
+      profilePath: "/linear",
+      option: null,
+    });
+    expect(result.readyAgain.kind).toBe("ready");
     expect(result.headers).toEqual({ Authorization: "Bearer linear-access-1" });
     expect(result.readCredential?.path).toBe("/acme/connections/linear");
     expect(result.listedCredentials.map((credential) => credential.path)).toEqual([
       "/acme/connections/linear",
     ]);
-    expect(result.savedHeaders.secret.headers).toEqual({ Authorization: "Bearer header-token" });
+    expect(result.savedHeaders.secret.headers).toEqual({
+      Authorization: "Bearer header-token",
+    });
     expect(result.savedWithoutProfile.auth.profilePath).toBeNull();
     expect(result.manual.path).toBe("/acme/connections/manual");
     expect(result.moved).toBe(true);

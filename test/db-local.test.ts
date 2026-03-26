@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createAgentPwSchema, createDb, createLocalDb, createQueryHelpers } from "agent.pw/sql";
 import { bootstrapLocalSchema } from "../packages/server/src/db/bootstrap-local";
+import { must, mustAsync, wrapObjectMethods } from "./support/results";
 
 async function closeLocalDb(db: unknown) {
   await (db as { $client?: { close?: () => Promise<void> } }).$client?.close?.();
@@ -12,13 +13,13 @@ async function closeLocalDb(db: unknown) {
 
 describe("db entrypoints", () => {
   it("creates postgres-js and local PGlite database handles", async () => {
-    const remoteDb = createDb("postgres://user:pass@127.0.0.1:5432/agentpw");
+    const remoteDb = must(createDb("postgres://user:pass@127.0.0.1:5432/agentpw"));
     expect(typeof remoteDb.execute).toBe("function");
 
-    let localDb: Awaited<ReturnType<typeof createLocalDb>> | undefined;
+    let localDb: unknown;
     const dataDir = await mkdtemp(join(tmpdir(), "agentpw-pglite-"));
     try {
-      localDb = await createLocalDb(dataDir);
+      localDb = await mustAsync(createLocalDb(dataDir));
       const result = await localDb.execute(sql`select 1 as value`);
       expect(result.rows).toEqual([{ value: 1 }]);
     } finally {
@@ -28,10 +29,10 @@ describe("db entrypoints", () => {
   });
 
   it("bootstraps the default schema", async () => {
-    let db: Awaited<ReturnType<typeof createLocalDb>> | undefined;
+    let db: unknown;
     const dataDir = await mkdtemp(join(tmpdir(), "agentpw-migrate-"));
     try {
-      db = await createLocalDb(dataDir);
+      db = await mustAsync(createLocalDb(dataDir));
       await bootstrapLocalSchema(db);
 
       const result = await db.execute(sql`
@@ -49,22 +50,28 @@ describe("db entrypoints", () => {
   });
 
   it("supports custom SQL schemas and table prefixes for embedders", async () => {
-    const sqlNamespace = createAgentPwSchema({
-      schema: "connect_data",
-      tablePrefix: "smithery_",
-    });
-    const remoteDb = createDb("postgres://user:pass@127.0.0.1:5432/agentpw", {
-      sql: sqlNamespace,
-    });
+    const sqlNamespace = must(
+      createAgentPwSchema({
+        schema: "connect_data",
+        tablePrefix: "smithery_",
+      }),
+    );
+    const remoteDb = must(
+      createDb("postgres://user:pass@127.0.0.1:5432/agentpw", {
+        sql: sqlNamespace,
+      }),
+    );
     expect(typeof remoteDb.execute).toBe("function");
 
-    const queries = createQueryHelpers(sqlNamespace);
-    let db: Awaited<ReturnType<typeof createLocalDb>> | undefined;
+    const queries = wrapObjectMethods(must(createQueryHelpers(sqlNamespace)));
+    let db: unknown;
     const dataDir = await mkdtemp(join(tmpdir(), "agentpw-custom-schema-"));
     try {
-      db = await createLocalDb(dataDir, {
-        sql: sqlNamespace,
-      });
+      db = await mustAsync(
+        createLocalDb(dataDir, {
+          sql: sqlNamespace,
+        }),
+      );
       await bootstrapLocalSchema(db, {
         sql: sqlNamespace,
       });
@@ -101,10 +108,10 @@ describe("db entrypoints", () => {
   });
 
   it("migrates legacy credential resources into auth metadata for local schemas", async () => {
-    let db: Awaited<ReturnType<typeof createLocalDb>> | undefined;
+    let db: unknown;
     const dataDir = await mkdtemp(join(tmpdir(), "agentpw-legacy-resource-"));
     try {
-      db = await createLocalDb(dataDir);
+      db = await mustAsync(createLocalDb(dataDir));
       await db.execute(sql`CREATE SCHEMA IF NOT EXISTS agentpw`);
       await db.execute(
         sql.raw(`

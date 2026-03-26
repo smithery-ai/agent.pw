@@ -137,9 +137,15 @@ It returns:
 
 Starts an OAuth flow from one returned OAuth option.
 
-### `connect.complete({ callbackUri })`
+### `connect.complete({ callbackUri, preserveExistingHeaders? })`
 
 Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential.
+
+### `connect.getFlow(flowId)`
+
+Returns the current pending flow state for a known flow ID.
+
+Missing flows return `NotFound`, not `null`. This is intentional: `getFlow` is a workflow continuation API, so absence is treated as an invalid or expired continuation step rather than a normal lookup miss.
 
 ### `connect.saveHeaders({ path, option, values })`
 
@@ -181,29 +187,29 @@ This keeps the stored model small while still covering the common real-world cas
 
 1. check whether a credential already exists at `path`
 2. if it does, return `ready`
-3. try discovery-first OAuth for the `resource`
-4. resolve path-scoped profiles that match the `resource`
-5. build an ordered list of `oauth` and `headers` options
-6. return those options
+3. resolve path-scoped profiles that match the `resource`
+4. if a profile matches, use it as the authoritative route
+5. otherwise try discovery for the `resource`
+6. build `oauth` or `headers` options from the chosen route
+7. return those options
 
-That gives the app a guided flow without forcing it to understand the framework’s internal selection logic.
+Each `prepare(...)` result also includes `resolution`, so apps can inspect the canonical resource, selected source, and chosen option without a second API call.
 
-## Discovery-First OAuth
+## Profile-Aware OAuth
 
-When a resource publishes usable OAuth metadata, `agent.pw` uses it directly.
+When a known profile matches, `agent.pw` uses that profile directly. Otherwise it falls back to resource discovery.
 
 MCP servers are one example, but the model is broader than MCP.
 
-The discovery-first flow is:
+The OAuth flow is:
 
 1. normalize the `resource`
-2. discover protected-resource metadata
-3. resolve the authorization server
-4. start PKCE authorization
-5. exchange the code on callback
-6. store the resulting credential at the connection path
+2. resolve the auth route from profile or discovery
+3. start PKCE authorization
+4. exchange the code on callback
+5. store the resulting credential at the connection path
 
-If discovery is unavailable or incomplete, the framework falls back to matching profiles.
+Flow state stays narrowly scoped to OAuth continuation data: path, resource, option, expiry, and PKCE state.
 
 ## Profiles as Admin Configuration
 
@@ -297,6 +303,11 @@ This keeps runtime resolution simple:
 Listing remains path-based:
 
 - `credentials.list({ path })` returns direct children only under that path
+
+Absence semantics differ by API category:
+
+- lookup-style APIs such as `credentials.get(path)` may return `Ok(null)` when nothing is stored at that path
+- workflow APIs such as `connect.getFlow(flowId)` return `Err(NotFound)` when the referenced state no longer exists
 
 ## Authorization Surface
 

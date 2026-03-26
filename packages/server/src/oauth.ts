@@ -1,12 +1,14 @@
+import { err, ok, result } from "okay-error";
 import * as oauth from "oauth4webapi";
-import { AgentPwInputError } from "./errors.js";
+import { expiredError, inputError, internalError, notFoundError, oauthError } from "./errors.js";
 import { buildCredentialHeaders, type StoredCredentials } from "./lib/credentials-crypto.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
+  AgentPwError,
+  AgentPwResult,
   CimdDocument,
   CimdDocumentInput,
-  CompletedFlowResult,
   ConnectAuthorizationSession,
   ConnectCompleteInput,
   ConnectCompleteResult,
@@ -24,19 +26,19 @@ import type {
   PendingFlow,
 } from "./types.js";
 
-function assertPath(path: string, label: string) {
+function assertPath(path: string, label: string): AgentPwResult<string> {
   if (!path.startsWith("/") || path === "/" || path.includes("..")) {
-    throw new AgentPwInputError(`Invalid ${label} '${path}'`);
+    return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
   }
-  return path;
+  return ok(path);
 }
 
-function assertUrl(value: string, label: string) {
-  try {
-    return new URL(value);
-  } catch {
-    throw new AgentPwInputError(`Invalid ${label} '${value}'`);
+function assertUrl(value: string, label: string): AgentPwResult<URL> {
+  const parsed = result(() => new URL(value));
+  if (!parsed.ok) {
+    return err(inputError(`Invalid ${label} '${value}'`, { field: label, value }));
   }
+  return parsed;
 }
 
 function stringValue(value: unknown) {
@@ -61,20 +63,22 @@ function normalizeClientAuthentication(
   return hasSecret ? "client_secret_basic" : "none";
 }
 
-function buildClientAuthentication(config: OAuthResolvedConfig) {
+function buildClientAuthentication(
+  config: OAuthResolvedConfig,
+): AgentPwResult<ReturnType<typeof oauth.ClientSecretBasic>> {
   switch (config.clientAuthentication) {
     case "client_secret_post":
       if (!config.clientSecret) {
-        throw new AgentPwInputError("OAuth client_secret_post requires clientSecret");
+        return err(inputError("OAuth client_secret_post requires clientSecret"));
       }
-      return oauth.ClientSecretPost(config.clientSecret);
+      return ok(oauth.ClientSecretPost(config.clientSecret));
     case "client_secret_basic":
       if (!config.clientSecret) {
-        throw new AgentPwInputError("OAuth client_secret_basic requires clientSecret");
+        return err(inputError("OAuth client_secret_basic requires clientSecret"));
       }
-      return oauth.ClientSecretBasic(config.clientSecret);
+      return ok(oauth.ClientSecretBasic(config.clientSecret));
     case "none":
-      return oauth.None();
+      return ok(oauth.None());
   }
 }
 
@@ -88,11 +92,7 @@ function resourceFromCredentialRecord(credential: CredentialRecord) {
   if (typeof credential.auth.resource === "string" && credential.auth.resource.length > 0) {
     return credential.auth.resource;
   }
-
-  const legacyResource = Reflect.get(credential, "resource");
-  return typeof legacyResource === "string" && legacyResource.length > 0
-    ? legacyResource
-    : undefined;
+  return undefined;
 }
 
 function oauthConfigFromStoredCredentials(
@@ -110,6 +110,11 @@ function oauthConfigFromStoredCredentials(
     return null;
   }
 
+  const normalizedResource = normalizeResource(resolvedResource);
+  if (!normalizedResource.ok) {
+    return null;
+  }
+
   return {
     issuer: stringValue(stored?.issuer),
     authorizationUrl: stringValue(stored?.authorizationUrl),
@@ -122,7 +127,7 @@ function oauthConfigFromStoredCredentials(
       Boolean(stored?.clientSecret),
     ),
     scopes: stringValue(stored?.scopes),
-    resource: normalizeResource(resolvedResource),
+    resource: normalizedResource.value,
   };
 }
 
@@ -145,7 +150,7 @@ function oauthSecretFromTokenResponse(
   response: oauth.TokenEndpointResponse,
   oauthConfig: OAuthResolvedConfig,
   existing?: StoredCredentials,
-): StoredCredentials {
+): StoredCredentials & { headers: Record<string, string> } {
   const accessToken = response.access_token;
   const refreshToken = response.refresh_token ?? existing?.oauth?.refreshToken ?? null;
   const expiresAt =
@@ -173,33 +178,70 @@ function oauthSecretFromTokenResponse(
   };
 }
 
+const AUTH_HEADER_NAMES = new Set(["authorization", "proxy-authorization"]);
+
+function mergeHeaders(
+  existing: Record<string, string> | undefined,
+  next: Record<string, string>,
+  preserveExistingHeaders: boolean | undefined,
+) {
+  if (!preserveExistingHeaders || !existing) {
+    return next;
+  }
+
+  const merged: Record<string, string> = {};
+  for (const [name, value] of Object.entries(existing)) {
+    if (!AUTH_HEADER_NAMES.has(name.toLowerCase())) {
+      merged[name] = value;
+    }
+  }
+  return {
+    ...merged,
+    ...next,
+  };
+}
+
 async function resolveAuthorizationServer(
   config: OAuthResolvedConfig,
   customFetch: typeof fetch | undefined,
-) {
+): Promise<AgentPwResult<oauth.AuthorizationServer>> {
   if (config.issuer) {
     const issuer = assertUrl(config.issuer, "oauth issuer");
-    const authorizationServer = await discoverAuthorizationServerMetadata(issuer, customFetch);
-    if (!authorizationServer) {
-      throw new AgentPwInputError(
-        `Authorization server '${config.issuer}' does not publish usable metadata`,
+    if (!issuer.ok) {
+      return issuer;
+    }
+    const authorizationServer = await discoverAuthorizationServerMetadata(
+      issuer.value,
+      customFetch,
+    );
+    if (!authorizationServer.ok) {
+      return authorizationServer;
+    }
+    if (!authorizationServer.value) {
+      return err(
+        inputError(`Authorization server '${config.issuer}' does not publish usable metadata`),
       );
     }
-    return authorizationServer;
+    return ok(authorizationServer.value);
   }
 
   if (!(config.authorizationUrl && config.tokenUrl)) {
-    throw new AgentPwInputError(
-      "OAuth configuration requires either issuer or authorizationUrl + tokenUrl",
+    return err(
+      inputError("OAuth configuration requires either issuer or authorizationUrl + tokenUrl"),
     );
   }
 
-  return {
-    issuer: new URL(config.authorizationUrl).origin,
+  const authorizationOrigin = assertUrl(config.authorizationUrl, "authorization url");
+  if (!authorizationOrigin.ok) {
+    return authorizationOrigin;
+  }
+
+  return ok({
+    issuer: authorizationOrigin.value.origin,
     authorization_endpoint: config.authorizationUrl,
     token_endpoint: config.tokenUrl,
     revocation_endpoint: config.revocationUrl,
-  } satisfies oauth.AuthorizationServer;
+  } satisfies oauth.AuthorizationServer);
 }
 
 type AuthorizationServerDiscoveryAttempt = {
@@ -230,7 +272,6 @@ function buildAuthorizationServerDiscoveryAttempts(
     const oidcInsertedUrl = new URL(`/.well-known/openid-configuration${pathname}`, issuer.origin);
     attempts.push({
       url: oidcInsertedUrl,
-      // oauth4webapi does not expose the MCP-preferred prepended OIDC path variant.
       request: () =>
         (customFetch ?? fetch)(oidcInsertedUrl, {
           headers: {
@@ -257,47 +298,102 @@ function buildAuthorizationServerDiscoveryAttempts(
 async function discoverAuthorizationServerMetadata(
   issuer: URL,
   customFetch: typeof fetch | undefined,
-) {
+): Promise<AgentPwResult<oauth.AuthorizationServer | null>> {
   for (const attempt of buildAuthorizationServerDiscoveryAttempts(issuer, customFetch)) {
-    const response = await attempt.request();
-
+    const response = await result(attempt.request());
     if (!response.ok) {
-      if (response.status >= 400 && response.status < 500) {
-        await response.body?.cancel();
-        continue;
-      }
-      throw new AgentPwInputError(
-        `Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}' with HTTP ${response.status}`,
+      return err(
+        oauthError(
+          "authorization-server-discovery",
+          `Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}'`,
+          { cause: response.error },
+        ),
       );
     }
 
-    return oauth.processDiscoveryResponse(issuer, response);
+    if (!response.value.ok) {
+      if (response.value.status >= 400 && response.value.status < 500) {
+        await response.value.body?.cancel();
+        continue;
+      }
+      return err(
+        oauthError(
+          "authorization-server-discovery",
+          `Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}' with HTTP ${response.value.status}`,
+        ),
+      );
+    }
+
+    const processed = await result(oauth.processDiscoveryResponse(issuer, response.value));
+    if (!processed.ok) {
+      return err(
+        oauthError("authorization-server-discovery", "Failed to process discovery response", {
+          cause: processed.error,
+        }),
+      );
+    }
+    return processed;
   }
 
-  return null;
+  return ok(null);
 }
 
-async function discoverResource(resource: string, customFetch: typeof fetch | undefined) {
+async function discoverResource(
+  resource: string,
+  customFetch: typeof fetch | undefined,
+): Promise<
+  AgentPwResult<{
+    resource: string;
+    authorizationServers: string[];
+    resourceName?: string;
+    scopes: string[];
+  }>
+> {
   const normalizedResource = normalizeResource(resource);
-  const resourceUrl = assertUrl(normalizedResource, "resource");
-  const metadataResponse = await oauth.resourceDiscoveryRequest(
-    resourceUrl,
-    customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+  if (!normalizedResource.ok) {
+    return normalizedResource;
+  }
+
+  const resourceUrl = assertUrl(normalizedResource.value, "resource");
+  if (!resourceUrl.ok) {
+    return resourceUrl;
+  }
+
+  const metadataResponse = await result(
+    oauth.resourceDiscoveryRequest(
+      resourceUrl.value,
+      customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+    ),
   );
-  const resourceServer = await oauth.processResourceDiscoveryResponse(
-    resourceUrl,
-    metadataResponse,
+  if (!metadataResponse.ok) {
+    return err(
+      oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
+        cause: metadataResponse.error,
+      }),
+    );
+  }
+
+  const resourceServer = await result(
+    oauth.processResourceDiscoveryResponse(resourceUrl.value, metadataResponse.value),
   );
-  return {
-    resource: normalizedResource,
-    authorizationServers: resourceServer.authorization_servers ?? [],
-    resourceName: stringValue(resourceServer.resource_name),
-    scopes: Array.isArray(resourceServer.scopes_supported)
-      ? resourceServer.scopes_supported.filter(
+  if (!resourceServer.ok) {
+    return err(
+      oauthError("resource-discovery", `Failed to process resource metadata for '${resource}'`, {
+        cause: resourceServer.error,
+      }),
+    );
+  }
+
+  return ok({
+    resource: normalizedResource.value,
+    authorizationServers: resourceServer.value.authorization_servers ?? [],
+    resourceName: stringValue(resourceServer.value.resource_name),
+    scopes: Array.isArray(resourceServer.value.scopes_supported)
+      ? resourceServer.value.scopes_supported.filter(
           (entry): entry is string => typeof entry === "string",
         )
       : [],
-  };
+  });
 }
 
 function cimdToClientMetadata(input: NonNullable<OAuthClientInput["metadata"]>) {
@@ -333,7 +429,15 @@ function defaultSuccessResponse() {
 }
 
 function defaultErrorResponse(error: unknown) {
-  const message = error instanceof Error ? error.message : "OAuth flow failed";
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof error.message === "string"
+        ? error.message
+        : "OAuth flow failed";
   return new Response(JSON.stringify({ error: message }), {
     status: 400,
     headers: {
@@ -352,7 +456,7 @@ export function createInMemoryFlowStore(): FlowStore {
     async get(id) {
       return store.get(id) ?? null;
     },
-    async complete(id, _result?: CompletedFlowResult) {
+    async complete(id) {
       store.delete(id);
     },
     async delete(id) {
@@ -365,9 +469,9 @@ function parseProfileOAuthConfig(
   profile: CredentialProfileRecord,
   resource: string,
   clientInput: OAuthClientInput | undefined,
-): OAuthResolvedConfig {
+): AgentPwResult<OAuthResolvedConfig> {
   if (profile.auth.kind !== "oauth") {
-    throw new AgentPwInputError(`Credential Profile '${profile.path}' is not an OAuth profile`);
+    return err(inputError(`Credential Profile '${profile.path}' is not an OAuth profile`));
   }
 
   const clientId =
@@ -379,12 +483,19 @@ function parseProfileOAuthConfig(
   );
 
   if (!clientId) {
-    throw new AgentPwInputError(
-      `Credential Profile '${profile.path}' requires a clientId or default oauth client`,
+    return err(
+      inputError(
+        `Credential Profile '${profile.path}' requires a clientId or default oauth client`,
+      ),
     );
   }
 
-  return {
+  const normalizedResource = normalizeResource(resource);
+  if (!normalizedResource.ok) {
+    return normalizedResource;
+  }
+
+  return ok({
     issuer: profile.auth.issuer,
     authorizationUrl: profile.auth.authorizationUrl,
     tokenUrl: profile.auth.tokenUrl,
@@ -393,45 +504,57 @@ function parseProfileOAuthConfig(
     clientSecret,
     clientAuthentication,
     scopes: profile.auth.scopes,
-    resource: normalizeResource(resource),
-  };
+    resource: normalizedResource.value,
+  });
 }
 
 async function resolveOAuthConfigForResourceOption(
   option: ConnectOAuthOption,
   clientInput: OAuthClientInput | undefined,
   customFetch: typeof fetch | undefined,
-) {
+): Promise<AgentPwResult<OAuthResolvedConfig>> {
   const client = clientInput;
   if (!client) {
-    throw new AgentPwInputError(
-      `Resource '${option.resource}' requires oauth client configuration`,
-    );
+    return err(inputError(`Resource '${option.resource}' requires oauth client configuration`));
   }
 
   const discovered = await discoverResource(option.resource, customFetch);
-  const issuer = option.authorizationServer ?? discovered.authorizationServers[0];
+  if (!discovered.ok) {
+    return discovered;
+  }
+
+  const issuer = option.authorizationServer ?? discovered.value.authorizationServers[0];
   if (!issuer) {
-    throw new AgentPwInputError(
-      `Resource '${option.resource}' does not advertise an authorization server`,
+    return err(
+      inputError(`Resource '${option.resource}' does not advertise an authorization server`),
     );
   }
 
   if (
     option.authorizationServer &&
-    !discovered.authorizationServers.includes(option.authorizationServer)
+    !discovered.value.authorizationServers.includes(option.authorizationServer)
   ) {
-    throw new AgentPwInputError(
-      `Authorization server '${option.authorizationServer}' is not advertised for resource '${option.resource}'`,
+    return err(
+      inputError(
+        `Authorization server '${option.authorizationServer}' is not advertised for resource '${option.resource}'`,
+      ),
     );
   }
 
   const issuerUrl = assertUrl(issuer, "authorization server");
-  const authorizationServer = await discoverAuthorizationServerMetadata(issuerUrl, customFetch);
-  if (!authorizationServer) {
-    throw new AgentPwInputError(
-      `Authorization server '${issuer}' does not publish usable metadata`,
-    );
+  if (!issuerUrl.ok) {
+    return issuerUrl;
+  }
+
+  const authorizationServer = await discoverAuthorizationServerMetadata(
+    issuerUrl.value,
+    customFetch,
+  );
+  if (!authorizationServer.ok) {
+    return authorizationServer;
+  }
+  if (!authorizationServer.value) {
+    return err(inputError(`Authorization server '${issuer}' does not publish usable metadata`));
   }
   const shouldRegisterDynamically = Boolean(
     client.useDynamicRegistration || (!client.clientId && client.metadata),
@@ -445,48 +568,78 @@ async function resolveOAuthConfigForResourceOption(
 
   if (shouldRegisterDynamically) {
     if (!client.metadata) {
-      throw new AgentPwInputError("Dynamic client registration requires client metadata");
+      return err(inputError("Dynamic client registration requires client metadata"));
     }
-    if (!authorizationServer.registration_endpoint) {
-      throw new AgentPwInputError(
-        `Authorization server '${authorizationServer.issuer}' does not support dynamic client registration`,
+    if (!authorizationServer.value.registration_endpoint) {
+      return err(
+        inputError(
+          `Authorization server '${authorizationServer.value.issuer}' does not support dynamic client registration`,
+        ),
       );
     }
 
-    const registrationResponse = await oauth.dynamicClientRegistrationRequest(
-      authorizationServer,
-      cimdToClientMetadata(client.metadata),
-      {
-        initialAccessToken: client.initialAccessToken,
-        ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
-      },
+    const registrationResponse = await result(
+      oauth.dynamicClientRegistrationRequest(
+        authorizationServer.value,
+        cimdToClientMetadata(client.metadata),
+        {
+          initialAccessToken: client.initialAccessToken,
+          ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
+        },
+      ),
     );
-    const registered = await oauth.processDynamicClientRegistrationResponse(registrationResponse);
-    clientId = stringValue(registered.client_id);
-    clientSecret = stringValue(registered.client_secret);
+    if (!registrationResponse.ok) {
+      return err(
+        oauthError("dynamic-client-registration", "Dynamic client registration failed", {
+          cause: registrationResponse.error,
+        }),
+      );
+    }
+
+    const registered = await result(
+      oauth.processDynamicClientRegistrationResponse(registrationResponse.value),
+    );
+    if (!registered.ok) {
+      return err(
+        oauthError(
+          "dynamic-client-registration",
+          "Failed to process dynamic client registration response",
+          { cause: registered.error },
+        ),
+      );
+    }
+    clientId = stringValue(registered.value.client_id);
+    clientSecret = stringValue(registered.value.client_secret);
     clientAuthentication = normalizeClientAuthentication(
-      stringValue(registered.token_endpoint_auth_method),
+      stringValue(registered.value.token_endpoint_auth_method),
       Boolean(clientSecret),
     );
   }
 
   if (!clientId) {
-    throw new AgentPwInputError(
-      `Resource '${option.resource}' requires a clientId or dynamic client registration`,
+    return err(
+      inputError(
+        `Resource '${option.resource}' requires a clientId or dynamic client registration`,
+      ),
     );
   }
 
-  return {
-    issuer: authorizationServer.issuer,
-    authorizationUrl: authorizationServer.authorization_endpoint,
-    tokenUrl: authorizationServer.token_endpoint,
-    revocationUrl: authorizationServer.revocation_endpoint,
+  const normalizedResource = normalizeResource(option.resource);
+  if (!normalizedResource.ok) {
+    return normalizedResource;
+  }
+
+  return ok({
+    issuer: authorizationServer.value.issuer,
+    authorizationUrl: authorizationServer.value.authorization_endpoint,
+    tokenUrl: authorizationServer.value.token_endpoint,
+    revocationUrl: authorizationServer.value.revocation_endpoint,
     clientId,
     clientSecret,
     clientAuthentication,
     scopes: option.scopes,
-    resource: normalizeResource(option.resource),
-  } satisfies OAuthResolvedConfig;
+    resource: normalizedResource.value,
+  } satisfies OAuthResolvedConfig);
 }
 
 export function createOAuthService(options: {
@@ -494,32 +647,40 @@ export function createOAuthService(options: {
   clock: () => Date;
   customFetch?: typeof fetch;
   defaultClient?: OAuthClientInput;
-  getProfile(path: string): Promise<CredentialProfileRecord | null>;
-  getCredential(path: string): Promise<CredentialRecord | null>;
-  putCredential(input: CredentialPutInput): Promise<CredentialRecord>;
-  deleteCredential(path: string): Promise<boolean>;
+  getProfile(path: string): Promise<AgentPwResult<CredentialProfileRecord | null>>;
+  getCredential(path: string): Promise<AgentPwResult<CredentialRecord | null>>;
+  putCredential(input: CredentialPutInput): Promise<AgentPwResult<CredentialRecord>>;
+  deleteCredential(path: string): Promise<AgentPwResult<boolean>>;
 }) {
-  async function requireFlowStore() {
+  async function requireFlowStore(): Promise<AgentPwResult<FlowStore>> {
     if (!options.flowStore) {
-      throw new AgentPwInputError("OAuth flows require an explicit flowStore");
+      return err(inputError("OAuth flows require an explicit flowStore"));
     }
-    return options.flowStore;
+    return ok(options.flowStore);
   }
 
   async function resolveOAuthConfigForOption(
     option: ConnectOAuthOption,
     clientInput: OAuthClientInput | undefined,
-  ) {
+  ): Promise<AgentPwResult<OAuthResolvedConfig>> {
     if (option.source === "profile") {
       if (!option.profilePath) {
-        throw new AgentPwInputError("Profile-backed OAuth option is missing profilePath");
+        return err(inputError("Profile-backed OAuth option is missing profilePath"));
       }
       const profile = await options.getProfile(option.profilePath);
-      if (!profile) {
-        throw new AgentPwInputError(`Credential Profile '${option.profilePath}' does not exist`);
+      if (!profile.ok) {
+        return profile;
+      }
+      if (!profile.value) {
+        return err(
+          notFoundError(
+            "credential-profile",
+            `Credential Profile '${option.profilePath}' does not exist`,
+          ),
+        );
       }
       return parseProfileOAuthConfig(
-        profile,
+        profile.value,
         option.resource,
         clientInput ?? options.defaultClient,
       );
@@ -537,94 +698,145 @@ export function createOAuthService(options: {
     optionsForRefresh: {
       force?: boolean;
     } = {},
-  ) {
+  ): Promise<AgentPwResult<CredentialRecord | null>> {
     const credential = await options.getCredential(path);
-    if (!credential) {
-      return null;
-    }
-
-    if (credential.auth.kind !== "oauth") {
+    if (!credential.ok) {
       return credential;
     }
-
-    if (!shouldRefresh(credential.secret, options.clock, optionsForRefresh.force)) {
-      return credential;
+    if (!credential.value) {
+      return ok(null);
     }
 
-    const refreshToken = credential.secret.oauth?.refreshToken;
+    if (credential.value.auth.kind !== "oauth") {
+      return ok(credential.value);
+    }
+
+    if (!shouldRefresh(credential.value.secret, options.clock, optionsForRefresh.force)) {
+      return ok(credential.value);
+    }
+
+    const refreshToken = credential.value.secret.oauth?.refreshToken;
     if (!refreshToken) {
-      return credential;
+      return ok(credential.value);
     }
 
     const oauthConfig = oauthConfigFromStoredCredentials(
-      credential.secret,
-      resourceFromCredentialRecord(credential),
+      credential.value.secret,
+      resourceFromCredentialRecord(credential.value),
     );
     if (!oauthConfig) {
-      return credential;
+      return ok(credential.value);
     }
 
     const authorizationServer = await resolveAuthorizationServer(oauthConfig, options.customFetch);
+    if (!authorizationServer.ok) {
+      return authorizationServer;
+    }
     const client = buildClient(oauthConfig);
     const clientAuthentication = buildClientAuthentication(oauthConfig);
-    const tokenResponse = await oauth.refreshTokenGrantRequest(
-      authorizationServer,
-      client,
-      clientAuthentication,
-      refreshToken,
-      options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+    if (!clientAuthentication.ok) {
+      return clientAuthentication;
+    }
+    const tokenResponse = await result(
+      oauth.refreshTokenGrantRequest(
+        authorizationServer.value,
+        client,
+        clientAuthentication.value,
+        refreshToken,
+        options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+      ),
     );
-    const processed = await oauth.processRefreshTokenResponse(
-      authorizationServer,
-      client,
-      tokenResponse,
+    if (!tokenResponse.ok) {
+      return err(
+        oauthError("refresh", `Failed to refresh credential for '${path}'`, {
+          cause: tokenResponse.error,
+          path,
+        }),
+      );
+    }
+    const processed = await result(
+      oauth.processRefreshTokenResponse(authorizationServer.value, client, tokenResponse.value),
     );
+    if (!processed.ok) {
+      return err(
+        oauthError("refresh", `Failed to process refresh response for '${path}'`, {
+          cause: processed.error,
+          path,
+        }),
+      );
+    }
     return options.putCredential({
-      path: credential.path,
-      auth: credential.auth,
-      secret: oauthSecretFromTokenResponse(processed, oauthConfig, credential.secret),
+      path: credential.value.path,
+      auth: credential.value.auth,
+      secret: oauthSecretFromTokenResponse(processed.value, oauthConfig, credential.value.secret),
     });
   }
 
   return {
     async getFlow(id: string) {
       const flowStore = await requireFlowStore();
-      return flowStore.get(id);
+      if (!flowStore.ok) {
+        return flowStore;
+      }
+      const flow = await flowStore.value.get(id);
+      if (!flow) {
+        return err(notFoundError("oauth-flow", `Unknown OAuth flow '${id}'`));
+      }
+      return ok(flow);
     },
 
     async discoverResource(input: { resource: string; response?: Response }) {
       return discoverResource(input.resource, options.customFetch);
     },
 
-    async startAuthorization(input: ConnectStartInput): Promise<ConnectAuthorizationSession> {
+    async startAuthorization(
+      input: ConnectStartInput,
+    ): Promise<AgentPwResult<ConnectAuthorizationSession>> {
       const flowStore = await requireFlowStore();
+      if (!flowStore.ok) {
+        return flowStore;
+      }
       const path = assertPath(input.path, "path");
-      const redirectUri = assertUrl(input.redirectUri, "redirect uri").toString();
+      if (!path.ok) {
+        return path;
+      }
+      const redirectUri = assertUrl(input.redirectUri, "redirect uri");
+      if (!redirectUri.ok) {
+        return redirectUri;
+      }
       const oauthConfig = await resolveOAuthConfigForOption(input.option, input.client);
+      if (!oauthConfig.ok) {
+        return oauthConfig;
+      }
       const authorizationServer = await resolveAuthorizationServer(
-        oauthConfig,
+        oauthConfig.value,
         options.customFetch,
       );
-      if (!authorizationServer.authorization_endpoint) {
-        throw new AgentPwInputError(
-          `OAuth option for '${input.option.resource}' is missing an authorization endpoint`,
+      if (!authorizationServer.ok) {
+        return authorizationServer;
+      }
+      if (!authorizationServer.value.authorization_endpoint) {
+        return err(
+          inputError(
+            `OAuth option for '${input.option.resource}' is missing an authorization endpoint`,
+          ),
         );
       }
 
       const flowId = validateFlowId(undefined) ?? randomId() + randomId();
       const codeVerifier = oauth.generateRandomCodeVerifier();
       const codeChallenge = await oauth.calculatePKCECodeChallenge(codeVerifier);
-      const authorizationUrl = new URL(authorizationServer.authorization_endpoint);
+      const authorizationUrl = new URL(authorizationServer.value.authorization_endpoint);
 
-      authorizationUrl.searchParams.set("client_id", oauthConfig.clientId);
-      authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+      authorizationUrl.searchParams.set("client_id", oauthConfig.value.clientId);
+      authorizationUrl.searchParams.set("redirect_uri", redirectUri.value.toString());
       authorizationUrl.searchParams.set("response_type", "code");
       authorizationUrl.searchParams.set("state", flowId);
       authorizationUrl.searchParams.set("code_challenge", codeChallenge);
       authorizationUrl.searchParams.set("code_challenge_method", "S256");
-      authorizationUrl.searchParams.set("resource", oauthConfig.resource);
+      authorizationUrl.searchParams.set("resource", oauthConfig.value.resource);
 
-      const scopes = toScopeString(input.scopes) ?? toScopeString(oauthConfig.scopes);
+      const scopes = toScopeString(input.scopes) ?? toScopeString(oauthConfig.value.scopes);
       if (scopes) {
         authorizationUrl.searchParams.set("scope", scopes);
       }
@@ -635,68 +847,128 @@ export function createOAuthService(options: {
 
       const flow: PendingFlow = {
         id: flowId,
-        path,
-        resource: normalizeResource(input.option.resource),
+        path: path.value,
+        resource: oauthConfig.value.resource,
         option: input.option,
-        redirectUri,
+        redirectUri: redirectUri.value.toString(),
         codeVerifier,
         expiresAt: input.expiresAt ?? defaultExpiry(options.clock),
-        oauthConfig,
+        oauthConfig: oauthConfig.value,
       };
-      await flowStore.create(flow);
+      await flowStore.value.create(flow);
 
-      return {
+      return ok({
         flowId,
         authorizationUrl: authorizationUrl.toString(),
         expiresAt: flow.expiresAt,
         path: flow.path,
         resource: flow.resource,
         option: flow.option,
-      };
+      });
     },
 
-    async completeAuthorization(input: ConnectCompleteInput): Promise<ConnectCompleteResult> {
+    async completeAuthorization(
+      input: ConnectCompleteInput,
+    ): Promise<AgentPwResult<ConnectCompleteResult>> {
       const flowStore = await requireFlowStore();
-      const callbackUrl = assertUrl(input.callbackUri, "callback uri");
-      const flowId = callbackUrl.searchParams.get("state");
-      if (!flowId) {
-        throw new AgentPwInputError("OAuth callback is missing state");
+      if (!flowStore.ok) {
+        return flowStore;
       }
 
-      const flow = await flowStore.get(flowId);
-      if (!flow) {
-        throw new AgentPwInputError(`Unknown OAuth flow '${flowId}'`);
+      const callbackUrl = assertUrl(input.callbackUri, "callback uri");
+      if (!callbackUrl.ok) {
+        return callbackUrl;
       }
+
+      const flowId = callbackUrl.value.searchParams.get("state");
+      if (!flowId) {
+        return err(inputError("OAuth callback is missing state"));
+      }
+
+      const flowResult = await this.getFlow(flowId);
+      if (!flowResult.ok) {
+        return flowResult;
+      }
+      const flow = flowResult.value;
       if (flow.expiresAt.getTime() <= options.clock().getTime()) {
-        await flowStore.delete(flow.id);
-        throw new AgentPwInputError(`OAuth flow '${flow.id}' has expired`);
+        await flowStore.value.delete(flow.id);
+        return err(expiredError("oauth-flow", `OAuth flow '${flow.id}' has expired`));
       }
 
       const authorizationServer = await resolveAuthorizationServer(
         flow.oauthConfig,
         options.customFetch,
       );
+      if (!authorizationServer.ok) {
+        return authorizationServer;
+      }
+
       const client = buildClient(flow.oauthConfig);
       const clientAuthentication = buildClientAuthentication(flow.oauthConfig);
-      const validated = oauth.validateAuthResponse(
-        authorizationServer,
-        client,
-        callbackUrl,
-        flow.id,
+      if (!clientAuthentication.ok) {
+        return clientAuthentication;
+      }
+
+      const validated = result(() =>
+        oauth.validateAuthResponse(authorizationServer.value, client, callbackUrl.value, flow.id),
       );
-      const tokenResponse = await oauth.authorizationCodeGrantRequest(
-        authorizationServer,
-        client,
-        clientAuthentication,
-        validated,
-        flow.redirectUri,
-        flow.codeVerifier,
-        options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+      if (!validated.ok) {
+        return err(
+          oauthError("authorization-callback", "Failed to validate OAuth callback", {
+            cause: validated.error,
+            path: flow.path,
+          }),
+        );
+      }
+
+      const tokenResponse = await result(
+        oauth.authorizationCodeGrantRequest(
+          authorizationServer.value,
+          client,
+          clientAuthentication.value,
+          validated.value,
+          flow.redirectUri,
+          flow.codeVerifier,
+          options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+        ),
       );
-      const processed = await oauth.processAuthorizationCodeResponse(
-        authorizationServer,
-        client,
-        tokenResponse,
+      if (!tokenResponse.ok) {
+        return err(
+          oauthError("authorization-code", "Failed to exchange authorization code", {
+            cause: tokenResponse.error,
+            path: flow.path,
+          }),
+        );
+      }
+
+      const processed = await result(
+        oauth.processAuthorizationCodeResponse(
+          authorizationServer.value,
+          client,
+          tokenResponse.value,
+        ),
+      );
+      if (!processed.ok) {
+        return err(
+          oauthError("authorization-code", "Failed to process authorization code response", {
+            cause: processed.error,
+            path: flow.path,
+          }),
+        );
+      }
+
+      const existing = input.preserveExistingHeaders
+        ? await options.getCredential(flow.path)
+        : ok(null);
+      if (!existing.ok) {
+        return existing;
+      }
+
+      const secret = oauthSecretFromTokenResponse(processed.value, flow.oauthConfig);
+      secret.headers = mergeHeaders(
+        existing.value?.secret.headers,
+        secret.headers,
+        input.preserveExistingHeaders,
       );
 
       const credential = await options.putCredential({
@@ -707,32 +979,46 @@ export function createOAuthService(options: {
           label: flow.option.label,
           resource: flow.resource,
         },
-        secret: oauthSecretFromTokenResponse(processed, flow.oauthConfig),
+        secret,
       });
+      if (!credential.ok) {
+        return credential;
+      }
 
-      await flowStore.complete(flow.id);
+      await flowStore.value.complete(flow.id);
 
-      return {
+      return ok({
         path: flow.path,
-        credential,
-      };
+        credential: credential.value,
+      });
     },
 
     async refreshCredential(path: string, force = false) {
-      return refreshCredential(assertPath(path, "path"), { force });
+      const normalizedPath = assertPath(path, "path");
+      if (!normalizedPath.ok) {
+        return normalizedPath;
+      }
+      return refreshCredential(normalizedPath.value, { force });
     },
 
     async disconnect(input: ConnectDisconnectInput) {
       const path = assertPath(input.path, "path");
-      const credential = await options.getCredential(path);
-      if (!credential) {
-        return false;
+      if (!path.ok) {
+        return path;
       }
 
-      if (credential.auth.kind === "oauth") {
+      const credential = await options.getCredential(path.value);
+      if (!credential.ok) {
+        return credential;
+      }
+      if (!credential.value) {
+        return ok(false);
+      }
+
+      if (credential.value.auth.kind === "oauth") {
         const oauthConfig = oauthConfigFromStoredCredentials(
-          credential.secret,
-          resourceFromCredentialRecord(credential),
+          credential.value.secret,
+          resourceFromCredentialRecord(credential.value),
         );
         const revokeMode = input.revoke ?? "refresh_token";
         if (oauthConfig) {
@@ -740,120 +1026,225 @@ export function createOAuthService(options: {
             oauthConfig,
             options.customFetch,
           );
-          if (authorizationServer.revocation_endpoint) {
+          if (!authorizationServer.ok) {
+            return authorizationServer;
+          }
+          if (authorizationServer.value.revocation_endpoint) {
             const client = buildClient(oauthConfig);
             const clientAuthentication = buildClientAuthentication(oauthConfig);
+            if (!clientAuthentication.ok) {
+              return clientAuthentication;
+            }
 
             if (
               (revokeMode === "refresh_token" || revokeMode === "both") &&
-              credential.secret.oauth?.refreshToken
+              credential.value.secret.oauth?.refreshToken
             ) {
-              const response = await oauth.revocationRequest(
-                authorizationServer,
-                client,
-                clientAuthentication,
-                credential.secret.oauth.refreshToken,
-                options.customFetch
-                  ? {
-                      [oauth.customFetch]: options.customFetch,
-                      additionalParameters: { token_type_hint: "refresh_token" },
-                    }
-                  : { additionalParameters: { token_type_hint: "refresh_token" } },
+              const response = await result(
+                oauth.revocationRequest(
+                  authorizationServer.value,
+                  client,
+                  clientAuthentication.value,
+                  credential.value.secret.oauth.refreshToken,
+                  options.customFetch
+                    ? {
+                        [oauth.customFetch]: options.customFetch,
+                        additionalParameters: {
+                          token_type_hint: "refresh_token",
+                        },
+                      }
+                    : {
+                        additionalParameters: {
+                          token_type_hint: "refresh_token",
+                        },
+                      },
+                ),
               );
-              await oauth.processRevocationResponse(response);
+              if (!response.ok) {
+                return err(
+                  oauthError("revoke", "Failed to revoke refresh token", {
+                    cause: response.error,
+                    path: path.value,
+                  }),
+                );
+              }
+              const processed = await result(oauth.processRevocationResponse(response.value));
+              if (!processed.ok) {
+                return err(
+                  oauthError("revoke", "Failed to process refresh token revocation", {
+                    cause: processed.error,
+                    path: path.value,
+                  }),
+                );
+              }
             }
 
             if (
               (revokeMode === "access_token" || revokeMode === "both") &&
-              credential.secret.oauth?.accessToken
+              credential.value.secret.oauth?.accessToken
             ) {
-              const response = await oauth.revocationRequest(
-                authorizationServer,
-                client,
-                clientAuthentication,
-                credential.secret.oauth.accessToken,
-                options.customFetch
-                  ? {
-                      [oauth.customFetch]: options.customFetch,
-                      additionalParameters: { token_type_hint: "access_token" },
-                    }
-                  : { additionalParameters: { token_type_hint: "access_token" } },
+              const response = await result(
+                oauth.revocationRequest(
+                  authorizationServer.value,
+                  client,
+                  clientAuthentication.value,
+                  credential.value.secret.oauth.accessToken,
+                  options.customFetch
+                    ? {
+                        [oauth.customFetch]: options.customFetch,
+                        additionalParameters: { token_type_hint: "access_token" },
+                      }
+                    : {
+                        additionalParameters: { token_type_hint: "access_token" },
+                      },
+                ),
               );
-              await oauth.processRevocationResponse(response);
+              if (!response.ok) {
+                return err(
+                  oauthError("revoke", "Failed to revoke access token", {
+                    cause: response.error,
+                    path: path.value,
+                  }),
+                );
+              }
+              const processed = await result(oauth.processRevocationResponse(response.value));
+              if (!processed.ok) {
+                return err(
+                  oauthError("revoke", "Failed to process access token revocation", {
+                    cause: processed.error,
+                    path: path.value,
+                  }),
+                );
+              }
             }
           }
         }
       }
 
-      return options.deleteCredential(path);
+      return options.deleteCredential(path.value);
     },
 
     createWebHandlers(
       optionsForHandlers: {
         callbackPath?: string;
         success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-        error?(error: unknown, request: Request): Response | Promise<Response>;
+        error?(error: AgentPwError, request: Request): Response | Promise<Response>;
       } = {},
     ): ConnectWebHandlers {
       const callbackPath = optionsForHandlers.callbackPath ?? "/oauth/callback";
 
       return {
         start: async (request, input) => {
-          const session = await this.startAuthorization({
-            ...input,
-            path: assertPath(input.path, "path"),
-            redirectUri: input.redirectUri ?? resolveRedirectUri(request, callbackPath),
-          });
-          return Response.redirect(session.authorizationUrl, 302);
+          try {
+            const path = assertPath(input.path, "path");
+            if (!path.ok) {
+              return optionsForHandlers.error
+                ? optionsForHandlers.error(path.error, request)
+                : defaultErrorResponse(path.error);
+            }
+
+            const session = await this.startAuthorization({
+              ...input,
+              path: path.value,
+              redirectUri: input.redirectUri ?? resolveRedirectUri(request, callbackPath),
+            });
+            if (!session.ok) {
+              return optionsForHandlers.error
+                ? optionsForHandlers.error(session.error, request)
+                : defaultErrorResponse(session.error);
+            }
+            return Response.redirect(session.value.authorizationUrl, 302);
+          } catch (error) {
+            const normalized = internalError("OAuth start failed", {
+              cause: error,
+              source: "oauth.createWebHandlers.start",
+            });
+            return optionsForHandlers.error
+              ? optionsForHandlers.error(normalized, request)
+              : defaultErrorResponse(normalized);
+          }
         },
 
         callback: async (request) => {
           try {
-            const result = await this.completeAuthorization({
+            const completed = await this.completeAuthorization({
               callbackUri: request.url,
             });
+            if (!completed.ok) {
+              return optionsForHandlers.error
+                ? optionsForHandlers.error(completed.error, request)
+                : defaultErrorResponse(completed.error);
+            }
             if (optionsForHandlers.success) {
-              return optionsForHandlers.success(result, request);
+              return optionsForHandlers.success(completed.value, request);
             }
             return defaultSuccessResponse();
           } catch (error) {
-            if (optionsForHandlers.error) {
-              return optionsForHandlers.error(error, request);
-            }
-            return defaultErrorResponse(error);
+            const normalized = internalError("OAuth flow failed", {
+              cause: error,
+              source: "oauth.createWebHandlers.callback",
+            });
+            return optionsForHandlers.error
+              ? optionsForHandlers.error(normalized, request)
+              : defaultErrorResponse(normalized);
           }
         },
       };
     },
 
-    createClientMetadataDocument(input: CimdDocumentInput): CimdDocument {
-      const clientId = assertUrl(input.clientId, "client id").toString();
+    createClientMetadataDocument(input: CimdDocumentInput): AgentPwResult<CimdDocument> {
+      const clientId = assertUrl(input.clientId, "client id");
+      if (!clientId.ok) {
+        return clientId;
+      }
       if (input.redirectUris.length === 0) {
-        throw new AgentPwInputError("CIMD requires at least one redirect URI");
+        return err(inputError("CIMD requires at least one redirect URI"));
       }
 
-      return {
-        client_id: clientId,
-        redirect_uris: input.redirectUris.map((uri) => assertUrl(uri, "redirect uri").toString()),
+      const redirectUris = [];
+      for (const uri of input.redirectUris) {
+        const redirectUri = assertUrl(uri, "redirect uri");
+        if (!redirectUri.ok) {
+          return redirectUri;
+        }
+        redirectUris.push(redirectUri.value.toString());
+      }
+
+      const jwksUri = input.jwksUri
+        ? assertUrl(input.jwksUri, "jwks uri")
+        : ok<URL | undefined>(undefined);
+      if (!jwksUri.ok) {
+        return jwksUri;
+      }
+
+      return ok({
+        client_id: clientId.value.toString(),
+        redirect_uris: redirectUris,
         response_types: ["code"],
         grant_types: ["authorization_code", "refresh_token"],
         token_endpoint_auth_method: input.tokenEndpointAuthMethod ?? "none",
         client_name: input.clientName,
         scope: toScopeString(input.scope),
-        jwks_uri: input.jwksUri ? assertUrl(input.jwksUri, "jwks uri").toString() : undefined,
+        jwks_uri: jwksUri.value?.toString(),
         jwks: input.jwks,
         token_endpoint_auth_signing_alg: input.tokenEndpointAuthSigningAlg,
-      };
+      });
     },
 
-    createClientMetadataResponse(input: CimdDocumentInput) {
-      return new Response(JSON.stringify(this.createClientMetadataDocument(input), null, 2), {
-        status: 200,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          "cache-control": "public, max-age=300",
-        },
-      });
+    createClientMetadataResponse(input: CimdDocumentInput): AgentPwResult<Response> {
+      const document = this.createClientMetadataDocument(input);
+      if (!document.ok) {
+        return document;
+      }
+      return ok(
+        new Response(JSON.stringify(document.value, null, 2), {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "public, max-age=300",
+          },
+        }),
+      );
     },
   };
 }

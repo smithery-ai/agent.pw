@@ -1,8 +1,82 @@
+import type { Result } from "okay-error";
 import type { Database } from "./db/index.js";
 import type { StoredCredentials } from "./lib/credentials-crypto.js";
 import type { Logger } from "./lib/logger.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
+
+interface AgentPwErrorBase {
+  message: string;
+  cause?: unknown;
+  path?: string;
+}
+
+export interface AgentPwInputError extends AgentPwErrorBase {
+  type: "Input";
+  field?: string;
+  value?: string;
+}
+
+export interface AgentPwConflictError extends AgentPwErrorBase {
+  type: "Conflict";
+}
+
+export interface AgentPwAuthorizationError extends AgentPwErrorBase {
+  type: "Authorization";
+  action: string;
+}
+
+export interface AgentPwNotFoundError extends AgentPwErrorBase {
+  type: "NotFound";
+  resource: string;
+}
+
+export interface AgentPwExpiredError extends AgentPwErrorBase {
+  type: "Expired";
+  resource: string;
+}
+
+export interface AgentPwUnsupportedCredentialKindError extends AgentPwErrorBase {
+  type: "UnsupportedCredentialKind";
+  kind: "oauth" | "headers" | "env";
+}
+
+export interface AgentPwPersistenceError extends AgentPwErrorBase {
+  type: "Persistence";
+  operation: string;
+}
+
+export interface AgentPwOAuthError extends AgentPwErrorBase {
+  type: "OAuth";
+  stage: string;
+}
+
+export interface AgentPwCryptoError extends AgentPwErrorBase {
+  type: "Crypto";
+  operation: string;
+}
+
+export interface AgentPwInternalError extends AgentPwErrorBase {
+  type: "Internal";
+  source?: string;
+}
+
+export type AgentPwError =
+  | AgentPwAuthorizationError
+  | AgentPwConflictError
+  | AgentPwCryptoError
+  | AgentPwExpiredError
+  | AgentPwInputError
+  | AgentPwInternalError
+  | AgentPwNotFoundError
+  | AgentPwOAuthError
+  | AgentPwPersistenceError
+  | AgentPwUnsupportedCredentialKindError;
+
+export type AgentPwResult<ValueType, ErrorType extends AgentPwError = AgentPwError> = Result<
+  ValueType,
+  ErrorType
+>;
 
 export interface RuleGrant {
   action: string;
@@ -149,6 +223,7 @@ export interface CredentialRecord extends CredentialSummary {
 
 export interface CredentialPutInput {
   path: string;
+  resource?: string;
   auth: CredentialAuth;
   secret: StoredCredentials | Buffer;
 }
@@ -207,6 +282,14 @@ export interface ConnectHeadersOption extends ConnectOptionBase {
 
 export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
 
+export interface ConnectResolutionResult {
+  canonicalResource: string;
+  source: ConnectOption["source"] | null;
+  reason: "existing-credential" | "matched-profile" | "discovered-oauth" | "unconfigured";
+  profilePath: string | null;
+  option: ConnectOption | null;
+}
+
 export interface ConnectPrepareInput {
   path: string;
   resource: string;
@@ -217,11 +300,13 @@ export interface ConnectReadyResult {
   kind: "ready";
   credential: CredentialRecord;
   headers: Record<string, string>;
+  resolution: ConnectResolutionResult;
 }
 
 export interface ConnectOptionsResult {
   kind: "options";
   options: ConnectOption[];
+  resolution: ConnectResolutionResult;
 }
 
 export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult;
@@ -247,6 +332,7 @@ export interface ConnectAuthorizationSession {
 
 export interface ConnectCompleteInput {
   callbackUri: string;
+  preserveExistingHeaders?: boolean;
 }
 
 export interface ConnectCompleteResult {
@@ -281,14 +367,18 @@ export interface PendingFlow {
   oauthConfig: OAuthResolvedConfig;
 }
 
-export interface CompletedFlowResult {
-  identity?: string;
+export interface ConnectFlow {
+  flowId: string;
+  path: string;
+  resource: string;
+  option: ConnectOAuthOption;
+  expiresAt: Date;
 }
 
 export interface FlowStore {
   create(flow: PendingFlow): Promise<void>;
   get(id: string): Promise<PendingFlow | null>;
-  complete(id: string, result?: CompletedFlowResult): Promise<void>;
+  complete(id: string): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
@@ -328,25 +418,29 @@ export interface ConnectWebHandlers {
 
 export interface ScopedAgentPw {
   connect: {
-    prepare(input: ConnectPrepareInput): Promise<ConnectPrepareResult>;
-    start(input: ConnectStartInput): Promise<ConnectAuthorizationSession>;
-    complete(input: ConnectCompleteInput): Promise<ConnectCompleteResult>;
-    saveHeaders(input: ConnectSaveHeadersInput): Promise<CredentialRecord>;
-    headers(input: ConnectHeadersInput): Promise<Record<string, string>>;
-    disconnect(input: ConnectDisconnectInput): Promise<boolean>;
+    prepare(input: ConnectPrepareInput): Promise<AgentPwResult<ConnectPrepareResult>>;
+    getFlow(flowId: string): Promise<AgentPwResult<ConnectFlow>>;
+    start(input: ConnectStartInput): Promise<AgentPwResult<ConnectAuthorizationSession>>;
+    complete(input: ConnectCompleteInput): Promise<AgentPwResult<ConnectCompleteResult>>;
+    saveHeaders(input: ConnectSaveHeadersInput): Promise<AgentPwResult<CredentialRecord>>;
+    headers(input: ConnectHeadersInput): Promise<AgentPwResult<Record<string, string>>>;
+    disconnect(input: ConnectDisconnectInput): Promise<AgentPwResult<boolean>>;
   };
   credentials: {
-    get(path: string): Promise<CredentialRecord | null>;
-    list(options?: { path?: string }): Promise<CredentialSummary[]>;
-    put(input: CredentialPutInput): Promise<CredentialRecord>;
-    move(fromPath: string, toPath: string): Promise<boolean>;
-    delete(path: string): Promise<boolean>;
+    get(path: string): Promise<AgentPwResult<CredentialRecord | null>>;
+    list(options?: { path?: string }): Promise<AgentPwResult<CredentialSummary[]>>;
+    put(input: CredentialPutInput): Promise<AgentPwResult<CredentialRecord>>;
+    move(fromPath: string, toPath: string): Promise<AgentPwResult<boolean>>;
+    delete(path: string): Promise<AgentPwResult<boolean>>;
   };
   profiles: {
-    get(path: string): Promise<CredentialProfileRecord | null>;
-    list(options?: { path?: string }): Promise<CredentialProfileRecord[]>;
-    put(path: string, data: CredentialProfilePutInput): Promise<CredentialProfileRecord>;
-    delete(path: string): Promise<boolean>;
+    get(path: string): Promise<AgentPwResult<CredentialProfileRecord | null>>;
+    list(options?: { path?: string }): Promise<AgentPwResult<CredentialProfileRecord[]>>;
+    put(
+      path: string,
+      data: CredentialProfilePutInput,
+    ): Promise<AgentPwResult<CredentialProfileRecord>>;
+    delete(path: string): Promise<AgentPwResult<boolean>>;
   };
 }
 
@@ -367,16 +461,19 @@ export interface AgentPwOptions {
 
 export interface AgentPw extends ScopedAgentPw {
   profiles: ScopedAgentPw["profiles"] & {
-    resolve(input: { path: string; resource: string }): Promise<CredentialProfileRecord | null>;
+    resolve(input: {
+      path: string;
+      resource: string;
+    }): Promise<AgentPwResult<CredentialProfileRecord | null>>;
   };
   connect: ScopedAgentPw["connect"] & {
     createWebHandlers(options?: {
       callbackPath?: string;
       success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-      error?(error: unknown, request: Request): Response | Promise<Response>;
+      error?(error: AgentPwError, request: Request): Response | Promise<Response>;
     }): ConnectWebHandlers;
-    createClientMetadataDocument(input: CimdDocumentInput): CimdDocument;
-    createClientMetadataResponse(input: CimdDocumentInput): Response;
+    createClientMetadataDocument(input: CimdDocumentInput): AgentPwResult<CimdDocument>;
+    createClientMetadataResponse(input: CimdDocumentInput): AgentPwResult<Response>;
   };
   scope(input: RuleScope): ScopedAgentPw;
 }

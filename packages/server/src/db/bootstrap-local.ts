@@ -21,9 +21,12 @@ export async function bootstrapLocalSchema(
   } = {},
 ) {
   const sqlNamespace = coerceSqlNamespace(options.sql);
-  const schemaName = sqlNamespace.schema;
-  const credProfilesTable = sqlNamespace.tableName("cred_profiles");
-  const credentialsTable = sqlNamespace.tableName("credentials");
+  if (!sqlNamespace.ok) {
+    return sqlNamespace;
+  }
+  const schemaName = sqlNamespace.value.schema;
+  const credProfilesTable = sqlNamespace.value.tableName("cred_profiles");
+  const credentialsTable = sqlNamespace.value.tableName("credentials");
   const credProfilesPathIndex = `${credProfilesTable}_path_idx`;
   const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`;
   const credentialsPathIndex = `${credentialsTable}_path_idx`;

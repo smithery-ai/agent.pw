@@ -1,17 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { sql } from "drizzle-orm";
 import { createAgentPw } from "agent.pw";
-import {
-  AgentPwAuthorizationError,
-  AgentPwConflictError,
-  AgentPwInputError,
-} from "../packages/server/src/errors";
+import { ok } from "okay-error";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveEncryptionKey,
   encryptCredentials,
 } from "../packages/server/src/lib/credentials-crypto";
 import type { Logger } from "../packages/server/src/lib/logger";
 import { createTestDb } from "./setup";
+import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 const silentLogger: Logger = {
   info() {},
@@ -31,14 +27,18 @@ afterEach(() => {
 describe("createAgentPw edge cases", () => {
   it("validates profile and credential operations and surfaces conflicts", async () => {
     const db = await createTestDb();
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey: Buffer.alloc(32, 7).toString("base64"),
-      logger: silentLogger,
-      clock: () => new Date("2026-01-01T00:00:00.000Z"),
-    });
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey: Buffer.alloc(32, 7).toString("base64"),
+          logger: silentLogger,
+          clock: () => new Date("2026-01-01T00:00:00.000Z"),
+        }),
+      ),
+    );
 
-    await expect(agentPw.profiles.get("/")).rejects.toBeInstanceOf(AgentPwInputError);
+    await expect(agentPw.profiles.get("/")).rejects.toThrow("Invalid profile path '/'");
     await expect(
       agentPw.profiles.put("/shared/github", {
         resourcePatterns: [],
@@ -48,7 +48,10 @@ describe("createAgentPw edge cases", () => {
 
     await agentPw.profiles.put("/shared/github", {
       resourcePatterns: ["https://shared.example.com/*"],
-      auth: { kind: "headers", fields: [{ name: "Authorization", label: "Token" }] },
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
     });
     await agentPw.profiles.put("/shared/gitlab", {
       resourcePatterns: ["https://shared.example.com/*"],
@@ -59,31 +62,103 @@ describe("createAgentPw edge cases", () => {
         clientId: "shared-client",
       },
     });
+    await expect(
+      agentPw.profiles.put("/shared/env", {
+        resourcePatterns: ["https://env.example.com/*"],
+        auth: {
+          kind: "env",
+          label: "Env vars",
+          fields: [
+            {
+              name: "API_KEY",
+              label: "API key",
+              description: "Stored as an env secret",
+              secret: true,
+            },
+            {} as never,
+          ],
+        },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        path: "/shared/env",
+        auth: {
+          kind: "env",
+          label: "Env vars",
+          fields: [
+            {
+              name: "API_KEY",
+              label: "API key",
+              description: "Stored as an env secret",
+              secret: true,
+            },
+          ],
+        },
+      }),
+    );
+    await expect(
+      agentPw.profiles.put("/shared/env_empty", {
+        resourcePatterns: ["https://env-empty.example.com/*"],
+        auth: {
+          kind: "env",
+          fields: null as never,
+        },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        path: "/shared/env_empty",
+        auth: {
+          kind: "env",
+          label: undefined,
+          fields: [],
+        },
+      }),
+    );
 
     await expect(
       agentPw.profiles.resolve({
         path: "/shared/connections/tool",
         resource: "https://shared.example.com/api",
       }),
-    ).rejects.toBeInstanceOf(AgentPwConflictError);
+    ).rejects.toThrow(
+      "Credential Profile resolves to multiple candidates at the same depth: /shared/github, /shared/gitlab",
+    );
 
-    await expect(agentPw.credentials.get("/")).rejects.toBeInstanceOf(AgentPwInputError);
-    await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toBeInstanceOf(
-      AgentPwInputError,
+    await expect(agentPw.credentials.get("/")).rejects.toThrow("Invalid credential path '/'");
+    await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toThrow(
+      "Invalid credential path '/../bad'",
     );
     await expect(agentPw.connect.headers({ path: "/missing" })).rejects.toThrow(
       "No credential exists at '/missing'",
     );
 
-    const encrypted = await encryptCredentials(Buffer.alloc(32, 7).toString("base64"), {
-      headers: { Authorization: "Bearer buffered-token" },
-    });
+    const encrypted = await mustAsync(
+      encryptCredentials(Buffer.alloc(32, 7).toString("base64"), {
+        headers: { Authorization: "Bearer buffered-token" },
+      }),
+    );
     const stored = await agentPw.credentials.put({
       path: "/shared/connections/buffered",
-      auth: { kind: "headers", label: "Buffered", resource: "https://buffered.example.com" },
+      resource: "https://buffered.example.com",
+      auth: { kind: "headers", label: "Buffered" },
       secret: encrypted,
     });
-    expect(stored.secret.headers).toEqual({ Authorization: "Bearer buffered-token" });
+    expect(stored.secret.headers).toEqual({
+      Authorization: "Bearer buffered-token",
+    });
+    expect(
+      (
+        await agentPw.credentials.put({
+          path: "/shared/connections/no_resource",
+          auth: { kind: "headers", label: "No resource" },
+          secret: {
+            headers: {
+              Authorization: "Bearer no-resource",
+            },
+          },
+        })
+      ).auth.resource,
+    ).toBeUndefined();
 
     expect(
       await agentPw.credentials.move(
@@ -99,46 +174,23 @@ describe("createAgentPw edge cases", () => {
     ).toBe(false);
     expect(await agentPw.credentials.delete("/shared/connections/buffered_next")).toBe(true);
     expect(await agentPw.credentials.delete("/shared/connections/buffered_next")).toBe(false);
-    await expect(
-      agentPw.credentials.put({
-        path: "/shared/connections/invalid_env",
-        auth: { kind: "env", label: "Invalid env" },
-        secret: {},
-      }),
-    ).rejects.toThrow("Credential '/shared/connections/invalid_env' does not have env auth");
-
-    const malformedHeaders = await encryptCredentials(Buffer.alloc(32, 7).toString("base64"), {});
-    await agentPw.credentials.put({
-      path: "/shared/connections/malformed_headers",
-      auth: { kind: "headers", label: "Malformed headers" },
-      secret: malformedHeaders,
-    });
-    await expect(
-      agentPw.connect.headers({ path: "/shared/connections/malformed_headers", refresh: false }),
-    ).rejects.toThrow(
-      "Credential '/shared/connections/malformed_headers' does not have header-based auth",
-    );
-
-    const malformedEnv = await encryptCredentials(Buffer.alloc(32, 7).toString("base64"), {});
-    await agentPw.credentials.put({
-      path: "/shared/connections/malformed_env",
-      auth: { kind: "env", label: "Malformed env" },
-      secret: malformedEnv,
-    });
-    expect(
-      (await agentPw.credentials.get("/shared/connections/malformed_env"))?.secret.env,
-    ).toBeUndefined();
   });
 
   it("validates connect helpers and authorization denials", async () => {
     const db = await createTestDb();
-    const encryptionKey = await deriveEncryptionKey(
-      "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(
+        "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad",
+      ),
     );
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-    });
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+        }),
+      ),
+    );
 
     await agentPw.profiles.put("/resend", {
       resourcePatterns: ["https://api.resend.com*"],
@@ -208,42 +260,76 @@ describe("createAgentPw edge cases", () => {
           rights: [{ action: "credential.read", root: "/elsewhere" }],
         })
         .credentials.get("/org/connections/resend"),
-    ).rejects.toBeInstanceOf(AgentPwAuthorizationError);
+    ).rejects.toThrow("Missing 'credential.read' for '/org/connections/resend'");
+
+    await agentPw.credentials.put({
+      path: "/org/connections/env_only",
+      auth: {
+        kind: "env",
+        label: "Env only",
+        resource: "https://env.example.com/api",
+      },
+      secret: {
+        env: {
+          API_KEY: "env-secret",
+        },
+      },
+    });
+
+    await expect(
+      agentPw.connect.prepare({
+        path: "/org/connections/env_only",
+        resource: "https://env.example.com/api",
+      }),
+    ).rejects.toThrow(
+      "Credential '/org/connections/env_only' stores env auth and cannot be used with connect.prepare",
+    );
+
+    await expect(agentPw.connect.headers({ path: "/org/connections/env_only" })).rejects.toThrow(
+      "Credential '/org/connections/env_only' stores env auth",
+    );
   });
 
   it("falls back to the existing oauth credential when refresh lookup races to null", async () => {
+    let reads = 0;
     vi.doMock("../packages/server/src/db/queries.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../packages/server/src/db/queries.js")>();
-      const helpers = actual.createQueryHelpers();
-      let reads = 0;
+      const helpers = must(actual.createQueryHelpers());
       return {
         ...actual,
-        createQueryHelpers: vi.fn(() => ({
-          ...helpers,
-          getCredential: vi.fn(async (_db, path) => {
-            if (path !== "/org/connections/docs") {
-              return helpers.getCredential(_db, path);
-            }
-            reads += 1;
-            if (reads <= 2) {
-              return helpers.getCredential(_db, path);
-            }
-            return null;
+        createQueryHelpers: vi.fn(() =>
+          ok({
+            ...helpers,
+            getCredential: vi.fn(async (_db, path) => {
+              if (path !== "/org/connections/docs") {
+                return helpers.getCredential(_db, path);
+              }
+              reads += 1;
+              if (reads <= 1) {
+                return helpers.getCredential(_db, path);
+              }
+              return ok(null);
+            }),
           }),
-        })),
+        ),
       };
     });
 
     const { createAgentPw: createMockedAgentPw } = await import("../packages/server/src/index.js");
     const db = await createTestDb();
-    const agentPw = await createMockedAgentPw({
-      db,
-      encryptionKey: Buffer.alloc(32, 7).toString("base64"),
-    });
+    const agentPw = wrapAgentPw(
+      must(
+        await createMockedAgentPw({
+          db,
+          encryptionKey: Buffer.alloc(32, 7).toString("base64"),
+        }),
+      ),
+    );
 
     await agentPw.credentials.put({
       path: "/org/connections/docs",
-      auth: { kind: "oauth", label: "Docs", resource: "https://docs.example.com/mcp" },
+      resource: "https://docs.example.com/mcp",
+      auth: { kind: "oauth", label: "Docs" },
       secret: {
         headers: { Authorization: "Bearer docs-token" },
         oauth: {
@@ -252,6 +338,7 @@ describe("createAgentPw edge cases", () => {
       },
     });
 
+    reads = 0;
     await expect(
       agentPw.connect.prepare({
         path: "/org/connections/docs",
@@ -272,80 +359,81 @@ describe("createAgentPw edge cases", () => {
         },
       }),
     );
+
+    reads = 0;
+    await expect(
+      agentPw.connect.prepare({
+        path: "/org/connections/docs",
+        resource: "https://docs.example.com/mcp",
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        kind: "ready",
+        credential: expect.objectContaining({
+          path: "/org/connections/docs",
+          auth: expect.objectContaining({
+            kind: "oauth",
+            label: "Docs",
+          }),
+        }),
+        headers: {
+          Authorization: "Bearer docs-token",
+        },
+        resolution: {
+          canonicalResource: "https://docs.example.com/mcp",
+          source: null,
+          reason: "existing-credential",
+          profilePath: null,
+          option: null,
+        },
+      }),
+    );
   });
 
   it("surfaces defensive persistence failures for profiles and credentials", async () => {
     vi.doMock("../packages/server/src/db/queries.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../packages/server/src/db/queries.js")>();
-      const helpers = actual.createQueryHelpers();
+      const helpers = must(actual.createQueryHelpers());
       return {
         ...actual,
-        createQueryHelpers: vi.fn(() => ({
-          ...helpers,
-          getCredProfile: vi.fn(async () => null),
-          getCredential: vi.fn(async () => null),
-        })),
+        createQueryHelpers: vi.fn(() =>
+          ok({
+            ...helpers,
+            getCredProfile: vi.fn(async () => ok(null)),
+            getCredential: vi.fn(async () => ok(null)),
+          }),
+        ),
       };
     });
 
     const { createAgentPw: createMockedAgentPw } = await import("../packages/server/src/index.js");
     const db = await createTestDb();
-    const agentPw = await createMockedAgentPw({
-      db,
-      encryptionKey: Buffer.alloc(32, 7).toString("base64"),
-    });
+    const agentPw = wrapAgentPw(
+      must(
+        await createMockedAgentPw({
+          db,
+          encryptionKey: Buffer.alloc(32, 7).toString("base64"),
+        }),
+      ),
+    );
 
     await expect(
       agentPw.profiles.put("/linear", {
         resourcePatterns: ["https://api.linear.app/*"],
-        auth: { kind: "headers", fields: [{ name: "Authorization", label: "Token" }] },
+        auth: {
+          kind: "headers",
+          fields: [{ name: "Authorization", label: "Token" }],
+        },
       }),
     ).rejects.toThrow("Failed to persist Credential Profile '/linear'");
 
     await expect(
       agentPw.credentials.put({
         path: "/org/connections/linear",
-        auth: { kind: "headers", resource: "https://api.linear.app" },
+        resource: "https://api.linear.app",
+        auth: { kind: "headers" },
         secret: { headers: { Authorization: "Bearer token" } },
       }),
     ).rejects.toThrow("Failed to persist Credential '/org/connections/linear'");
-  });
-
-  it("backfills legacy credential resource columns into auth metadata on startup", async () => {
-    const db = await createTestDb();
-    const encryptionKey = Buffer.alloc(32, 7).toString("base64");
-    const secret = await encryptCredentials(encryptionKey, {
-      headers: { Authorization: "Bearer legacy" },
-    });
-    await db.execute(
-      sql.raw(`
-      ALTER TABLE agentpw.credentials
-      ADD COLUMN resource TEXT NOT NULL DEFAULT ''
-    `),
-    );
-    await db.execute(sql`
-      INSERT INTO agentpw.credentials (path, resource, auth, secret)
-      VALUES (
-        '/legacy/connections/github',
-        'https://api.github.com',
-        '{"kind":"headers","label":"Legacy"}'::jsonb,
-        ${secret}
-      )
-    `);
-
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-    });
-
-    expect(await agentPw.credentials.get("/legacy/connections/github")).toEqual(
-      expect.objectContaining({
-        auth: expect.objectContaining({
-          kind: "headers",
-          label: "Legacy",
-          resource: "https://api.github.com/",
-        }),
-      }),
-    );
   });
 });

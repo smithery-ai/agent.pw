@@ -1,17 +1,22 @@
-import { describe, expect, it } from "vitest";
 import { createAgentPw } from "agent.pw";
-import type { RuleScope } from "../packages/server/src/types";
-import { AgentPwAuthorizationError, AgentPwConflictError } from "../packages/server/src/errors";
+import { createInMemoryFlowStore } from "agent.pw/oauth";
+import { describe, expect, it } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
+import type { RuleScope } from "../packages/server/src/types";
 import { BISCUIT_PRIVATE_KEY, createTestDb } from "./setup";
+import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 async function createTestAgent() {
   const db = await createTestDb();
-  const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY);
-  return createAgentPw({
-    db,
-    encryptionKey,
-  });
+  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+  return wrapAgentPw(
+    must(
+      await createAgentPw({
+        db,
+        encryptionKey,
+      }),
+    ),
+  );
 }
 
 function rights(rightsList: RuleScope["rights"]): RuleScope {
@@ -29,6 +34,17 @@ function createDiscoveryFetch() {
       return Response.json({
         resource: "https://docs.example.com/mcp",
         authorization_servers: ["https://accounts.example.com"],
+      });
+    }
+
+    if (
+      url === "https://accounts.example.com/.well-known/oauth-authorization-server" ||
+      url === "https://accounts.example.com/.well-known/openid-configuration"
+    ) {
+      return Response.json({
+        issuer: "https://accounts.example.com",
+        authorization_endpoint: "https://accounts.example.com/authorize",
+        token_endpoint: "https://accounts.example.com/token",
       });
     }
 
@@ -78,11 +94,12 @@ describe("createAgentPw", () => {
 
     const stored = await agentPw.credentials.put({
       path: "/acme/connections/github_primary",
+      resource: "https://api.github.com",
       auth: {
         kind: "headers",
         profilePath: "/acme/github",
         label: "Acme GitHub",
-        resource: "https://api.github.com",
+        resource: "https://api.github.com/",
       },
       secret: {
         headers: {
@@ -133,7 +150,9 @@ describe("createAgentPw", () => {
         path: "/acme/connections/github_primary",
         resource: "https://docs.example.com/mcp",
       }),
-    ).rejects.toThrow(AgentPwConflictError);
+    ).rejects.toThrow(
+      "Credential '/acme/connections/github_primary' is already connected to 'https://api.github.com/', not 'https://docs.example.com/mcp'",
+    );
   });
 
   it("guides header-based connections through prepare and saveHeaders", async () => {
@@ -144,7 +163,14 @@ describe("createAgentPw", () => {
       auth: {
         kind: "headers",
         label: "Resend API key",
-        fields: [{ name: "Authorization", label: "API key", prefix: "Bearer ", secret: true }],
+        fields: [
+          {
+            name: "Authorization",
+            label: "API key",
+            prefix: "Bearer ",
+            secret: true,
+          },
+        ],
       },
       displayName: "Resend",
     });
@@ -156,6 +182,27 @@ describe("createAgentPw", () => {
 
     expect(prepared).toEqual({
       kind: "options",
+      resolution: {
+        canonicalResource: "https://api.resend.com/",
+        source: "profile",
+        reason: "matched-profile",
+        profilePath: "/resend",
+        option: {
+          kind: "headers",
+          source: "profile",
+          resource: "https://api.resend.com/",
+          profilePath: "/resend",
+          label: "Resend",
+          fields: [
+            {
+              name: "Authorization",
+              label: "API key",
+              prefix: "Bearer ",
+              secret: true,
+            },
+          ],
+        },
+      },
       options: [
         {
           kind: "headers",
@@ -163,7 +210,14 @@ describe("createAgentPw", () => {
           resource: "https://api.resend.com/",
           profilePath: "/resend",
           label: "Resend",
-          fields: [{ name: "Authorization", label: "API key", prefix: "Bearer ", secret: true }],
+          fields: [
+            {
+              name: "Authorization",
+              label: "API key",
+              prefix: "Bearer ",
+              secret: true,
+            },
+          ],
         },
       ],
     });
@@ -194,21 +248,160 @@ describe("createAgentPw", () => {
     });
   });
 
+  it("returns resolution metadata and ready/unconfigured prepare results", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("/resend", {
+      resourcePatterns: ["https://api.resend.com*"],
+      auth: {
+        kind: "headers",
+        label: "Resend API key",
+        fields: [
+          {
+            name: "Authorization",
+            label: "API key",
+            prefix: "Bearer ",
+            secret: true,
+          },
+        ],
+      },
+      displayName: "Resend",
+    });
+
+    expect(
+      await agentPw.connect.prepare({
+        path: "/acme/connections/resend",
+        resource: "https://api.resend.com",
+      }),
+    ).toEqual({
+      kind: "options",
+      options: [
+        {
+          kind: "headers",
+          source: "profile",
+          resource: "https://api.resend.com/",
+          profilePath: "/resend",
+          label: "Resend",
+          fields: [
+            {
+              name: "Authorization",
+              label: "API key",
+              prefix: "Bearer ",
+              secret: true,
+            },
+          ],
+        },
+      ],
+      resolution: {
+        canonicalResource: "https://api.resend.com/",
+        source: "profile",
+        reason: "matched-profile",
+        profilePath: "/resend",
+        option: {
+          kind: "headers",
+          source: "profile",
+          resource: "https://api.resend.com/",
+          profilePath: "/resend",
+          label: "Resend",
+          fields: [
+            {
+              name: "Authorization",
+              label: "API key",
+              prefix: "Bearer ",
+              secret: true,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(
+      await agentPw.connect.prepare({
+        path: "/acme/connections/unconfigured",
+        resource: "https://unknown.example.com",
+      }),
+    ).toEqual({
+      kind: "options",
+      options: [],
+      resolution: {
+        canonicalResource: "https://unknown.example.com/",
+        source: null,
+        reason: "unconfigured",
+        profilePath: null,
+        option: null,
+      },
+    });
+
+    await agentPw.connect.saveHeaders({
+      path: "/acme/connections/resend",
+      option: {
+        kind: "headers",
+        source: "profile",
+        resource: "https://api.resend.com/",
+        profilePath: "/resend",
+        label: "Resend",
+        fields: [
+          {
+            name: "Authorization",
+            label: "API key",
+            prefix: "Bearer ",
+            secret: true,
+          },
+        ],
+      },
+      values: {
+        Authorization: "rs_ready",
+      },
+    });
+
+    await expect(
+      agentPw.connect.prepare({
+        path: "/acme/connections/resend",
+        resource: "https://api.resend.com",
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        kind: "ready",
+        headers: { Authorization: "Bearer rs_ready" },
+        credential: expect.objectContaining({
+          path: "/acme/connections/resend",
+          auth: {
+            kind: "headers",
+            profilePath: "/resend",
+            label: "Resend",
+            resource: "https://api.resend.com/",
+          },
+        }),
+        resolution: {
+          canonicalResource: "https://api.resend.com/",
+          source: null,
+          reason: "existing-credential",
+          profilePath: "/resend",
+          option: null,
+        },
+      }),
+    );
+  });
+
   it("guides existing oauth connections, discovery-first oauth, and profile oauth without scopes", async () => {
     const db = await createTestDb();
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY);
-    const agentPw = await createAgentPw({
-      db,
-      encryptionKey,
-      oauthFetch: createDiscoveryFetch(),
-    });
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+          oauthFetch: createDiscoveryFetch(),
+        }),
+      ),
+    );
 
     await agentPw.credentials.put({
       path: "/acme/connections/docs",
+      resource: "https://docs.example.com/mcp",
       auth: {
         kind: "oauth",
         label: "Docs",
-        resource: "https://docs.example.com/mcp",
       },
       secret: {
         headers: {
@@ -235,6 +428,20 @@ describe("createAgentPw", () => {
     });
     expect(discovered).toEqual({
       kind: "options",
+      resolution: {
+        canonicalResource: "https://docs.example.com/mcp",
+        source: "discovery",
+        reason: "discovered-oauth",
+        profilePath: null,
+        option: {
+          kind: "oauth",
+          source: "discovery",
+          resource: "https://docs.example.com/mcp",
+          authorizationServer: "https://accounts.example.com",
+          label: "OAuth via accounts.example.com",
+          scopes: [],
+        },
+      },
       options: [
         {
           kind: "oauth",
@@ -263,6 +470,20 @@ describe("createAgentPw", () => {
     });
     expect(profiled).toEqual({
       kind: "options",
+      resolution: {
+        canonicalResource: "https://oauth-noscopes.example.com/api",
+        source: "profile",
+        reason: "matched-profile",
+        profilePath: "/no-scopes",
+        option: {
+          kind: "oauth",
+          source: "profile",
+          resource: "https://oauth-noscopes.example.com/api",
+          profilePath: "/no-scopes",
+          label: "no-scopes",
+          scopes: undefined,
+        },
+      },
       options: [
         {
           kind: "oauth",
@@ -288,16 +509,14 @@ describe("createAgentPw", () => {
     });
     await agentPw.credentials.put({
       path: "/acme/connections/resend",
-      auth: {
-        kind: "headers",
-        profilePath: "/profiles/resend",
-        resource: "https://api.resend.com",
-      },
+      resource: "https://api.resend.com",
+      auth: { kind: "headers", profilePath: "/profiles/resend" },
       secret: { headers: { Authorization: "Bearer resend-token" } },
     });
     await agentPw.credentials.put({
       path: "/beta/connections/docs",
-      auth: { kind: "headers", resource: "https://docs.example.com/mcp" },
+      resource: "https://docs.example.com/mcp",
+      auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer docs-token" } },
     });
 
@@ -334,102 +553,52 @@ describe("createAgentPw", () => {
         path: "/acme/connections/resend",
         resource: "https://api.resend.com",
       }),
-    ).rejects.toThrow(AgentPwAuthorizationError);
+    ).rejects.toThrow("Missing 'credential.use' for '/acme/connections/resend'");
   });
 
-  it("stores env credentials in the vault layer and scopes env access separately", async () => {
-    const agentPw = await createTestAgent();
-
-    const stored = await agentPw.credentials.put({
-      path: "/acme/connections/github_cli",
-      auth: {
-        kind: "env",
-        label: "GitHub CLI",
-      },
-      secret: {
-        env: {
-          GH_TOKEN: "ghp_123",
-        },
-      },
-    });
-
-    expect(stored.auth).toEqual({
-      kind: "env",
-      label: "GitHub CLI",
-      profilePath: null,
-      resource: null,
-    });
-    expect((await agentPw.credentials.get("/acme/connections/github_cli"))?.secret.env).toEqual({
-      GH_TOKEN: "ghp_123",
-    });
-    expect(await agentPw.credentials.get("/acme/connections/missing")).toBeNull();
-    await agentPw.credentials.put({
-      path: "/acme/connections/github_headers",
-      auth: {
-        kind: "headers",
-        resource: "https://api.github.com",
-      },
-      secret: {
-        headers: {
-          Authorization: "Bearer ghp_header",
-        },
-      },
-    });
-    expect(
-      (await agentPw.credentials.get("/acme/connections/github_headers"))?.secret.env,
-    ).toBeUndefined();
-    await expect(
-      agentPw.connect.prepare({
-        path: "/acme/connections/github_cli",
-        resource: "https://api.github.com",
-      }),
-    ).rejects.toThrow(AgentPwConflictError);
-    await expect(agentPw.connect.headers({ path: "/acme/connections/github_cli" })).rejects.toThrow(
-      "Credential '/acme/connections/github_cli' stores env auth",
-    );
-
-    const scoped = agentPw.scope(rights([{ action: "credential.read", root: "/acme" }]));
-    await expect(scoped.credentials.get("/acme/connections/github_cli")).resolves.toEqual(
-      expect.objectContaining({
-        auth: expect.objectContaining({
-          kind: "env",
-        }),
-        secret: expect.objectContaining({
-          env: {
-            GH_TOKEN: "ghp_123",
+  it("does not leak oauth flow secrets through scoped getFlow", async () => {
+    const db = await createTestDb();
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+          flowStore: createInMemoryFlowStore(),
+          oauthFetch: createDiscoveryFetch(),
+          oauthClient: {
+            clientId: "docs-client",
           },
         }),
-      }),
+      ),
     );
-    await expect(
-      agentPw
-        .scope(rights([{ action: "credential.use", root: "/acme" }]))
-        .credentials.get("/acme/connections/github_cli"),
-    ).rejects.toThrow(AgentPwAuthorizationError);
-    await expect(
-      agentPw
-        .scope(
-          rights([
-            { action: "credential.use", root: "/acme" },
-            { action: "credential.read", root: "/acme" },
-          ]),
-        )
-        .credentials.get("/acme/connections/github_cli"),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        secret: expect.objectContaining({
-          env: {
-            GH_TOKEN: "ghp_123",
-          },
-        }),
-      }),
-    );
-    await expect(
-      agentPw
-        .scope(rights([{ action: "credential.use", root: "/acme" }]))
-        .connect.headers({ path: "/acme/connections/github_headers" }),
-    ).resolves.toEqual({
-      Authorization: "Bearer ghp_header",
+
+    const scoped = agentPw.scope(rights([{ action: "credential.connect", root: "/acme" }]));
+    const prepared = await scoped.connect.prepare({
+      path: "/acme/connections/docs_fresh",
+      resource: "https://docs.example.com/mcp",
+    });
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+
+    const option = prepared.options[0];
+    if (!option || option.kind !== "oauth") {
+      throw new Error("Expected oauth option");
+    }
+
+    const session = await scoped.connect.start({
+      path: "/acme/connections/docs_fresh",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+
+    expect(await scoped.connect.getFlow(session.flowId)).toEqual({
+      flowId: session.flowId,
+      path: "/acme/connections/docs_fresh",
+      resource: "https://docs.example.com/mcp",
+      option: session.option,
+      expiresAt: session.expiresAt,
     });
   });
 });

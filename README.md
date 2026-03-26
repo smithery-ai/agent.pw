@@ -40,69 +40,79 @@ import * as paths from "agent.pw/paths";
 import { createAgentPw } from "agent.pw";
 import { createDb } from "agent.pw/sql";
 import { createInMemoryFlowStore } from "agent.pw/oauth";
+import { unwrap } from "okay-error";
 
 const sql = {
   schema: "agentpw",
   tablePrefix: "",
 };
 
-const db = createDb(process.env.DATABASE_URL!, { sql });
-
-const agentPw = await createAgentPw({
-  db,
-  sql,
-  encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
-  flowStore: createInMemoryFlowStore(),
-});
+const db = unwrap(createDb(process.env.DATABASE_URL!, { sql }));
+const agentPw = await unwrap(
+  createAgentPw({
+    db,
+    sql,
+    encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
+    flowStore: createInMemoryFlowStore(),
+  }),
+);
 ```
 
 `createInMemoryFlowStore()` is a development helper. Multi-instance apps should pass a shared or persistent `FlowStore`.
 
 ## Guided Connect Flow
 
-The main API is `connect.*`.
+The main API is `connect.*`, with `prepare(...)` as the choice-bearing entry point.
 
 ```ts
-const prepared = await agentPw.connect.prepare({
-  path: "/acme/connections/docs",
-  resource: "https://docs.example.com/mcp",
-});
+const prepared = await unwrap(
+  agentPw.connect.prepare({
+    path: "/acme/connections/docs",
+    resource: "https://docs.example.com/mcp",
+  }),
+);
 
 if (prepared.kind === "ready") {
   return prepared.headers;
 }
 
-if (prepared.options.length === 0) {
-  throw new Error("This resource is not configured yet");
+const [option] = prepared.options;
+if (!option) {
+  console.error("This resource is not configured yet");
+  return;
 }
 
-const option = prepared.options[0];
-
 if (option.kind === "oauth") {
-  const session = await agentPw.connect.start({
-    path: "/acme/connections/docs",
-    option,
-    redirectUri: "https://app.example.com/oauth/callback",
-  });
+  const session = await unwrap(
+    agentPw.connect.start({
+      path: "/acme/connections/docs",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    }),
+  );
 
   return Response.redirect(session.authorizationUrl, 302);
 }
 
-await agentPw.connect.saveHeaders({
-  path: "/acme/connections/docs",
-  option,
-  values: {
-    Authorization: "api-key-value",
-  },
-});
+await unwrap(
+  agentPw.connect.saveHeaders({
+    path: "/acme/connections/docs",
+    option,
+    values: {
+      Authorization: "api-key-value",
+    },
+  }),
+);
 ```
 
 Later, resolve fresh headers for that same connection:
 
 ```ts
-const headers = await agentPw.connect.headers({
-  path: "/acme/connections/docs",
-});
+const headers = await unwrap(
+  agentPw.connect.headers({
+    path: "/acme/connections/docs",
+  }),
+);
 ```
 
 ## `connect.prepare(...)`
@@ -123,6 +133,14 @@ Each returned option is self-contained. Apps pass the chosen option into either:
 
 An empty `options` list means the resource is currently unconfigured.
 
+Each `prepare(...)` result includes `resolution`, which exposes the library decision as structured metadata:
+
+- `canonicalResource`
+- `source`: `profile`, `discovery`, or `null`
+- `reason`: why that route won
+- `profilePath`
+- `option`
+
 ## Auth Kinds
 
 At the vault level there are three credential kinds:
@@ -141,40 +159,53 @@ Credentials always store the runtime material they need:
 - `env` credentials store env name/value pairs
 - OAuth credentials may also store refresh state so `agent.pw` can keep headers fresh
 
-## Discovery-First OAuth
+## Profile-Aware OAuth
 
-When a resource publishes usable OAuth metadata, `agent.pw` uses discovery first. MCP servers are one example, but the flow is not MCP-specific.
+When a known profile matches, `agent.pw` prefers that profile and skips generic discovery. Otherwise it falls back to resource discovery. MCP servers are one example, but the flow is not MCP-specific.
 
 ```ts
-const prepared = await agentPw.connect.prepare({
-  path: "/acme/connections/docs",
-  resource: "https://docs.example.com/mcp",
-  response: unauthorizedResponse,
-});
-
-if (prepared.kind === "options") {
-  const oauthOption = prepared.options.find((option) => option.kind === "oauth");
-  if (!oauthOption) {
-    throw new Error("Expected an OAuth option");
-  }
-
-  const session = await agentPw.connect.start({
+const prepared = await unwrap(
+  agentPw.connect.prepare({
     path: "/acme/connections/docs",
-    option: oauthOption,
-    redirectUri: "https://app.example.com/oauth/callback",
-  });
-
-  return Response.redirect(session.authorizationUrl, 302);
+    resource: "https://docs.example.com/mcp",
+    response: unauthorizedResponse,
+  }),
+);
+if (prepared.kind !== "options") {
+  console.error("Resource is already connected");
+  return;
 }
+
+console.log(prepared.resolution);
+// {
+//   canonicalResource: 'https://docs.example.com/mcp',
+//   source: 'profile',
+//   reason: 'matched-profile',
+//   profilePath: '/docs',
+//   option: { kind: 'oauth', ... }
+// }
 ```
 
 When the callback returns:
 
 ```ts
-await agentPw.connect.complete({
-  callbackUri: "https://app.example.com/oauth/callback?code=...&state=...",
-});
+const completed = await unwrap(
+  agentPw.connect.complete({
+    callbackUri: "https://app.example.com/oauth/callback?code=...&state=...",
+    preserveExistingHeaders: true,
+  }),
+);
+
+console.log(completed.credential);
 ```
+
+Pending OAuth state is readable through the same API surface:
+
+```ts
+const flow = await unwrap(agentPw.connect.getFlow(flowId));
+```
+
+The helper keeps examples focused on the happy path. Production code should usually handle `Err` results explicitly instead of throwing.
 
 `connect.headers(...)` is refresh-aware by default, so apps do not need to re-implement token refresh outside the vault.
 

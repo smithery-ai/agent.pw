@@ -1,28 +1,51 @@
 import { describe, expect, it } from "vitest";
 import {
-  AgentPwAuthorizationError,
-  AgentPwConflictError,
-  AgentPwInputError,
+  authorizationError,
+  conflictError,
+  inputError,
+  internalError,
+  isAgentPwError,
+  toAgentPwError,
 } from "../packages/server/src/errors";
 
 describe("agent.pw errors", () => {
-  it("assigns stable error names and metadata", () => {
-    const conflict = new AgentPwConflictError("conflict");
-    const input = new AgentPwInputError("input");
-    const authorization = new AgentPwAuthorizationError("credential.use", "/acme/connections/docs");
+  it("builds stable discriminated error objects", () => {
+    const conflict = conflictError("conflict");
+    const input = inputError("input", { field: "path", value: "/" });
+    const authorization = authorizationError("credential.use", "/acme/connections/docs");
 
-    expect(conflict).toBeInstanceOf(Error);
-    expect(conflict.name).toBe("AgentPwConflictError");
-    expect(conflict.message).toBe("conflict");
+    expect(conflict).toEqual({
+      type: "Conflict",
+      message: "conflict",
+    });
 
-    expect(input).toBeInstanceOf(Error);
-    expect(input.name).toBe("AgentPwInputError");
-    expect(input.message).toBe("input");
+    expect(input).toEqual({
+      type: "Input",
+      message: "input",
+      field: "path",
+      value: "/",
+    });
 
-    expect(authorization).toBeInstanceOf(Error);
-    expect(authorization.name).toBe("AgentPwAuthorizationError");
-    expect(authorization.action).toBe("credential.use");
-    expect(authorization.path).toBe("/acme/connections/docs");
-    expect(authorization.message).toBe("Missing 'credential.use' for '/acme/connections/docs'");
+    expect(authorization).toEqual({
+      type: "Authorization",
+      action: "credential.use",
+      path: "/acme/connections/docs",
+      message: "Missing 'credential.use' for '/acme/connections/docs'",
+    });
+  });
+
+  it("recognizes and normalizes unknown errors", () => {
+    const known = internalError("known");
+    expect(isAgentPwError(known)).toBe(true);
+    expect(toAgentPwError(known)).toBe(known);
+
+    const unknown = toAgentPwError(new Error("boom"));
+    expect(unknown).toEqual(
+      expect.objectContaining({
+        type: "Internal",
+        message: "Unexpected internal error",
+        cause: expect.any(Error),
+      }),
+    );
   });
 });

@@ -12,6 +12,7 @@ import {
   restrictToken,
 } from "agent.pw/biscuit";
 import { BISCUIT_PRIVATE_KEY, PUBLIC_KEY_HEX } from "./setup";
+import { errorOf, must } from "./support/results";
 
 function buildCustomToken(code: string) {
   const builder = Biscuit.builder();
@@ -54,12 +55,14 @@ describe("biscuit advanced helpers", () => {
       ['org_id("org_alpha")', 'scope("repo")'],
     );
 
-    const child = mintDescendantToken(
-      BISCUIT_PRIVATE_KEY,
-      PUBLIC_KEY_HEX,
-      parent,
-      [{ action: "credential.use", root: "/org_alpha/ws_engineering" }],
-      [{ methods: "GET", paths: "/org_alpha/ws_engineering", ttl: "1m" }],
+    const child = must(
+      mintDescendantToken(
+        BISCUIT_PRIVATE_KEY,
+        PUBLIC_KEY_HEX,
+        parent,
+        [{ action: "credential.use", root: "/org_alpha/ws_engineering" }],
+        [{ methods: "GET", paths: "/org_alpha/ws_engineering", ttl: "1m" }],
+      ),
     );
 
     expect(extractTokenFacts(child, PUBLIC_KEY_HEX)).toEqual(
@@ -93,14 +96,16 @@ describe("biscuit advanced helpers", () => {
     const rooted = mintToken(BISCUIT_PRIVATE_KEY, "user_alpha", [
       { action: "credential.use", root: "/org_alpha" },
     ]);
-    const rootRestricted = restrictToken(rooted, PUBLIC_KEY_HEX, [
-      {
-        actions: "credential.use",
-        roots: "/org_alpha/ws_engineering",
-        methods: "GET",
-        paths: "/org_alpha/ws_engineering",
-      },
-    ]);
+    const rootRestricted = must(
+      restrictToken(rooted, PUBLIC_KEY_HEX, [
+        {
+          actions: "credential.use",
+          roots: "/org_alpha/ws_engineering",
+          methods: "GET",
+          paths: "/org_alpha/ws_engineering",
+        },
+      ]),
+    );
     expect(
       authorizeRequest(
         rootRestricted,
@@ -123,14 +128,16 @@ describe("biscuit advanced helpers", () => {
     expect(extractTokenExpiry("bad-token", PUBLIC_KEY_HEX)).toBeNull();
     expect(extractTokenFacts(mintToken(BISCUIT_PRIVATE_KEY, "seed-user")).rights).toEqual([]);
 
-    expect(() =>
-      mintDescendantToken(
-        BISCUIT_PRIVATE_KEY,
-        PUBLIC_KEY_HEX,
-        parentWithoutIdentity,
-        [{ action: "credential.use", root: "/org_alpha" }],
-        [],
-      ),
-    ).toThrow("Parent token has no identity");
+    expect(
+      errorOf(
+        mintDescendantToken(
+          BISCUIT_PRIVATE_KEY,
+          PUBLIC_KEY_HEX,
+          parentWithoutIdentity,
+          [{ action: "credential.use", root: "/org_alpha" }],
+          [],
+        ),
+      ).message,
+    ).toBe("Parent token has no identity");
   });
 });

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
 import { createAgentPw } from "agent.pw";
 import { createInMemoryFlowStore } from "agent.pw/oauth";
+import { describe, expect, it } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
 import { BISCUIT_PRIVATE_KEY, createTestDb } from "./setup";
+import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 function createOAuthFetch() {
   const calls: Array<{
@@ -113,22 +114,26 @@ function createOAuthFetch() {
 async function createOAuthAgent() {
   const db = await createTestDb();
   const flowStore = createInMemoryFlowStore();
-  const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY);
+  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
   const { fetchImpl, calls } = createOAuthFetch();
-  const agentPw = await createAgentPw({
-    db,
-    encryptionKey,
-    flowStore,
-    oauthFetch: fetchImpl,
-    oauthClient: {
-      useDynamicRegistration: true,
-      metadata: {
-        redirectUris: ["https://app.example.com/oauth/callback"],
-        clientName: "Connect Client",
-        tokenEndpointAuthMethod: "none",
-      },
-    },
-  });
+  const agentPw = wrapAgentPw(
+    must(
+      await createAgentPw({
+        db,
+        encryptionKey,
+        flowStore,
+        oauthFetch: fetchImpl,
+        oauthClient: {
+          useDynamicRegistration: true,
+          metadata: {
+            redirectUris: ["https://app.example.com/oauth/callback"],
+            clientName: "Connect Client",
+            tokenEndpointAuthMethod: "none",
+          },
+        },
+      }),
+    ),
+  );
 
   await agentPw.profiles.put("/linear", {
     resourcePatterns: ["https://api.linear.app/*"],
@@ -207,6 +212,7 @@ describe("oauth runtime", () => {
 
     await agentPw.credentials.put({
       path: completed.path,
+      resource: completed.credential.auth.resource,
       auth: completed.credential.auth,
       secret: {
         ...completed.credential.secret,
@@ -222,7 +228,12 @@ describe("oauth runtime", () => {
     expect(await agentPw.connect.headers({ path: completed.path })).toEqual({
       Authorization: "Bearer profile-access-2",
     });
-    expect(await agentPw.connect.disconnect({ path: completed.path, revoke: "both" })).toBe(true);
+    expect(
+      await agentPw.connect.disconnect({
+        path: completed.path,
+        revoke: "both",
+      }),
+    ).toBe(true);
 
     expect(calls.map((call) => call.url)).toEqual(
       expect.arrayContaining([
@@ -269,6 +280,7 @@ describe("oauth runtime", () => {
       callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
     });
 
+    expect(completed.credential.auth.resource).toBe("https://docs.example.com/mcp");
     expect(completed.credential.auth).toEqual({
       kind: "oauth",
       profilePath: null,
@@ -330,5 +342,121 @@ describe("oauth runtime", () => {
         "https://auth.docs.example.com/token",
       ]),
     );
+  });
+
+  it("stores pending oauth flows until oauth completion", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    await agentPw.profiles.put("/docs", {
+      resourcePatterns: ["https://docs.example.com/mcp"],
+      auth: {
+        kind: "oauth",
+        authorizationUrl: "https://accounts.example.com/authorize",
+        tokenUrl: "https://accounts.example.com/token",
+        revocationUrl: "https://accounts.example.com/revoke",
+        clientId: "client-docs",
+        clientSecret: "secret-docs",
+        clientAuthentication: "client_secret_post",
+        scopes: ["docs.read"],
+      },
+      displayName: "Docs Profile",
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "/org_alpha/connections/docs_profiled",
+      resource: "https://docs.example.com/mcp",
+    });
+    if (prepared.kind !== "options") {
+      throw new Error("Expected authorization options");
+    }
+
+    expect(prepared.resolution).toEqual({
+      canonicalResource: "https://docs.example.com/mcp",
+      source: "profile",
+      reason: "matched-profile",
+      profilePath: "/docs",
+      option: {
+        kind: "oauth",
+        source: "profile",
+        resource: "https://docs.example.com/mcp",
+        profilePath: "/docs",
+        label: "Docs Profile",
+        scopes: ["docs.read"],
+      },
+    });
+    const started = await agentPw.connect.start({
+      path: "/org_alpha/connections/docs_profiled",
+      option: prepared.options[0],
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+
+    expect(started.authorizationUrl).toContain("https://accounts.example.com/authorize");
+
+    expect(await agentPw.connect.getFlow(started.flowId)).toEqual({
+      flowId: started.flowId,
+      path: "/org_alpha/connections/docs_profiled",
+      resource: "https://docs.example.com/mcp",
+      option: started.option,
+      expiresAt: started.expiresAt,
+    });
+
+    const completed = await agentPw.connect.complete({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-999&state=${started.flowId}`,
+    });
+
+    expect(completed.credential.auth).toEqual({
+      kind: "oauth",
+      profilePath: "/docs",
+      label: "Docs Profile",
+      resource: "https://docs.example.com/mcp",
+    });
+    await expect(agentPw.connect.getFlow(started.flowId)).rejects.toThrow(
+      `Unknown OAuth flow '${started.flowId}'`,
+    );
+  });
+
+  it("preserves non-auth headers when oauth completion requests merge", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    const prepared = await agentPw.connect.prepare({
+      path: "/org_alpha/connections/linear_merge",
+      resource: "https://api.linear.app/projects",
+    });
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+    const option = prepared.options[0];
+
+    await agentPw.credentials.put({
+      path: "/org_alpha/connections/linear_merge",
+      resource: "https://api.linear.app/projects",
+      auth: {
+        kind: "headers",
+        profilePath: null,
+        label: "Existing",
+      },
+      secret: {
+        headers: {
+          Authorization: "Bearer stale",
+          "X-Smithery-Connection": "conn_123",
+        },
+      },
+    });
+
+    const session = await agentPw.connect.start({
+      path: "/org_alpha/connections/linear_merge",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+
+    const completed = await agentPw.connect.complete({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-merge&state=${session.flowId}`,
+      preserveExistingHeaders: true,
+    });
+
+    expect(completed.credential.secret.headers).toEqual({
+      Authorization: "Bearer profile-access-1",
+      "X-Smithery-Connection": "conn_123",
+    });
   });
 });
