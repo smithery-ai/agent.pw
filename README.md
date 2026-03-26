@@ -48,8 +48,8 @@ const sql = {
 };
 
 const db = unwrap(createDb(process.env.DATABASE_URL!, { sql }));
-const agentPw = unwrap(
-  await createAgentPw({
+const agentPw = await unwrap(
+  createAgentPw({
     db,
     sql,
     encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
@@ -65,8 +65,8 @@ const agentPw = unwrap(
 The main API is `connect.*`, with `prepare(...)` as the choice-bearing entry point.
 
 ```ts
-const prepared = unwrap(
-  await agentPw.connect.prepare({
+const prepared = await unwrap(
+  agentPw.connect.prepare({
     path: "/acme/connections/docs",
     resource: "https://docs.example.com/mcp",
   }),
@@ -83,8 +83,8 @@ if (!option) {
 }
 
 if (option.kind === "oauth") {
-  const session = unwrap(
-    await agentPw.connect.start({
+  const session = await unwrap(
+    agentPw.connect.start({
       path: "/acme/connections/docs",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
@@ -94,8 +94,8 @@ if (option.kind === "oauth") {
   return Response.redirect(session.authorizationUrl, 302);
 }
 
-unwrap(
-  await agentPw.connect.saveHeaders({
+await unwrap(
+  agentPw.connect.saveHeaders({
     path: "/acme/connections/docs",
     option,
     values: {
@@ -108,8 +108,8 @@ unwrap(
 Later, resolve fresh headers for that same connection:
 
 ```ts
-const headers = unwrap(
-  await agentPw.connect.headers({
+const headers = await unwrap(
+  agentPw.connect.headers({
     path: "/acme/connections/docs",
   }),
 );
@@ -164,8 +164,8 @@ Credentials always store the runtime material they need:
 When a known profile matches, `agent.pw` prefers that profile and skips generic discovery. Otherwise it falls back to resource discovery. MCP servers are one example, but the flow is not MCP-specific.
 
 ```ts
-const prepared = unwrap(
-  await agentPw.connect.prepare({
+const prepared = await unwrap(
+  agentPw.connect.prepare({
     path: "/acme/connections/docs",
     resource: "https://docs.example.com/mcp",
     response: unauthorizedResponse,
@@ -189,8 +189,8 @@ console.log(prepared.resolution);
 When the callback returns:
 
 ```ts
-const completed = unwrap(
-  await agentPw.connect.complete({
+const completed = await unwrap(
+  agentPw.connect.complete({
     callbackUri: "https://app.example.com/oauth/callback?code=...&state=...",
     preserveExistingHeaders: true,
   }),
@@ -202,7 +202,7 @@ console.log(completed.credential);
 Pending OAuth state is readable through the same API surface:
 
 ```ts
-const flow = unwrap(await agentPw.connect.getFlow(flowId));
+const flow = await unwrap(agentPw.connect.getFlow(flowId));
 ```
 
 The helper keeps examples focused on the happy path. Production code should usually handle `Err` results explicitly instead of throwing.

@@ -26,8 +26,8 @@ importers:
         specifier: ^3.8.5
         version: 3.8.5
       okay-error:
-        specifier: ^1.0.3
-        version: 1.0.3
+        specifier: ^1.0.4
+        version: 1.0.4
       postgres:
         specifier: ^3.4.5
         version: 3.4.8
@@ -1202,8 +1202,8 @@ packages:
   oauth4webapi@3.8.5:
     resolution: {integrity: sha512-A8jmyUckVhRJj5lspguklcl90Ydqk61H3dcU0oLhH3Yv13KpAliKTt5hknpGGPZSSfOwGyraNEFmofDYH+1kSg==}
 
-  okay-error@1.0.3:
-    resolution: {integrity: sha512-1GZkj84Uw2STYhwcGhEkgvNXkremOEmTwSgufKm9CcprjwKFuF6md5f1CIvWJgtYlyfR6BbZYnjr6HCfhUuCpQ==}
+  okay-error@1.0.4:
+    resolution: {integrity: sha512-mtkz4393HocAJkbY3zc1jH3jxxc+C/bUtD2CEMO3kJRW3EmvPddTK7lRPVl2lPQga0r2HAzMQqzOZkDwVA7bRw==}
 
   oxc-resolver@11.19.1:
     resolution: {integrity: sha512-qE/CIg/spwrTBFt5aKmwe3ifeDdLfA2NESN30E42X/lII5ClF8V7Wt6WIJhcGZjp0/Q+nQ+9vgxGk//xZNX2hg==}
@@ -2333,7 +2333,7 @@ snapshots:
 
   oauth4webapi@3.8.5: {}
 
-  okay-error@1.0.3: {}
+  okay-error@1.0.4: {}
 
   oxc-resolver@11.19.1:
     optionalDependencies:
