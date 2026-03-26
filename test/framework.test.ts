@@ -1,4 +1,5 @@
 import { createAgentPw } from "agent.pw";
+import { createInMemoryFlowStore } from "agent.pw/oauth";
 import { describe, expect, it } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
 import type { RuleScope } from "../packages/server/src/types";
@@ -33,6 +34,17 @@ function createDiscoveryFetch() {
       return Response.json({
         resource: "https://docs.example.com/mcp",
         authorization_servers: ["https://accounts.example.com"],
+      });
+    }
+
+    if (
+      url === "https://accounts.example.com/.well-known/oauth-authorization-server" ||
+      url === "https://accounts.example.com/.well-known/openid-configuration"
+    ) {
+      return Response.json({
+        issuer: "https://accounts.example.com",
+        authorization_endpoint: "https://accounts.example.com/authorize",
+        token_endpoint: "https://accounts.example.com/token",
       });
     }
 
@@ -542,5 +554,51 @@ describe("createAgentPw", () => {
         resource: "https://api.resend.com",
       }),
     ).rejects.toThrow("Missing 'credential.use' for '/acme/connections/resend'");
+  });
+
+  it("does not leak oauth flow secrets through scoped getFlow", async () => {
+    const db = await createTestDb();
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+          flowStore: createInMemoryFlowStore(),
+          oauthFetch: createDiscoveryFetch(),
+          oauthClient: {
+            clientId: "docs-client",
+          },
+        }),
+      ),
+    );
+
+    const scoped = agentPw.scope(rights([{ action: "credential.connect", root: "/acme" }]));
+    const prepared = await scoped.connect.prepare({
+      path: "/acme/connections/docs_fresh",
+      resource: "https://docs.example.com/mcp",
+    });
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+
+    const option = prepared.options[0];
+    if (!option || option.kind !== "oauth") {
+      throw new Error("Expected oauth option");
+    }
+
+    const session = await scoped.connect.start({
+      path: "/acme/connections/docs_fresh",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+
+    expect(await scoped.connect.getFlow(session.flowId)).toEqual({
+      flowId: session.flowId,
+      path: "/acme/connections/docs_fresh",
+      resource: "https://docs.example.com/mcp",
+      option: session.option,
+      expiresAt: session.expiresAt,
+    });
   });
 });
