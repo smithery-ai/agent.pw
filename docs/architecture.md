@@ -145,6 +145,8 @@ Completes the OAuth flow, persists the credential at the exact path, and returns
 
 Returns the current pending flow state for a known flow ID.
 
+Missing flows return `NotFound`, not `null`. This is intentional: `getFlow` is a workflow continuation API, so absence is treated as an invalid or expired continuation step rather than a normal lookup miss.
+
 ### `connect.saveHeaders({ path, option, values })`
 
 Stores a manual header-based credential at the exact path.
@@ -301,6 +303,11 @@ This keeps runtime resolution simple:
 Listing remains path-based:
 
 - `credentials.list({ path })` returns direct children only under that path
+
+Absence semantics differ by API category:
+
+- lookup-style APIs such as `credentials.get(path)` may return `Ok(null)` when nothing is stored at that path
+- workflow APIs such as `connect.getFlow(flowId)` return `Err(NotFound)` when the referenced state no longer exists
 
 ## Authorization Surface
 
