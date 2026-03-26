@@ -406,12 +406,19 @@ describe("index coverage helpers", () => {
 						"https://app.example.com/oauth/callback?code=missing&state=unknown",
 				}),
 			).rejects.toThrow("Unknown OAuth flow 'unknown'");
+			const missingFlow = await api.connect.getFlow("missing-flow");
 
-			const session = await api.connect.start({
+			const directSession = await api.connect.start({
+				path: "/acme/connections/linear_direct",
+				option: oauthOption,
+				redirectUri: "https://app.example.com/oauth/callback",
+			});
+			const session = await api.connect.startFromChallenge({
 				path: "/acme/connections/linear",
 				option: oauthOption,
 				redirectUri: "https://app.example.com/oauth/callback",
 			});
+			const startedFlow = await api.connect.getFlow(session.flowId);
 			const completed = await api.connect.complete({
 				callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
 			});
@@ -428,6 +435,12 @@ describe("index coverage helpers", () => {
 				resource: "https://api.linear.app/projects",
 				redirectUri: "https://app.example.com/oauth/callback",
 			});
+			const startedReadyFromChallenge =
+				await api.connect.startForResourceFromChallenge({
+					path: "/acme/connections/linear",
+					resource: "https://api.linear.app/projects",
+					redirectUri: "https://app.example.com/oauth/callback",
+				});
 
 			const headers = await api.connect.headers({
 				path: "/acme/connections/linear",
@@ -484,10 +497,14 @@ describe("index coverage helpers", () => {
 			return {
 				readProfile,
 				allProfiles,
+				missingFlow,
+				directSession,
+				startedFlow,
 				completed,
 				preparedReady,
 				resolvedReady,
 				startedReady,
+				startedReadyFromChallenge,
 				headers,
 				readCredential,
 				listedCredentials,
@@ -506,7 +523,28 @@ describe("index coverage helpers", () => {
 			"/linear",
 			"/profiles/temp",
 		]);
+		expect(result.missingFlow).toBeNull();
+		expect(result.directSession.path).toBe("/acme/connections/linear_direct");
+		expect(result.startedFlow).toEqual({
+			flowId: expect.any(String),
+			path: "/acme/connections/linear",
+			resource: "https://api.linear.app/projects",
+			option: {
+				kind: "oauth",
+				source: "profile",
+				resource: "https://api.linear.app/projects",
+				profilePath: "/linear",
+				label: "Linear",
+				scopes: ["read", "write"],
+			},
+			expiresAt: expect.any(Date),
+			context: undefined,
+			reason: "auth_required",
+			requiresUpstreamAuthorization: true,
+		});
 		expect(result.completed.path).toBe("/acme/connections/linear");
+		expect(result.completed.reason).toBe("auth_required");
+		expect(result.completed.requiresUpstreamAuthorization).toBe(true);
 		expect(result.preparedReady.kind).toBe("ready");
 		expect(result.resolvedReady).toEqual({
 			canonicalResource: "https://api.linear.app/projects",
@@ -516,6 +554,7 @@ describe("index coverage helpers", () => {
 			option: null,
 		});
 		expect(result.startedReady.kind).toBe("ready");
+		expect(result.startedReadyFromChallenge.kind).toBe("ready");
 		expect(result.headers).toEqual({ Authorization: "Bearer linear-access-1" });
 		expect(result.readCredential?.path).toBe("/acme/connections/linear");
 		expect(

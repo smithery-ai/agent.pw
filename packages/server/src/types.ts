@@ -263,11 +263,14 @@ export interface ConnectOptionsResult {
 
 export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult;
 
+export type ConnectStartReason = "manual" | "auth_required";
+
 export interface ConnectStartInput {
 	path: string;
 	option: ConnectOAuthOption;
 	redirectUri: string;
 	context?: JsonObject;
+	reason?: ConnectStartReason;
 	scopes?: string | string[];
 	expiresAt?: Date;
 	additionalParameters?: Record<string, string>;
@@ -282,6 +285,8 @@ export interface ConnectAuthorizationSession {
 	resource: string;
 	option: ConnectOAuthOption;
 	context?: JsonObject;
+	reason: ConnectStartReason;
+	requiresUpstreamAuthorization: boolean;
 }
 
 export interface ConnectStartForResourceInput {
@@ -290,6 +295,7 @@ export interface ConnectStartForResourceInput {
 	redirectUri: string;
 	response?: Response;
 	context?: JsonObject;
+	reason?: ConnectStartReason;
 	scopes?: string | string[];
 	expiresAt?: Date;
 	additionalParameters?: Record<string, string>;
@@ -327,6 +333,8 @@ export interface ConnectCompleteResult {
 	credential: CredentialRecord;
 	context?: JsonObject;
 	outcome: "connected";
+	reason: ConnectStartReason;
+	requiresUpstreamAuthorization: boolean;
 }
 
 export interface ConnectSaveHeadersInput {
@@ -355,11 +363,26 @@ export interface PendingFlow {
 	expiresAt: Date;
 	oauthConfig: OAuthResolvedConfig;
 	context?: JsonObject;
+	reason: ConnectStartReason;
+	requiresUpstreamAuthorization: boolean;
 }
 
 export interface CompletedFlowResult {
 	identity?: string;
 	context?: JsonObject;
+	reason?: ConnectStartReason;
+	requiresUpstreamAuthorization?: boolean;
+}
+
+export interface ConnectFlow {
+	flowId: string;
+	path: string;
+	resource: string;
+	option: ConnectOAuthOption;
+	expiresAt: Date;
+	context?: JsonObject;
+	reason: ConnectStartReason;
+	requiresUpstreamAuthorization: boolean;
 }
 
 export interface FlowStore {
@@ -409,8 +432,20 @@ export interface ScopedAgentPw {
 	connect: {
 		resolve(input: ConnectPrepareInput): Promise<ConnectResolutionResult>;
 		prepare(input: ConnectPrepareInput): Promise<ConnectPrepareResult>;
+		getFlow(flowId: string): Promise<ConnectFlow | null>;
 		start(input: ConnectStartInput): Promise<ConnectAuthorizationSession>;
+		startFromChallenge(
+			input: ConnectStartInput,
+		): Promise<ConnectAuthorizationSession>;
 		startForResource(
+			input: ConnectStartForResourceInput,
+		): Promise<
+			| ConnectStartForResourceReadyResult
+			| ConnectStartForResourceAuthorizationResult
+			| ConnectStartForResourceHeadersResult
+			| ConnectStartForResourceUnconfiguredResult
+		>;
+		startForResourceFromChallenge(
 			input: ConnectStartForResourceInput,
 		): Promise<
 			| ConnectStartForResourceReadyResult

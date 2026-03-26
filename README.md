@@ -127,6 +127,8 @@ For framework integrations that do not want to own option-selection logic, use `
 - `headers`: collect manual header values and call `connect.saveHeaders(...)`
 - `unconfigured`: no auth route is currently available
 
+If the flow started because the runtime already observed a real auth challenge, use `connect.startFromChallenge(...)` or `connect.startForResourceFromChallenge(...)`. That persists `reason: "auth_required"` and `requiresUpstreamAuthorization: true` inside the flow so continuation code does not have to reconstruct that state from app-owned metadata.
+
 `connect.resolve(...)` exposes the same library decision as structured metadata:
 
 - `canonicalResource`
@@ -183,6 +185,13 @@ const completed = await agentPw.connect.complete({
 })
 
 console.log(completed.context)
+console.log(completed.reason)
+```
+
+Pending OAuth state is readable through the same API surface:
+
+```ts
+const flow = await agentPw.connect.getFlow(flowId)
 ```
 
 `connect.headers(...)` is refresh-aware by default, so apps do not need to re-implement token refresh outside the vault.

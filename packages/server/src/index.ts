@@ -19,6 +19,7 @@ import { authorizeRules, can as canRule } from "./rules.js";
 import type {
 	AgentPw,
 	AgentPwOptions,
+	ConnectFlow,
 	ConnectHeadersOption,
 	ConnectOAuthOption,
 	ConnectOption,
@@ -31,6 +32,7 @@ import type {
 	CredentialPutInput,
 	CredentialRecord,
 	CredentialSummary,
+	PendingFlow,
 	RuleScope,
 	ScopedAgentPw,
 } from "./types.js";
@@ -449,6 +451,19 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 		};
 	}
 
+	function toConnectFlow(flow: PendingFlow): ConnectFlow {
+		return {
+			flowId: flow.id,
+			path: flow.path,
+			resource: flow.resource,
+			option: flow.option,
+			expiresAt: flow.expiresAt,
+			context: flow.context,
+			reason: flow.reason,
+			requiresUpstreamAuthorization: flow.requiresUpstreamAuthorization,
+		};
+	}
+
 	async function resolveConnection(input: ConnectPrepareInput): Promise<{
 		path: string;
 		resource: string;
@@ -642,6 +657,11 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			};
 		},
 
+		async getFlow(flowId) {
+			const flow = await oauth.getFlow(flowId);
+			return flow ? toConnectFlow(flow) : null;
+		},
+
 		start(input) {
 			if (input.option.kind !== "oauth") {
 				throw new AgentPwInputError("connect.start requires an oauth option");
@@ -649,6 +669,13 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 			return oauth.startAuthorization({
 				...input,
 				path: assertPath(input.path, "path"),
+			});
+		},
+
+		startFromChallenge(input) {
+			return connect.start({
+				...input,
+				reason: "auth_required",
 			});
 		},
 
@@ -689,6 +716,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 				option,
 				redirectUri: input.redirectUri,
 				context: input.context,
+				reason: input.reason,
 				scopes: input.scopes,
 				expiresAt: input.expiresAt,
 				additionalParameters: input.additionalParameters,
@@ -700,6 +728,13 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 				resolution: resolved.resolution,
 				...session,
 			};
+		},
+
+		startForResourceFromChallenge(input) {
+			return connect.startForResource({
+				...input,
+				reason: "auth_required",
+			});
 		},
 
 		complete(input) {
@@ -787,16 +822,41 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPw> {
 					return result;
 				},
 
+				async getFlow(flowId) {
+					const flow = await oauth.getFlow(flowId);
+					if (!flow) {
+						return null;
+					}
+					requireRule(scope, "credential.connect", flow.path);
+					return toConnectFlow(flow);
+				},
+
 				async start(input) {
 					const path = assertPath(input.path, "path");
 					requireRule(scope, "credential.connect", path);
 					return connect.start(input);
 				},
 
+				async startFromChallenge(input) {
+					const path = assertPath(input.path, "path");
+					requireRule(scope, "credential.connect", path);
+					return connect.startFromChallenge(input);
+				},
+
 				async startForResource(input) {
 					const path = assertPath(input.path, "path");
 					requireRule(scope, "credential.connect", path);
 					const result = await connect.startForResource(input);
+					if (result.kind === "ready") {
+						requireRule(scope, "credential.use", path);
+					}
+					return result;
+				},
+
+				async startForResourceFromChallenge(input) {
+					const path = assertPath(input.path, "path");
+					requireRule(scope, "credential.connect", path);
+					const result = await connect.startForResourceFromChallenge(input);
 					if (result.kind === "ready") {
 						requireRule(scope, "credential.use", path);
 					}

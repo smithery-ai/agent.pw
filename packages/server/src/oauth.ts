@@ -82,6 +82,12 @@ function defaultExpiry(clock: () => Date) {
 	return new Date(clock().getTime() + 10 * 60 * 1000);
 }
 
+function normalizeStartReason(
+	value: ConnectStartInput["reason"],
+): PendingFlow["reason"] {
+	return value === "auth_required" ? "auth_required" : "manual";
+}
+
 function normalizeClientAuthentication(
 	value: string | undefined,
 	hasSecret: boolean,
@@ -729,6 +735,7 @@ export function createOAuthService(options: {
 				"redirect uri",
 			).toString();
 			const context = jsonObject(input.context, "OAuth context");
+			const reason = normalizeStartReason(input.reason);
 			const oauthConfig = await resolveOAuthConfigForOption(
 				input.option,
 				input.client,
@@ -781,6 +788,8 @@ export function createOAuthService(options: {
 				expiresAt: input.expiresAt ?? defaultExpiry(options.clock),
 				oauthConfig,
 				context,
+				reason,
+				requiresUpstreamAuthorization: reason === "auth_required",
 			};
 			await flowStore.create(flow);
 
@@ -792,6 +801,8 @@ export function createOAuthService(options: {
 				resource: flow.resource,
 				option: flow.option,
 				context: flow.context,
+				reason: flow.reason,
+				requiresUpstreamAuthorization: flow.requiresUpstreamAuthorization,
 			};
 		},
 
@@ -864,13 +875,19 @@ export function createOAuthService(options: {
 				secret,
 			});
 
-			await flowStore.complete(flow.id, { context: flow.context });
+			await flowStore.complete(flow.id, {
+				context: flow.context,
+				reason: flow.reason,
+				requiresUpstreamAuthorization: flow.requiresUpstreamAuthorization,
+			});
 
 			return {
 				path: flow.path,
 				credential,
 				context: flow.context,
 				outcome: "connected",
+				reason: flow.reason,
+				requiresUpstreamAuthorization: flow.requiresUpstreamAuthorization,
 			};
 		},
 

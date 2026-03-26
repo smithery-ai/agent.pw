@@ -359,7 +359,7 @@ describe("oauth runtime", () => {
 		);
 	});
 
-	it("prefers matching profiles in high-level starts and round-trips flow context", async () => {
+	it("persists challenge-origin oauth flow semantics inside agent.pw", async () => {
 		const { agentPw } = await createOAuthAgent();
 
 		await agentPw.profiles.put("/docs", {
@@ -397,7 +397,7 @@ describe("oauth runtime", () => {
 			},
 		});
 
-		const started = await agentPw.connect.startForResource({
+		const started = await agentPw.connect.startForResourceFromChallenge({
 			path: "/org_alpha/connections/docs_profiled",
 			resource: "https://docs.example.com/mcp",
 			redirectUri: "https://app.example.com/oauth/callback",
@@ -419,6 +419,25 @@ describe("oauth runtime", () => {
 		expect(started.authorizationUrl).toContain(
 			"https://accounts.example.com/authorize",
 		);
+		expect(started.reason).toBe("auth_required");
+		expect(started.requiresUpstreamAuthorization).toBe(true);
+
+		expect(await agentPw.connect.getFlow(started.flowId)).toEqual({
+			flowId: started.flowId,
+			path: "/org_alpha/connections/docs_profiled",
+			resource: "https://docs.example.com/mcp",
+			option: started.option,
+			expiresAt: started.expiresAt,
+			context: {
+				userId: "user_123",
+				namespaceId: "org_alpha",
+				connectionId: "docs_profiled",
+				fromChallenge: true,
+				authTrail: ["challenge", { step: 1, provider: "docs" }],
+			},
+			reason: "auth_required",
+			requiresUpstreamAuthorization: true,
+		});
 
 		const completed = await agentPw.connect.complete({
 			callbackUri: `https://app.example.com/oauth/callback?code=code-999&state=${started.flowId}`,
@@ -432,12 +451,15 @@ describe("oauth runtime", () => {
 			fromChallenge: true,
 			authTrail: ["challenge", { step: 1, provider: "docs" }],
 		});
+		expect(completed.reason).toBe("auth_required");
+		expect(completed.requiresUpstreamAuthorization).toBe(true);
 		expect(completed.credential.auth).toEqual({
 			kind: "oauth",
 			profilePath: "/docs",
 			label: "Docs Profile",
 			resource: "https://docs.example.com/mcp",
 		});
+		expect(await agentPw.connect.getFlow(started.flowId)).toBeNull();
 	});
 
 	it("preserves non-auth headers when oauth completion requests merge", async () => {
@@ -468,7 +490,7 @@ describe("oauth runtime", () => {
 			},
 		});
 
-		const session = await agentPw.connect.start({
+		const session = await agentPw.connect.startFromChallenge({
 			path: "/org_alpha/connections/linear_merge",
 			option,
 			redirectUri: "https://app.example.com/oauth/callback",
@@ -483,6 +505,8 @@ describe("oauth runtime", () => {
 		});
 
 		expect(completed.context).toEqual({ source: "challenge" });
+		expect(completed.reason).toBe("auth_required");
+		expect(completed.requiresUpstreamAuthorization).toBe(true);
 		expect(completed.credential.secret.headers).toEqual({
 			Authorization: "Bearer profile-access-1",
 			"X-Smithery-Connection": "conn_123",
