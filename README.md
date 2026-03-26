@@ -63,38 +63,35 @@ const agentPw = await createAgentPw({
 The main API is `connect.*`.
 
 ```ts
-const prepared = await agentPw.connect.prepare({
+const started = await agentPw.connect.startForResource({
   path: '/acme/connections/docs',
   resource: 'https://docs.example.com/mcp',
-})
-
-if (prepared.kind === 'ready') {
-  return prepared.headers
-}
-
-if (prepared.options.length === 0) {
-  throw new Error('This resource is not configured yet')
-}
-
-const option = prepared.options[0]
-
-if (option.kind === 'oauth') {
-  const session = await agentPw.connect.start({
-    path: '/acme/connections/docs',
-    option,
-    redirectUri: 'https://app.example.com/oauth/callback',
-  })
-
-  return Response.redirect(session.authorizationUrl, 302)
-}
-
-await agentPw.connect.saveHeaders({
-  path: '/acme/connections/docs',
-  option,
-  values: {
-    Authorization: 'api-key-value',
+  redirectUri: 'https://app.example.com/oauth/callback',
+  context: {
+    userId: 'user_123',
+    connectionId: 'docs',
   },
 })
+
+if (started.kind === 'ready') {
+  return started.headers
+}
+
+if (started.kind === 'authorization') {
+  return Response.redirect(started.authorizationUrl, 302)
+}
+
+if (started.kind === 'headers') {
+  await agentPw.connect.saveHeaders({
+    path: '/acme/connections/docs',
+    option: started.option,
+    values: {
+      Authorization: 'api-key-value',
+    },
+  })
+} else {
+  throw new Error('This resource is not configured yet')
+}
 ```
 
 Later, resolve fresh headers for that same connection:
@@ -123,6 +120,21 @@ Each returned option is self-contained. Apps pass the chosen option into either:
 
 An empty `options` list means the resource is currently unconfigured.
 
+For framework integrations that do not want to own option-selection logic, use `connect.startForResource(...)` instead. It returns one of:
+
+- `ready`: a credential already exists
+- `authorization`: redirect the browser to OAuth
+- `headers`: collect manual header values and call `connect.saveHeaders(...)`
+- `unconfigured`: no auth route is currently available
+
+`connect.resolve(...)` exposes the same library decision as structured metadata:
+
+- `canonicalResource`
+- `source`: `profile`, `discovery`, or `null`
+- `reason`: why that route won
+- `profilePath`
+- `option`
+
 ## Auth Kinds
 
 At the framework level there are only two auth kinds:
@@ -134,39 +146,36 @@ API keys are header auth. Basic auth, bearer tokens, vendor-specific headers, co
 
 Credentials always store resolved runtime headers. OAuth credentials may also store refresh state so `agent.pw` can keep headers fresh.
 
-## Discovery-First OAuth
+## Profile-Aware OAuth
 
-When a resource publishes usable OAuth metadata, `agent.pw` uses discovery first. MCP servers are one example, but the flow is not MCP-specific.
+When a known profile matches, `agent.pw` prefers that profile and skips generic discovery. Otherwise it falls back to resource discovery. MCP servers are one example, but the flow is not MCP-specific.
 
 ```ts
-const prepared = await agentPw.connect.prepare({
+const resolution = await agentPw.connect.resolve({
   path: '/acme/connections/docs',
   resource: 'https://docs.example.com/mcp',
   response: unauthorizedResponse,
 })
 
-if (prepared.kind === 'options') {
-  const oauthOption = prepared.options.find(option => option.kind === 'oauth')
-  if (!oauthOption) {
-    throw new Error('Expected an OAuth option')
-  }
-
-  const session = await agentPw.connect.start({
-    path: '/acme/connections/docs',
-    option: oauthOption,
-    redirectUri: 'https://app.example.com/oauth/callback',
-  })
-
-  return Response.redirect(session.authorizationUrl, 302)
-}
+console.log(resolution)
+// {
+//   canonicalResource: 'https://docs.example.com/mcp',
+//   source: 'profile',
+//   reason: 'matched-profile',
+//   profilePath: '/docs',
+//   option: { kind: 'oauth', ... }
+// }
 ```
 
 When the callback returns:
 
 ```ts
-await agentPw.connect.complete({
+const completed = await agentPw.connect.complete({
   callbackUri: 'https://app.example.com/oauth/callback?code=...&state=...',
+  merge: 'preserve-non-auth-headers',
 })
+
+console.log(completed.context)
 ```
 
 `connect.headers(...)` is refresh-aware by default, so apps do not need to re-implement token refresh outside the vault.

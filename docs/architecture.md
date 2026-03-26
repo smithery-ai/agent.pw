@@ -131,13 +131,32 @@ It returns:
   - options are `oauth` or `headers`
   - an empty list means unconfigured
 
+### `connect.resolve({ path, resource, response? })`
+
+Returns the library-selected route as structured metadata:
+
+- `canonicalResource`
+- `source`
+- `reason`
+- `profilePath`
+- `option`
+
 ### `connect.start({ path, option, redirectUri, client? })`
 
 Starts an OAuth flow from one returned OAuth option.
 
-### `connect.complete({ callbackUri })`
+### `connect.startForResource({ path, resource, redirectUri, context?, ... })`
 
-Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential.
+Runs resolution and returns one stable result:
+
+- `ready`
+- `authorization`
+- `headers`
+- `unconfigured`
+
+### `connect.complete({ callbackUri, merge? })`
+
+Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential plus any flow context.
 
 ### `connect.saveHeaders({ path, option, values })`
 
@@ -176,29 +195,29 @@ This keeps the stored model small while still covering the common real-world cas
 
 1. check whether a credential already exists at `path`
 2. if it does, return `ready`
-3. try discovery-first OAuth for the `resource`
-4. resolve path-scoped profiles that match the `resource`
-5. build an ordered list of `oauth` and `headers` options
+3. resolve path-scoped profiles that match the `resource`
+4. if a profile matches, use it as the authoritative route
+5. otherwise try discovery for the `resource`
+6. build `oauth` or `headers` options from the chosen route
 6. return those options
 
 That gives the app a guided flow without forcing it to understand the framework’s internal selection logic.
 
-## Discovery-First OAuth
+## Profile-Aware OAuth
 
-When a resource publishes usable OAuth metadata, `agent.pw` uses it directly.
+When a known profile matches, `agent.pw` uses that profile directly. Otherwise it falls back to resource discovery.
 
 MCP servers are one example, but the model is broader than MCP.
 
-The discovery-first flow is:
+The OAuth flow is:
 
 1. normalize the `resource`
-2. discover protected-resource metadata
-3. resolve the authorization server
-4. start PKCE authorization
-5. exchange the code on callback
-6. store the resulting credential at the connection path
+2. resolve the auth route from profile or discovery
+3. start PKCE authorization
+4. exchange the code on callback
+5. store the resulting credential at the connection path
 
-If discovery is unavailable or incomplete, the framework falls back to matching profiles.
+Flow context is stored inside the `FlowStore`, so embedders do not need parallel flow KV for app metadata.
 
 ## Profiles as Admin Configuration
 
