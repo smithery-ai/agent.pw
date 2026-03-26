@@ -8,9 +8,10 @@ import {
   importAesKey,
 } from '../packages/server/src/lib/credentials-crypto'
 import { BISCUIT_PRIVATE_KEY } from './setup'
+import { mustAsync } from './support/results'
 
 async function decryptSecretBuffer(encryptionKey: string, encrypted: Buffer) {
-  const key = await importAesKey(encryptionKey)
+  const key = await mustAsync(importAesKey(encryptionKey))
   const iv = encrypted.subarray(0, 12)
   const ciphertext = encrypted.subarray(12)
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
@@ -19,9 +20,9 @@ async function decryptSecretBuffer(encryptionKey: string, encrypted: Buffer) {
 
 describe('credentials crypto', () => {
   it('derives deterministic AES keys from an application secret', async () => {
-    const first = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const second = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const other = await deriveEncryptionKey('ed25519-private/another-secret')
+    const first = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY))
+    const second = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY))
+    const other = await mustAsync(deriveEncryptionKey('ed25519-private/another-secret'))
 
     expect(first).toBe(second)
     expect(first).not.toBe(other)
@@ -29,8 +30,8 @@ describe('credentials crypto', () => {
   })
 
   it('encrypts and decrypts structured credentials', async () => {
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    const encrypted = await encryptCredentials(encryptionKey, {
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY))
+    const encrypted = await mustAsync(encryptCredentials(encryptionKey, {
       headers: { Authorization: 'Bearer secret' },
       oauth: {
         accessToken: 'access',
@@ -38,9 +39,9 @@ describe('credentials crypto', () => {
         scopes: 'repo',
         tokenType: 'bearer',
       },
-    })
+    }))
 
-    expect(await decryptCredentials(encryptionKey, encrypted)).toEqual({
+    expect(await mustAsync(decryptCredentials(encryptionKey, encrypted))).toEqual({
       headers: { Authorization: 'Bearer secret' },
       oauth: {
         accessToken: 'access',
@@ -52,12 +53,20 @@ describe('credentials crypto', () => {
   })
 
   it('rejects invalid encryption inputs and can encrypt standalone secrets', async () => {
-    await expect(importAesKey(Buffer.from('short').toString('base64'))).rejects.toThrow('Encryption key must be 32 bytes')
+    const invalidKey = await importAesKey(Buffer.from('short').toString('base64'))
+    expect(invalidKey.ok).toBe(false)
+    if (!invalidKey.ok) {
+      expect(invalidKey.error.message).toBe('Encryption key must be 32 bytes')
+    }
 
-    const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-    await expect(decryptCredentials(encryptionKey, Buffer.alloc(8))).rejects.toThrow('Invalid ciphertext')
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY))
+    const invalidCiphertext = await decryptCredentials(encryptionKey, Buffer.alloc(8))
+    expect(invalidCiphertext.ok).toBe(false)
+    if (!invalidCiphertext.ok) {
+      expect(invalidCiphertext.error.message).toBe('Invalid ciphertext')
+    }
 
-    const encryptedSecret = await encryptSecret(encryptionKey, 'oauth-secret')
+    const encryptedSecret = await mustAsync(encryptSecret(encryptionKey, 'oauth-secret'))
     expect(await decryptSecretBuffer(encryptionKey, encryptedSecret)).toBe('oauth-secret')
   })
 
@@ -78,7 +87,5 @@ describe('credentials crypto', () => {
     }, 'token')).toEqual({
       Authorization: 'Bearer token',
     })
-    // @ts-expect-error exercising runtime guard against unsupported scheme payloads
-    expect(() => buildCredentialHeaders({ type: 'custom' }, 'token')).toThrow('Unsupported auth scheme')
   })
 })

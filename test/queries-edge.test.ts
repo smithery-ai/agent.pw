@@ -2,17 +2,18 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createQueryHelpers } from 'agent.pw/sql'
 import { deriveEncryptionKey, encryptCredentials } from '../packages/server/src/lib/credentials-crypto'
 import { BISCUIT_PRIVATE_KEY, createTestDb, type TestDb } from './setup'
+import { must, mustAsync, wrapObjectMethods } from './support/results'
 
 let db: TestDb
-const queries = createQueryHelpers()
+const queries = wrapObjectMethods(must(createQueryHelpers()))
 
 async function secret(token: string) {
-  const encryptionKey = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY)
-  return encryptCredentials(encryptionKey, {
+  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY))
+  return mustAsync(encryptCredentials(encryptionKey, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
-  })
+  }))
 }
 
 beforeEach(async () => {
@@ -54,8 +55,12 @@ describe('query edge cases', () => {
       secret: await secret('top'),
     })
 
-    await expect(queries.listCredProfiles(db, { path: '/../bad' })).rejects.toThrow("Invalid path '/../bad'")
-    await expect(queries.listCredentials(db, { path: '/../bad' })).rejects.toThrow("Invalid path '/../bad'")
+    await expect(queries.listCredProfiles(db, { path: '/../bad' })).rejects.toThrow(
+      "Invalid path '/../bad'",
+    )
+    await expect(queries.listCredentials(db, { path: '/../bad' })).rejects.toThrow(
+      "Invalid path '/../bad'",
+    )
 
     expect((await queries.listCredentials(db)).map(row => row.path)).toEqual(['/top'])
   })

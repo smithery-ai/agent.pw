@@ -95,12 +95,12 @@ The framework can enforce those rules directly or compile them into Biscuits.
 The public package surface is:
 
 ```ts
-import { createAgentPw } from 'agent.pw'
-import * as oauth from 'agent.pw/oauth'
-import * as rules from 'agent.pw/rules'
-import * as biscuit from 'agent.pw/biscuit'
-import * as sql from 'agent.pw/sql'
-import * as paths from 'agent.pw/paths'
+import { createAgentPw } from "agent.pw";
+import * as oauth from "agent.pw/oauth";
+import * as rules from "agent.pw/rules";
+import * as biscuit from "agent.pw/biscuit";
+import * as sql from "agent.pw/sql";
+import * as paths from "agent.pw/paths";
 ```
 
 `createAgentPw(...)` returns:
@@ -148,22 +148,13 @@ Returns the library-selected route as structured metadata:
 - `profilePath`
 - `option`
 
-### `connect.connect({ path, resource, redirectUri, context?, ... })`
-
-Runs resolution and returns one stable result:
-
-- `ready`
-- `authorization`
-- `headers`
-- `unconfigured`
-
 ### `connect.complete({ callbackUri, merge? })`
 
 Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential plus any flow context and flow reason.
 
 ### `connect.getFlow(flowId)`
 
-Returns the current pending flow state, including stored app context and whether the flow requires upstream authorization.
+Returns the current pending flow state, including stored app context and the flow reason.
 
 ### `connect.saveHeaders({ path, option, values })`
 
@@ -229,7 +220,7 @@ The OAuth flow is:
 
 Flow context is stored inside the `FlowStore`, so embedders do not need parallel flow KV for app metadata.
 
-Challenge-origin semantics are stored there too. If a flow was started from a real `auth_required` runtime signal, callers pass `reason: "auth_required"` into `connect.start(...)` or `connect.connect(...)`, and the continuation path can read that invariant back from `agent.pw` instead of reconstructing it from deployment metadata.
+Challenge-origin semantics are stored there too. If a flow was started from a real `auth_required` runtime signal, callers pass `reason: "auth_required"` into `connect.start(...)`, and the continuation path can read that invariant back from `agent.pw` instead of reconstructing it from deployment metadata.
 
 ## Profiles as Admin Configuration
 
@@ -346,10 +337,10 @@ That scoped API can then be used directly:
 
 ```ts
 const api = agentPw.scope({
-  rights: [{ action: 'credential.use', root: '/acme' }],
-})
+  rights: [{ action: "credential.use", root: "/acme" }],
+});
 
-await api.connect.headers({ path: '/acme/connections/docs' })
+await api.connect.headers({ path: "/acme/connections/docs" });
 ```
 
 The framework only accepts the authorization facts it checks itself: path-based rights. Apps can derive those rights from Biscuits, sessions, or any other permission store.
@@ -399,18 +390,18 @@ Embedders can place framework tables in a custom schema or prefix them:
 
 ```ts
 const sql = {
-  schema: 'platform',
-  tablePrefix: 'agentpw_',
-}
+  schema: "platform",
+  tablePrefix: "agentpw_",
+};
 
-const db = createDb(process.env.DATABASE_URL!, { sql })
+const db = createDb(process.env.DATABASE_URL!, { sql });
 
 const agentPw = await createAgentPw({
   db,
   sql,
   encryptionKey,
   flowStore,
-})
+});
 ```
 
 The same namespace options should be passed to both the SQL helpers and `createAgentPw(...)`.

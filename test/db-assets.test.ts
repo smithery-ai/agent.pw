@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { errorOfAsync, mustAsync } from './support/results'
 
 const {
   FakePGlite,
@@ -76,7 +77,7 @@ describe('bundled PGlite assets', () => {
     stubBundledAssetReads()
 
     const { createLocalDb } = await import('../packages/server/src/db/index')
-    const db = await createLocalDb('/tmp/agentpw-data')
+    const db = await mustAsync(createLocalDb('/tmp/agentpw-data'))
 
     expect(readFile).toHaveBeenCalledTimes(2)
     expect(pgliteCtor).toHaveBeenCalledTimes(1)
@@ -99,7 +100,7 @@ describe('bundled PGlite assets', () => {
     stubWebAssembly({ compile: undefined })
 
     const { createLocalDb } = await import('../packages/server/src/db/index')
-    const db = await createLocalDb('/tmp/agentpw-data')
+    const db = await mustAsync(createLocalDb('/tmp/agentpw-data'))
 
     expect(pgliteCtor).toHaveBeenCalledTimes(1)
 
@@ -116,13 +117,13 @@ describe('bundled PGlite assets', () => {
     expect(db).toEqual({ $client: expect.any(FakePGlite) })
   })
 
-  it('throws when no WebAssembly module compiler is available', async () => {
+  it('returns an internal error when no WebAssembly module compiler is available', async () => {
     stubBundledAssetReads()
     stubWebAssembly({ compile: undefined, Module: undefined })
 
     const { createLocalDb } = await import('../packages/server/src/db/index')
 
-    await expect(createLocalDb('/tmp/agentpw-data')).rejects.toThrow(
+    expect((await errorOfAsync(createLocalDb('/tmp/agentpw-data'))).message).toBe(
       'WebAssembly.Module is unavailable in this runtime',
     )
     expect(pgliteCtor).not.toHaveBeenCalled()
@@ -130,7 +131,7 @@ describe('bundled PGlite assets', () => {
 
   it('falls back to the plain PGlite constructor when no asset env vars are set', async () => {
     const { createLocalDb } = await import('../packages/server/src/db/index')
-    const db = await createLocalDb('/tmp/plain-data')
+    const db = await mustAsync(createLocalDb('/tmp/plain-data'))
 
     expect(readFile).not.toHaveBeenCalled()
     expect(pgliteCtor).toHaveBeenCalledWith('/tmp/plain-data')

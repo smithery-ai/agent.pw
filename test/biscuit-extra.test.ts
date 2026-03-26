@@ -12,6 +12,7 @@ import {
   restrictToken,
 } from 'agent.pw/biscuit'
 import { BISCUIT_PRIVATE_KEY, PUBLIC_KEY_HEX } from './setup'
+import { errorOf, must } from './support/results'
 
 function buildCustomToken(code: string) {
   const builder = Biscuit.builder()
@@ -56,13 +57,13 @@ describe('biscuit advanced helpers', () => {
       'scope("repo")',
     ])
 
-    const child = mintDescendantToken(
+    const child = must(mintDescendantToken(
       BISCUIT_PRIVATE_KEY,
       PUBLIC_KEY_HEX,
       parent,
       [{ action: 'credential.use', root: '/org_alpha/ws_engineering' }],
       [{ methods: 'GET', paths: '/org_alpha/ws_engineering', ttl: '1m' }],
-    )
+    ))
 
     expect(extractTokenFacts(child, PUBLIC_KEY_HEX)).toEqual(expect.objectContaining({
       userId: 'user_alpha',
@@ -84,9 +85,9 @@ describe('biscuit advanced helpers', () => {
     const rooted = mintToken(BISCUIT_PRIVATE_KEY, 'user_alpha', [
       { action: 'credential.use', root: '/org_alpha' },
     ])
-    const rootRestricted = restrictToken(rooted, PUBLIC_KEY_HEX, [
+    const rootRestricted = must(restrictToken(rooted, PUBLIC_KEY_HEX, [
       { actions: 'credential.use', roots: '/org_alpha/ws_engineering', methods: 'GET', paths: '/org_alpha/ws_engineering' },
-    ])
+    ]))
     expect(authorizeRequest(rootRestricted, PUBLIC_KEY_HEX, 'api.linear.app', 'GET', '/org_alpha/ws_engineering/task', {
       action: 'credential.use',
       host: 'api.linear.app',
@@ -100,12 +101,12 @@ describe('biscuit advanced helpers', () => {
     expect(extractTokenExpiry('bad-token', PUBLIC_KEY_HEX)).toBeNull()
     expect(extractTokenFacts(mintToken(BISCUIT_PRIVATE_KEY, 'seed-user')).rights).toEqual([])
 
-    expect(() => mintDescendantToken(
+    expect(errorOf(mintDescendantToken(
       BISCUIT_PRIVATE_KEY,
       PUBLIC_KEY_HEX,
       parentWithoutIdentity,
       [{ action: 'credential.use', root: '/org_alpha' }],
       [],
-    )).toThrow('Parent token has no identity')
+    )).message).toBe('Parent token has no identity')
   })
 })

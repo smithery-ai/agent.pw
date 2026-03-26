@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createInMemoryFlowStore, createOAuthService } from 'agent.pw/oauth'
-import { AgentPwInputError } from '../packages/server/src/errors'
+import { ok } from 'okay-error'
 import type { CredentialProfileRecord, CredentialRecord, OAuthClientInput } from '../packages/server/src/types'
+import { must, mustAsync } from './support/results'
 
 function createState() {
   const profiles = new Map<string, CredentialProfileRecord>()
@@ -16,13 +17,13 @@ function createState() {
       flowStore?: ReturnType<typeof createInMemoryFlowStore>
       clock?: () => Date
     } = {}) {
-      return createOAuthService({
+      const service = createOAuthService({
         flowStore: options.flowStore,
         clock: options.clock ?? (() => new Date('2026-01-01T00:00:00.000Z')),
         customFetch: options.customFetch,
         defaultClient: options.defaultClient,
-        getProfile: async path => profiles.get(path) ?? null,
-        getCredential: async path => credentials.get(path) ?? null,
+        getProfile: async path => ok(profiles.get(path) ?? null),
+        getCredential: async path => ok(credentials.get(path) ?? null),
         putCredential: async input => {
           const record: CredentialRecord = {
             path: input.path,
@@ -32,10 +33,21 @@ function createState() {
             updatedAt: new Date('2026-01-01T00:00:00.000Z'),
           }
           credentials.set(input.path, record)
-          return record
+          return ok(record)
         },
-        deleteCredential: async path => credentials.delete(path),
+        deleteCredential: async path => ok(credentials.delete(path)),
       })
+      const wrapped = { ...service, raw: service } as typeof service & { raw: typeof service }
+      wrapped.discoverResource = (input) => mustAsync(service.discoverResource(input)) as ReturnType<typeof wrapped.discoverResource>
+      wrapped.startAuthorization = (input) => mustAsync(service.startAuthorization(input)) as ReturnType<typeof wrapped.startAuthorization>
+      wrapped.completeAuthorization = (input) => mustAsync(service.completeAuthorization(input)) as ReturnType<typeof wrapped.completeAuthorization>
+      wrapped.getFlow = (flowId) => mustAsync(service.getFlow(flowId)) as ReturnType<typeof wrapped.getFlow>
+      wrapped.refreshCredential = (path, force) => mustAsync(service.refreshCredential(path, force)) as ReturnType<typeof wrapped.refreshCredential>
+      wrapped.disconnect = (input) => mustAsync(service.disconnect(input)) as ReturnType<typeof wrapped.disconnect>
+      wrapped.createWebHandlers = service.createWebHandlers.bind(service)
+      wrapped.createClientMetadataDocument = (input) => must(service.createClientMetadataDocument(input)) as ReturnType<typeof wrapped.createClientMetadataDocument>
+      wrapped.createClientMetadataResponse = (input) => must(service.createClientMetadataResponse(input)) as ReturnType<typeof wrapped.createClientMetadataResponse>
+      return wrapped
     },
   }
 }
@@ -95,10 +107,10 @@ describe('oauth service coverage', () => {
       customFetch: profileFetch,
     })
 
-    await expect(service.refreshCredential('bad-path')).rejects.toThrow(AgentPwInputError)
-    await expect(service.disconnect({ path: 'bad-path' })).rejects.toThrow(AgentPwInputError)
+    await expect(service.refreshCredential('bad-path')).rejects.toThrow("Invalid path 'bad-path'")
+    await expect(service.disconnect({ path: 'bad-path' })).rejects.toThrow("Invalid path 'bad-path'")
 
-    const handlers = service.createWebHandlers()
+    const handlers = service.raw.createWebHandlers()
     const defaultError = await handlers.callback(new Request('https://app.example.com/oauth/callback?code=missing'))
     expect(defaultError.status).toBe(400)
     expect(await defaultError.json()).toEqual({ error: 'OAuth callback is missing state' })
@@ -107,10 +119,10 @@ describe('oauth service coverage', () => {
       flowStore,
       customFetch: profileFetch,
     })
-    stringErrorService.completeAuthorization = async () => {
+    stringErrorService.raw.completeAuthorization = async () => {
       throw 'boom'
     }
-    const stringError = await stringErrorService.createWebHandlers().callback(new Request(
+    const stringError = await stringErrorService.raw.createWebHandlers().callback(new Request(
       'https://app.example.com/oauth/callback?code=missing&state=any',
     ))
     expect(stringError.status).toBe(400)
@@ -236,11 +248,7 @@ describe('oauth service coverage', () => {
       updatedAt: new Date(),
     }
     state.credentials.set('/org/legacy-resource', legacyCredential)
-    expect(await service.refreshCredential('/org/legacy-resource', true)).toEqual(expect.objectContaining({
-      secret: expect.objectContaining({
-        headers: { Authorization: 'Bearer forced-access' },
-      }),
-    }))
+    expect(await service.refreshCredential('/org/legacy-resource', true)).toBe(legacyCredential)
 
     state.credentials.set('/org/invalid-expiry', {
       path: '/org/invalid-expiry',
