@@ -9,7 +9,6 @@ on:
       release_ref:
         description: Git ref to publish from
         required: true
-        default: agent.pw-v0.1.0
       dry_run:
         description: Run npm publish with --dry-run
         required: false
