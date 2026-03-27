@@ -2,9 +2,8 @@ import { err, ok, result } from "okay-error";
 import type { AuthScheme } from "../auth-schemes.js";
 import { cryptoError } from "../errors.js";
 import { isRecord } from "./utils.js";
-import type { AgentPwResult } from "../types.js";
 
-export async function deriveEncryptionKey(secretSeed: string): Promise<AgentPwResult<string>> {
+export async function deriveEncryptionKey(secretSeed: string) {
   const input = new TextEncoder().encode(`${secretSeed}:credential-encryption`);
   const hash = await result(crypto.subtle.digest("SHA-256", input));
   if (!hash.ok) {
@@ -41,7 +40,7 @@ function isStoredCredentials(value: unknown): value is StoredCredentials {
   return isRecord(value);
 }
 
-export async function importAesKey(encryptionKey: string): Promise<AgentPwResult<CryptoKey>> {
+export async function importAesKey(encryptionKey: string) {
   const raw = new Uint8Array(Buffer.from(encryptionKey, "base64"));
   if (raw.length !== 32) {
     return err(cryptoError("importAesKey", "Encryption key must be 32 bytes"));
@@ -64,7 +63,7 @@ export async function importAesKey(encryptionKey: string): Promise<AgentPwResult
 export async function encryptCredentials(
   encryptionKey: string,
   credentials: StoredCredentials,
-): Promise<AgentPwResult<Buffer>> {
+) {
   const key = await importAesKey(encryptionKey);
   if (!key.ok) {
     return key;
@@ -92,7 +91,7 @@ export async function encryptCredentials(
 export async function decryptCredentials(
   encryptionKey: string,
   encrypted: Buffer,
-): Promise<AgentPwResult<StoredCredentials>> {
+) {
   if (encrypted.length < 12 + 16) {
     return err(cryptoError("decryptCredentials", "Invalid ciphertext"));
   }
@@ -148,7 +147,7 @@ export function buildCredentialHeaders(scheme: AuthScheme, token: string): Recor
 export async function encryptSecret(
   encryptionKey: string,
   secret: string,
-): Promise<AgentPwResult<Buffer>> {
+) {
   const key = await importAesKey(encryptionKey);
   if (!key.ok) {
     return key;

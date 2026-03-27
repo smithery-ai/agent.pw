@@ -1,6 +1,6 @@
 import { err, ok } from "okay-error";
 import { inputError } from "../../errors.js";
-import type { AgentPwResult, SqlNamespaceOptions } from "../../types.js";
+import type { SqlNamespaceOptions } from "../../types.js";
 import { defineCredProfilesTable } from "./cred-profiles.js";
 import { defineCredentialsTable } from "./credentials.js";
 import { pgSchema } from "drizzle-orm/pg-core";
@@ -12,7 +12,7 @@ function normalizeSqlIdentifier(
   value: string,
   label: string,
   allowEmpty = false,
-): AgentPwResult<string> {
+) {
   if (allowEmpty && value.length === 0) {
     return ok(value);
   }
@@ -63,7 +63,7 @@ export const defaultSqlNamespace = buildAgentPwNamespace(agentpwSchema, DEFAULT_
 
 export function createAgentPwSchema(
   options: SqlNamespaceOptions = {},
-): AgentPwResult<AgentPwSqlNamespace> {
+) {
   const schema = normalizeSqlIdentifier(options.schema ?? DEFAULT_SQL_SCHEMA, "SQL schema");
   if (!schema.ok) {
     return schema;
@@ -83,7 +83,7 @@ export function createAgentPwSchema(
 
 export function coerceSqlNamespace(
   input?: SqlNamespaceOptions | AgentPwSqlNamespace,
-): AgentPwResult<AgentPwSqlNamespace> {
+) {
   if (!input) {
     return ok(defaultSqlNamespace);
   }

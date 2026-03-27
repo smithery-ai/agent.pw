@@ -1,15 +1,18 @@
-import { err, ok, result } from "okay-error";
+import { err, ok, result, type Result } from "okay-error";
 import * as oauth from "oauth4webapi";
-import { expiredError, inputError, internalError, notFoundError, oauthError } from "./errors.js";
+import {
+  expiredError,
+  inputError,
+  internalError,
+  notFoundError,
+  oauthError,
+  toAgentPwError,
+} from "./errors.js";
 import { buildCredentialHeaders, type StoredCredentials } from "./lib/credentials-crypto.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
-  AgentPwError,
-  AgentPwResult,
-  CimdDocument,
   CimdDocumentInput,
-  ConnectAuthorizationSession,
   ConnectCompleteInput,
   ConnectCompleteResult,
   ConnectDisconnectInput,
@@ -26,14 +29,14 @@ import type {
   PendingFlow,
 } from "./types.js";
 
-function assertPath(path: string, label: string): AgentPwResult<string> {
+function assertPath(path: string, label: string) {
   if (!path.startsWith("/") || path === "/" || path.includes("..")) {
     return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
   }
   return ok(path);
 }
 
-function assertUrl(value: string, label: string): AgentPwResult<URL> {
+function assertUrl(value: string, label: string) {
   const parsed = result(() => new URL(value));
   if (!parsed.ok) {
     return err(inputError(`Invalid ${label} '${value}'`, { field: label, value }));
@@ -65,7 +68,7 @@ function normalizeClientAuthentication(
 
 function buildClientAuthentication(
   config: OAuthResolvedConfig,
-): AgentPwResult<ReturnType<typeof oauth.ClientSecretBasic>> {
+) {
   switch (config.clientAuthentication) {
     case "client_secret_post":
       if (!config.clientSecret) {
@@ -204,7 +207,7 @@ function mergeHeaders(
 async function resolveAuthorizationServer(
   config: OAuthResolvedConfig,
   customFetch: typeof fetch | undefined,
-): Promise<AgentPwResult<oauth.AuthorizationServer>> {
+) {
   if (config.issuer) {
     const issuer = assertUrl(config.issuer, "oauth issuer");
     if (!issuer.ok) {
@@ -298,7 +301,7 @@ function buildAuthorizationServerDiscoveryAttempts(
 async function discoverAuthorizationServerMetadata(
   issuer: URL,
   customFetch: typeof fetch | undefined,
-): Promise<AgentPwResult<oauth.AuthorizationServer | null>> {
+) {
   for (const attempt of buildAuthorizationServerDiscoveryAttempts(issuer, customFetch)) {
     const response = await result(attempt.request());
     if (!response.ok) {
@@ -341,14 +344,7 @@ async function discoverAuthorizationServerMetadata(
 async function discoverResource(
   resource: string,
   customFetch: typeof fetch | undefined,
-): Promise<
-  AgentPwResult<{
-    resource: string;
-    authorizationServers: string[];
-    resourceName?: string;
-    scopes: string[];
-  }>
-> {
+) {
   const normalizedResource = normalizeResource(resource);
   if (!normalizedResource.ok) {
     return normalizedResource;
@@ -469,7 +465,7 @@ function parseProfileOAuthConfig(
   profile: CredentialProfileRecord,
   resource: string,
   clientInput: OAuthClientInput | undefined,
-): AgentPwResult<OAuthResolvedConfig> {
+) {
   if (profile.auth.kind !== "oauth") {
     return err(inputError(`Credential Profile '${profile.path}' is not an OAuth profile`));
   }
@@ -512,7 +508,7 @@ async function resolveOAuthConfigForResourceOption(
   option: ConnectOAuthOption,
   clientInput: OAuthClientInput | undefined,
   customFetch: typeof fetch | undefined,
-): Promise<AgentPwResult<OAuthResolvedConfig>> {
+) {
   const client = clientInput;
   if (!client) {
     return err(inputError(`Resource '${option.resource}' requires oauth client configuration`));
@@ -647,12 +643,12 @@ export function createOAuthService(options: {
   clock: () => Date;
   customFetch?: typeof fetch;
   defaultClient?: OAuthClientInput;
-  getProfile(path: string): Promise<AgentPwResult<CredentialProfileRecord | null>>;
-  getCredential(path: string): Promise<AgentPwResult<CredentialRecord | null>>;
-  putCredential(input: CredentialPutInput): Promise<AgentPwResult<CredentialRecord>>;
-  deleteCredential(path: string): Promise<AgentPwResult<boolean>>;
+  getProfile(path: string): Promise<Result<CredentialProfileRecord | null>>;
+  getCredential(path: string): Promise<Result<CredentialRecord | null>>;
+  putCredential(input: CredentialPutInput): Promise<Result<CredentialRecord>>;
+  deleteCredential(path: string): Promise<Result<boolean>>;
 }) {
-  async function requireFlowStore(): Promise<AgentPwResult<FlowStore>> {
+  async function requireFlowStore() {
     if (!options.flowStore) {
       return err(inputError("OAuth flows require an explicit flowStore"));
     }
@@ -662,7 +658,7 @@ export function createOAuthService(options: {
   async function resolveOAuthConfigForOption(
     option: ConnectOAuthOption,
     clientInput: OAuthClientInput | undefined,
-  ): Promise<AgentPwResult<OAuthResolvedConfig>> {
+  ) {
     if (option.source === "profile") {
       if (!option.profilePath) {
         return err(inputError("Profile-backed OAuth option is missing profilePath"));
@@ -698,7 +694,7 @@ export function createOAuthService(options: {
     optionsForRefresh: {
       force?: boolean;
     } = {},
-  ): Promise<AgentPwResult<CredentialRecord | null>> {
+  ) {
     const credential = await options.getCredential(path);
     if (!credential.ok) {
       return credential;
@@ -791,7 +787,7 @@ export function createOAuthService(options: {
 
     async startAuthorization(
       input: ConnectStartInput,
-    ): Promise<AgentPwResult<ConnectAuthorizationSession>> {
+    ) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -869,7 +865,7 @@ export function createOAuthService(options: {
 
     async completeAuthorization(
       input: ConnectCompleteInput,
-    ): Promise<AgentPwResult<ConnectCompleteResult>> {
+    ) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -1128,7 +1124,7 @@ export function createOAuthService(options: {
       optionsForHandlers: {
         callbackPath?: string;
         success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-        error?(error: AgentPwError, request: Request): Response | Promise<Response>;
+        error?(error: ReturnType<typeof toAgentPwError>, request: Request): Response | Promise<Response>;
       } = {},
     ): ConnectWebHandlers {
       const callbackPath = optionsForHandlers.callbackPath ?? "/oauth/callback";
@@ -1150,7 +1146,7 @@ export function createOAuthService(options: {
             });
             if (!session.ok) {
               return optionsForHandlers.error
-                ? optionsForHandlers.error(session.error, request)
+                ? optionsForHandlers.error(toAgentPwError(session.error), request)
                 : defaultErrorResponse(session.error);
             }
             return Response.redirect(session.value.authorizationUrl, 302);
@@ -1172,7 +1168,7 @@ export function createOAuthService(options: {
             });
             if (!completed.ok) {
               return optionsForHandlers.error
-                ? optionsForHandlers.error(completed.error, request)
+                ? optionsForHandlers.error(toAgentPwError(completed.error), request)
                 : defaultErrorResponse(completed.error);
             }
             if (optionsForHandlers.success) {
@@ -1192,7 +1188,7 @@ export function createOAuthService(options: {
       };
     },
 
-    createClientMetadataDocument(input: CimdDocumentInput): AgentPwResult<CimdDocument> {
+    createClientMetadataDocument(input: CimdDocumentInput) {
       const clientId = assertUrl(input.clientId, "client id");
       if (!clientId.ok) {
         return clientId;
@@ -1231,7 +1227,7 @@ export function createOAuthService(options: {
       });
     },
 
-    createClientMetadataResponse(input: CimdDocumentInput): AgentPwResult<Response> {
+    createClientMetadataResponse(input: CimdDocumentInput) {
       const document = this.createClientMetadataDocument(input);
       if (!document.ok) {
         return document;
