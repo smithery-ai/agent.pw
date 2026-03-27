@@ -18,11 +18,11 @@ import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
   CimdDocumentInput,
-  ConnectCompleteInput,
+  ConnectCompleteOAuthInput,
   ConnectDisconnectInput,
+  ConnectStartOAuthInput,
   ConnectWebHandlerOptions,
   ConnectOAuthOption,
-  ConnectStartInput,
   ConnectWebHandlers,
   CredentialProfileRecord,
   CredentialPutInput,
@@ -784,7 +784,7 @@ export function createOAuthService(options: {
       return discoverResource(input.resource, options.customFetch);
     },
 
-    async startAuthorization(input: ConnectStartInput) {
+    async startAuthorization(input: ConnectStartOAuthInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -861,7 +861,7 @@ export function createOAuthService(options: {
       });
     },
 
-    async completeAuthorization(input: ConnectCompleteInput) {
+    async completeAuthorization(input: ConnectCompleteOAuthInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;

@@ -199,6 +199,15 @@ describe("createAgentPw edge cases", () => {
         fields: [{ name: "Authorization", label: "API key", prefix: "Bearer " }],
       },
     });
+    await agentPw.profiles.put("/linear", {
+      resourcePatterns: ["https://api.linear.app/*"],
+      auth: {
+        kind: "oauth",
+        authorizationUrl: "https://accounts.example.com/authorize",
+        tokenUrl: "https://accounts.example.com/token",
+        clientId: "client-linear",
+      },
+    });
 
     const prepared = await agentPw.connect.prepare({
       path: "/org/connections/resend",
@@ -210,25 +219,18 @@ describe("createAgentPw edge cases", () => {
     }
 
     await expect(
-      agentPw.connect.saveHeaders({
+      agentPw.connect.setHeaders({
         path: "/org/connections/resend",
-        option: prepared.options[0],
-        values: {},
+        resource: "https://api.resend.com",
+        headers: { Authorization: 123 as never },
       }),
-    ).rejects.toThrow("Missing header value for 'Authorization'");
+    ).rejects.toThrow("Invalid header value for 'Authorization'");
 
     await expect(
-      agentPw.connect.saveHeaders({
+      agentPw.connect.setHeaders({
         path: "/org/connections/raw",
-        option: {
-          kind: "headers",
-          source: "profile",
-          label: "Raw token",
-          profilePath: "/resend",
-          resource: "https://api.resend.com/",
-          fields: [{ name: "Authorization", label: "Token" }],
-        },
-        values: { Authorization: "plain-token" },
+        resource: "https://api.resend.com",
+        headers: { Authorization: "plain-token" },
       }),
     ).resolves.toEqual(
       expect.objectContaining({
@@ -239,20 +241,6 @@ describe("createAgentPw edge cases", () => {
         },
       }),
     );
-
-    await expect(
-      agentPw.connect.saveHeaders({
-        path: "/org/connections/resend",
-        option: {
-          kind: "oauth",
-          source: "profile",
-          label: "Wrong",
-          profilePath: "/resend",
-          resource: "https://api.resend.com/",
-        },
-        values: {},
-      }),
-    ).rejects.toThrow("connect.saveHeaders requires a headers option");
 
     await expect(
       agentPw
@@ -290,18 +278,28 @@ describe("createAgentPw edge cases", () => {
     ).rejects.toThrow("Credential '/org/connections/env_only' stores env auth");
 
     await expect(
-      agentPw.connect.putHeaders({
+      agentPw.connect.setHeaders({
         path: "/org/connections/env_only",
         headers: { Authorization: "Bearer ignored" },
       }),
     ).rejects.toThrow("Credential '/org/connections/env_only' stores env auth");
 
     await expect(
-      agentPw.connect.putHeaders({
+      agentPw.connect.setHeaders({
         path: "/org/connections/missing_resource",
         headers: { Authorization: "Bearer missing-resource" },
       }),
-    ).rejects.toThrow("connect.putHeaders requires resource when creating a credential");
+    ).rejects.toThrow("connect.setHeaders requires resource when creating a credential");
+
+    await expect(
+      agentPw.connect.setHeaders({
+        path: "/org/connections/linear",
+        resource: "https://api.linear.app/projects",
+        headers: { "X-Test": "1" },
+      }),
+    ).rejects.toThrow(
+      "Resource 'https://api.linear.app/projects' requires OAuth; use connect.startOAuth(...)",
+    );
   });
 
   it("falls back to the existing oauth credential when refresh lookup races to null", async () => {

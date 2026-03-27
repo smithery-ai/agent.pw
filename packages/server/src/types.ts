@@ -255,10 +255,6 @@ export interface ConnectHeadersOption extends ConnectOptionBase {
 
 export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
 
-type HeaderValues<TFields extends readonly HeaderFieldDefinition[]> = {
-  [Field in TFields[number] as Field["name"]]: string;
-};
-
 export interface ConnectResolutionResult {
   canonicalResource: string;
   source: ConnectOption["source"] | null;
@@ -288,7 +284,7 @@ export interface ConnectOptionsResult {
 
 export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult;
 
-export interface ConnectStartInput {
+export interface ConnectStartOAuthInput {
   path: string;
   option: ConnectOAuthOption;
   redirectUri: string;
@@ -308,7 +304,7 @@ export interface ConnectAuthorizationSession {
   option: ConnectOAuthOption;
 }
 
-export interface ConnectCompleteInput {
+export interface ConnectCompleteOAuthInput {
   callbackUri: string;
 }
 
@@ -317,15 +313,7 @@ export interface ConnectCompleteResult {
   credential: CredentialRecord;
 }
 
-export interface ConnectSaveHeadersInput<
-  TFields extends readonly HeaderFieldDefinition[] = readonly HeaderFieldDefinition[],
-> {
-  path: string;
-  option: ConnectHeadersOption & { fields: TFields };
-  values: HeaderValues<TFields>;
-}
-
-export interface ConnectPutHeadersInput {
+export interface ConnectSetHeadersInput {
   path: string;
   headers: Record<string, string>;
   resource?: string;
@@ -395,7 +383,7 @@ export interface CimdDocumentInput {
 export interface ConnectWebHandlers {
   start(
     request: Request,
-    input: Omit<ConnectStartInput, "redirectUri"> & {
+    input: Omit<ConnectStartOAuthInput, "redirectUri"> & {
       redirectUri?: string;
     },
   ): Promise<Response>;
@@ -425,10 +413,9 @@ export interface ScopedAgentPw {
   connect: {
     prepare(input: ConnectPrepareInput): Promise<Result<ConnectPrepareResult>>;
     getFlow(flowId: string): Promise<Result<ConnectFlow>>;
-    start(input: ConnectStartInput): Promise<Result<ConnectAuthorizationSession>>;
-    complete(input: ConnectCompleteInput): Promise<Result<ConnectCompleteResult>>;
-    putHeaders(input: ConnectPutHeadersInput): Promise<Result<CredentialRecord>>;
-    saveHeaders(input: ConnectSaveHeadersInput): Promise<Result<CredentialRecord>>;
+    startOAuth(input: ConnectStartOAuthInput): Promise<Result<ConnectAuthorizationSession>>;
+    completeOAuth(input: ConnectCompleteOAuthInput): Promise<Result<ConnectCompleteResult>>;
+    setHeaders(input: ConnectSetHeadersInput): Promise<Result<CredentialRecord>>;
     resolveHeaders(input: ConnectResolveHeadersInput): Promise<Result<Record<string, string>>>;
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };

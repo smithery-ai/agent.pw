@@ -176,7 +176,7 @@ describe("oauth runtime", () => {
       }),
     );
 
-    const session = await agentPw.connect.start({
+    const session = await agentPw.connect.startOAuth({
       path: "/org_alpha/connections/linear_1",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
@@ -187,7 +187,7 @@ describe("oauth runtime", () => {
     expect(session.authorizationUrl).toContain("client_id=client-linear");
     expect(session.authorizationUrl).toContain("resource=https%3A%2F%2Fapi.linear.app%2Fprojects");
 
-    const completed = await agentPw.connect.complete({
+    const completed = await agentPw.connect.completeOAuth({
       callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
     });
 
@@ -263,7 +263,7 @@ describe("oauth runtime", () => {
       throw new Error("Expected discovery-backed oauth option");
     }
 
-    const session = await agentPw.connect.start({
+    const session = await agentPw.connect.startOAuth({
       path: "/org_alpha/connections/docs_mcp",
       option: oauthOption,
       redirectUri: "https://app.example.com/oauth/callback",
@@ -276,7 +276,7 @@ describe("oauth runtime", () => {
     );
     expect(session.authorizationUrl).toContain("prompt=consent");
 
-    const completed = await agentPw.connect.complete({
+    const completed = await agentPw.connect.completeOAuth({
       callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
     });
 
@@ -384,7 +384,7 @@ describe("oauth runtime", () => {
         scopes: ["docs.read"],
       },
     });
-    const started = await agentPw.connect.start({
+    const started = await agentPw.connect.startOAuth({
       path: "/org_alpha/connections/docs_profiled",
       option: prepared.options[0],
       redirectUri: "https://app.example.com/oauth/callback",
@@ -400,7 +400,7 @@ describe("oauth runtime", () => {
       expiresAt: started.expiresAt,
     });
 
-    const completed = await agentPw.connect.complete({
+    const completed = await agentPw.connect.completeOAuth({
       callbackUri: `https://app.example.com/oauth/callback?code=code-999&state=${started.flowId}`,
     });
 
@@ -444,7 +444,7 @@ describe("oauth runtime", () => {
       },
     });
 
-    const session = await agentPw.connect.start({
+    const session = await agentPw.connect.startOAuth({
       path: "/org_alpha/connections/linear_merge",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
@@ -455,7 +455,7 @@ describe("oauth runtime", () => {
       },
     });
 
-    const completed = await agentPw.connect.complete({
+    const completed = await agentPw.connect.completeOAuth({
       callbackUri: `https://app.example.com/oauth/callback?code=code-merge&state=${session.flowId}`,
     });
 
@@ -514,7 +514,7 @@ describe("oauth runtime", () => {
       },
     });
 
-    const merged = await agentPw.connect.putHeaders({
+    const merged = await agentPw.connect.setHeaders({
       path: "/org_alpha/connections/linear_runtime_headers",
       headers: {
         Authorization: "Bearer ignored",

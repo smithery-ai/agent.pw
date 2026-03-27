@@ -155,7 +155,7 @@ describe("createAgentPw", () => {
     );
   });
 
-  it("guides header-based connections through prepare and saveHeaders", async () => {
+  it("guides header-based connections through prepare metadata and setHeaders", async () => {
     const agentPw = await createTestAgent();
 
     await agentPw.profiles.put("/resend", {
@@ -226,11 +226,11 @@ describe("createAgentPw", () => {
       throw new Error("Expected connection options");
     }
 
-    const saved = await agentPw.connect.saveHeaders({
+    const saved = await agentPw.connect.setHeaders({
       path: "/acme/connections/resend",
-      option: prepared.options[0],
-      values: {
-        Authorization: "rs_123",
+      resource: "https://api.resend.com",
+      headers: {
+        Authorization: "Bearer rs_123",
       },
     });
 
@@ -251,7 +251,7 @@ describe("createAgentPw", () => {
   it("creates and overwrites app headers for managed connections", async () => {
     const agentPw = await createTestAgent();
 
-    const created = await agentPw.connect.putHeaders({
+    const created = await agentPw.connect.setHeaders({
       path: "/acme/connections/runtime_headers",
       resource: "https://api.resend.com",
       headers: {
@@ -271,7 +271,7 @@ describe("createAgentPw", () => {
       "X-Smithery-Connection": "conn_123",
     });
 
-    const merged = await agentPw.connect.putHeaders({
+    const merged = await agentPw.connect.setHeaders({
       path: "/acme/connections/runtime_headers",
       headers: {
         Authorization: "Bearer runtime-2",
@@ -369,25 +369,11 @@ describe("createAgentPw", () => {
       },
     });
 
-    await agentPw.connect.saveHeaders({
+    await agentPw.connect.setHeaders({
       path: "/acme/connections/resend",
-      option: {
-        kind: "headers",
-        source: "profile",
-        resource: "https://api.resend.com/",
-        profilePath: "/resend",
-        label: "Resend",
-        fields: [
-          {
-            name: "Authorization",
-            label: "API key",
-            prefix: "Bearer ",
-            secret: true,
-          },
-        ],
-      },
-      values: {
-        Authorization: "rs_ready",
+      resource: "https://api.resend.com",
+      headers: {
+        Authorization: "Bearer rs_ready",
       },
     });
 
@@ -626,7 +612,7 @@ describe("createAgentPw", () => {
       throw new Error("Expected oauth option");
     }
 
-    const session = await scoped.connect.start({
+    const session = await scoped.connect.startOAuth({
       path: "/acme/connections/docs_fresh",
       option,
       redirectUri: "https://app.example.com/oauth/callback",

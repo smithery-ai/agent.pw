@@ -25,7 +25,6 @@ import type {
   AgentPw,
   AgentPwOptions,
   ConnectFlow,
-  ConnectHeadersOption,
   ConnectOAuthOption,
   ConnectOption,
   ConnectPrepareInput,
@@ -328,20 +327,6 @@ async function decryptCredentialRecord(
 function extractFlowId(callbackUri: string) {
   const url = new URL(callbackUri);
   return url.searchParams.get("state");
-}
-
-function buildHeadersFromValues(option: ConnectHeadersOption, values: Record<string, string>) {
-  const headers: Record<string, string> = {};
-
-  for (const field of option.fields) {
-    const value = values[field.name];
-    if (typeof value !== "string" || value.length === 0) {
-      return err(inputError(`Missing header value for '${field.name}'`, { field: field.name }));
-    }
-    headers[field.name] = field.prefix ? `${field.prefix}${value}` : value;
-  }
-
-  return ok(headers);
 }
 
 function parseHeaders(value: unknown) {
@@ -892,9 +877,9 @@ export async function createAgentPw(options: AgentPwOptions) {
       return ok(toConnectFlow(flow.value));
     },
 
-    start(input) {
+    startOAuth(input) {
       if (input.option.kind !== "oauth") {
-        return Promise.resolve(err(inputError("connect.start requires an oauth option")));
+        return Promise.resolve(err(inputError("connect.startOAuth requires an oauth option")));
       }
       const path = assertPath(input.path, "path");
       if (!path.ok) {
@@ -914,11 +899,11 @@ export async function createAgentPw(options: AgentPwOptions) {
       });
     },
 
-    complete(input) {
+    completeOAuth(input) {
       return oauth.completeAuthorization(input);
     },
 
-    async putHeaders(input) {
+    async setHeaders(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return path;
@@ -936,7 +921,7 @@ export async function createAgentPw(options: AgentPwOptions) {
 
       if (!existing.value) {
         if (typeof input.resource !== "string") {
-          return err(inputError("connect.putHeaders requires resource when creating a credential"));
+          return err(inputError("connect.setHeaders requires resource when creating a credential"));
         }
 
         const resource = normalizeResource(input.resource);
@@ -944,10 +929,36 @@ export async function createAgentPw(options: AgentPwOptions) {
           return resource;
         }
 
+        const profile = await profiles.resolve({
+          path: path.value,
+          resource: resource.value,
+        });
+        if (!profile.ok) {
+          return profile;
+        }
+
+        const selectedOption = profile.value
+          ? optionFromProfile(profile.value, resource.value)
+          : null;
+        if (selectedOption && !selectedOption.ok) {
+          return selectedOption;
+        }
+        if (selectedOption?.value.kind === "oauth") {
+          return err(
+            inputError(`Resource '${resource.value}' requires OAuth; use connect.startOAuth(...)`),
+          );
+        }
+
         return putCredential({
           path: path.value,
           auth: {
             kind: "headers",
+            ...(selectedOption?.value.kind === "headers" && selectedOption.value.profilePath
+              ? { profilePath: selectedOption.value.profilePath }
+              : {}),
+            ...(selectedOption?.value.kind === "headers" && selectedOption.value.label
+              ? { label: selectedOption.value.label }
+              : {}),
             resource: resource.value,
           },
           secret: {
@@ -1008,31 +1019,6 @@ export async function createAgentPw(options: AgentPwOptions) {
         secret: {
           headers: mergeHeaders({ headers: headers.value }),
         },
-      });
-    },
-
-    async saveHeaders(input) {
-      const path = assertPath(input.path, "path");
-      if (!path.ok) {
-        return path;
-      }
-      if (input.option.kind !== "headers") {
-        return err(inputError("connect.saveHeaders requires a headers option"));
-      }
-
-      const headers = buildHeadersFromValues(input.option, input.values);
-      if (!headers.ok) {
-        return headers;
-      }
-      return putCredential({
-        path: path.value,
-        auth: {
-          kind: "headers",
-          profilePath: input.option.profilePath,
-          label: input.option.label,
-          resource: input.option.resource,
-        },
-        secret: { headers: headers.value },
       });
     },
 
@@ -1128,7 +1114,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           return ok(toConnectFlow(flow.value));
         },
 
-        async start(input) {
+        async startOAuth(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
             return path;
@@ -1137,10 +1123,10 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.start(input);
+          return connect.startOAuth(input);
         },
 
-        async complete(input) {
+        async completeOAuth(input) {
           const flowId = extractFlowId(input.callbackUri);
           if (!flowId) {
             return err(inputError("OAuth callback is missing state"));
@@ -1153,10 +1139,10 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.complete(input);
+          return connect.completeOAuth(input);
         },
 
-        async saveHeaders(input) {
+        async setHeaders(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
             return path;
@@ -1165,19 +1151,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.saveHeaders(input);
-        },
-
-        async putHeaders(input) {
-          const path = assertPath(input.path, "path");
-          if (!path.ok) {
-            return path;
-          }
-          const allowed = requireRule(scope, "credential.connect", path.value);
-          if (!allowed.ok) {
-            return allowed;
-          }
-          return connect.putHeaders(input);
+          return connect.setHeaders(input);
         },
 
         async resolveHeaders(input) {

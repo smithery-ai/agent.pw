@@ -84,7 +84,7 @@ if (!option) {
 
 if (option.kind === "oauth") {
   const session = await unwrap(
-    agentPw.connect.start({
+    agentPw.connect.startOAuth({
       path: "/acme/connections/docs",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
@@ -98,11 +98,11 @@ if (option.kind === "oauth") {
 }
 
 await unwrap(
-  agentPw.connect.saveHeaders({
+  agentPw.connect.setHeaders({
     path: "/acme/connections/docs",
-    option,
-    values: {
-      Authorization: "api-key-value",
+    resource: "https://docs.example.com/mcp",
+    headers: {
+      Authorization: "Bearer api-key-value",
     },
   }),
 );
@@ -131,8 +131,8 @@ It returns one of:
 
 Each returned option is self-contained. Apps pass the chosen option into either:
 
-- `connect.start(...)` for OAuth
-- `connect.saveHeaders(...)` for manual header-based auth
+- `connect.startOAuth(...)` for OAuth
+- `connect.setHeaders(...)` for header-based auth after building final headers from the option metadata
 
 An empty `options` list means the resource is currently unconfigured.
 
@@ -193,7 +193,7 @@ When the callback returns:
 
 ```ts
 const completed = await unwrap(
-  agentPw.connect.complete({
+  agentPw.connect.completeOAuth({
     callbackUri: "https://app.example.com/oauth/callback?code=...&state=...",
   }),
 );
