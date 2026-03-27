@@ -30,8 +30,8 @@ export function mergeConnectHeaders(input: {
 
   if (!input.oauthHeaders) {
     return {
-      ...(preserveExistingHeaders ? (input.existingHeaders ?? {}) : {}),
-      ...(input.headers ?? {}),
+      ...(preserveExistingHeaders ? input.existingHeaders : undefined),
+      ...input.headers,
     };
   }
 
