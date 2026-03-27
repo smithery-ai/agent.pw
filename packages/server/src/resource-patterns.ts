@@ -1,12 +1,11 @@
 import { err, ok, result } from "okay-error";
 import { inputError } from "./errors.js";
-import type { AgentPwResult } from "./types.js";
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function normalizeResource(resource: string): AgentPwResult<string> {
+export function normalizeResource(resource: string) {
   const parsed = result(() => new URL(resource));
   if (!parsed.ok) {
     return err(inputError(`Invalid resource '${resource}'`, { value: resource }));
@@ -16,7 +15,7 @@ export function normalizeResource(resource: string): AgentPwResult<string> {
   return ok(parsed.value.toString());
 }
 
-export function normalizeResourcePattern(pattern: string): AgentPwResult<string> {
+export function normalizeResourcePattern(pattern: string) {
   const normalized = pattern.trim();
   if (normalized.length === 0) {
     return err(inputError("Resource pattern cannot be empty", { value: pattern }));
@@ -30,7 +29,7 @@ export function normalizeResourcePattern(pattern: string): AgentPwResult<string>
   return ok(normalized);
 }
 
-export function resourcePatternMatches(pattern: string, resource: string): AgentPwResult<boolean> {
+export function resourcePatternMatches(pattern: string, resource: string) {
   const normalizedPattern = normalizeResourcePattern(pattern);
   if (!normalizedPattern.ok) {
     return normalizedPattern;
@@ -45,10 +44,7 @@ export function resourcePatternMatches(pattern: string, resource: string): Agent
   return ok(regex.test(normalizedResource.value));
 }
 
-export function anyResourcePatternMatches(
-  patterns: string[],
-  resource: string,
-): AgentPwResult<boolean> {
+export function anyResourcePatternMatches(patterns: string[], resource: string) {
   for (const pattern of patterns) {
     const matches = resourcePatternMatches(pattern, resource);
     if (!matches.ok) {

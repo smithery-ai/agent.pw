@@ -1,18 +1,25 @@
-import { err, ok, result } from "okay-error";
+import { err, ok, result, type Result } from "okay-error";
 import * as oauth from "oauth4webapi";
-import { expiredError, inputError, internalError, notFoundError, oauthError } from "./errors.js";
-import { buildCredentialHeaders, type StoredCredentials } from "./lib/credentials-crypto.js";
+import {
+  expiredError,
+  inputError,
+  internalError,
+  isAgentPwError,
+  notFoundError,
+  oauthError,
+} from "./errors.js";
+import {
+  buildCredentialHeaders,
+  type StoredCredentials,
+  type StoredOAuthCredentials,
+} from "./lib/credentials-crypto.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
-  AgentPwError,
-  AgentPwResult,
-  CimdDocument,
   CimdDocumentInput,
-  ConnectAuthorizationSession,
   ConnectCompleteInput,
-  ConnectCompleteResult,
   ConnectDisconnectInput,
+  ConnectWebHandlerOptions,
   ConnectOAuthOption,
   ConnectStartInput,
   ConnectWebHandlers,
@@ -26,14 +33,14 @@ import type {
   PendingFlow,
 } from "./types.js";
 
-function assertPath(path: string, label: string): AgentPwResult<string> {
+function assertPath(path: string, label: string) {
   if (!path.startsWith("/") || path === "/" || path.includes("..")) {
     return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
   }
   return ok(path);
 }
 
-function assertUrl(value: string, label: string): AgentPwResult<URL> {
+function assertUrl(value: string, label: string) {
   const parsed = result(() => new URL(value));
   if (!parsed.ok) {
     return err(inputError(`Invalid ${label} '${value}'`, { field: label, value }));
@@ -63,9 +70,7 @@ function normalizeClientAuthentication(
   return hasSecret ? "client_secret_basic" : "none";
 }
 
-function buildClientAuthentication(
-  config: OAuthResolvedConfig,
-): AgentPwResult<ReturnType<typeof oauth.ClientSecretBasic>> {
+function buildClientAuthentication(config: OAuthResolvedConfig) {
   switch (config.clientAuthentication) {
     case "client_secret_post":
       if (!config.clientSecret) {
@@ -93,6 +98,10 @@ function resourceFromCredentialRecord(credential: CredentialRecord) {
     return credential.auth.resource;
   }
   return undefined;
+}
+
+function handlerError(error: unknown, message: string, source: string) {
+  return isAgentPwError(error) ? error : internalError(message, { cause: error, source });
 }
 
 function oauthConfigFromStoredCredentials(
@@ -150,7 +159,7 @@ function oauthSecretFromTokenResponse(
   response: oauth.TokenEndpointResponse,
   oauthConfig: OAuthResolvedConfig,
   existing?: StoredCredentials,
-): StoredCredentials & { headers: Record<string, string> } {
+): StoredOAuthCredentials {
   const accessToken = response.access_token;
   const refreshToken = response.refresh_token ?? existing?.oauth?.refreshToken ?? null;
   const expiresAt =
@@ -204,7 +213,7 @@ function mergeHeaders(
 async function resolveAuthorizationServer(
   config: OAuthResolvedConfig,
   customFetch: typeof fetch | undefined,
-): Promise<AgentPwResult<oauth.AuthorizationServer>> {
+) {
   if (config.issuer) {
     const issuer = assertUrl(config.issuer, "oauth issuer");
     if (!issuer.ok) {
@@ -298,7 +307,7 @@ function buildAuthorizationServerDiscoveryAttempts(
 async function discoverAuthorizationServerMetadata(
   issuer: URL,
   customFetch: typeof fetch | undefined,
-): Promise<AgentPwResult<oauth.AuthorizationServer | null>> {
+) {
   for (const attempt of buildAuthorizationServerDiscoveryAttempts(issuer, customFetch)) {
     const response = await result(attempt.request());
     if (!response.ok) {
@@ -338,17 +347,7 @@ async function discoverAuthorizationServerMetadata(
   return ok(null);
 }
 
-async function discoverResource(
-  resource: string,
-  customFetch: typeof fetch | undefined,
-): Promise<
-  AgentPwResult<{
-    resource: string;
-    authorizationServers: string[];
-    resourceName?: string;
-    scopes: string[];
-  }>
-> {
+async function discoverResource(resource: string, customFetch: typeof fetch | undefined) {
   const normalizedResource = normalizeResource(resource);
   if (!normalizedResource.ok) {
     return normalizedResource;
@@ -469,7 +468,7 @@ function parseProfileOAuthConfig(
   profile: CredentialProfileRecord,
   resource: string,
   clientInput: OAuthClientInput | undefined,
-): AgentPwResult<OAuthResolvedConfig> {
+) {
   if (profile.auth.kind !== "oauth") {
     return err(inputError(`Credential Profile '${profile.path}' is not an OAuth profile`));
   }
@@ -512,7 +511,7 @@ async function resolveOAuthConfigForResourceOption(
   option: ConnectOAuthOption,
   clientInput: OAuthClientInput | undefined,
   customFetch: typeof fetch | undefined,
-): Promise<AgentPwResult<OAuthResolvedConfig>> {
+) {
   const client = clientInput;
   if (!client) {
     return err(inputError(`Resource '${option.resource}' requires oauth client configuration`));
@@ -647,12 +646,12 @@ export function createOAuthService(options: {
   clock: () => Date;
   customFetch?: typeof fetch;
   defaultClient?: OAuthClientInput;
-  getProfile(path: string): Promise<AgentPwResult<CredentialProfileRecord | null>>;
-  getCredential(path: string): Promise<AgentPwResult<CredentialRecord | null>>;
-  putCredential(input: CredentialPutInput): Promise<AgentPwResult<CredentialRecord>>;
-  deleteCredential(path: string): Promise<AgentPwResult<boolean>>;
+  getProfile(path: string): Promise<Result<CredentialProfileRecord | null>>;
+  getCredential(path: string): Promise<Result<CredentialRecord | null>>;
+  putCredential(input: CredentialPutInput): Promise<Result<CredentialRecord>>;
+  deleteCredential(path: string): Promise<Result<boolean>>;
 }) {
-  async function requireFlowStore(): Promise<AgentPwResult<FlowStore>> {
+  async function requireFlowStore() {
     if (!options.flowStore) {
       return err(inputError("OAuth flows require an explicit flowStore"));
     }
@@ -662,7 +661,7 @@ export function createOAuthService(options: {
   async function resolveOAuthConfigForOption(
     option: ConnectOAuthOption,
     clientInput: OAuthClientInput | undefined,
-  ): Promise<AgentPwResult<OAuthResolvedConfig>> {
+  ) {
     if (option.source === "profile") {
       if (!option.profilePath) {
         return err(inputError("Profile-backed OAuth option is missing profilePath"));
@@ -698,7 +697,7 @@ export function createOAuthService(options: {
     optionsForRefresh: {
       force?: boolean;
     } = {},
-  ): Promise<AgentPwResult<CredentialRecord | null>> {
+  ) {
     const credential = await options.getCredential(path);
     if (!credential.ok) {
       return credential;
@@ -767,7 +766,14 @@ export function createOAuthService(options: {
     }
     return options.putCredential({
       path: credential.value.path,
-      auth: credential.value.auth,
+      auth: {
+        kind: "oauth",
+        ...(credential.value.auth.profilePath
+          ? { profilePath: credential.value.auth.profilePath }
+          : {}),
+        ...(credential.value.auth.label ? { label: credential.value.auth.label } : {}),
+        ...(credential.value.auth.resource ? { resource: credential.value.auth.resource } : {}),
+      },
       secret: oauthSecretFromTokenResponse(processed.value, oauthConfig, credential.value.secret),
     });
   }
@@ -789,9 +795,7 @@ export function createOAuthService(options: {
       return discoverResource(input.resource, options.customFetch);
     },
 
-    async startAuthorization(
-      input: ConnectStartInput,
-    ): Promise<AgentPwResult<ConnectAuthorizationSession>> {
+    async startAuthorization(input: ConnectStartInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -867,9 +871,7 @@ export function createOAuthService(options: {
       });
     },
 
-    async completeAuthorization(
-      input: ConnectCompleteInput,
-    ): Promise<AgentPwResult<ConnectCompleteResult>> {
+    async completeAuthorization(input: ConnectCompleteInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -975,7 +977,7 @@ export function createOAuthService(options: {
         path: flow.path,
         auth: {
           kind: "oauth",
-          profilePath: flow.option.profilePath ?? null,
+          profilePath: flow.option.profilePath,
           label: flow.option.label,
           resource: flow.resource,
         },
@@ -1124,13 +1126,7 @@ export function createOAuthService(options: {
       return options.deleteCredential(path.value);
     },
 
-    createWebHandlers(
-      optionsForHandlers: {
-        callbackPath?: string;
-        success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-        error?(error: AgentPwError, request: Request): Response | Promise<Response>;
-      } = {},
-    ): ConnectWebHandlers {
+    createWebHandlers(optionsForHandlers: ConnectWebHandlerOptions = {}): ConnectWebHandlers {
       const callbackPath = optionsForHandlers.callbackPath ?? "/oauth/callback";
 
       return {
@@ -1149,9 +1145,14 @@ export function createOAuthService(options: {
               redirectUri: input.redirectUri ?? resolveRedirectUri(request, callbackPath),
             });
             if (!session.ok) {
+              const error = handlerError(
+                session.error,
+                "OAuth start failed",
+                "oauth.createWebHandlers.startAuthorization",
+              );
               return optionsForHandlers.error
-                ? optionsForHandlers.error(session.error, request)
-                : defaultErrorResponse(session.error);
+                ? optionsForHandlers.error(error, request)
+                : defaultErrorResponse(error);
             }
             return Response.redirect(session.value.authorizationUrl, 302);
           } catch (error) {
@@ -1171,9 +1172,14 @@ export function createOAuthService(options: {
               callbackUri: request.url,
             });
             if (!completed.ok) {
+              const error = handlerError(
+                completed.error,
+                "OAuth flow failed",
+                "oauth.createWebHandlers.completeAuthorization",
+              );
               return optionsForHandlers.error
-                ? optionsForHandlers.error(completed.error, request)
-                : defaultErrorResponse(completed.error);
+                ? optionsForHandlers.error(error, request)
+                : defaultErrorResponse(error);
             }
             if (optionsForHandlers.success) {
               return optionsForHandlers.success(completed.value, request);
@@ -1192,7 +1198,7 @@ export function createOAuthService(options: {
       };
     },
 
-    createClientMetadataDocument(input: CimdDocumentInput): AgentPwResult<CimdDocument> {
+    createClientMetadataDocument(input: CimdDocumentInput) {
       const clientId = assertUrl(input.clientId, "client id");
       if (!clientId.ok) {
         return clientId;
@@ -1231,7 +1237,7 @@ export function createOAuthService(options: {
       });
     },
 
-    createClientMetadataResponse(input: CimdDocumentInput): AgentPwResult<Response> {
+    createClientMetadataResponse(input: CimdDocumentInput) {
       const document = this.createClientMetadataDocument(input);
       if (!document.ok) {
         return document;

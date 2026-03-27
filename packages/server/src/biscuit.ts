@@ -18,13 +18,7 @@ import {
   SignatureAlgorithm,
 } from "@smithery/biscuit";
 import { inputError } from "./errors.js";
-import type {
-  AgentPwResult,
-  BiscuitSubject,
-  BiscuitTokenFacts,
-  RuleConstraint,
-  RuleGrant,
-} from "./types.js";
+import type { BiscuitSubject, BiscuitTokenFacts, RuleConstraint, RuleGrant } from "./types.js";
 
 export const TOKEN_PREFIX = "apw_";
 
@@ -65,7 +59,7 @@ function normalizeFactStatement(fact: string): string {
   return trimmed.endsWith(";") ? trimmed : `${trimmed};`;
 }
 
-export function parseTtlSeconds(ttl: string | number): AgentPwResult<number> {
+export function parseTtlSeconds(ttl: string | number) {
   if (typeof ttl === "number") return ok(ttl);
   if (/^\d+$/.test(ttl)) return ok(parseInt(ttl, 10));
   const match = ttl.match(/^(\d+)(s|m|h|d)$/);
@@ -82,7 +76,7 @@ export function parseTtlSeconds(ttl: string | number): AgentPwResult<number> {
  * Build attenuation block code from restriction constraints.
  * Each constraint adds a check that the request must match.
  */
-function buildAttenuationCode(constraints: RuleConstraint[]): AgentPwResult<string> {
+function buildAttenuationCode(constraints: RuleConstraint[]) {
   const lines: string[] = [];
   const alternatives: string[] = [];
 
@@ -247,7 +241,7 @@ export function restrictToken(
   tokenBase64: string,
   publicKeyHex: string,
   constraints: RuleConstraint[],
-): AgentPwResult<string> {
+) {
   const code = buildAttenuationCode(constraints);
   if (!code.ok) return code;
   if (!code.value) return ok(tokenBase64);
@@ -310,7 +304,7 @@ export function mintDescendantToken(
   parentTokenBase64: string,
   rights: RuleGrant[],
   constraints: RuleConstraint[],
-): AgentPwResult<string> {
+) {
   const parentFacts = extractTokenFacts(parentTokenBase64, publicKeyHex);
   const userId = parentFacts.userId ?? parentFacts.orgId;
   if (!userId) {

@@ -1,82 +1,27 @@
+import type { JWKS } from "oauth4webapi";
 import type { Result } from "okay-error";
+import type {
+  authorizationError,
+  conflictError,
+  cryptoError,
+  expiredError,
+  inputError,
+  internalError,
+  notFoundError,
+  oauthError,
+  persistenceError,
+  unsupportedCredentialKindError,
+} from "./errors.js";
 import type { Database } from "./db/index.js";
-import type { StoredCredentials } from "./lib/credentials-crypto.js";
+import type {
+  StoredCredentials,
+  StoredEnvCredentials,
+  StoredHeadersCredentials,
+  StoredOAuthCredentials,
+} from "./lib/credentials-crypto.js";
 import type { Logger } from "./lib/logger.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
-
-interface AgentPwErrorBase {
-  message: string;
-  cause?: unknown;
-  path?: string;
-}
-
-export interface AgentPwInputError extends AgentPwErrorBase {
-  type: "Input";
-  field?: string;
-  value?: string;
-}
-
-export interface AgentPwConflictError extends AgentPwErrorBase {
-  type: "Conflict";
-}
-
-export interface AgentPwAuthorizationError extends AgentPwErrorBase {
-  type: "Authorization";
-  action: string;
-}
-
-export interface AgentPwNotFoundError extends AgentPwErrorBase {
-  type: "NotFound";
-  resource: string;
-}
-
-export interface AgentPwExpiredError extends AgentPwErrorBase {
-  type: "Expired";
-  resource: string;
-}
-
-export interface AgentPwUnsupportedCredentialKindError extends AgentPwErrorBase {
-  type: "UnsupportedCredentialKind";
-  kind: "oauth" | "headers" | "env";
-}
-
-export interface AgentPwPersistenceError extends AgentPwErrorBase {
-  type: "Persistence";
-  operation: string;
-}
-
-export interface AgentPwOAuthError extends AgentPwErrorBase {
-  type: "OAuth";
-  stage: string;
-}
-
-export interface AgentPwCryptoError extends AgentPwErrorBase {
-  type: "Crypto";
-  operation: string;
-}
-
-export interface AgentPwInternalError extends AgentPwErrorBase {
-  type: "Internal";
-  source?: string;
-}
-
-export type AgentPwError =
-  | AgentPwAuthorizationError
-  | AgentPwConflictError
-  | AgentPwCryptoError
-  | AgentPwExpiredError
-  | AgentPwInputError
-  | AgentPwInternalError
-  | AgentPwNotFoundError
-  | AgentPwOAuthError
-  | AgentPwPersistenceError
-  | AgentPwUnsupportedCredentialKindError;
-
-export type AgentPwResult<ValueType, ErrorType extends AgentPwError = AgentPwError> = Result<
-  ValueType,
-  ErrorType
->;
 
 export interface RuleGrant {
   action: string;
@@ -191,9 +136,9 @@ export interface CredentialProfilePutInput {
 }
 
 interface CredentialAuthBase {
-  profilePath?: string | null;
-  label?: string | null;
-  resource?: string | null;
+  profilePath: string | null;
+  label: string | null;
+  resource?: string;
 }
 
 export interface HeadersCredentialAuth extends CredentialAuthBase {
@@ -210,6 +155,29 @@ export interface EnvCredentialAuth extends CredentialAuthBase {
 
 export type CredentialAuth = HeadersCredentialAuth | OAuthCredentialAuth | EnvCredentialAuth;
 
+interface CredentialAuthInputBase {
+  profilePath?: string;
+  label?: string;
+  resource?: string;
+}
+
+export interface HeadersCredentialAuthInput extends CredentialAuthInputBase {
+  kind: "headers";
+}
+
+export interface OAuthCredentialAuthInput extends CredentialAuthInputBase {
+  kind: "oauth";
+}
+
+export interface EnvCredentialAuthInput extends CredentialAuthInputBase {
+  kind: "env";
+}
+
+export type CredentialAuthInput =
+  | HeadersCredentialAuthInput
+  | OAuthCredentialAuthInput
+  | EnvCredentialAuthInput;
+
 export interface CredentialSummary {
   path: string;
   auth: CredentialAuth;
@@ -221,12 +189,17 @@ export interface CredentialRecord extends CredentialSummary {
   secret: StoredCredentials;
 }
 
-export interface CredentialPutInput {
+interface CredentialPutInputBase<TAuth extends CredentialAuthInput, TSecret> {
   path: string;
   resource?: string;
-  auth: CredentialAuth;
-  secret: StoredCredentials | Buffer;
+  auth: TAuth;
+  secret: TSecret | Buffer;
 }
+
+export type CredentialPutInput =
+  | CredentialPutInputBase<HeadersCredentialAuthInput, StoredHeadersCredentials>
+  | CredentialPutInputBase<OAuthCredentialAuthInput, StoredOAuthCredentials>
+  | CredentialPutInputBase<EnvCredentialAuthInput, StoredEnvCredentials>;
 
 export interface OAuthClientMetadataInput {
   clientId?: string;
@@ -235,7 +208,7 @@ export interface OAuthClientMetadataInput {
   scope?: string | string[];
   tokenEndpointAuthMethod?: OAuthClientAuthenticationMethod | "private_key_jwt";
   jwksUri?: string;
-  jwks?: Record<string, unknown>;
+  jwks?: JWKS;
   tokenEndpointAuthSigningAlg?: string;
 }
 
@@ -277,10 +250,14 @@ export interface ConnectOAuthOption extends ConnectOptionBase {
 export interface ConnectHeadersOption extends ConnectOptionBase {
   kind: "headers";
   source: "profile";
-  fields: HeaderFieldDefinition[];
+  fields: readonly HeaderFieldDefinition[];
 }
 
 export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
+
+type HeaderValues<TFields extends readonly HeaderFieldDefinition[]> = {
+  [Field in TFields[number] as Field["name"]]: string;
+};
 
 export interface ConnectResolutionResult {
   canonicalResource: string;
@@ -340,10 +317,12 @@ export interface ConnectCompleteResult {
   credential: CredentialRecord;
 }
 
-export interface ConnectSaveHeadersInput {
+export interface ConnectSaveHeadersInput<
+  TFields extends readonly HeaderFieldDefinition[] = readonly HeaderFieldDefinition[],
+> {
   path: string;
-  option: ConnectHeadersOption;
-  values: Record<string, string>;
+  option: ConnectHeadersOption & { fields: TFields };
+  values: HeaderValues<TFields>;
 }
 
 export interface ConnectHeadersInput {
@@ -391,7 +370,7 @@ export interface CimdDocument {
   scope?: string;
   client_name?: string;
   jwks_uri?: string;
-  jwks?: Record<string, unknown>;
+  jwks?: JWKS;
   token_endpoint_auth_signing_alg?: string;
 }
 
@@ -402,7 +381,7 @@ export interface CimdDocumentInput {
   scope?: string | string[];
   tokenEndpointAuthMethod?: OAuthClientAuthenticationMethod | "private_key_jwt";
   jwksUri?: string;
-  jwks?: Record<string, unknown>;
+  jwks?: JWKS;
   tokenEndpointAuthSigningAlg?: string;
 }
 
@@ -416,31 +395,47 @@ export interface ConnectWebHandlers {
   callback(request: Request): Promise<Response>;
 }
 
+export interface ConnectWebHandlerOptions {
+  callbackPath?: string;
+  success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
+  error?(
+    error:
+      | ReturnType<typeof authorizationError>
+      | ReturnType<typeof conflictError>
+      | ReturnType<typeof cryptoError>
+      | ReturnType<typeof expiredError>
+      | ReturnType<typeof inputError>
+      | ReturnType<typeof internalError>
+      | ReturnType<typeof notFoundError>
+      | ReturnType<typeof oauthError>
+      | ReturnType<typeof persistenceError>
+      | ReturnType<typeof unsupportedCredentialKindError>,
+    request: Request,
+  ): Response | Promise<Response>;
+}
+
 export interface ScopedAgentPw {
   connect: {
-    prepare(input: ConnectPrepareInput): Promise<AgentPwResult<ConnectPrepareResult>>;
-    getFlow(flowId: string): Promise<AgentPwResult<ConnectFlow>>;
-    start(input: ConnectStartInput): Promise<AgentPwResult<ConnectAuthorizationSession>>;
-    complete(input: ConnectCompleteInput): Promise<AgentPwResult<ConnectCompleteResult>>;
-    saveHeaders(input: ConnectSaveHeadersInput): Promise<AgentPwResult<CredentialRecord>>;
-    headers(input: ConnectHeadersInput): Promise<AgentPwResult<Record<string, string>>>;
-    disconnect(input: ConnectDisconnectInput): Promise<AgentPwResult<boolean>>;
+    prepare(input: ConnectPrepareInput): Promise<Result<ConnectPrepareResult>>;
+    getFlow(flowId: string): Promise<Result<ConnectFlow>>;
+    start(input: ConnectStartInput): Promise<Result<ConnectAuthorizationSession>>;
+    complete(input: ConnectCompleteInput): Promise<Result<ConnectCompleteResult>>;
+    saveHeaders(input: ConnectSaveHeadersInput): Promise<Result<CredentialRecord>>;
+    headers(input: ConnectHeadersInput): Promise<Result<Record<string, string>>>;
+    disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
   credentials: {
-    get(path: string): Promise<AgentPwResult<CredentialRecord | null>>;
-    list(options?: { path?: string }): Promise<AgentPwResult<CredentialSummary[]>>;
-    put(input: CredentialPutInput): Promise<AgentPwResult<CredentialRecord>>;
-    move(fromPath: string, toPath: string): Promise<AgentPwResult<boolean>>;
-    delete(path: string): Promise<AgentPwResult<boolean>>;
+    get(path: string): Promise<Result<CredentialRecord | null>>;
+    list(options?: { path?: string }): Promise<Result<CredentialSummary[]>>;
+    put(input: CredentialPutInput): Promise<Result<CredentialRecord>>;
+    move(fromPath: string, toPath: string): Promise<Result<boolean>>;
+    delete(path: string): Promise<Result<boolean>>;
   };
   profiles: {
-    get(path: string): Promise<AgentPwResult<CredentialProfileRecord | null>>;
-    list(options?: { path?: string }): Promise<AgentPwResult<CredentialProfileRecord[]>>;
-    put(
-      path: string,
-      data: CredentialProfilePutInput,
-    ): Promise<AgentPwResult<CredentialProfileRecord>>;
-    delete(path: string): Promise<AgentPwResult<boolean>>;
+    get(path: string): Promise<Result<CredentialProfileRecord | null>>;
+    list(options?: { path?: string }): Promise<Result<CredentialProfileRecord[]>>;
+    put(path: string, data: CredentialProfilePutInput): Promise<Result<CredentialProfileRecord>>;
+    delete(path: string): Promise<Result<boolean>>;
   };
 }
 
@@ -464,16 +459,12 @@ export interface AgentPw extends ScopedAgentPw {
     resolve(input: {
       path: string;
       resource: string;
-    }): Promise<AgentPwResult<CredentialProfileRecord | null>>;
+    }): Promise<Result<CredentialProfileRecord | null>>;
   };
   connect: ScopedAgentPw["connect"] & {
-    createWebHandlers(options?: {
-      callbackPath?: string;
-      success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-      error?(error: AgentPwError, request: Request): Response | Promise<Response>;
-    }): ConnectWebHandlers;
-    createClientMetadataDocument(input: CimdDocumentInput): AgentPwResult<CimdDocument>;
-    createClientMetadataResponse(input: CimdDocumentInput): AgentPwResult<Response>;
+    createWebHandlers(options?: ConnectWebHandlerOptions): ConnectWebHandlers;
+    createClientMetadataDocument(input: CimdDocumentInput): Result<CimdDocument>;
+    createClientMetadataResponse(input: CimdDocumentInput): Result<Response>;
   };
   scope(input: RuleScope): ScopedAgentPw;
 }

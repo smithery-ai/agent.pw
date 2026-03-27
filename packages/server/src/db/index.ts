@@ -1,10 +1,10 @@
-import { err, ok, result } from "okay-error";
+import { err, ok, result, type Result } from "okay-error";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import { readFile } from "node:fs/promises";
 import postgres from "postgres";
 import { internalError } from "../errors.js";
-import type { AgentPwResult, SqlNamespaceOptions } from "../types.js";
+import type { SqlNamespaceOptions } from "../types.js";
 import { coerceSqlNamespace, type AgentPwSqlNamespace, type schemaTables } from "./schema/index.js";
 
 type PostgresDatabase = ReturnType<typeof drizzlePg<typeof schemaTables>>;
@@ -19,7 +19,7 @@ export function createDb(
   options: {
     sql?: SqlNamespaceInput;
   } = {},
-): AgentPwResult<Database> {
+) {
   const sqlNamespace = coerceSqlNamespace(options.sql);
   if (!sqlNamespace.ok) {
     return sqlNamespace;
@@ -29,16 +29,14 @@ export function createDb(
 }
 
 let bundledPGliteAssetsPromise: Promise<
-  AgentPwResult<{
+  Result<{
     fsBundle: Blob;
     wasmModule: WebAssembly.Module;
   } | null>
 > | null = null;
 type WasmByteSource = ArrayBuffer | Uint8Array;
 
-async function compileWasmModule(
-  bytes: WasmByteSource,
-): Promise<AgentPwResult<WebAssembly.Module>> {
+async function compileWasmModule(bytes: WasmByteSource) {
   const compileFn = Reflect.get(WebAssembly, "compile");
   if (typeof compileFn === "function") {
     const module = await compileFn.call(WebAssembly, bytes);
@@ -62,12 +60,7 @@ async function compileWasmModule(
   );
 }
 
-async function loadBundledPGliteAssets(): Promise<
-  AgentPwResult<{
-    fsBundle: Blob;
-    wasmModule: WebAssembly.Module;
-  } | null>
-> {
+async function loadBundledPGliteAssets() {
   const wasmPath = process.env.AGENTPW_PGLITE_WASM_PATH?.trim();
   const dataPath = process.env.AGENTPW_PGLITE_DATA_PATH?.trim();
 
@@ -107,7 +100,7 @@ export async function createLocalDb(
   options: {
     sql?: SqlNamespaceInput;
   } = {},
-): Promise<AgentPwResult<Database>> {
+) {
   const imported = await result(import("@electric-sql/pglite"));
   if (!imported.ok) {
     return err(

@@ -22,7 +22,6 @@ import { normalizeResource } from "./resource-patterns.js";
 import { authorizeRules, can as canRule } from "./rules.js";
 import type {
   AgentPw,
-  AgentPwResult,
   AgentPwOptions,
   ConnectFlow,
   ConnectHeadersOption,
@@ -34,7 +33,6 @@ import type {
   CredentialProfileAuth,
   CredentialProfilePutInput,
   CredentialProfileRecord,
-  CredentialPutInput,
   CredentialRecord,
   CredentialSummary,
   PendingFlow,
@@ -42,7 +40,7 @@ import type {
   ScopedAgentPw,
 } from "./types.js";
 
-function assertPath(path: string, label: string): AgentPwResult<string> {
+function assertPath(path: string, label: string) {
   const normalized = canonicalizePath(path);
   if (!validatePath(normalized) || normalized === "/") {
     return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
@@ -50,7 +48,7 @@ function assertPath(path: string, label: string): AgentPwResult<string> {
   return ok(normalized);
 }
 
-function assertListPath(path: string | undefined, label: string): AgentPwResult<string> {
+function assertListPath(path: string | undefined, label: string) {
   const normalized = canonicalizePath(path ?? "/");
   if (!validatePath(normalized)) {
     return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
@@ -58,10 +56,7 @@ function assertListPath(path: string | undefined, label: string): AgentPwResult<
   return ok(normalized);
 }
 
-function resolveSingleMatch<T extends { path: string }>(
-  matches: T[],
-  description: string,
-): AgentPwResult<T | undefined> {
+function resolveSingleMatch<T extends { path: string }>(matches: T[], description: string) {
   if (matches.length === 0) {
     return ok(undefined);
   }
@@ -83,12 +78,12 @@ function resolveSingleMatch<T extends { path: string }>(
   return ok(conflicts[0]);
 }
 
-function parseProfileAuth(value: unknown): AgentPwResult<CredentialProfileAuth> {
+function parseProfileAuth(value: unknown) {
   if (!isRecord(value)) {
     return err(inputError("Invalid profile auth payload"));
   }
   if (value.kind === "oauth") {
-    return ok({
+    return ok<CredentialProfileAuth>({
       kind: "oauth",
       label: typeof value.label === "string" ? value.label : undefined,
       issuer: typeof value.issuer === "string" ? value.issuer : undefined,
@@ -125,7 +120,7 @@ function parseProfileAuth(value: unknown): AgentPwResult<CredentialProfileAuth> 
           .filter((field) => field.name.length > 0 && field.label.length > 0)
       : [];
 
-    return ok({
+    return ok<CredentialProfileAuth>({
       kind: "headers",
       label: typeof value.label === "string" ? value.label : undefined,
       fields,
@@ -144,7 +139,7 @@ function parseProfileAuth(value: unknown): AgentPwResult<CredentialProfileAuth> 
           .filter((field) => field.name.length > 0 && field.label.length > 0)
       : [];
 
-    return ok({
+    return ok<CredentialProfileAuth>({
       kind: "env",
       label: typeof value.label === "string" ? value.label : undefined,
       fields,
@@ -153,7 +148,7 @@ function parseProfileAuth(value: unknown): AgentPwResult<CredentialProfileAuth> 
   return err(inputError("Invalid profile auth kind"));
 }
 
-function parseCredentialAuth(value: unknown): AgentPwResult<CredentialAuth> {
+function parseCredentialAuth(value: unknown) {
   if (
     !isRecord(value) ||
     (value.kind !== "oauth" && value.kind !== "headers" && value.kind !== "env")
@@ -169,11 +164,26 @@ function parseCredentialAuth(value: unknown): AgentPwResult<CredentialAuth> {
     return resource;
   }
 
-  return ok({
-    kind: value.kind,
+  const authBase = {
     profilePath: typeof value.profilePath === "string" ? value.profilePath : null,
     label: typeof value.label === "string" ? value.label : null,
     ...(resource.value ? { resource: resource.value } : {}),
+  };
+  if (value.kind === "oauth") {
+    return ok<CredentialAuth>({
+      kind: "oauth",
+      ...authBase,
+    });
+  }
+  if (value.kind === "headers") {
+    return ok<CredentialAuth>({
+      kind: "headers",
+      ...authBase,
+    });
+  }
+  return ok<CredentialAuth>({
+    kind: "env",
+    ...authBase,
   });
 }
 
@@ -184,42 +194,60 @@ function credentialResource(auth: CredentialAuth) {
   return normalizeResource(auth.resource);
 }
 
-function normalizeCredentialAuth(auth: CredentialAuth): AgentPwResult<CredentialAuth> {
-  const resource = credentialResource(auth);
+function normalizeCredentialAuth(auth: CredentialAuth, fallbackResource?: string) {
+  const resource =
+    typeof auth.resource === "string"
+      ? normalizeResource(auth.resource)
+      : typeof fallbackResource === "string"
+        ? normalizeResource(fallbackResource)
+        : ok<string | null>(null);
   if (!resource.ok) {
     return resource;
   }
-  return ok({
+  if (auth.kind === "oauth") {
+    return ok<CredentialAuth>({
+      ...auth,
+      ...(resource.value ? { resource: resource.value } : {}),
+    });
+  }
+  if (auth.kind === "headers") {
+    return ok<CredentialAuth>({
+      ...auth,
+      ...(resource.value ? { resource: resource.value } : {}),
+    });
+  }
+  return ok<CredentialAuth>({
     ...auth,
     ...(resource.value ? { resource: resource.value } : {}),
   });
 }
 
-function requireHeadersSecret(
-  secret: StoredCredentials,
-  path: string,
-): AgentPwResult<Record<string, string>> {
+function requireHeadersSecret(secret: StoredCredentials, path: string) {
   if (!secret.headers || Object.keys(secret.headers).length === 0) {
     return err(inputError(`Credential '${path}' does not have header-based auth`, { path }));
   }
   return ok(secret.headers);
 }
 
-function requireEnvSecret(
-  secret: StoredCredentials,
-  path: string,
-): AgentPwResult<Record<string, string>> {
+function requireEnvSecret(secret: StoredCredentials, path: string) {
   if (!secret.env || Object.keys(secret.env).length === 0) {
     return err(inputError(`Credential '${path}' does not have env auth`, { path }));
   }
   return ok(secret.env);
 }
 
-function validateSecretForAuth(
-  auth: CredentialAuth,
-  secret: StoredCredentials,
-  path: string,
-): AgentPwResult<void> {
+function requireOAuthSecret(secret: StoredCredentials, path: string) {
+  if (!secret.headers || Object.keys(secret.headers).length === 0 || !secret.oauth) {
+    return err(inputError(`Credential '${path}' does not have oauth auth`, { path }));
+  }
+  return ok(secret);
+}
+
+function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, path: string) {
+  if (auth.kind === "oauth") {
+    const oauth = requireOAuthSecret(secret, path);
+    return oauth.ok ? ok() : oauth;
+  }
   if (auth.kind === "env") {
     const env = requireEnvSecret(secret, path);
     return env.ok ? ok() : env;
@@ -228,7 +256,7 @@ function validateSecretForAuth(
   return headers.ok ? ok() : headers;
 }
 
-function toJsonRecord(value: unknown): AgentPwResult<Record<string, unknown>> {
+function toJsonRecord(value: unknown) {
   const normalized = JSON.parse(JSON.stringify(value));
   if (!isRecord(normalized)) {
     return err(inputError("Expected JSON object"));
@@ -244,13 +272,13 @@ function toProfileRecord(row: {
   description: string | null;
   createdAt: Date;
   updatedAt: Date;
-}): AgentPwResult<CredentialProfileRecord> {
+}) {
   const auth = parseProfileAuth(row.auth);
   if (!auth.ok) {
     return auth;
   }
 
-  return ok({
+  return ok<CredentialProfileRecord>({
     path: row.path,
     resourcePatterns: row.resourcePatterns,
     auth: auth.value,
@@ -270,7 +298,7 @@ async function decryptCredentialRecord(
     createdAt: Date;
     updatedAt: Date;
   },
-): Promise<AgentPwResult<CredentialRecord>> {
+) {
   const auth = parseCredentialAuth(row.auth);
   if (!auth.ok) {
     return auth;
@@ -286,7 +314,7 @@ async function decryptCredentialRecord(
     return secret;
   }
 
-  return ok({
+  return ok<CredentialRecord>({
     path: row.path,
     ...(resource.value ? { resource: resource.value } : {}),
     auth: auth.value,
@@ -315,7 +343,7 @@ function buildHeadersFromValues(option: ConnectHeadersOption, values: Record<str
   return ok(headers);
 }
 
-function requireRule(scope: RuleScope, action: string, path: string): AgentPwResult<void> {
+function requireRule(scope: RuleScope, action: string, path: string) {
   const result = authorizeRules({
     rights: scope.rights,
     action,
@@ -328,7 +356,7 @@ function requireRule(scope: RuleScope, action: string, path: string): AgentPwRes
   return ok();
 }
 
-export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwResult<AgentPw>> {
+export async function createAgentPw(options: AgentPwOptions) {
   const logger = options.logger ?? createLogger("agentpw").logger;
   const encryptionKey = options.encryptionKey;
   const queries = createQueryHelpers(options.sql);
@@ -458,7 +486,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
     },
   };
 
-  async function getCredential(path: string) {
+  const getCredential: AgentPw["credentials"]["get"] = async (path) => {
     const normalizedPath = assertPath(path, "credential path");
     if (!normalizedPath.ok) {
       return normalizedPath;
@@ -472,9 +500,9 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
       return ok(null);
     }
     return decryptCredentialRecord(encryptionKey, selected.value);
-  }
+  };
 
-  async function putCredential(input: CredentialPutInput) {
+  const putCredential: AgentPw["credentials"]["put"] = async (input) => {
     const path = assertPath(input.path, "credential path");
     if (!path.ok) {
       return path;
@@ -503,12 +531,10 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
       return existingResource;
     }
 
-    const auth = normalizeCredentialAuth({
-      ...parsedAuth.value,
-      ...(parsedResource.value && !existingResource.value
-        ? { resource: parsedResource.value }
-        : {}),
-    });
+    const auth = normalizeCredentialAuth(
+      parsedAuth.value,
+      parsedResource.value && !existingResource.value ? parsedResource.value : undefined,
+    );
     if (!auth.ok) {
       return auth;
     }
@@ -553,14 +579,11 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
     }
 
     return decryptCredentialRecord(encryptionKey, stored.value);
-  }
+  };
 
-  function optionFromProfile(
-    profile: CredentialProfileRecord,
-    resource: string,
-  ): AgentPwResult<ConnectOption> {
+  function optionFromProfile(profile: CredentialProfileRecord, resource: string) {
     if (profile.auth.kind === "oauth") {
-      return ok({
+      return ok<ConnectOption>({
         kind: "oauth",
         source: "profile",
         resource,
@@ -584,7 +607,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
       );
     }
 
-    return ok({
+    return ok<ConnectOption>({
       kind: "headers",
       source: "profile",
       resource,
@@ -604,15 +627,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
     };
   }
 
-  async function resolveConnection(input: ConnectPrepareInput): Promise<
-    AgentPwResult<{
-      path: string;
-      resource: string;
-      existing: CredentialRecord | null;
-      resolution: ConnectResolutionResult;
-      options: ConnectOption[];
-    }>
-  > {
+  async function resolveConnection(input: ConnectPrepareInput) {
     const path = assertPath(input.path, "path");
     if (!path.ok) {
       return path;
@@ -660,7 +675,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
           reason: "existing-credential",
           profilePath: existing.value.auth.profilePath ?? null,
           option: null,
-        },
+        } satisfies ConnectResolutionResult,
         options: [],
       });
     }
@@ -684,7 +699,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
           reason: "matched-profile",
           profilePath: profile.value.path,
           option: option.value,
-        },
+        } satisfies ConnectResolutionResult,
         options: [option.value],
       });
     }
@@ -721,7 +736,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
             reason: "discovered-oauth",
             profilePath: null,
             option: options[0],
-          },
+          } satisfies ConnectResolutionResult,
           options,
         });
       }
@@ -737,7 +752,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
         reason: "unconfigured",
         profilePath: null,
         option: null,
-      },
+      } satisfies ConnectResolutionResult,
       options: [],
     });
   }
@@ -896,7 +911,7 @@ export async function createAgentPw(options: AgentPwOptions): Promise<AgentPwRes
         path: path.value,
         auth: {
           kind: "headers",
-          profilePath: input.option.profilePath ?? null,
+          profilePath: input.option.profilePath,
           label: input.option.label,
           resource: input.option.resource,
         },
