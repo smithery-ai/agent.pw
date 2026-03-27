@@ -209,6 +209,15 @@ describe("oauth runtime", () => {
         }),
       }),
     );
+    expect(await agentPw.credentials.get(completed.path)).toEqual(
+      expect.objectContaining({
+        path: completed.path,
+        auth: completed.credential.auth,
+        secret: expect.objectContaining({
+          headers: { Authorization: "Bearer profile-access-1" },
+        }),
+      }),
+    );
 
     await agentPw.credentials.put({
       path: completed.path,
