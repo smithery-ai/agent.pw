@@ -1,26 +1,11 @@
-type ErrorContext = {
-  cause?: unknown;
-  path?: string;
-};
-
-function errorMessage(value: unknown, fallback: string) {
-  if (value instanceof Error && value.message) {
-    return value.message;
-  }
-  if (typeof value === "string" && value.length > 0) {
-    return value;
-  }
-  return fallback;
-}
-
 export function inputError(
   message: string,
-  data: ErrorContext & { field?: string; value?: string } = {},
+  data: { cause?: unknown; path?: string; field?: string; value?: string } = {},
 ) {
   return { type: "Input" as const, message, ...data };
 }
 
-export function conflictError(message: string, data: ErrorContext = {}) {
+export function conflictError(message: string, data: { cause?: unknown; path?: string } = {}) {
   return { type: "Conflict" as const, message, ...data };
 }
 
@@ -28,40 +13,63 @@ export function authorizationError(
   action: string,
   path: string,
   message = `Missing '${action}' for '${path}'`,
-  data: Omit<ErrorContext, "path"> = {},
+  data: { cause?: unknown } = {},
 ) {
   return { type: "Authorization" as const, action, path, message, ...data };
 }
 
-export function notFoundError(resource: string, message: string, data: ErrorContext = {}) {
+export function notFoundError(
+  resource: string,
+  message: string,
+  data: { cause?: unknown; path?: string } = {},
+) {
   return { type: "NotFound" as const, resource, message, ...data };
 }
 
-export function expiredError(resource: string, message: string, data: ErrorContext = {}) {
+export function expiredError(
+  resource: string,
+  message: string,
+  data: { cause?: unknown; path?: string } = {},
+) {
   return { type: "Expired" as const, resource, message, ...data };
 }
 
 export function unsupportedCredentialKindError(
   kind: "oauth" | "headers" | "env",
   message: string,
-  data: ErrorContext = {},
+  data: { cause?: unknown; path?: string } = {},
 ) {
   return { type: "UnsupportedCredentialKind" as const, kind, message, ...data };
 }
 
-export function persistenceError(operation: string, message: string, data: ErrorContext = {}) {
+export function persistenceError(
+  operation: string,
+  message: string,
+  data: { cause?: unknown; path?: string } = {},
+) {
   return { type: "Persistence" as const, operation, message, ...data };
 }
 
-export function oauthError(stage: string, message: string, data: ErrorContext = {}) {
+export function oauthError(
+  stage: string,
+  message: string,
+  data: { cause?: unknown; path?: string } = {},
+) {
   return { type: "OAuth" as const, stage, message, ...data };
 }
 
-export function cryptoError(operation: string, message: string, data: ErrorContext = {}) {
+export function cryptoError(
+  operation: string,
+  message: string,
+  data: { cause?: unknown; path?: string } = {},
+) {
   return { type: "Crypto" as const, operation, message, ...data };
 }
 
-export function internalError(message: string, data: ErrorContext & { source?: string } = {}) {
+export function internalError(
+  message: string,
+  data: { cause?: unknown; path?: string; source?: string } = {},
+) {
   return { type: "Internal" as const, message, ...data };
 }
 
@@ -86,20 +94,4 @@ export function isAgentPwError(
     typeof error.type === "string" &&
     typeof error.message === "string"
   );
-}
-
-export function toAgentPwError(
-  error: unknown,
-  fallback: ErrorContext & { message: string; source?: string } = {
-    message: "Unexpected internal error",
-  },
-) {
-  if (isAgentPwError(error)) {
-    return error;
-  }
-
-  return internalError(errorMessage(error, fallback.message), {
-    ...fallback,
-    cause: fallback.cause ?? error,
-  });
 }

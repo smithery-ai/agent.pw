@@ -5,7 +5,6 @@ import {
   inputError,
   internalError,
   isAgentPwError,
-  toAgentPwError,
 } from "../packages/server/src/errors";
 
 describe("agent.pw errors", () => {
@@ -34,18 +33,9 @@ describe("agent.pw errors", () => {
     });
   });
 
-  it("recognizes and normalizes unknown errors", () => {
+  it("recognizes known error objects", () => {
     const known = internalError("known");
     expect(isAgentPwError(known)).toBe(true);
-    expect(toAgentPwError(known)).toBe(known);
-
-    const unknown = toAgentPwError(new Error("boom"));
-    expect(unknown).toEqual(
-      expect.objectContaining({
-        type: "Internal",
-        message: "Unexpected internal error",
-        cause: expect.any(Error),
-      }),
-    );
+    expect(isAgentPwError(new Error("boom"))).toBe(false);
   });
 });

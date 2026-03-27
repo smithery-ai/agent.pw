@@ -1,13 +1,6 @@
 import { err, ok, result, type Result } from "okay-error";
 import * as oauth from "oauth4webapi";
-import {
-  expiredError,
-  inputError,
-  internalError,
-  notFoundError,
-  oauthError,
-  toAgentPwError,
-} from "./errors.js";
+import { expiredError, inputError, internalError, notFoundError, oauthError } from "./errors.js";
 import { buildCredentialHeaders, type StoredCredentials } from "./lib/credentials-crypto.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
@@ -1115,10 +1108,7 @@ export function createOAuthService(options: {
       optionsForHandlers: {
         callbackPath?: string;
         success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-        error?(
-          error: ReturnType<typeof toAgentPwError>,
-          request: Request,
-        ): Response | Promise<Response>;
+        error?(error: unknown, request: Request): Response | Promise<Response>;
       } = {},
     ): ConnectWebHandlers {
       const callbackPath = optionsForHandlers.callbackPath ?? "/oauth/callback";
@@ -1140,7 +1130,7 @@ export function createOAuthService(options: {
             });
             if (!session.ok) {
               return optionsForHandlers.error
-                ? optionsForHandlers.error(toAgentPwError(session.error), request)
+                ? optionsForHandlers.error(session.error, request)
                 : defaultErrorResponse(session.error);
             }
             return Response.redirect(session.value.authorizationUrl, 302);
@@ -1162,7 +1152,7 @@ export function createOAuthService(options: {
             });
             if (!completed.ok) {
               return optionsForHandlers.error
-                ? optionsForHandlers.error(toAgentPwError(completed.error), request)
+                ? optionsForHandlers.error(completed.error, request)
                 : defaultErrorResponse(completed.error);
             }
             if (optionsForHandlers.success) {

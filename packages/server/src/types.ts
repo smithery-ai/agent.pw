@@ -1,5 +1,4 @@
 import type { Result } from "okay-error";
-import type { toAgentPwError } from "./errors.js";
 import type { Database } from "./db/index.js";
 import type { StoredCredentials } from "./lib/credentials-crypto.js";
 import type { Logger } from "./lib/logger.js";
@@ -395,10 +394,7 @@ export interface AgentPw extends ScopedAgentPw {
     createWebHandlers(options?: {
       callbackPath?: string;
       success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-      error?(
-        error: ReturnType<typeof toAgentPwError>,
-        request: Request,
-      ): Response | Promise<Response>;
+      error?(error: unknown, request: Request): Response | Promise<Response>;
     }): ConnectWebHandlers;
     createClientMetadataDocument(input: CimdDocumentInput): Result<CimdDocument>;
     createClientMetadataResponse(input: CimdDocumentInput): Result<Response>;
