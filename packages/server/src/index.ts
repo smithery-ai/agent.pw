@@ -14,6 +14,7 @@ import {
   encryptCredentials,
   type StoredCredentials,
 } from "./lib/credentials-crypto.js";
+import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
 import { createOAuthService } from "./oauth.js";
@@ -24,7 +25,6 @@ import type {
   AgentPw,
   AgentPwOptions,
   ConnectFlow,
-  ConnectHeadersOption,
   ConnectOAuthOption,
   ConnectOption,
   ConnectPrepareInput,
@@ -329,17 +329,18 @@ function extractFlowId(callbackUri: string) {
   return url.searchParams.get("state");
 }
 
-function buildHeadersFromValues(option: ConnectHeadersOption, values: Record<string, string>) {
-  const headers: Record<string, string> = {};
-
-  for (const field of option.fields) {
-    const value = values[field.name];
-    if (typeof value !== "string" || value.length === 0) {
-      return err(inputError(`Missing header value for '${field.name}'`, { field: field.name }));
-    }
-    headers[field.name] = field.prefix ? `${field.prefix}${value}` : value;
+function parseHeaders(value: unknown) {
+  if (!isRecord(value)) {
+    return err(inputError("Expected headers object"));
   }
 
+  const headers: Record<string, string> = {};
+  for (const [name, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") {
+      return err(inputError(`Invalid header value for '${name}'`, { field: name }));
+    }
+    headers[name] = entry;
+  }
   return ok(headers);
 }
 
@@ -876,50 +877,152 @@ export async function createAgentPw(options: AgentPwOptions) {
       return ok(toConnectFlow(flow.value));
     },
 
-    start(input) {
+    startOAuth(input) {
       if (input.option.kind !== "oauth") {
-        return Promise.resolve(err(inputError("connect.start requires an oauth option")));
+        return Promise.resolve(err(inputError("connect.startOAuth requires an oauth option")));
       }
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return Promise.resolve(path);
       }
+      const headers =
+        typeof input.headers === "undefined"
+          ? ok<Record<string, string> | undefined>(undefined)
+          : parseHeaders(input.headers);
+      if (!headers.ok) {
+        return Promise.resolve(headers);
+      }
       return oauth.startAuthorization({
         ...input,
         path: path.value,
+        ...(headers.value ? { headers: headers.value } : {}),
       });
     },
 
-    complete(input) {
+    completeOAuth(input) {
       return oauth.completeAuthorization(input);
     },
 
-    async saveHeaders(input) {
+    async setHeaders(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return path;
       }
-      if (input.option.kind !== "headers") {
-        return err(inputError("connect.saveHeaders requires a headers option"));
-      }
 
-      const headers = buildHeadersFromValues(input.option, input.values);
+      const headers = parseHeaders(input.headers);
       if (!headers.ok) {
         return headers;
       }
+
+      const existing = await getCredential(path.value);
+      if (!existing.ok) {
+        return existing;
+      }
+
+      if (!existing.value) {
+        if (typeof input.resource !== "string") {
+          return err(inputError("connect.setHeaders requires resource when creating a credential"));
+        }
+
+        const resource = normalizeResource(input.resource);
+        if (!resource.ok) {
+          return resource;
+        }
+
+        const profile = await profiles.resolve({
+          path: path.value,
+          resource: resource.value,
+        });
+        if (!profile.ok) {
+          return profile;
+        }
+
+        const selectedOption = profile.value
+          ? optionFromProfile(profile.value, resource.value)
+          : null;
+        if (selectedOption && !selectedOption.ok) {
+          return selectedOption;
+        }
+        if (selectedOption?.value.kind === "oauth") {
+          return err(
+            inputError(`Resource '${resource.value}' requires OAuth; use connect.startOAuth(...)`),
+          );
+        }
+
+        return putCredential({
+          path: path.value,
+          auth: {
+            kind: "headers",
+            ...(selectedOption?.value.kind === "headers" && selectedOption.value.profilePath
+              ? { profilePath: selectedOption.value.profilePath }
+              : {}),
+            ...(selectedOption?.value.kind === "headers" && selectedOption.value.label
+              ? { label: selectedOption.value.label }
+              : {}),
+            resource: resource.value,
+          },
+          secret: {
+            headers: headers.value,
+          },
+        });
+      }
+
+      if (existing.value.auth.kind === "env") {
+        return err(
+          unsupportedCredentialKindError("env", `Credential '${path.value}' stores env auth`, {
+            path: path.value,
+          }),
+        );
+      }
+
+      if (existing.value.auth.kind === "oauth") {
+        const secret = requireOAuthSecret(existing.value.secret, existing.value.path);
+        if (!secret.ok) {
+          return secret;
+        }
+
+        return putCredential({
+          path: path.value,
+          auth: {
+            kind: "oauth",
+            ...(existing.value.auth.profilePath
+              ? { profilePath: existing.value.auth.profilePath }
+              : {}),
+            ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
+            ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+          },
+          secret: {
+            ...secret.value,
+            headers: mergeHeaders({
+              headers: headers.value,
+              oauthHeaders: secret.value.headers,
+            }),
+          },
+        });
+      }
+
+      const secret = requireHeadersSecret(existing.value.secret, existing.value.path);
+      if (!secret.ok) {
+        return secret;
+      }
+
       return putCredential({
         path: path.value,
         auth: {
           kind: "headers",
-          profilePath: input.option.profilePath,
-          label: input.option.label,
-          resource: input.option.resource,
+          ...(existing.value.auth.profilePath
+            ? { profilePath: existing.value.auth.profilePath }
+            : {}),
+          ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
+          ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
         },
-        secret: { headers: headers.value },
+        secret: {
+          headers: mergeHeaders({ headers: headers.value }),
+        },
       });
     },
 
-    async headers(input) {
+    async resolveHeaders(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return path;
@@ -1011,7 +1114,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           return ok(toConnectFlow(flow.value));
         },
 
-        async start(input) {
+        async startOAuth(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
             return path;
@@ -1020,10 +1123,10 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.start(input);
+          return connect.startOAuth(input);
         },
 
-        async complete(input) {
+        async completeOAuth(input) {
           const flowId = extractFlowId(input.callbackUri);
           if (!flowId) {
             return err(inputError("OAuth callback is missing state"));
@@ -1036,10 +1139,10 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.complete(input);
+          return connect.completeOAuth(input);
         },
 
-        async saveHeaders(input) {
+        async setHeaders(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
             return path;
@@ -1048,10 +1151,10 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.saveHeaders(input);
+          return connect.setHeaders(input);
         },
 
-        async headers(input) {
+        async resolveHeaders(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
             return path;
@@ -1060,7 +1163,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.headers(input);
+          return connect.resolveHeaders(input);
         },
 
         async disconnect(input) {

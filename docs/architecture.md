@@ -11,7 +11,7 @@ The framework is built around one simple runtime model:
 - a saved connection lives at an exact `path`
 - `agent.pw` stores one encrypted `credential` at that exact path
 - `connect.prepare(...)` can use a `resource` to decide how that connection should authenticate
-- `connect.headers(...)` returns fresh runtime headers for the same path
+- `connect.resolveHeaders(...)` returns fresh runtime headers for the same path
 
 Profiles remain path-scoped configuration, but they are setup-time guidance and polyfills rather than the main runtime identity model.
 
@@ -133,11 +133,11 @@ It returns:
   - options are `oauth` or `headers`
   - an empty list means unconfigured
 
-### `connect.start({ path, option, redirectUri, client? })`
+### `connect.startOAuth({ path, option, redirectUri, headers?, client? })`
 
 Starts an OAuth flow from one returned OAuth option.
 
-### `connect.complete({ callbackUri, preserveExistingHeaders? })`
+### `connect.completeOAuth({ callbackUri })`
 
 Completes the OAuth flow, persists the credential at the exact path, and returns the stored credential.
 
@@ -147,11 +147,15 @@ Returns the current pending flow state for a known flow ID.
 
 Missing flows return `NotFound`, not `null`. This is intentional: `getFlow` is a workflow continuation API, so absence is treated as an invalid or expired continuation step rather than a normal lookup miss.
 
-### `connect.saveHeaders({ path, option, values })`
+### `connect.setHeaders({ path, headers, resource? })`
 
-Stores a manual header-based credential at the exact path.
+Stores app-supplied headers at the exact path.
 
-### `connect.headers({ path, refresh? })`
+This is the write path for both header-based auth and app-supplied non-auth connection headers.
+
+When the stored credential is OAuth-backed, OAuth-owned auth headers remain authoritative and app-supplied non-auth headers are replaced.
+
+### `connect.resolveHeaders({ path, refresh? })`
 
 Returns runtime headers for the exact path.
 
@@ -297,7 +301,7 @@ Examples:
 
 This keeps runtime resolution simple:
 
-- `connect.headers({ path })`
+- `connect.resolveHeaders({ path })`
 - `credentials.get(path)`
 
 Listing remains path-based:
@@ -334,7 +338,7 @@ const api = agentPw.scope({
   rights: [{ action: "credential.use", root: "/acme" }],
 });
 
-await api.connect.headers({ path: "/acme/connections/docs" });
+await api.connect.resolveHeaders({ path: "/acme/connections/docs" });
 ```
 
 The framework only accepts the authorization facts it checks itself: path-based rights. Apps can derive those rights from Biscuits, sessions, or any other permission store.

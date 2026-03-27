@@ -255,10 +255,6 @@ export interface ConnectHeadersOption extends ConnectOptionBase {
 
 export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
 
-type HeaderValues<TFields extends readonly HeaderFieldDefinition[]> = {
-  [Field in TFields[number] as Field["name"]]: string;
-};
-
 export interface ConnectResolutionResult {
   canonicalResource: string;
   source: ConnectOption["source"] | null;
@@ -288,10 +284,11 @@ export interface ConnectOptionsResult {
 
 export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult;
 
-export interface ConnectStartInput {
+export interface ConnectStartOAuthInput {
   path: string;
   option: ConnectOAuthOption;
   redirectUri: string;
+  headers?: Record<string, string>;
   scopes?: string | string[];
   expiresAt?: Date;
   additionalParameters?: Record<string, string>;
@@ -307,9 +304,8 @@ export interface ConnectAuthorizationSession {
   option: ConnectOAuthOption;
 }
 
-export interface ConnectCompleteInput {
+export interface ConnectCompleteOAuthInput {
   callbackUri: string;
-  preserveExistingHeaders?: boolean;
 }
 
 export interface ConnectCompleteResult {
@@ -317,15 +313,13 @@ export interface ConnectCompleteResult {
   credential: CredentialRecord;
 }
 
-export interface ConnectSaveHeadersInput<
-  TFields extends readonly HeaderFieldDefinition[] = readonly HeaderFieldDefinition[],
-> {
+export interface ConnectSetHeadersInput {
   path: string;
-  option: ConnectHeadersOption & { fields: TFields };
-  values: HeaderValues<TFields>;
+  headers: Record<string, string>;
+  resource?: string;
 }
 
-export interface ConnectHeadersInput {
+export interface ConnectResolveHeadersInput {
   path: string;
   refresh?: boolean;
 }
@@ -340,6 +334,7 @@ export interface PendingFlow {
   path: string;
   resource: string;
   option: ConnectOAuthOption;
+  headers?: Record<string, string>;
   redirectUri: string;
   codeVerifier: string;
   expiresAt: Date;
@@ -388,7 +383,7 @@ export interface CimdDocumentInput {
 export interface ConnectWebHandlers {
   start(
     request: Request,
-    input: Omit<ConnectStartInput, "redirectUri"> & {
+    input: Omit<ConnectStartOAuthInput, "redirectUri"> & {
       redirectUri?: string;
     },
   ): Promise<Response>;
@@ -418,10 +413,10 @@ export interface ScopedAgentPw {
   connect: {
     prepare(input: ConnectPrepareInput): Promise<Result<ConnectPrepareResult>>;
     getFlow(flowId: string): Promise<Result<ConnectFlow>>;
-    start(input: ConnectStartInput): Promise<Result<ConnectAuthorizationSession>>;
-    complete(input: ConnectCompleteInput): Promise<Result<ConnectCompleteResult>>;
-    saveHeaders(input: ConnectSaveHeadersInput): Promise<Result<CredentialRecord>>;
-    headers(input: ConnectHeadersInput): Promise<Result<Record<string, string>>>;
+    startOAuth(input: ConnectStartOAuthInput): Promise<Result<ConnectAuthorizationSession>>;
+    completeOAuth(input: ConnectCompleteOAuthInput): Promise<Result<ConnectCompleteResult>>;
+    setHeaders(input: ConnectSetHeadersInput): Promise<Result<CredentialRecord>>;
+    resolveHeaders(input: ConnectResolveHeadersInput): Promise<Result<Record<string, string>>>;
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
   credentials: {

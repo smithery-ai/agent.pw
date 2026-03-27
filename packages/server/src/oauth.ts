@@ -13,15 +13,16 @@ import {
   type StoredCredentials,
   type StoredOAuthCredentials,
 } from "./lib/credentials-crypto.js";
+import { mergeHeaders } from "./lib/connect-headers.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
   CimdDocumentInput,
-  ConnectCompleteInput,
+  ConnectCompleteOAuthInput,
   ConnectDisconnectInput,
+  ConnectStartOAuthInput,
   ConnectWebHandlerOptions,
   ConnectOAuthOption,
-  ConnectStartInput,
   ConnectWebHandlers,
   CredentialProfileRecord,
   CredentialPutInput,
@@ -184,29 +185,6 @@ function oauthSecretFromTokenResponse(
       clientSecret: oauthConfig.clientSecret,
       clientAuthentication: oauthConfig.clientAuthentication,
     },
-  };
-}
-
-const AUTH_HEADER_NAMES = new Set(["authorization", "proxy-authorization"]);
-
-function mergeHeaders(
-  existing: Record<string, string> | undefined,
-  next: Record<string, string>,
-  preserveExistingHeaders: boolean | undefined,
-) {
-  if (!preserveExistingHeaders || !existing) {
-    return next;
-  }
-
-  const merged: Record<string, string> = {};
-  for (const [name, value] of Object.entries(existing)) {
-    if (!AUTH_HEADER_NAMES.has(name.toLowerCase())) {
-      merged[name] = value;
-    }
-  }
-  return {
-    ...merged,
-    ...next,
   };
 }
 
@@ -764,6 +742,17 @@ export function createOAuthService(options: {
         }),
       );
     }
+    const secret = oauthSecretFromTokenResponse(
+      processed.value,
+      oauthConfig,
+      credential.value.secret,
+    );
+    secret.headers = mergeHeaders({
+      existingHeaders: credential.value.secret.headers,
+      preserveExistingHeaders: true,
+      oauthHeaders: secret.headers,
+    });
+
     return options.putCredential({
       path: credential.value.path,
       auth: {
@@ -774,7 +763,7 @@ export function createOAuthService(options: {
         ...(credential.value.auth.label ? { label: credential.value.auth.label } : {}),
         ...(credential.value.auth.resource ? { resource: credential.value.auth.resource } : {}),
       },
-      secret: oauthSecretFromTokenResponse(processed.value, oauthConfig, credential.value.secret),
+      secret,
     });
   }
 
@@ -795,7 +784,7 @@ export function createOAuthService(options: {
       return discoverResource(input.resource, options.customFetch);
     },
 
-    async startAuthorization(input: ConnectStartInput) {
+    async startAuthorization(input: ConnectStartOAuthInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -854,6 +843,7 @@ export function createOAuthService(options: {
         path: path.value,
         resource: oauthConfig.value.resource,
         option: input.option,
+        headers: input.headers,
         redirectUri: redirectUri.value.toString(),
         codeVerifier,
         expiresAt: input.expiresAt ?? defaultExpiry(options.clock),
@@ -871,7 +861,7 @@ export function createOAuthService(options: {
       });
     },
 
-    async completeAuthorization(input: ConnectCompleteInput) {
+    async completeAuthorization(input: ConnectCompleteOAuthInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -959,19 +949,18 @@ export function createOAuthService(options: {
         );
       }
 
-      const existing = input.preserveExistingHeaders
-        ? await options.getCredential(flow.path)
-        : ok(null);
+      const existing = await options.getCredential(flow.path);
       if (!existing.ok) {
         return existing;
       }
 
       const secret = oauthSecretFromTokenResponse(processed.value, flow.oauthConfig);
-      secret.headers = mergeHeaders(
-        existing.value?.secret.headers,
-        secret.headers,
-        input.preserveExistingHeaders,
-      );
+      secret.headers = mergeHeaders({
+        existingHeaders: existing.value?.secret.headers,
+        headers: flow.headers,
+        oauthHeaders: secret.headers,
+        preserveExistingHeaders: true,
+      });
 
       const credential = await options.putCredential({
         path: flow.path,

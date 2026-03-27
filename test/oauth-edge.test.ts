@@ -116,7 +116,7 @@ describe("oauth edge cases", () => {
     const headersOnly = await createAgent();
 
     await expect(
-      headersOnly.connect.start({
+      headersOnly.connect.startOAuth({
         path: "/org/connections/docs",
         option: {
           kind: "oauth",
@@ -135,7 +135,7 @@ describe("oauth edge cases", () => {
     });
 
     await expect(
-      agentPw.connect.start({
+      agentPw.connect.startOAuth({
         path: "/org/connections/docs",
         option: {
           kind: "headers",
@@ -147,10 +147,10 @@ describe("oauth edge cases", () => {
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow("connect.start requires an oauth option");
+    ).rejects.toThrow("connect.startOAuth requires an oauth option");
 
     await expect(
-      agentPw.connect.start({
+      agentPw.connect.startOAuth({
         path: "/org/connections/docs",
         option: {
           kind: "oauth",
@@ -174,7 +174,7 @@ describe("oauth edge cases", () => {
     });
 
     await expect(
-      agentPw.connect.start({
+      agentPw.connect.startOAuth({
         path: "/org/connections/linear",
         option: {
           kind: "oauth",
@@ -198,13 +198,13 @@ describe("oauth edge cases", () => {
     });
 
     await expect(
-      agentPw.connect.complete({
+      agentPw.connect.completeOAuth({
         callbackUri: "https://app.example.com/oauth/callback?code=missing",
       }),
     ).rejects.toThrow("OAuth callback is missing state");
 
     await expect(
-      agentPw.connect.complete({
+      agentPw.connect.completeOAuth({
         callbackUri: "https://app.example.com/oauth/callback?code=missing&state=unknown",
       }),
     ).rejects.toThrow("Unknown OAuth flow 'unknown'");
@@ -232,7 +232,7 @@ describe("oauth edge cases", () => {
     });
 
     await expect(
-      agentPw.connect.complete({
+      agentPw.connect.completeOAuth({
         callbackUri: "https://app.example.com/oauth/callback?code=expired&state=expired-state",
       }),
     ).rejects.toThrow("OAuth flow 'expired-state' has expired");
@@ -247,7 +247,7 @@ describe("oauth edge cases", () => {
     });
 
     await expect(
-      agentPw.connect.start({
+      agentPw.connect.startOAuth({
         path: "/org/connections/broken",
         option: {
           kind: "oauth",
@@ -261,7 +261,7 @@ describe("oauth edge cases", () => {
     ).rejects.toThrow("Credential Profile '/missing' does not exist");
 
     await expect(
-      agentPw.connect.start({
+      agentPw.connect.startOAuth({
         path: "/org/connections/broken",
         option: {
           kind: "oauth",
@@ -344,7 +344,7 @@ describe("oauth edge cases", () => {
       auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer manual-token" } },
     });
-    expect(await agentPw.connect.headers({ path: "/org/connections/manual" })).toEqual({
+    expect(await agentPw.connect.resolveHeaders({ path: "/org/connections/manual" })).toEqual({
       Authorization: "Bearer manual-token",
     });
 
@@ -361,7 +361,7 @@ describe("oauth edge cases", () => {
       },
     });
     expect(
-      await agentPw.connect.headers({
+      await agentPw.connect.resolveHeaders({
         path: "/org/connections/oauth-no-refresh",
       }),
     ).toEqual({
@@ -382,7 +382,7 @@ describe("oauth edge cases", () => {
       },
     });
     expect(
-      await agentPw.connect.headers({
+      await agentPw.connect.resolveHeaders({
         path: "/org/connections/oauth-no-client",
       }),
     ).toEqual({
@@ -520,7 +520,7 @@ describe("oauth edge cases", () => {
     }
 
     await expect(
-      agentPw.connect.start({
+      agentPw.connect.startOAuth({
         path: "/org/connections/docs",
         option,
         redirectUri: "https://app.example.com/oauth/callback",
@@ -540,7 +540,7 @@ describe("oauth edge cases", () => {
     });
 
     await expect(
-      agentWithFixedClient.connect.start({
+      agentWithFixedClient.connect.startOAuth({
         path: "/org/connections/docs",
         option: {
           kind: "oauth",

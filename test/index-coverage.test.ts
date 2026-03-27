@@ -407,13 +407,13 @@ describe("index coverage helpers", () => {
       }
 
       await expect(
-        api.connect.complete({
+        api.connect.completeOAuth({
           callbackUri: "https://app.example.com/oauth/callback?code=missing",
         }),
       ).rejects.toThrow("OAuth callback is missing state");
 
       await expect(
-        api.connect.complete({
+        api.connect.completeOAuth({
           callbackUri: "https://app.example.com/oauth/callback?code=missing&state=unknown",
         }),
       ).rejects.toThrow("Unknown OAuth flow 'unknown'");
@@ -421,18 +421,18 @@ describe("index coverage helpers", () => {
         "Unknown OAuth flow 'missing-flow'",
       );
 
-      const directSession = await api.connect.start({
+      const directSession = await api.connect.startOAuth({
         path: "/acme/connections/linear_direct",
         option: oauthOption,
         redirectUri: "https://app.example.com/oauth/callback",
       });
-      const session = await api.connect.start({
+      const session = await api.connect.startOAuth({
         path: "/acme/connections/linear",
         option: oauthOption,
         redirectUri: "https://app.example.com/oauth/callback",
       });
       const startedFlow = await api.connect.getFlow(session.flowId);
-      const completed = await api.connect.complete({
+      const completed = await api.connect.completeOAuth({
         callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
       });
       const preparedReady = await api.connect.prepare({
@@ -444,7 +444,7 @@ describe("index coverage helpers", () => {
         resource: "https://api.linear.app/projects",
       });
 
-      const headers = await api.connect.headers({
+      const headers = await api.connect.resolveHeaders({
         path: "/acme/connections/linear",
         refresh: false,
       });
@@ -459,22 +459,18 @@ describe("index coverage helpers", () => {
       if (manualPrepared.kind !== "options") {
         throw new Error("Expected header options");
       }
-      const headerOption = manualPrepared.options[0];
-      if (!headerOption || headerOption.kind !== "headers") {
+      if (manualPrepared.options[0]?.kind !== "headers") {
         throw new Error("Expected header option");
       }
-      const savedHeaders = await api.connect.saveHeaders({
+      const savedHeaders = await api.connect.setHeaders({
         path: "/acme/connections/headered",
-        option: headerOption,
-        values: { Authorization: "header-token" },
+        resource: "https://headers.example.com",
+        headers: { Authorization: "header-token" },
       });
-      const savedWithoutProfile = await api.connect.saveHeaders({
+      const savedWithoutProfile = await api.connect.setHeaders({
         path: "/acme/connections/headered_polyfill",
-        option: {
-          ...headerOption,
-          profilePath: undefined,
-        },
-        values: { Authorization: "header-token-2" },
+        resource: "https://headers-polyfill.example.com",
+        headers: { Authorization: "header-token-2" },
       });
       const manual = await api.credentials.put({
         path: "/acme/connections/manual",
@@ -549,7 +545,7 @@ describe("index coverage helpers", () => {
       "/acme/connections/linear",
     ]);
     expect(result.savedHeaders.secret.headers).toEqual({
-      Authorization: "Bearer header-token",
+      Authorization: "header-token",
     });
     expect(result.savedWithoutProfile.auth.profilePath).toBeNull();
     expect(result.manual.path).toBe("/acme/connections/manual");
