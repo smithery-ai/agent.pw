@@ -344,7 +344,7 @@ describe("oauth edge cases", () => {
       auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer manual-token" } },
     });
-    expect(await agentPw.connect.headers({ path: "/org/connections/manual" })).toEqual({
+    expect(await agentPw.connect.resolveHeaders({ path: "/org/connections/manual" })).toEqual({
       Authorization: "Bearer manual-token",
     });
 
@@ -361,7 +361,7 @@ describe("oauth edge cases", () => {
       },
     });
     expect(
-      await agentPw.connect.headers({
+      await agentPw.connect.resolveHeaders({
         path: "/org/connections/oauth-no-refresh",
       }),
     ).toEqual({
@@ -382,7 +382,7 @@ describe("oauth edge cases", () => {
       },
     });
     expect(
-      await agentPw.connect.headers({
+      await agentPw.connect.resolveHeaders({
         path: "/org/connections/oauth-no-client",
       }),
     ).toEqual({

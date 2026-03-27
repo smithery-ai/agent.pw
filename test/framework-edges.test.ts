@@ -128,7 +128,7 @@ describe("createAgentPw edge cases", () => {
     await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toThrow(
       "Invalid credential path '/../bad'",
     );
-    await expect(agentPw.connect.headers({ path: "/missing" })).rejects.toThrow(
+    await expect(agentPw.connect.resolveHeaders({ path: "/missing" })).rejects.toThrow(
       "No credential exists at '/missing'",
     );
 
@@ -285,9 +285,23 @@ describe("createAgentPw edge cases", () => {
       "Credential '/org/connections/env_only' stores env auth and cannot be used with connect.prepare",
     );
 
-    await expect(agentPw.connect.headers({ path: "/org/connections/env_only" })).rejects.toThrow(
-      "Credential '/org/connections/env_only' stores env auth",
-    );
+    await expect(
+      agentPw.connect.resolveHeaders({ path: "/org/connections/env_only" }),
+    ).rejects.toThrow("Credential '/org/connections/env_only' stores env auth");
+
+    await expect(
+      agentPw.connect.putHeaders({
+        path: "/org/connections/env_only",
+        headers: { Authorization: "Bearer ignored" },
+      }),
+    ).rejects.toThrow("Credential '/org/connections/env_only' stores env auth");
+
+    await expect(
+      agentPw.connect.putHeaders({
+        path: "/org/connections/missing_resource",
+        headers: { Authorization: "Bearer missing-resource" },
+      }),
+    ).rejects.toThrow("connect.putHeaders requires resource when creating a credential");
   });
 
   it("falls back to the existing oauth credential when refresh lookup races to null", async () => {

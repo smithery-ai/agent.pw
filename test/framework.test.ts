@@ -243,8 +243,45 @@ describe("createAgentPw", () => {
     expect(saved.secret.headers).toEqual({
       Authorization: "Bearer rs_123",
     });
-    expect(await agentPw.connect.headers({ path: "/acme/connections/resend" })).toEqual({
+    expect(await agentPw.connect.resolveHeaders({ path: "/acme/connections/resend" })).toEqual({
       Authorization: "Bearer rs_123",
+    });
+  });
+
+  it("creates and overwrites app headers for managed connections", async () => {
+    const agentPw = await createTestAgent();
+
+    const created = await agentPw.connect.putHeaders({
+      path: "/acme/connections/runtime_headers",
+      resource: "https://api.resend.com",
+      headers: {
+        Authorization: "Bearer runtime-1",
+        "X-Smithery-Connection": "conn_123",
+      },
+    });
+
+    expect(created.auth).toEqual({
+      kind: "headers",
+      profilePath: null,
+      label: null,
+      resource: "https://api.resend.com/",
+    });
+    expect(created.secret.headers).toEqual({
+      Authorization: "Bearer runtime-1",
+      "X-Smithery-Connection": "conn_123",
+    });
+
+    const merged = await agentPw.connect.putHeaders({
+      path: "/acme/connections/runtime_headers",
+      headers: {
+        Authorization: "Bearer runtime-2",
+        "X-Trace-Id": "trace_123",
+      },
+    });
+
+    expect(merged.secret.headers).toEqual({
+      Authorization: "Bearer runtime-2",
+      "X-Trace-Id": "trace_123",
     });
   });
 
@@ -532,7 +569,7 @@ describe("createAgentPw", () => {
     );
 
     const allowed = {
-      headers: await api.connect.headers({ path: "/acme/connections/resend" }),
+      headers: await api.connect.resolveHeaders({ path: "/acme/connections/resend" }),
       credentials: await api.credentials.list({ path: "/acme/connections" }),
       profiles: await api.profiles.list({ path: "/profiles" }),
     };
@@ -544,7 +581,9 @@ describe("createAgentPw", () => {
     expect(allowed.profiles.map((profile) => profile.path)).toEqual(["/profiles/resend"]);
 
     const socket = agentPw.scope(rights([{ action: "credential.use", root: "/acme" }]));
-    await expect(socket.connect.headers({ path: "/acme/connections/resend" })).resolves.toEqual({
+    await expect(
+      socket.connect.resolveHeaders({ path: "/acme/connections/resend" }),
+    ).resolves.toEqual({
       Authorization: "Bearer resend-token",
     });
 

@@ -160,7 +160,7 @@ The implementation uses `oauth4webapi`, but the key security property is archite
 
 ### Refresh-Aware Reads
 
-`connect.headers({ path })` is refresh-aware by default for OAuth credentials.
+`connect.resolveHeaders({ path })` is refresh-aware by default for OAuth credentials.
 
 Before returning headers, the framework can:
 
@@ -208,7 +208,7 @@ Rules are the authorization facts that the framework understands directly.
 
 That means the same grant language can protect:
 
-- `connect.headers({ path })`
+- `connect.resolveHeaders({ path })`
 - `connect.prepare({ path, resource })`
 - `credentials.get(path)`
 - `credentials.list({ path })`
@@ -234,7 +234,7 @@ const api = agentPw.scope({
   rights: [{ action: "credential.use", root: "/acme" }],
 });
 
-await api.connect.headers({ path: "/acme/connections/docs" });
+await api.connect.resolveHeaders({ path: "/acme/connections/docs" });
 ```
 
 The framework only asks for path-based rights because those are the facts it actually checks. Apps can derive those rights from Biscuits, sessions, or any other permission store.

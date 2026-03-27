@@ -88,6 +88,9 @@ if (option.kind === "oauth") {
       path: "/acme/connections/docs",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
+      headers: {
+        "X-Workspace": "acme",
+      },
     }),
   );
 
@@ -109,7 +112,7 @@ Later, resolve fresh headers for that same connection:
 
 ```ts
 const headers = await unwrap(
-  agentPw.connect.headers({
+  agentPw.connect.resolveHeaders({
     path: "/acme/connections/docs",
   }),
 );
@@ -192,7 +195,6 @@ When the callback returns:
 const completed = await unwrap(
   agentPw.connect.complete({
     callbackUri: "https://app.example.com/oauth/callback?code=...&state=...",
-    preserveExistingHeaders: true,
   }),
 );
 
@@ -207,7 +209,7 @@ const flow = await unwrap(agentPw.connect.getFlow(flowId));
 
 The helper keeps examples focused on the happy path. Production code should usually handle `Err` results explicitly instead of throwing.
 
-`connect.headers(...)` is refresh-aware by default, so apps do not need to re-implement token refresh outside the vault.
+`connect.resolveHeaders(...)` is refresh-aware by default, so apps do not need to re-implement token refresh outside the vault.
 
 ## Profiles
 
@@ -324,7 +326,7 @@ const api = agentPw.scope({
   rights: [{ action: "credential.use", root: "/acme" }],
 });
 
-const headers = await api.connect.headers({
+const headers = await api.connect.resolveHeaders({
   path: "/acme/connections/docs",
 });
 ```

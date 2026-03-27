@@ -444,7 +444,7 @@ describe("index coverage helpers", () => {
         resource: "https://api.linear.app/projects",
       });
 
-      const headers = await api.connect.headers({
+      const headers = await api.connect.resolveHeaders({
         path: "/acme/connections/linear",
         refresh: false,
       });

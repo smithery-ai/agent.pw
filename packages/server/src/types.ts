@@ -292,6 +292,7 @@ export interface ConnectStartInput {
   path: string;
   option: ConnectOAuthOption;
   redirectUri: string;
+  headers?: Record<string, string>;
   scopes?: string | string[];
   expiresAt?: Date;
   additionalParameters?: Record<string, string>;
@@ -309,7 +310,6 @@ export interface ConnectAuthorizationSession {
 
 export interface ConnectCompleteInput {
   callbackUri: string;
-  preserveExistingHeaders?: boolean;
 }
 
 export interface ConnectCompleteResult {
@@ -325,7 +325,13 @@ export interface ConnectSaveHeadersInput<
   values: HeaderValues<TFields>;
 }
 
-export interface ConnectHeadersInput {
+export interface ConnectPutHeadersInput {
+  path: string;
+  headers: Record<string, string>;
+  resource?: string;
+}
+
+export interface ConnectResolveHeadersInput {
   path: string;
   refresh?: boolean;
 }
@@ -340,6 +346,7 @@ export interface PendingFlow {
   path: string;
   resource: string;
   option: ConnectOAuthOption;
+  headers?: Record<string, string>;
   redirectUri: string;
   codeVerifier: string;
   expiresAt: Date;
@@ -420,8 +427,9 @@ export interface ScopedAgentPw {
     getFlow(flowId: string): Promise<Result<ConnectFlow>>;
     start(input: ConnectStartInput): Promise<Result<ConnectAuthorizationSession>>;
     complete(input: ConnectCompleteInput): Promise<Result<ConnectCompleteResult>>;
+    putHeaders(input: ConnectPutHeadersInput): Promise<Result<CredentialRecord>>;
     saveHeaders(input: ConnectSaveHeadersInput): Promise<Result<CredentialRecord>>;
-    headers(input: ConnectHeadersInput): Promise<Result<Record<string, string>>>;
+    resolveHeaders(input: ConnectResolveHeadersInput): Promise<Result<Record<string, string>>>;
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
   credentials: {

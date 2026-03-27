@@ -14,6 +14,7 @@ import {
   encryptCredentials,
   type StoredCredentials,
 } from "./lib/credentials-crypto.js";
+import { mergeConnectHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
 import { createOAuthService } from "./oauth.js";
@@ -340,6 +341,21 @@ function buildHeadersFromValues(option: ConnectHeadersOption, values: Record<str
     headers[field.name] = field.prefix ? `${field.prefix}${value}` : value;
   }
 
+  return ok(headers);
+}
+
+function parseHeaders(value: unknown) {
+  if (!isRecord(value)) {
+    return err(inputError("Expected headers object"));
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [name, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") {
+      return err(inputError(`Invalid header value for '${name}'`, { field: name }));
+    }
+    headers[name] = entry;
+  }
   return ok(headers);
 }
 
@@ -884,14 +900,115 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!path.ok) {
         return Promise.resolve(path);
       }
+      const headers =
+        typeof input.headers === "undefined"
+          ? ok<Record<string, string> | undefined>(undefined)
+          : parseHeaders(input.headers);
+      if (!headers.ok) {
+        return Promise.resolve(headers);
+      }
       return oauth.startAuthorization({
         ...input,
         path: path.value,
+        ...(headers.value ? { headers: headers.value } : {}),
       });
     },
 
     complete(input) {
       return oauth.completeAuthorization(input);
+    },
+
+    async putHeaders(input) {
+      const path = assertPath(input.path, "path");
+      if (!path.ok) {
+        return path;
+      }
+
+      const headers = parseHeaders(input.headers);
+      if (!headers.ok) {
+        return headers;
+      }
+
+      const existing = await getCredential(path.value);
+      if (!existing.ok) {
+        return existing;
+      }
+
+      if (!existing.value) {
+        if (typeof input.resource !== "string") {
+          return err(inputError("connect.putHeaders requires resource when creating a credential"));
+        }
+
+        const resource = normalizeResource(input.resource);
+        if (!resource.ok) {
+          return resource;
+        }
+
+        return putCredential({
+          path: path.value,
+          auth: {
+            kind: "headers",
+            resource: resource.value,
+          },
+          secret: {
+            headers: headers.value,
+          },
+        });
+      }
+
+      if (existing.value.auth.kind === "env") {
+        return err(
+          unsupportedCredentialKindError("env", `Credential '${path.value}' stores env auth`, {
+            path: path.value,
+          }),
+        );
+      }
+
+      if (existing.value.auth.kind === "oauth") {
+        const secret = requireOAuthSecret(existing.value.secret, existing.value.path);
+        if (!secret.ok) {
+          return secret;
+        }
+
+        return putCredential({
+          path: path.value,
+          auth: {
+            kind: "oauth",
+            ...(existing.value.auth.profilePath
+              ? { profilePath: existing.value.auth.profilePath }
+              : {}),
+            ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
+            ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+          },
+          secret: {
+            ...secret.value,
+            headers: mergeConnectHeaders({
+              headers: headers.value,
+              oauthHeaders: secret.value.headers,
+            }),
+          },
+        });
+      }
+
+      const secret = requireHeadersSecret(existing.value.secret, existing.value.path);
+      if (!secret.ok) {
+        return secret;
+      }
+
+      return putCredential({
+        path: path.value,
+        auth: {
+          kind: "headers",
+          ...(existing.value.auth.profilePath
+            ? { profilePath: existing.value.auth.profilePath }
+            : {}),
+          ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
+          ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+        },
+        secret: {
+          headers: mergeConnectHeaders({ headers: headers.value }),
+        },
+      });
     },
 
     async saveHeaders(input) {
@@ -919,7 +1036,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       });
     },
 
-    async headers(input) {
+    async resolveHeaders(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return path;
@@ -1051,7 +1168,19 @@ export async function createAgentPw(options: AgentPwOptions) {
           return connect.saveHeaders(input);
         },
 
-        async headers(input) {
+        async putHeaders(input) {
+          const path = assertPath(input.path, "path");
+          if (!path.ok) {
+            return path;
+          }
+          const allowed = requireRule(scope, "credential.connect", path.value);
+          if (!allowed.ok) {
+            return allowed;
+          }
+          return connect.putHeaders(input);
+        },
+
+        async resolveHeaders(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
             return path;
@@ -1060,7 +1189,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.headers(input);
+          return connect.resolveHeaders(input);
         },
 
         async disconnect(input) {

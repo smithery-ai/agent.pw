@@ -225,7 +225,7 @@ describe("oauth runtime", () => {
       },
     });
 
-    expect(await agentPw.connect.headers({ path: completed.path })).toEqual({
+    expect(await agentPw.connect.resolveHeaders({ path: completed.path })).toEqual({
       Authorization: "Bearer profile-access-2",
     });
     expect(
@@ -415,7 +415,7 @@ describe("oauth runtime", () => {
     );
   });
 
-  it("preserves non-auth headers when oauth completion requests merge", async () => {
+  it("preserves existing non-auth headers and applies start headers during oauth completion", async () => {
     const { agentPw } = await createOAuthAgent();
 
     const prepared = await agentPw.connect.prepare({
@@ -439,6 +439,7 @@ describe("oauth runtime", () => {
         headers: {
           Authorization: "Bearer stale",
           "X-Smithery-Connection": "conn_123",
+          "X-Trace-Id": "trace_existing",
         },
       },
     });
@@ -447,16 +448,93 @@ describe("oauth runtime", () => {
       path: "/org_alpha/connections/linear_merge",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
+      headers: {
+        Authorization: "Bearer ignored",
+        "Proxy-Authorization": "Bearer ignored-proxy",
+        "X-Smithery-Connection": "conn_456",
+      },
     });
 
     const completed = await agentPw.connect.complete({
       callbackUri: `https://app.example.com/oauth/callback?code=code-merge&state=${session.flowId}`,
-      preserveExistingHeaders: true,
     });
 
     expect(completed.credential.secret.headers).toEqual({
       Authorization: "Bearer profile-access-1",
+      "X-Smithery-Connection": "conn_456",
+      "X-Trace-Id": "trace_existing",
+    });
+
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        headers: {
+          ...completed.credential.secret.headers,
+          Authorization: "Bearer stale-refresh",
+        },
+        oauth: {
+          ...completed.credential.secret.oauth,
+          accessToken: "stale-refresh",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    expect(await agentPw.connect.resolveHeaders({ path: completed.path })).toEqual({
+      Authorization: "Bearer profile-access-2",
+      "X-Smithery-Connection": "conn_456",
+      "X-Trace-Id": "trace_existing",
+    });
+  });
+
+  it("overwrites app headers on existing oauth credentials without replacing oauth state", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    await agentPw.credentials.put({
+      path: "/org_alpha/connections/linear_runtime_headers",
+      resource: "https://api.linear.app/projects",
+      auth: {
+        kind: "oauth",
+        profilePath: "/linear",
+        label: "Linear",
+        resource: "https://api.linear.app/projects",
+      },
+      secret: {
+        headers: {
+          Authorization: "Bearer profile-access-1",
+          "X-Trace-Id": "trace_existing",
+        },
+        oauth: {
+          accessToken: "profile-access-1",
+          refreshToken: "profile-refresh-1",
+        },
+      },
+    });
+
+    const merged = await agentPw.connect.putHeaders({
+      path: "/org_alpha/connections/linear_runtime_headers",
+      headers: {
+        Authorization: "Bearer ignored",
+        "X-Smithery-Connection": "conn_123",
+      },
+    });
+
+    expect(merged.auth).toEqual({
+      kind: "oauth",
+      profilePath: "/linear",
+      label: "Linear",
+      resource: "https://api.linear.app/projects",
+    });
+    expect(merged.secret.headers).toEqual({
+      Authorization: "Bearer profile-access-1",
       "X-Smithery-Connection": "conn_123",
+    });
+    expect(merged.secret.oauth).toEqual({
+      accessToken: "profile-access-1",
+      refreshToken: "profile-refresh-1",
     });
   });
 });
