@@ -68,11 +68,7 @@ interface QueryHelpers {
       secret: Buffer;
     },
   ): Promise<Result<void>>;
-  moveCredential(
-    db: Database,
-    fromPath: string,
-    toPath: string,
-  ): Promise<Result<boolean>>;
+  moveCredential(db: Database, fromPath: string, toPath: string): Promise<Result<boolean>>;
   deleteCredential(db: Database, path: string): Promise<Result<boolean>>;
 }
 
@@ -90,9 +86,7 @@ function normalizeListPath(path: string | undefined) {
   return ok(normalized);
 }
 
-function normalizeCredentialAuthRecord(
-  auth: Record<string, unknown>,
-) {
+function normalizeCredentialAuthRecord(auth: Record<string, unknown>) {
   const normalized = result(() => JSON.parse(JSON.stringify(auth)));
   if (!normalized.ok || !isRecord(normalized.value)) {
     return err(inputError("Invalid credential auth payload"));
@@ -120,7 +114,9 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
 
   const helpers: QueryHelpers = {
     async getCredProfile(db, path) {
-      return ok((await db.select().from(credProfiles).where(eq(credProfiles.path, path)))[0] ?? null);
+      return ok(
+        (await db.select().from(credProfiles).where(eq(credProfiles.path, path)))[0] ?? null,
+      );
     },
 
     async listCredProfiles(db, options = {}) {

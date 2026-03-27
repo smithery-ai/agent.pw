@@ -44,10 +44,7 @@ export function resourcePatternMatches(pattern: string, resource: string) {
   return ok(regex.test(normalizedResource.value));
 }
 
-export function anyResourcePatternMatches(
-  patterns: string[],
-  resource: string,
-) {
+export function anyResourcePatternMatches(patterns: string[], resource: string) {
   for (const pattern of patterns) {
     const matches = resourcePatternMatches(pattern, resource);
     if (!matches.ok) {

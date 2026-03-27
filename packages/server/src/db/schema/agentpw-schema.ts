@@ -8,11 +8,7 @@ import { pgSchema } from "drizzle-orm/pg-core";
 const DEFAULT_SQL_SCHEMA = "agentpw";
 const SQL_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-function normalizeSqlIdentifier(
-  value: string,
-  label: string,
-  allowEmpty = false,
-) {
+function normalizeSqlIdentifier(value: string, label: string, allowEmpty = false) {
   if (allowEmpty && value.length === 0) {
     return ok(value);
   }
@@ -61,9 +57,7 @@ export const agentpwSchema = pgSchema(DEFAULT_SQL_SCHEMA);
 
 export const defaultSqlNamespace = buildAgentPwNamespace(agentpwSchema, DEFAULT_SQL_SCHEMA, "");
 
-export function createAgentPwSchema(
-  options: SqlNamespaceOptions = {},
-) {
+export function createAgentPwSchema(options: SqlNamespaceOptions = {}) {
   const schema = normalizeSqlIdentifier(options.schema ?? DEFAULT_SQL_SCHEMA, "SQL schema");
   if (!schema.ok) {
     return schema;
@@ -81,9 +75,7 @@ export function createAgentPwSchema(
   return ok(buildAgentPwNamespace(pgSchema(schema.value), schema.value, tablePrefix.value));
 }
 
-export function coerceSqlNamespace(
-  input?: SqlNamespaceOptions | AgentPwSqlNamespace,
-) {
+export function coerceSqlNamespace(input?: SqlNamespaceOptions | AgentPwSqlNamespace) {
   if (!input) {
     return ok(defaultSqlNamespace);
   }

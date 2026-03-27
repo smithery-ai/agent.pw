@@ -66,9 +66,7 @@ function normalizeClientAuthentication(
   return hasSecret ? "client_secret_basic" : "none";
 }
 
-function buildClientAuthentication(
-  config: OAuthResolvedConfig,
-) {
+function buildClientAuthentication(config: OAuthResolvedConfig) {
   switch (config.clientAuthentication) {
     case "client_secret_post":
       if (!config.clientSecret) {
@@ -341,10 +339,7 @@ async function discoverAuthorizationServerMetadata(
   return ok(null);
 }
 
-async function discoverResource(
-  resource: string,
-  customFetch: typeof fetch | undefined,
-) {
+async function discoverResource(resource: string, customFetch: typeof fetch | undefined) {
   const normalizedResource = normalizeResource(resource);
   if (!normalizedResource.ok) {
     return normalizedResource;
@@ -785,9 +780,7 @@ export function createOAuthService(options: {
       return discoverResource(input.resource, options.customFetch);
     },
 
-    async startAuthorization(
-      input: ConnectStartInput,
-    ) {
+    async startAuthorization(input: ConnectStartInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -863,9 +856,7 @@ export function createOAuthService(options: {
       });
     },
 
-    async completeAuthorization(
-      input: ConnectCompleteInput,
-    ) {
+    async completeAuthorization(input: ConnectCompleteInput) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -1124,7 +1115,10 @@ export function createOAuthService(options: {
       optionsForHandlers: {
         callbackPath?: string;
         success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-        error?(error: ReturnType<typeof toAgentPwError>, request: Request): Response | Promise<Response>;
+        error?(
+          error: ReturnType<typeof toAgentPwError>,
+          request: Request,
+        ): Response | Promise<Response>;
       } = {},
     ): ConnectWebHandlers {
       const callbackPath = optionsForHandlers.callbackPath ?? "/oauth/callback";

@@ -60,10 +60,7 @@ export async function importAesKey(encryptionKey: string) {
   return key;
 }
 
-export async function encryptCredentials(
-  encryptionKey: string,
-  credentials: StoredCredentials,
-) {
+export async function encryptCredentials(encryptionKey: string, credentials: StoredCredentials) {
   const key = await importAesKey(encryptionKey);
   if (!key.ok) {
     return key;
@@ -88,10 +85,7 @@ export async function encryptCredentials(
   return ok(output);
 }
 
-export async function decryptCredentials(
-  encryptionKey: string,
-  encrypted: Buffer,
-) {
+export async function decryptCredentials(encryptionKey: string, encrypted: Buffer) {
   if (encrypted.length < 12 + 16) {
     return err(cryptoError("decryptCredentials", "Invalid ciphertext"));
   }
@@ -144,10 +138,7 @@ export function buildCredentialHeaders(scheme: AuthScheme, token: string): Recor
   }
 }
 
-export async function encryptSecret(
-  encryptionKey: string,
-  secret: string,
-) {
+export async function encryptSecret(encryptionKey: string, secret: string) {
   const key = await importAesKey(encryptionKey);
   if (!key.ok) {
     return key;

@@ -364,10 +364,7 @@ export interface ScopedAgentPw {
   profiles: {
     get(path: string): Promise<Result<CredentialProfileRecord | null>>;
     list(options?: { path?: string }): Promise<Result<CredentialProfileRecord[]>>;
-    put(
-      path: string,
-      data: CredentialProfilePutInput,
-    ): Promise<Result<CredentialProfileRecord>>;
+    put(path: string, data: CredentialProfilePutInput): Promise<Result<CredentialProfileRecord>>;
     delete(path: string): Promise<Result<boolean>>;
   };
 }
@@ -398,7 +395,10 @@ export interface AgentPw extends ScopedAgentPw {
     createWebHandlers(options?: {
       callbackPath?: string;
       success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-      error?(error: ReturnType<typeof toAgentPwError>, request: Request): Response | Promise<Response>;
+      error?(
+        error: ReturnType<typeof toAgentPwError>,
+        request: Request,
+      ): Response | Promise<Response>;
     }): ConnectWebHandlers;
     createClientMetadataDocument(input: CimdDocumentInput): Result<CimdDocument>;
     createClientMetadataResponse(input: CimdDocumentInput): Result<Response>;

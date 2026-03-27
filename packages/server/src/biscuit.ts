@@ -18,12 +18,7 @@ import {
   SignatureAlgorithm,
 } from "@smithery/biscuit";
 import { inputError } from "./errors.js";
-import type {
-  BiscuitSubject,
-  BiscuitTokenFacts,
-  RuleConstraint,
-  RuleGrant,
-} from "./types.js";
+import type { BiscuitSubject, BiscuitTokenFacts, RuleConstraint, RuleGrant } from "./types.js";
 
 export const TOKEN_PREFIX = "apw_";
 

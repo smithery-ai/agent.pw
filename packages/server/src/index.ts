@@ -56,10 +56,7 @@ function assertListPath(path: string | undefined, label: string) {
   return ok(normalized);
 }
 
-function resolveSingleMatch<T extends { path: string }>(
-  matches: T[],
-  description: string,
-) {
+function resolveSingleMatch<T extends { path: string }>(matches: T[], description: string) {
   if (matches.length === 0) {
     return ok(undefined);
   }
@@ -225,31 +222,21 @@ function normalizeCredentialAuth(auth: CredentialAuth, fallbackResource?: string
   });
 }
 
-function requireHeadersSecret(
-  secret: StoredCredentials,
-  path: string,
-) {
+function requireHeadersSecret(secret: StoredCredentials, path: string) {
   if (!secret.headers || Object.keys(secret.headers).length === 0) {
     return err(inputError(`Credential '${path}' does not have header-based auth`, { path }));
   }
   return ok(secret.headers);
 }
 
-function requireEnvSecret(
-  secret: StoredCredentials,
-  path: string,
-) {
+function requireEnvSecret(secret: StoredCredentials, path: string) {
   if (!secret.env || Object.keys(secret.env).length === 0) {
     return err(inputError(`Credential '${path}' does not have env auth`, { path }));
   }
   return ok(secret.env);
 }
 
-function validateSecretForAuth(
-  auth: CredentialAuth,
-  secret: StoredCredentials,
-  path: string,
-) {
+function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, path: string) {
   if (auth.kind === "env") {
     const env = requireEnvSecret(secret, path);
     return env.ok ? ok() : env;
@@ -583,10 +570,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     return decryptCredentialRecord(encryptionKey, stored.value);
   };
 
-  function optionFromProfile(
-    profile: CredentialProfileRecord,
-    resource: string,
-  ) {
+  function optionFromProfile(profile: CredentialProfileRecord, resource: string) {
     if (profile.auth.kind === "oauth") {
       return ok<ConnectOption>({
         kind: "oauth",

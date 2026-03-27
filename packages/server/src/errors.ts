@@ -33,19 +33,11 @@ export function authorizationError(
   return { type: "Authorization" as const, action, path, message, ...data };
 }
 
-export function notFoundError(
-  resource: string,
-  message: string,
-  data: ErrorContext = {},
-) {
+export function notFoundError(resource: string, message: string, data: ErrorContext = {}) {
   return { type: "NotFound" as const, resource, message, ...data };
 }
 
-export function expiredError(
-  resource: string,
-  message: string,
-  data: ErrorContext = {},
-) {
+export function expiredError(resource: string, message: string, data: ErrorContext = {}) {
   return { type: "Expired" as const, resource, message, ...data };
 }
 
@@ -57,34 +49,19 @@ export function unsupportedCredentialKindError(
   return { type: "UnsupportedCredentialKind" as const, kind, message, ...data };
 }
 
-export function persistenceError(
-  operation: string,
-  message: string,
-  data: ErrorContext = {},
-) {
+export function persistenceError(operation: string, message: string, data: ErrorContext = {}) {
   return { type: "Persistence" as const, operation, message, ...data };
 }
 
-export function oauthError(
-  stage: string,
-  message: string,
-  data: ErrorContext = {},
-) {
+export function oauthError(stage: string, message: string, data: ErrorContext = {}) {
   return { type: "OAuth" as const, stage, message, ...data };
 }
 
-export function cryptoError(
-  operation: string,
-  message: string,
-  data: ErrorContext = {},
-) {
+export function cryptoError(operation: string, message: string, data: ErrorContext = {}) {
   return { type: "Crypto" as const, operation, message, ...data };
 }
 
-export function internalError(
-  message: string,
-  data: ErrorContext & { source?: string } = {},
-) {
+export function internalError(message: string, data: ErrorContext & { source?: string } = {}) {
   return { type: "Internal" as const, message, ...data };
 }
 
