@@ -13,7 +13,7 @@ import {
   type StoredCredentials,
   type StoredOAuthCredentials,
 } from "./lib/credentials-crypto.js";
-import { mergeConnectHeaders } from "./lib/connect-headers.js";
+import { mergeHeaders } from "./lib/connect-headers.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
@@ -747,7 +747,7 @@ export function createOAuthService(options: {
       oauthConfig,
       credential.value.secret,
     );
-    secret.headers = mergeConnectHeaders({
+    secret.headers = mergeHeaders({
       existingHeaders: credential.value.secret.headers,
       preserveExistingHeaders: true,
       oauthHeaders: secret.headers,
@@ -955,7 +955,7 @@ export function createOAuthService(options: {
       }
 
       const secret = oauthSecretFromTokenResponse(processed.value, flow.oauthConfig);
-      secret.headers = mergeConnectHeaders({
+      secret.headers = mergeHeaders({
         existingHeaders: existing.value?.secret.headers,
         headers: flow.headers,
         oauthHeaders: secret.headers,

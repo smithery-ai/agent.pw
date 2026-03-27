@@ -14,7 +14,7 @@ import {
   encryptCredentials,
   type StoredCredentials,
 } from "./lib/credentials-crypto.js";
-import { mergeConnectHeaders } from "./lib/connect-headers.js";
+import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
 import { createOAuthService } from "./oauth.js";
@@ -982,7 +982,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           },
           secret: {
             ...secret.value,
-            headers: mergeConnectHeaders({
+            headers: mergeHeaders({
               headers: headers.value,
               oauthHeaders: secret.value.headers,
             }),
@@ -1006,7 +1006,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
         },
         secret: {
-          headers: mergeConnectHeaders({ headers: headers.value }),
+          headers: mergeHeaders({ headers: headers.value }),
         },
       });
     },

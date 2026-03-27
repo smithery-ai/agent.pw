@@ -20,7 +20,7 @@ function authHeaders(headers: Record<string, string> | undefined) {
   return merged;
 }
 
-export function mergeConnectHeaders(input: {
+export function mergeHeaders(input: {
   existingHeaders?: Record<string, string>;
   headers?: Record<string, string>;
   oauthHeaders?: Record<string, string>;
