@@ -1,6 +1,7 @@
 import { err, ok, result } from "okay-error";
 import type { AuthScheme } from "../auth-schemes.js";
 import { cryptoError } from "../errors.js";
+import type { OAuthClientAuthenticationMethod } from "../types.js";
 import { isRecord } from "./utils.js";
 
 export async function deriveEncryptionKey(secretSeed: string) {
@@ -16,10 +17,22 @@ export async function deriveEncryptionKey(secretSeed: string) {
   return ok(Buffer.from(hash.value).toString("base64"));
 }
 
-export type StoredCredentials = {
-  headers?: Record<string, string>;
-  env?: Record<string, string>;
-  oauth?: {
+export interface StoredHeadersCredentials {
+  headers: Record<string, string>;
+  env?: never;
+  oauth?: never;
+}
+
+export interface StoredEnvCredentials {
+  headers?: never;
+  env: Record<string, string>;
+  oauth?: never;
+}
+
+export interface StoredOAuthCredentials {
+  headers: Record<string, string>;
+  env?: never;
+  oauth: {
     refreshToken?: string | null;
     accessToken?: string | null;
     expiresAt?: string;
@@ -32,12 +45,78 @@ export type StoredCredentials = {
     revocationUrl?: string;
     clientId?: string;
     clientSecret?: string;
-    clientAuthentication?: string;
+    clientAuthentication?: OAuthClientAuthenticationMethod;
   };
-};
+}
+
+export type StoredCredentials =
+  | StoredHeadersCredentials
+  | StoredEnvCredentials
+  | StoredOAuthCredentials;
+
+const STORED_CREDENTIAL_KEYS = new Set(["env", "headers", "oauth"]);
+const STORED_OAUTH_KEYS = new Set([
+  "accessToken",
+  "authorizationUrl",
+  "clientAuthentication",
+  "clientId",
+  "clientSecret",
+  "expiresAt",
+  "issuer",
+  "refreshToken",
+  "resource",
+  "revocationUrl",
+  "scopes",
+  "tokenType",
+  "tokenUrl",
+]);
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: Set<string>) {
+  return Object.keys(value).every((key) => keys.has(key));
+}
+
+function isStringMap(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
+}
+
+function isStoredOAuth(value: unknown): value is StoredOAuthCredentials["oauth"] {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, STORED_OAUTH_KEYS) &&
+    (value.refreshToken === undefined ||
+      value.refreshToken === null ||
+      typeof value.refreshToken === "string") &&
+    (value.accessToken === undefined ||
+      value.accessToken === null ||
+      typeof value.accessToken === "string") &&
+    (value.expiresAt === undefined || typeof value.expiresAt === "string") &&
+    (value.scopes === undefined || typeof value.scopes === "string") &&
+    (value.tokenType === undefined || typeof value.tokenType === "string") &&
+    (value.resource === undefined || typeof value.resource === "string") &&
+    (value.issuer === undefined || typeof value.issuer === "string") &&
+    (value.authorizationUrl === undefined || typeof value.authorizationUrl === "string") &&
+    (value.tokenUrl === undefined || typeof value.tokenUrl === "string") &&
+    (value.revocationUrl === undefined || typeof value.revocationUrl === "string") &&
+    (value.clientId === undefined || typeof value.clientId === "string") &&
+    (value.clientSecret === undefined || typeof value.clientSecret === "string") &&
+    (value.clientAuthentication === undefined ||
+      value.clientAuthentication === "client_secret_basic" ||
+      value.clientAuthentication === "client_secret_post" ||
+      value.clientAuthentication === "none")
+  );
+}
 
 function isStoredCredentials(value: unknown): value is StoredCredentials {
-  return isRecord(value);
+  if (!isRecord(value) || !hasOnlyKeys(value, STORED_CREDENTIAL_KEYS)) {
+    return false;
+  }
+  if ("env" in value) {
+    return !("headers" in value) && !("oauth" in value) && isStringMap(value.env);
+  }
+  if ("oauth" in value) {
+    return "headers" in value && isStringMap(value.headers) && isStoredOAuth(value.oauth);
+  }
+  return "headers" in value && isStringMap(value.headers);
 }
 
 export async function importAesKey(encryptionKey: string) {

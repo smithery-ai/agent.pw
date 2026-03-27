@@ -236,7 +236,18 @@ function requireEnvSecret(secret: StoredCredentials, path: string) {
   return ok(secret.env);
 }
 
+function requireOAuthSecret(secret: StoredCredentials, path: string) {
+  if (!secret.headers || Object.keys(secret.headers).length === 0 || !secret.oauth) {
+    return err(inputError(`Credential '${path}' does not have oauth auth`, { path }));
+  }
+  return ok(secret);
+}
+
 function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, path: string) {
+  if (auth.kind === "oauth") {
+    const oauth = requireOAuthSecret(secret, path);
+    return oauth.ok ? ok() : oauth;
+  }
   if (auth.kind === "env") {
     const env = requireEnvSecret(secret, path);
     return env.ok ? ok() : env;
@@ -900,7 +911,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         path: path.value,
         auth: {
           kind: "headers",
-          profilePath: input.option.profilePath ?? null,
+          profilePath: input.option.profilePath,
           label: input.option.label,
           resource: input.option.resource,
         },

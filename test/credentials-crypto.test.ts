@@ -72,6 +72,25 @@ describe("credentials crypto", () => {
     expect(await decryptSecretBuffer(encryptionKey, encryptedSecret)).toBe("oauth-secret");
   });
 
+  it("rejects decrypted payloads that do not match stored credential shapes", async () => {
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encrypted = await mustAsync(
+      encryptSecret(
+        encryptionKey,
+        JSON.stringify({
+          headers: { Authorization: "Bearer secret" },
+          oauth: { clientAuthentication: "basic" },
+        }),
+      ),
+    );
+
+    const decrypted = await decryptCredentials(encryptionKey, encrypted);
+    expect(decrypted.ok).toBe(false);
+    if (!decrypted.ok) {
+      expect(decrypted.error.message).toBe("Failed to parse decrypted credentials");
+    }
+  });
+
   it("builds headers for each supported auth scheme", () => {
     expect(
       buildCredentialHeaders({ type: "apiKey", in: "header", name: "X-Api-Key" }, "token"),

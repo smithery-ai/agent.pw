@@ -1,14 +1,25 @@
 import { err, ok, result, type Result } from "okay-error";
 import * as oauth from "oauth4webapi";
-import { expiredError, inputError, internalError, notFoundError, oauthError } from "./errors.js";
-import { buildCredentialHeaders, type StoredCredentials } from "./lib/credentials-crypto.js";
+import {
+  expiredError,
+  inputError,
+  internalError,
+  isAgentPwError,
+  notFoundError,
+  oauthError,
+} from "./errors.js";
+import {
+  buildCredentialHeaders,
+  type StoredCredentials,
+  type StoredOAuthCredentials,
+} from "./lib/credentials-crypto.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
   CimdDocumentInput,
   ConnectCompleteInput,
-  ConnectCompleteResult,
   ConnectDisconnectInput,
+  ConnectWebHandlerOptions,
   ConnectOAuthOption,
   ConnectStartInput,
   ConnectWebHandlers,
@@ -89,6 +100,10 @@ function resourceFromCredentialRecord(credential: CredentialRecord) {
   return undefined;
 }
 
+function handlerError(error: unknown, message: string, source: string) {
+  return isAgentPwError(error) ? error : internalError(message, { cause: error, source });
+}
+
 function oauthConfigFromStoredCredentials(
   secret: StoredCredentials | undefined,
   resource: string | null | undefined,
@@ -144,7 +159,7 @@ function oauthSecretFromTokenResponse(
   response: oauth.TokenEndpointResponse,
   oauthConfig: OAuthResolvedConfig,
   existing?: StoredCredentials,
-): StoredCredentials & { headers: Record<string, string> } {
+): StoredOAuthCredentials {
   const accessToken = response.access_token;
   const refreshToken = response.refresh_token ?? existing?.oauth?.refreshToken ?? null;
   const expiresAt =
@@ -751,7 +766,14 @@ export function createOAuthService(options: {
     }
     return options.putCredential({
       path: credential.value.path,
-      auth: credential.value.auth,
+      auth: {
+        kind: "oauth",
+        ...(credential.value.auth.profilePath
+          ? { profilePath: credential.value.auth.profilePath }
+          : {}),
+        ...(credential.value.auth.label ? { label: credential.value.auth.label } : {}),
+        ...(credential.value.auth.resource ? { resource: credential.value.auth.resource } : {}),
+      },
       secret: oauthSecretFromTokenResponse(processed.value, oauthConfig, credential.value.secret),
     });
   }
@@ -955,7 +977,7 @@ export function createOAuthService(options: {
         path: flow.path,
         auth: {
           kind: "oauth",
-          profilePath: flow.option.profilePath ?? null,
+          profilePath: flow.option.profilePath,
           label: flow.option.label,
           resource: flow.resource,
         },
@@ -1104,13 +1126,7 @@ export function createOAuthService(options: {
       return options.deleteCredential(path.value);
     },
 
-    createWebHandlers(
-      optionsForHandlers: {
-        callbackPath?: string;
-        success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-        error?(error: unknown, request: Request): Response | Promise<Response>;
-      } = {},
-    ): ConnectWebHandlers {
+    createWebHandlers(optionsForHandlers: ConnectWebHandlerOptions = {}): ConnectWebHandlers {
       const callbackPath = optionsForHandlers.callbackPath ?? "/oauth/callback";
 
       return {
@@ -1129,9 +1145,14 @@ export function createOAuthService(options: {
               redirectUri: input.redirectUri ?? resolveRedirectUri(request, callbackPath),
             });
             if (!session.ok) {
+              const error = handlerError(
+                session.error,
+                "OAuth start failed",
+                "oauth.createWebHandlers.startAuthorization",
+              );
               return optionsForHandlers.error
-                ? optionsForHandlers.error(session.error, request)
-                : defaultErrorResponse(session.error);
+                ? optionsForHandlers.error(error, request)
+                : defaultErrorResponse(error);
             }
             return Response.redirect(session.value.authorizationUrl, 302);
           } catch (error) {
@@ -1151,9 +1172,14 @@ export function createOAuthService(options: {
               callbackUri: request.url,
             });
             if (!completed.ok) {
+              const error = handlerError(
+                completed.error,
+                "OAuth flow failed",
+                "oauth.createWebHandlers.completeAuthorization",
+              );
               return optionsForHandlers.error
-                ? optionsForHandlers.error(completed.error, request)
-                : defaultErrorResponse(completed.error);
+                ? optionsForHandlers.error(error, request)
+                : defaultErrorResponse(error);
             }
             if (optionsForHandlers.success) {
               return optionsForHandlers.success(completed.value, request);

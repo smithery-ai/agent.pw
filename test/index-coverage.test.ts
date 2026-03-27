@@ -313,6 +313,13 @@ describe("index coverage helpers", () => {
         secret: { headers: { Authorization: "Bearer wrong" } },
       }),
     ).rejects.toThrow("Credential '/broken/envless' does not have env auth");
+    await expect(
+      agentPw.credentials.put({
+        path: "/broken/oauthless",
+        auth: { kind: "oauth" },
+        secret: { headers: { Authorization: "Bearer wrong" } } as never,
+      }),
+    ).rejects.toThrow("Credential '/broken/oauthless' does not have oauth auth");
     expect(Array.isArray(await agentPw.credentials.list())).toBe(true);
 
     await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toThrow(

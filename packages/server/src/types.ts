@@ -1,6 +1,24 @@
+import type { JWKS } from "oauth4webapi";
 import type { Result } from "okay-error";
+import type {
+  authorizationError,
+  conflictError,
+  cryptoError,
+  expiredError,
+  inputError,
+  internalError,
+  notFoundError,
+  oauthError,
+  persistenceError,
+  unsupportedCredentialKindError,
+} from "./errors.js";
 import type { Database } from "./db/index.js";
-import type { StoredCredentials } from "./lib/credentials-crypto.js";
+import type {
+  StoredCredentials,
+  StoredEnvCredentials,
+  StoredHeadersCredentials,
+  StoredOAuthCredentials,
+} from "./lib/credentials-crypto.js";
 import type { Logger } from "./lib/logger.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
@@ -118,9 +136,9 @@ export interface CredentialProfilePutInput {
 }
 
 interface CredentialAuthBase {
-  profilePath?: string | null;
-  label?: string | null;
-  resource?: string | null;
+  profilePath: string | null;
+  label: string | null;
+  resource?: string;
 }
 
 export interface HeadersCredentialAuth extends CredentialAuthBase {
@@ -137,6 +155,29 @@ export interface EnvCredentialAuth extends CredentialAuthBase {
 
 export type CredentialAuth = HeadersCredentialAuth | OAuthCredentialAuth | EnvCredentialAuth;
 
+interface CredentialAuthInputBase {
+  profilePath?: string;
+  label?: string;
+  resource?: string;
+}
+
+export interface HeadersCredentialAuthInput extends CredentialAuthInputBase {
+  kind: "headers";
+}
+
+export interface OAuthCredentialAuthInput extends CredentialAuthInputBase {
+  kind: "oauth";
+}
+
+export interface EnvCredentialAuthInput extends CredentialAuthInputBase {
+  kind: "env";
+}
+
+export type CredentialAuthInput =
+  | HeadersCredentialAuthInput
+  | OAuthCredentialAuthInput
+  | EnvCredentialAuthInput;
+
 export interface CredentialSummary {
   path: string;
   auth: CredentialAuth;
@@ -148,12 +189,17 @@ export interface CredentialRecord extends CredentialSummary {
   secret: StoredCredentials;
 }
 
-export interface CredentialPutInput {
+interface CredentialPutInputBase<TAuth extends CredentialAuthInput, TSecret> {
   path: string;
   resource?: string;
-  auth: CredentialAuth;
-  secret: StoredCredentials | Buffer;
+  auth: TAuth;
+  secret: TSecret | Buffer;
 }
+
+export type CredentialPutInput =
+  | CredentialPutInputBase<HeadersCredentialAuthInput, StoredHeadersCredentials>
+  | CredentialPutInputBase<OAuthCredentialAuthInput, StoredOAuthCredentials>
+  | CredentialPutInputBase<EnvCredentialAuthInput, StoredEnvCredentials>;
 
 export interface OAuthClientMetadataInput {
   clientId?: string;
@@ -162,7 +208,7 @@ export interface OAuthClientMetadataInput {
   scope?: string | string[];
   tokenEndpointAuthMethod?: OAuthClientAuthenticationMethod | "private_key_jwt";
   jwksUri?: string;
-  jwks?: Record<string, unknown>;
+  jwks?: JWKS;
   tokenEndpointAuthSigningAlg?: string;
 }
 
@@ -204,10 +250,14 @@ export interface ConnectOAuthOption extends ConnectOptionBase {
 export interface ConnectHeadersOption extends ConnectOptionBase {
   kind: "headers";
   source: "profile";
-  fields: HeaderFieldDefinition[];
+  fields: readonly HeaderFieldDefinition[];
 }
 
 export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
+
+type HeaderValues<TFields extends readonly HeaderFieldDefinition[]> = {
+  [Field in TFields[number] as Field["name"]]: string;
+};
 
 export interface ConnectResolutionResult {
   canonicalResource: string;
@@ -267,10 +317,12 @@ export interface ConnectCompleteResult {
   credential: CredentialRecord;
 }
 
-export interface ConnectSaveHeadersInput {
+export interface ConnectSaveHeadersInput<
+  TFields extends readonly HeaderFieldDefinition[] = readonly HeaderFieldDefinition[],
+> {
   path: string;
-  option: ConnectHeadersOption;
-  values: Record<string, string>;
+  option: ConnectHeadersOption & { fields: TFields };
+  values: HeaderValues<TFields>;
 }
 
 export interface ConnectHeadersInput {
@@ -318,7 +370,7 @@ export interface CimdDocument {
   scope?: string;
   client_name?: string;
   jwks_uri?: string;
-  jwks?: Record<string, unknown>;
+  jwks?: JWKS;
   token_endpoint_auth_signing_alg?: string;
 }
 
@@ -329,7 +381,7 @@ export interface CimdDocumentInput {
   scope?: string | string[];
   tokenEndpointAuthMethod?: OAuthClientAuthenticationMethod | "private_key_jwt";
   jwksUri?: string;
-  jwks?: Record<string, unknown>;
+  jwks?: JWKS;
   tokenEndpointAuthSigningAlg?: string;
 }
 
@@ -341,6 +393,25 @@ export interface ConnectWebHandlers {
     },
   ): Promise<Response>;
   callback(request: Request): Promise<Response>;
+}
+
+export interface ConnectWebHandlerOptions {
+  callbackPath?: string;
+  success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
+  error?(
+    error:
+      | ReturnType<typeof authorizationError>
+      | ReturnType<typeof conflictError>
+      | ReturnType<typeof cryptoError>
+      | ReturnType<typeof expiredError>
+      | ReturnType<typeof inputError>
+      | ReturnType<typeof internalError>
+      | ReturnType<typeof notFoundError>
+      | ReturnType<typeof oauthError>
+      | ReturnType<typeof persistenceError>
+      | ReturnType<typeof unsupportedCredentialKindError>,
+    request: Request,
+  ): Response | Promise<Response>;
 }
 
 export interface ScopedAgentPw {
@@ -391,11 +462,7 @@ export interface AgentPw extends ScopedAgentPw {
     }): Promise<Result<CredentialProfileRecord | null>>;
   };
   connect: ScopedAgentPw["connect"] & {
-    createWebHandlers(options?: {
-      callbackPath?: string;
-      success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-      error?(error: unknown, request: Request): Response | Promise<Response>;
-    }): ConnectWebHandlers;
+    createWebHandlers(options?: ConnectWebHandlerOptions): ConnectWebHandlers;
     createClientMetadataDocument(input: CimdDocumentInput): Result<CimdDocument>;
     createClientMetadataResponse(input: CimdDocumentInput): Result<Response>;
   };
