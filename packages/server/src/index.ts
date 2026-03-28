@@ -1,5 +1,4 @@
 import { err, ok } from "okay-error";
-import { backfillCredentialResourcesToAuth } from "./db/legacy.js";
 import { createQueryHelpers } from "./db/queries.js";
 import {
   authorizationError,
@@ -166,7 +165,6 @@ function parseCredentialAuth(value: unknown) {
 
   const authBase = {
     profilePath: typeof value.profilePath === "string" ? value.profilePath : null,
-    label: typeof value.label === "string" ? value.label : null,
     ...(resource.value ? { resource: resource.value } : {}),
   };
   if (value.kind === "oauth") {
@@ -220,6 +218,14 @@ function normalizeCredentialAuth(auth: CredentialAuth, fallbackResource?: string
     ...auth,
     ...(resource.value ? { resource: resource.value } : {}),
   });
+}
+
+function serializeCredentialAuth(auth: CredentialAuth) {
+  return {
+    kind: auth.kind,
+    ...(auth.profilePath ? { profilePath: auth.profilePath } : {}),
+    ...(auth.resource ? { resource: auth.resource } : {}),
+  };
 }
 
 function requireHeadersSecret(secret: StoredCredentials, path: string) {
@@ -365,8 +371,6 @@ export async function createAgentPw(options: AgentPwOptions) {
     return queries;
   }
   const queryHelpers = queries.value;
-
-  await backfillCredentialResourcesToAuth(options.db, { sql: options.sql });
 
   const profiles: AgentPw["profiles"] = {
     async resolve(input) {
@@ -553,7 +557,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return encryptedSecret;
     }
 
-    const storedAuth = toJsonRecord(auth.value);
+    const storedAuth = toJsonRecord(serializeCredentialAuth(auth.value));
     if (!storedAuth.ok) {
       return storedAuth;
     }
@@ -622,8 +626,8 @@ export async function createAgentPw(options: AgentPwOptions) {
     return {
       flowId: flow.id,
       path: flow.path,
-      resource: flow.resource,
-      option: flow.option,
+      resource: flow.oauthConfig.resource,
+      ...(flow.credential.profilePath ? { profilePath: flow.credential.profilePath } : {}),
       expiresAt: flow.expiresAt,
     };
   }
@@ -956,9 +960,6 @@ export async function createAgentPw(options: AgentPwOptions) {
             ...(selectedOption?.value.kind === "headers" && selectedOption.value.profilePath
               ? { profilePath: selectedOption.value.profilePath }
               : {}),
-            ...(selectedOption?.value.kind === "headers" && selectedOption.value.label
-              ? { label: selectedOption.value.label }
-              : {}),
             resource: resource.value,
           },
           secret: {
@@ -988,7 +989,6 @@ export async function createAgentPw(options: AgentPwOptions) {
             ...(existing.value.auth.profilePath
               ? { profilePath: existing.value.auth.profilePath }
               : {}),
-            ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
             ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
           },
           secret: {
@@ -1013,7 +1013,6 @@ export async function createAgentPw(options: AgentPwOptions) {
           ...(existing.value.auth.profilePath
             ? { profilePath: existing.value.auth.profilePath }
             : {}),
-          ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
           ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
         },
         secret: {
@@ -1330,4 +1329,10 @@ export async function createAgentPw(options: AgentPwOptions) {
     scope,
   });
 }
+export {
+  ConnectFlowSchema,
+  ConnectOAuthOptionSchema,
+  OAuthResolvedConfigSchema,
+  PendingFlowSchema,
+} from "./types.js";
 export type * from "./types.js";

@@ -195,7 +195,6 @@ describe("oauth runtime", () => {
     expect(completed.credential.auth).toEqual({
       kind: "oauth",
       profilePath: "/linear",
-      label: "Linear",
       resource: "https://api.linear.app/projects",
     });
     expect(completed.credential.secret).toEqual(
@@ -206,6 +205,15 @@ describe("oauth runtime", () => {
           refreshToken: "profile-refresh-1",
           clientId: "client-linear",
           clientSecret: "secret-linear",
+        }),
+      }),
+    );
+    expect(await agentPw.credentials.get(completed.path)).toEqual(
+      expect.objectContaining({
+        path: completed.path,
+        auth: completed.credential.auth,
+        secret: expect.objectContaining({
+          headers: { Authorization: "Bearer profile-access-1" },
         }),
       }),
     );
@@ -284,7 +292,6 @@ describe("oauth runtime", () => {
     expect(completed.credential.auth).toEqual({
       kind: "oauth",
       profilePath: null,
-      label: "Docs MCP via auth.docs.example.com",
       resource: "https://docs.example.com/mcp",
     });
 
@@ -396,7 +403,7 @@ describe("oauth runtime", () => {
       flowId: started.flowId,
       path: "/org_alpha/connections/docs_profiled",
       resource: "https://docs.example.com/mcp",
-      option: started.option,
+      profilePath: "/docs",
       expiresAt: started.expiresAt,
     });
 
@@ -407,7 +414,6 @@ describe("oauth runtime", () => {
     expect(completed.credential.auth).toEqual({
       kind: "oauth",
       profilePath: "/docs",
-      label: "Docs Profile",
       resource: "https://docs.example.com/mcp",
     });
     await expect(agentPw.connect.getFlow(started.flowId)).rejects.toThrow(
@@ -525,7 +531,6 @@ describe("oauth runtime", () => {
     expect(merged.auth).toEqual({
       kind: "oauth",
       profilePath: "/linear",
-      label: "Linear",
       resource: "https://api.linear.app/projects",
     });
     expect(merged.secret.headers).toEqual({
