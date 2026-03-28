@@ -36,6 +36,7 @@ interface QueryHelpers {
     db: Database,
     options?: {
       path?: string;
+      recursive?: boolean;
     },
   ): Promise<Result<CredProfileRow[]>>;
   getMatchingCredProfiles(
@@ -63,6 +64,7 @@ interface QueryHelpers {
     db: Database,
     options?: {
       path?: string;
+      recursive?: boolean;
     },
   ): Promise<Result<CredentialRow[]>>;
   upsertCredential(
@@ -160,6 +162,10 @@ function directChildrenWhere(pathColumn: { getSQL(): unknown }, path: string) {
   );
 }
 
+function descendantsWhere(pathColumn: { getSQL(): unknown }, path: string) {
+  return sql<boolean>`${pathColumn} <@ ${path}::ltree`;
+}
+
 export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
   const sqlNamespace = coerceSqlNamespace(namespaceInput);
   if (!sqlNamespace.ok) {
@@ -180,19 +186,21 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     async listCredProfiles(db, options = {}) {
       const path = assertOptionalPath(options.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
 
       return runDb(
         "db.listCredProfiles",
         async () => {
-          const rows =
+          const where =
             path.value === undefined
-              ? await db.select().from(credProfiles)
-              : await db
-                  .select()
-                  .from(credProfiles)
-                  .where(directChildrenWhere(credProfiles.path, path.value));
+              ? undefined
+              : options.recursive
+                ? descendantsWhere(credProfiles.path, path.value)
+                : directChildrenWhere(credProfiles.path, path.value);
+          const rows = where
+            ? await db.select().from(credProfiles).where(where)
+            : await db.select().from(credProfiles);
           return rows.sort((a, b) => a.path.localeCompare(b.path));
         },
         path.value === undefined ? undefined : { label: "path", value: path.value },
@@ -207,7 +215,7 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
 
       const normalizedPath = assertPath(path, "path");
       if (!normalizedPath.ok) {
-        return normalizedPath;
+        return err(normalizedPath.error);
       }
       const rowsResult = await runDb("db.getMatchingCredProfiles", async () =>
         db.select().from(credProfiles),
@@ -298,19 +306,21 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     async listCredentials(db, options = {}) {
       const path = assertOptionalPath(options.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
 
       return runDb(
         "db.listCredentials",
         async () => {
-          const rows =
+          const where =
             path.value === undefined
-              ? await db.select().from(credentials)
-              : await db
-                  .select()
-                  .from(credentials)
-                  .where(directChildrenWhere(credentials.path, path.value));
+              ? undefined
+              : options.recursive
+                ? descendantsWhere(credentials.path, path.value)
+                : directChildrenWhere(credentials.path, path.value);
+          const rows = where
+            ? await db.select().from(credentials).where(where)
+            : await db.select().from(credentials);
           return rows.sort((a, b) => a.path.localeCompare(b.path));
         },
         path.value === undefined ? undefined : { label: "path", value: path.value },

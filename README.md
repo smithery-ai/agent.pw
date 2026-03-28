@@ -320,6 +320,52 @@ const children = await agentPw.credentials.list({
 
 `credentials.list()` returns all stored credentials. `credentials.list({ path })` returns direct children only.
 
+## Recursive Delete and Transaction Passthrough
+
+Both `credentials.delete(...)` and `profiles.delete(...)` accept an optional second argument:
+
+```ts
+interface DeleteOptions {
+  recursive?: boolean;
+  db?: Database;
+}
+```
+
+**Recursive delete** removes a path and all its descendants in a single query, backed by a GiST index on the ltree column:
+
+```ts
+// Delete all credentials under an org
+await agentPw.credentials.delete("acme", { recursive: true });
+
+// Delete all profiles under an org
+await agentPw.profiles.delete("acme", { recursive: true });
+```
+
+Without `recursive`, only the exact path is removed.
+
+**Transaction passthrough** lets embedders delete credentials atomically alongside their own data by passing a Drizzle transaction as `db`:
+
+```ts
+import { Database } from "agent.pw";
+
+await db.transaction(async (tx: Database) => {
+  // Delete the app's own row
+  await tx.delete(connections).where(eq(connections.id, connectionId));
+  // Delete the associated credentials in the same transaction
+  await agentPw.credentials.delete(credentialPath, { db: tx });
+});
+```
+
+Both options compose. For example, when an embedder deletes an org, they can cascade-delete all associated credentials in one atomic operation:
+
+```ts
+await db.transaction(async (tx: Database) => {
+  await tx.delete(orgs).where(eq(orgs.id, orgId));
+  await agentPw.credentials.delete(orgId, { db: tx, recursive: true });
+  await agentPw.profiles.delete(orgId, { db: tx, recursive: true });
+});
+```
+
 ## Scoped API
 
 Use `scope(...)` to get a scoped API that enforces rules automatically.
