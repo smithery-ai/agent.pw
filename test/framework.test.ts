@@ -88,9 +88,9 @@ describe("createAgentPw", () => {
         displayName: "Acme GitHub",
       }),
     );
-    expect((await agentPw.profiles.list({ path: "acme" })).map((profile) => profile.path)).toEqual(
-      ["acme.github"],
-    );
+    expect((await agentPw.profiles.list({ path: "acme" })).map((profile) => profile.path)).toEqual([
+      "acme.github",
+    ]);
 
     const stored = await agentPw.credentials.put({
       path: "acme.connections.github_primary",

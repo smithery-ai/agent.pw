@@ -62,8 +62,12 @@ describe("query edge cases", () => {
       secret: await secret("top"),
     });
 
-    await expect(queries.listCredProfiles(db, { path: "/../bad" })).rejects.toThrow("Invalid path '/../bad'");
-    await expect(queries.listCredentials(db, { path: "/../bad" })).rejects.toThrow("Invalid path '/../bad'");
+    await expect(queries.listCredProfiles(db, { path: "/../bad" })).rejects.toThrow(
+      "Invalid path '/../bad'",
+    );
+    await expect(queries.listCredentials(db, { path: "/../bad" })).rejects.toThrow(
+      "Invalid path '/../bad'",
+    );
 
     expect((await queries.listCredentials(db)).map((row) => row.path)).toEqual([
       "acme.github",

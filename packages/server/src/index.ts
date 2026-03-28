@@ -17,12 +17,7 @@ import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
 import { createOAuthService } from "./oauth.js";
-import {
-  assertOptionalPath,
-  assertPath,
-  credentialName,
-  pathDepth,
-} from "./paths.js";
+import { assertOptionalPath, assertPath, credentialName, pathDepth } from "./paths.js";
 import { normalizeResource } from "./resource-patterns.js";
 import { authorizeRules, can as canRule } from "./rules.js";
 import type {
@@ -411,6 +406,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
       const rows = await queryHelpers.listCredProfiles(options.db, {
         path: path.value,
+        recursive: query.recursive,
       });
       if (!rows.ok) {
         return rows;
@@ -780,6 +776,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
       const rows = await queryHelpers.listCredentials(options.db, {
         path: path.value,
+        recursive: query.recursive,
       });
       if (!rows.ok) {
         return rows;
@@ -1187,7 +1184,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!path.ok) {
             return err(path.error);
           }
-          const items = await credentials.list({ path: path.value });
+          const items = await credentials.list({ path: path.value, recursive: query.recursive });
           if (!items.ok) {
             return items;
           }

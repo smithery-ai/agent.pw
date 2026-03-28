@@ -48,7 +48,10 @@ export function coveringRootsForPath(roots: string[], path: string) {
 }
 
 export function hasRuleForPath(rights: RuleGrant[], action: string, path: string) {
-  return hasGlobalRight(rights, action) || coveringRootsForPath(rootsForAction(rights, action), path).length > 0;
+  return (
+    hasGlobalRight(rights, action) ||
+    coveringRootsForPath(rootsForAction(rights, action), path).length > 0
+  );
 }
 
 export function rootsForActionFromScope(scope: RuleScope, action: string) {

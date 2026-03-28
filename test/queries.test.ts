@@ -81,12 +81,12 @@ describe("query layer", () => {
       ).map((profile) => profile.path),
     ).toEqual(["github"]);
 
-    expect(await queries.getMatchingCredProfiles(db, "beta.docs", "https://gitlab.com/api/v4")).toEqual(
-      [],
-    );
-    expect((await queries.listCredProfiles(db, { path: "acme" })).map((profile) => profile.path)).toEqual([
-      "acme.github",
-    ]);
+    expect(
+      await queries.getMatchingCredProfiles(db, "beta.docs", "https://gitlab.com/api/v4"),
+    ).toEqual([]);
+    expect(
+      (await queries.listCredProfiles(db, { path: "acme" })).map((profile) => profile.path),
+    ).toEqual(["acme.github"]);
     expect((await queries.listCredProfiles(db)).map((profile) => profile.path)).toEqual([
       "acme.github",
       "acme.team.github",
@@ -124,9 +124,7 @@ describe("query layer", () => {
       (await queries.listCredentials(db, { path: "acme.connections" })).map((row) => row.path),
     ).toEqual(["acme.connections.github"]);
     expect(
-      (await queries.listCredentials(db, { path: "acme.connections.team" })).map(
-        (row) => row.path,
-      ),
+      (await queries.listCredentials(db, { path: "acme.connections.team" })).map((row) => row.path),
     ).toEqual(["acme.connections.team.docs"]);
     expect((await queries.listCredentials(db)).map((row) => row.path)).toEqual([
       "acme.connections.github",

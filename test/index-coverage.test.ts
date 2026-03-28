@@ -330,7 +330,9 @@ describe("index coverage helpers", () => {
       }),
     ).rejects.toThrow("Credential 'broken.oauthless' does not have oauth auth");
     // Remove the corrupted row so list() can parse all remaining credentials.
-    await db.execute(sql.raw(`DELETE FROM agentpw.credentials WHERE path = 'broken.credential'::ltree`));
+    await db.execute(
+      sql.raw(`DELETE FROM agentpw.credentials WHERE path = 'broken.credential'::ltree`),
+    );
     expect(Array.isArray(await agentPw.credentials.list())).toBe(true);
 
     await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toThrow(

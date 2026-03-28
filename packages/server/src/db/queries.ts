@@ -178,7 +178,8 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     async getCredProfile(db, path) {
       return runDb(
         "db.getCredProfile",
-        async () => (await db.select().from(credProfiles).where(eq(credProfiles.path, path)))[0] ?? null,
+        async () =>
+          (await db.select().from(credProfiles).where(eq(credProfiles.path, path)))[0] ?? null,
         { label: "path", value: path },
       );
     },
@@ -298,7 +299,8 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
     async getCredential(db, path) {
       return runDb(
         "db.getCredential",
-        async () => (await db.select().from(credentials).where(eq(credentials.path, path)))[0] ?? null,
+        async () =>
+          (await db.select().from(credentials).where(eq(credentials.path, path)))[0] ?? null,
         { label: "path", value: path },
       );
     },

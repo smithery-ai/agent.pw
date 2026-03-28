@@ -235,9 +235,7 @@ export const LtreeLabelSchema = z
   .meta({ id: "LtreeLabel" });
 export type LtreeLabel = z.infer<typeof LtreeLabelSchema>;
 
-export const LtreePathSchema = z
-  .string()
-  .meta({ id: "LtreePath" });
+export const LtreePathSchema = z.string().meta({ id: "LtreePath" });
 export type LtreePath = z.infer<typeof LtreePathSchema>;
 
 const OAuthClientAuthenticationMethodSchema = z.enum([
@@ -469,14 +467,17 @@ export interface ScopedAgentPw {
   };
   credentials: {
     get(path: string): Promise<Result<CredentialRecord | null>>;
-    list(options?: { path?: string }): Promise<Result<CredentialSummary[]>>;
+    list(options?: { path?: string; recursive?: boolean }): Promise<Result<CredentialSummary[]>>;
     put(input: CredentialPutInput): Promise<Result<CredentialRecord>>;
     move(fromPath: string, toPath: string): Promise<Result<boolean>>;
     delete(path: string, options?: DeleteOptions): Promise<Result<boolean>>;
   };
   profiles: {
     get(path: string): Promise<Result<CredentialProfileRecord | null>>;
-    list(options?: { path?: string }): Promise<Result<CredentialProfileRecord[]>>;
+    list(options?: {
+      path?: string;
+      recursive?: boolean;
+    }): Promise<Result<CredentialProfileRecord[]>>;
     put(path: string, data: CredentialProfilePutInput): Promise<Result<CredentialProfileRecord>>;
     delete(path: string, options?: DeleteOptions): Promise<Result<boolean>>;
   };
