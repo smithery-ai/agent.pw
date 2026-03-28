@@ -133,13 +133,8 @@ describe("biscuit advanced helpers", () => {
       authorizeRequest(rootPathRestricted, PUBLIC_KEY_HEX, "api.linear.app", "GET", "/").authorized,
     ).toBe(true);
     expect(
-      authorizeRequest(
-        rootPathRestricted,
-        PUBLIC_KEY_HEX,
-        "api.linear.app",
-        "GET",
-        "/nested/path",
-      ).authorized,
+      authorizeRequest(rootPathRestricted, PUBLIC_KEY_HEX, "api.linear.app", "GET", "/nested/path")
+        .authorized,
     ).toBe(true);
   });
 

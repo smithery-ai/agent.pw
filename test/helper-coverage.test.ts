@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  extractTokenFacts,
-  mintToken,
-  restrictToken,
-  authorizeRequest,
-} from "agent.pw/biscuit";
+import { extractTokenFacts, mintToken, restrictToken, authorizeRequest } from "agent.pw/biscuit";
 import { rootsForAction, rootsForActions } from "agent.pw/rules";
 import { persistenceError, isAgentPwError } from "../packages/server/src/errors";
 import { mergeHeaders } from "../packages/server/src/lib/connect-headers";
@@ -46,7 +41,10 @@ describe("helper coverage", () => {
     expect(
       (
         await errorOfAsync(
-          anyResourcePatternMatches(["/relative/*", "https://ok.example.com/*"], "https://ok.example.com"),
+          anyResourcePatternMatches(
+            ["/relative/*", "https://ok.example.com/*"],
+            "https://ok.example.com",
+          ),
         )
       ).message,
     ).toBe("Invalid resource pattern '/relative/*'");
@@ -95,9 +93,9 @@ describe("helper coverage", () => {
       ),
     );
 
-    expect(
-      authorizeRequest(token, PUBLIC_KEY_HEX, "github", "GET", "/repos/1").authorized,
-    ).toBe(true);
+    expect(authorizeRequest(token, PUBLIC_KEY_HEX, "github", "GET", "/repos/1").authorized).toBe(
+      true,
+    );
     expect(extractTokenFacts(token, PUBLIC_KEY_HEX)).toEqual(
       expect.objectContaining({
         rights: [{ action: "credential.use" }],
@@ -124,25 +122,30 @@ describe("helper coverage", () => {
     importSpy.mockRestore();
 
     expect(
-      (await errorOfAsync(
-        encryptCredentials(Buffer.from("short").toString("base64"), {
-          headers: { Authorization: "Bearer short" },
-        }),
-      )).message,
+      (
+        await errorOfAsync(
+          encryptCredentials(Buffer.from("short").toString("base64"), {
+            headers: { Authorization: "Bearer short" },
+          }),
+        )
+      ).message,
     ).toBe("Encryption key must be 32 bytes");
     expect(
-      (await errorOfAsync(encryptSecret(Buffer.from("short").toString("base64"), "secret"))).message,
+      (await errorOfAsync(encryptSecret(Buffer.from("short").toString("base64"), "secret")))
+        .message,
     ).toBe("Encryption key must be 32 bytes");
 
     const encryptSpy = vi
       .spyOn(crypto.subtle, "encrypt")
       .mockRejectedValueOnce(new Error("encrypt failed"));
     expect(
-      (await errorOfAsync(
-        encryptCredentials(encryptionKey, {
-          headers: { Authorization: "Bearer secret" },
-        }),
-      )).message,
+      (
+        await errorOfAsync(
+          encryptCredentials(encryptionKey, {
+            headers: { Authorization: "Bearer secret" },
+          }),
+        )
+      ).message,
     ).toBe("Failed to encrypt credentials");
     encryptSpy.mockRestore();
 
@@ -154,13 +157,15 @@ describe("helper coverage", () => {
     );
     encryptSecretSpy.mockRestore();
 
-    expect((await errorOfAsync(decryptCredentials(encryptionKey, Buffer.alloc(28, 1)))).message).toBe(
-      "Failed to decrypt credentials",
-    );
     expect(
-      (await errorOfAsync(
-        decryptCredentials(Buffer.from("short").toString("base64"), Buffer.alloc(28, 1)),
-      )).message,
+      (await errorOfAsync(decryptCredentials(encryptionKey, Buffer.alloc(28, 1)))).message,
+    ).toBe("Failed to decrypt credentials");
+    expect(
+      (
+        await errorOfAsync(
+          decryptCredentials(Buffer.from("short").toString("base64"), Buffer.alloc(28, 1)),
+        )
+      ).message,
     ).toBe("Encryption key must be 32 bytes");
 
     const nonJson = await mustAsync(encryptSecret(encryptionKey, "not-json"));

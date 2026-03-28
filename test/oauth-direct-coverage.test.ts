@@ -31,10 +31,7 @@ function oauthProfile(
 
 type StoredConfig = NonNullable<CredentialRecord["secret"]["oauth"]>;
 
-function oauthCredential(
-  path: string,
-  config: Partial<StoredConfig> = {},
-): CredentialRecord {
+function oauthCredential(path: string, config: Partial<StoredConfig> = {}): CredentialRecord {
   const resource = config.resource ?? "https://resource.example.com";
   return {
     path,
@@ -60,9 +57,7 @@ function oauthCredential(
   };
 }
 
-function discoveryOption(
-  input: Partial<ConnectOAuthOption> = {},
-): ConnectOAuthOption {
+function discoveryOption(input: Partial<ConnectOAuthOption> = {}): ConnectOAuthOption {
   return {
     kind: "oauth",
     source: "discovery",
@@ -109,9 +104,7 @@ function textJsonResponse(body: string, status = 200) {
   });
 }
 
-function createFetch(
-  overrides: Record<string, Response | Error> = {},
-): typeof fetch {
+function createFetch(overrides: Record<string, Response | Error> = {}): typeof fetch {
   const fetchImpl: typeof fetch = async (input) => {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -197,11 +190,14 @@ function createService(
           }),
         )),
     getCredential:
-      (options.getCredential as never) ??
-      (async () => ok<CredentialRecord | null>(null)),
+      (options.getCredential as never) ?? (async () => ok<CredentialRecord | null>(null)),
     putCredential:
       (options.putCredential as never) ??
-      (async (input: { path: string; auth: CredentialRecord["auth"]; secret: CredentialRecord["secret"] }) =>
+      (async (input: {
+        path: string;
+        auth: CredentialRecord["auth"];
+        secret: CredentialRecord["secret"];
+      }) =>
         ok({
           path: input.path,
           auth: input.auth,
@@ -209,9 +205,7 @@ function createService(
           createdAt: NOW,
           updatedAt: NOW,
         })),
-    deleteCredential:
-      (options.deleteCredential as never) ??
-      (async () => ok(true)),
+    deleteCredential: (options.deleteCredential as never) ?? (async () => ok(true)),
   });
 }
 
@@ -224,9 +218,7 @@ describe("oauth direct coverage", () => {
     const service = createService({
       flowStore: createInMemoryFlowStore(),
       customFetch: createFetch({
-        "https://docs.example.com/.well-known/oauth-protected-resource/mcp": textJsonResponse(
-          "{",
-        ),
+        "https://docs.example.com/.well-known/oauth-protected-resource/mcp": textJsonResponse("{"),
       }),
     });
 
@@ -318,9 +310,8 @@ describe("oauth direct coverage", () => {
         await createService({
           flowStore: createInMemoryFlowStore(),
           customFetch: createFetch({
-            "https://issuer.example.com/.well-known/oauth-authorization-server": textJsonResponse(
-              "{",
-            ),
+            "https://issuer.example.com/.well-known/oauth-authorization-server":
+              textJsonResponse("{"),
           }),
           defaultClient,
         }).startAuthorization({
@@ -488,8 +479,9 @@ describe("oauth direct coverage", () => {
       "OAuth flows require an explicit flowStore",
     );
     expect(
-      errorOf(await createService().completeAuthorization({ callbackUri: "https://app.example.com" }))
-        .message,
+      errorOf(
+        await createService().completeAuthorization({ callbackUri: "https://app.example.com" }),
+      ).message,
     ).toBe("OAuth flows require an explicit flowStore");
     expect(errorOf(await service.completeAuthorization({ callbackUri: "not-a-url" })).message).toBe(
       "Invalid callback uri 'not-a-url'",

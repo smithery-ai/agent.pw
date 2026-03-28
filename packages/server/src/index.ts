@@ -510,8 +510,8 @@ export async function createAgentPw(options: AgentPwOptions) {
       return persisted;
     }
 
-      return decryptCredentialRecord(encryptionKey, persisted.value);
-    };
+    return decryptCredentialRecord(encryptionKey, persisted.value);
+  };
 
   function optionFromProfile(profile: CredentialProfileRecord, resource: string) {
     if (profile.auth.kind === "oauth") {

@@ -52,11 +52,11 @@ describe("resource pattern helpers", () => {
     expect(errorOf(resourcePatternMatches("/relative/*", "https://example.com")).message).toBe(
       "Invalid resource pattern '/relative/*'",
     );
-    expect(
-      errorOf(resourcePatternMatches("https://api.example.com/*", "not-a-url")).message,
-    ).toBe("Invalid resource 'not-a-url'");
-    expect(
-      errorOf(anyResourcePatternMatches(["/relative/*"], "https://example.com")).message,
-    ).toBe("Invalid resource pattern '/relative/*'");
+    expect(errorOf(resourcePatternMatches("https://api.example.com/*", "not-a-url")).message).toBe(
+      "Invalid resource 'not-a-url'",
+    );
+    expect(errorOf(anyResourcePatternMatches(["/relative/*"], "https://example.com")).message).toBe(
+      "Invalid resource pattern '/relative/*'",
+    );
   });
 });

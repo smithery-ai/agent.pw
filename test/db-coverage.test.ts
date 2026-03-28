@@ -39,11 +39,13 @@ describe("db coverage", () => {
     ).toBe("Invalid SQL schema 'bad-schema'");
 
     expect(
-      (await errorOfAsync(
-        createLocalDb("memory://", {
-          sql: { schema: "bad-schema" },
-        }),
-      )).message,
+      (
+        await errorOfAsync(
+          createLocalDb("memory://", {
+            sql: { schema: "bad-schema" },
+          }),
+        )
+      ).message,
     ).toBe("Invalid SQL schema 'bad-schema'");
   });
 
@@ -103,11 +105,13 @@ describe("db coverage", () => {
     );
 
     expect(
-      (await errorOfAsync(
-        bootstrapLocalSchema(badCredentialDb, {
-          sql: { schema: "bad-schema" },
-        }),
-      )).message,
+      (
+        await errorOfAsync(
+          bootstrapLocalSchema(badCredentialDb, {
+            sql: { schema: "bad-schema" },
+          }),
+        )
+      ).message,
     ).toBe("Invalid SQL schema 'bad-schema'");
   });
 
@@ -131,7 +135,9 @@ describe("db coverage", () => {
 
     expect(
       (
-        await errorOfAsync(helpers.getCredProfile(failingSelect(new Error("ltree syntax error")), "/"))
+        await errorOfAsync(
+          helpers.getCredProfile(failingSelect(new Error("ltree syntax error")), "/"),
+        )
       ).message,
     ).toBe("Invalid path '/'");
 
@@ -158,7 +164,11 @@ describe("db coverage", () => {
     expect(
       (
         await errorOfAsync(
-          helpers.moveCredential(failingSelect(new Error("db failed")), "org.docs", "org.docs.next"),
+          helpers.moveCredential(
+            failingSelect(new Error("db failed")),
+            "org.docs",
+            "org.docs.next",
+          ),
         )
       ).message,
     ).toBe("Database query failed");
@@ -168,25 +178,31 @@ describe("db coverage", () => {
     const db = await createTestDb();
     const helpers = must(createQueryHelpers());
 
-    await db.execute(sql.raw(`
+    await db.execute(
+      sql.raw(`
       INSERT INTO agentpw.cred_profiles (path, resource_patterns, auth)
       VALUES (
         'org.broken'::ltree,
         '["/relative/*"]'::jsonb,
         '{"kind":"headers","fields":[{"name":"Authorization","label":"Token"}]}'::jsonb
       )
-    `));
+    `),
+    );
 
     expect(
-      (await errorOfAsync(
-        helpers.getMatchingCredProfiles(db, "org.docs", "https://docs.example.com"),
-      )).message,
+      (
+        await errorOfAsync(
+          helpers.getMatchingCredProfiles(db, "org.docs", "https://docs.example.com"),
+        )
+      ).message,
     ).toBe("Invalid resource pattern '/relative/*'");
 
-    await db.execute(sql.raw(`
+    await db.execute(
+      sql.raw(`
       INSERT INTO agentpw.credentials (path, auth, secret)
       VALUES ('org.docs'::ltree, '{"kind":"headers"}'::jsonb, decode('00', 'hex'))
-    `));
+    `),
+    );
 
     expect(await helpers.moveCredential(db, "missing.path", "next.path")).toEqual({
       ok: true,

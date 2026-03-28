@@ -145,14 +145,15 @@ describe("db edge coverage", () => {
       ).message,
     ).toBe("Invalid resource pattern '/relative/*'");
 
-    await db.execute(sql.raw(`
+    await db.execute(
+      sql.raw(`
       INSERT INTO agentpw.cred_profiles (path, resource_patterns, auth)
       VALUES ('org.broken'::ltree, '["/relative/*"]'::jsonb, '{"kind":"headers","fields":[]}'::jsonb)
-    `));
+    `),
+    );
     expect(
-      errorOf(
-        await helpers.getMatchingCredProfiles(db, "org.docs", "https://example.com/resource"),
-      ).message,
+      errorOf(await helpers.getMatchingCredProfiles(db, "org.docs", "https://example.com/resource"))
+        .message,
     ).toBe("Invalid resource pattern '/relative/*'");
 
     expect(errorOf(await helpers.getCredProfile(db, "/bad")).message).toBe("Invalid path '/bad'");
@@ -174,9 +175,8 @@ describe("db edge coverage", () => {
     try {
       bareDb = await mustAsync(createLocalDb(bareDir));
       expect(
-        errorOf(
-          await helpers.getMatchingCredProfiles(bareDb, "org.docs", "https://example.com"),
-        ).message,
+        errorOf(await helpers.getMatchingCredProfiles(bareDb, "org.docs", "https://example.com"))
+          .message,
       ).toBe("Database query failed");
     } finally {
       await closeLocalDb(bareDb);

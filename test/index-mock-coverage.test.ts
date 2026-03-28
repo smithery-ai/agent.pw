@@ -81,8 +81,9 @@ describe("index mock coverage", () => {
       authorizationServer: "https://issuer.example.com",
     };
 
-    expect(errorOf(await agentPw.profiles.resolve({ path: "bad.path", resource: "https://ok" })).message)
-      .toBe("mock path");
+    expect(
+      errorOf(await agentPw.profiles.resolve({ path: "bad.path", resource: "https://ok" })).message,
+    ).toBe("mock path");
     expect(errorOf(await agentPw.profiles.get("bad.profile")).message).toBe("mock profile path");
     expect(errorOf(await agentPw.profiles.list({ path: "bad.profile" })).message).toBe(
       "mock profile path",
@@ -122,8 +123,9 @@ describe("index mock coverage", () => {
       "mock credential path",
     );
 
-    expect(errorOf(await agentPw.connect.prepare({ path: "bad.path", resource: "https://ok" })).message)
-      .toBe("mock path");
+    expect(
+      errorOf(await agentPw.connect.prepare({ path: "bad.path", resource: "https://ok" })).message,
+    ).toBe("mock path");
     expect(
       errorOf(
         await agentPw.connect.startOAuth({
@@ -143,8 +145,9 @@ describe("index mock coverage", () => {
       "mock path",
     );
 
-    expect(errorOf(await scoped.connect.prepare({ path: "bad.path", resource: "https://ok" })).message)
-      .toBe("mock path");
+    expect(
+      errorOf(await scoped.connect.prepare({ path: "bad.path", resource: "https://ok" })).message,
+    ).toBe("mock path");
     expect(
       errorOf(
         await scoped.connect.startOAuth({
@@ -154,9 +157,9 @@ describe("index mock coverage", () => {
         }),
       ).message,
     ).toBe("mock path");
-    expect(errorOf(await scoped.connect.setHeaders({ path: "bad.path", headers: {} })).message).toBe(
-      "mock path",
-    );
+    expect(
+      errorOf(await scoped.connect.setHeaders({ path: "bad.path", headers: {} })).message,
+    ).toBe("mock path");
     expect(errorOf(await scoped.connect.resolveHeaders({ path: "bad.path" })).message).toBe(
       "mock path",
     );
@@ -179,12 +182,12 @@ describe("index mock coverage", () => {
         }),
       ).message,
     ).toBe("mock credential path");
-    expect(
-      errorOf(await scoped.credentials.move("bad.source", "good.target")).message,
-    ).toBe("mock source path");
-    expect(
-      errorOf(await scoped.credentials.move("good.source", "bad.target")).message,
-    ).toBe("mock target path");
+    expect(errorOf(await scoped.credentials.move("bad.source", "good.target")).message).toBe(
+      "mock source path",
+    );
+    expect(errorOf(await scoped.credentials.move("good.source", "bad.target")).message).toBe(
+      "mock target path",
+    );
     expect(errorOf(await scoped.credentials.delete("bad.credential")).message).toBe(
       "mock credential path",
     );
@@ -260,42 +263,62 @@ describe("index mock coverage", () => {
             }
             if (path === "oauth.refresh.fallback") {
               return ok(
-                credentialRow("oauth.refresh.fallback", {
-                  kind: "oauth",
-                  resource: "https://resource.example.com",
-                }, "oauth-secret"),
+                credentialRow(
+                  "oauth.refresh.fallback",
+                  {
+                    kind: "oauth",
+                    resource: "https://resource.example.com",
+                  },
+                  "oauth-secret",
+                ),
               );
             }
             if (path === "oauth.secret.missing") {
               return ok(
-                credentialRow("oauth.secret.missing", {
-                  kind: "oauth",
-                  resource: "https://resource.example.com",
-                }, "oauth-missing"),
+                credentialRow(
+                  "oauth.secret.missing",
+                  {
+                    kind: "oauth",
+                    resource: "https://resource.example.com",
+                  },
+                  "oauth-missing",
+                ),
               );
             }
             if (path === "oauth.profile.persist") {
               return ok(
-                credentialRow("oauth.profile.persist", {
-                  kind: "oauth",
-                  profilePath: "profiles.oauth",
-                  resource: "https://resource.example.com",
-                }, "oauth-secret"),
+                credentialRow(
+                  "oauth.profile.persist",
+                  {
+                    kind: "oauth",
+                    profilePath: "profiles.oauth",
+                    resource: "https://resource.example.com",
+                  },
+                  "oauth-secret",
+                ),
               );
             }
             if (path === "oauth.nullish.persist") {
               return ok(
-                credentialRow("oauth.nullish.persist", {
-                  kind: "oauth",
-                }, "oauth-secret"),
+                credentialRow(
+                  "oauth.nullish.persist",
+                  {
+                    kind: "oauth",
+                  },
+                  "oauth-secret",
+                ),
               );
             }
             if (path === "headers.secret.missing" || path === "headerless.prepare") {
               return ok(
-                credentialRow(path, {
-                  kind: "headers",
-                  resource: "https://resource.example.com",
-                }, "headers-missing"),
+                credentialRow(
+                  path,
+                  {
+                    kind: "headers",
+                    resource: "https://resource.example.com",
+                  },
+                  "headers-missing",
+                ),
               );
             }
             if (path === "headers.profile.persist") {
@@ -316,10 +339,14 @@ describe("index mock coverage", () => {
             }
             if (path === "decrypt.fail") {
               return ok(
-                credentialRow("decrypt.fail", {
-                  kind: "headers",
-                  resource: "https://resource.example.com",
-                }, "decrypt-fail"),
+                credentialRow(
+                  "decrypt.fail",
+                  {
+                    kind: "headers",
+                    resource: "https://resource.example.com",
+                  },
+                  "decrypt-fail",
+                ),
               );
             }
             return ok(null);
@@ -333,7 +360,10 @@ describe("index mock coverage", () => {
             }
             return ok([]);
           },
-          async upsertCredential(_db: unknown, input: { path: string; auth: Record<string, unknown>; secret: Buffer }) {
+          async upsertCredential(
+            _db: unknown,
+            input: { path: string; auth: Record<string, unknown>; secret: Buffer },
+          ) {
             if (input.path === "credential.put.err") {
               return err(inputError("mock credential put failure"));
             }
@@ -352,10 +382,9 @@ describe("index mock coverage", () => {
         }),
     }));
     vi.doMock("../packages/server/src/lib/credentials-crypto.js", async () => {
-      const actual =
-        await vi.importActual<typeof import("../packages/server/src/lib/credentials-crypto")>(
-          "../packages/server/src/lib/credentials-crypto.js",
-        );
+      const actual = await vi.importActual<
+        typeof import("../packages/server/src/lib/credentials-crypto")
+      >("../packages/server/src/lib/credentials-crypto.js");
       return {
         ...actual,
         async decryptCredentials(_key: string, encrypted: Buffer) {
@@ -498,8 +527,10 @@ describe("index mock coverage", () => {
       authorizationServer: "https://issuer.example.com",
     };
 
-    expect(errorOf(await agentPw.profiles.resolve({ path: "profile.err", resource: "https://ok" })).message)
-      .toBe("mock match failure");
+    expect(
+      errorOf(await agentPw.profiles.resolve({ path: "profile.err", resource: "https://ok" }))
+        .message,
+    ).toBe("mock match failure");
     expect(
       errorOf(await agentPw.profiles.resolve({ path: "org.oauth", resource: "not-a-url" })).message,
     ).toBe("Invalid resource 'not-a-url'");
@@ -524,7 +555,9 @@ describe("index mock coverage", () => {
     expect(errorOf(await agentPw.profiles.delete("profile.delete.err")).message).toBe(
       "mock profile delete failure",
     );
-    expect(await agentPw.profiles.delete("profile.delete.ok", { db: {} as never, recursive: true })).toEqual({
+    expect(
+      await agentPw.profiles.delete("profile.delete.ok", { db: {} as never, recursive: true }),
+    ).toEqual({
       ok: true,
       value: true,
     });
@@ -581,17 +614,20 @@ describe("index mock coverage", () => {
     expect(errorOf(await agentPw.credentials.delete("delete.err")).message).toBe(
       "mock credential delete failure",
     );
-    expect(
-      await agentPw.credentials.move("move.ok", "move.next", { db: {} as never }),
-    ).toEqual({ ok: true, value: true });
+    expect(await agentPw.credentials.move("move.ok", "move.next", { db: {} as never })).toEqual({
+      ok: true,
+      value: true,
+    });
     expect(
       await agentPw.credentials.delete("delete.ok", { db: {} as never, recursive: true }),
     ).toEqual({ ok: true, value: true });
 
-    expect(errorOf(await agentPw.connect.prepare({ path: "env.profile", resource: "https://ok" })).message)
-      .toBe(
-        "Credential Profile 'env.profile' stores env auth and cannot be used with connect.prepare",
-      );
+    expect(
+      errorOf(await agentPw.connect.prepare({ path: "env.profile", resource: "https://ok" }))
+        .message,
+    ).toBe(
+      "Credential Profile 'env.profile' stores env auth and cannot be used with connect.prepare",
+    );
     expect(
       errorOf(await agentPw.connect.prepare({ path: "org.oauth", resource: "not-a-url" })).message,
     ).toBe("Invalid resource 'not-a-url'");
@@ -611,9 +647,9 @@ describe("index mock coverage", () => {
         }),
       ).message,
     ).toBe("mock match failure");
-    expect((await agentPw.connect.prepare({ path: "plain.unconfigured", resource: "https://ok" })).ok).toBe(
-      true,
-    );
+    expect(
+      (await agentPw.connect.prepare({ path: "plain.unconfigured", resource: "https://ok" })).ok,
+    ).toBe(true);
     expect(
       await agentPw.connect.prepare({
         path: "oauth.refresh.fallback",
@@ -633,8 +669,7 @@ describe("index mock coverage", () => {
           resource: "https://resource.example.com",
         }),
       ).message,
-    )
-      .toBe("mock refresh failure");
+    ).toBe("mock refresh failure");
     expect(
       errorOf(
         await agentPw.connect.prepare({
@@ -642,8 +677,7 @@ describe("index mock coverage", () => {
           resource: "https://resource.example.com",
         }),
       ).message,
-    )
-      .toBe("Credential 'headerless.prepare' does not have header-based auth");
+    ).toBe("Credential 'headerless.prepare' does not have header-based auth");
     expect(
       errorOf(
         await agentPw.connect.startOAuth({
@@ -757,8 +791,9 @@ describe("index mock coverage", () => {
       ).message,
     ).toBe("mock metadata failure");
 
-    expect(errorOf(await scoped.connect.prepare({ path: "org.denied", resource: "https://ok" })).message)
-      .toBe("mock rule denial");
+    expect(
+      errorOf(await scoped.connect.prepare({ path: "org.denied", resource: "https://ok" })).message,
+    ).toBe("mock rule denial");
     expect(
       errorOf(
         await scoped.connect.prepare({

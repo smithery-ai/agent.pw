@@ -64,7 +64,8 @@ describe("db query helper mock coverage", () => {
       },
     };
 
-    expect(errorOf(await helpers.moveCredential(txFailureDb as never, "good.path", "next.path")).message)
-      .toBe("Database query failed");
+    expect(
+      errorOf(await helpers.moveCredential(txFailureDb as never, "good.path", "next.path")).message,
+    ).toBe("Database query failed");
   });
 });
