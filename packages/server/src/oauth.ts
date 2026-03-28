@@ -840,9 +840,7 @@ export function createOAuthService(options: {
       const flow: PendingFlow = {
         id: flowId,
         path: path.value,
-        credential: {
-          ...(input.option.profilePath ? { profilePath: input.option.profilePath } : {}),
-        },
+        credential: input.option.profilePath ? { profilePath: input.option.profilePath } : {},
         headers: input.headers,
         redirectUri: redirectUri.value.toString(),
         codeVerifier,
