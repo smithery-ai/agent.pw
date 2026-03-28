@@ -672,9 +672,12 @@ export function createOAuthService(options: {
     path: string,
     optionsForRefresh: {
       force?: boolean;
+      credential?: CredentialRecord;
     } = {},
   ) {
-    const credential = await options.getCredential(path);
+    const credential = optionsForRefresh.credential
+      ? ok(optionsForRefresh.credential)
+      : await options.getCredential(path);
     if (!credential.ok) {
       return credential;
     }
@@ -982,12 +985,12 @@ export function createOAuthService(options: {
       });
     },
 
-    async refreshCredential(path: string, force = false) {
+    async refreshCredential(path: string, force = false, credential?: CredentialRecord) {
       const normalizedPath = assertPath(path, "path");
       if (!normalizedPath.ok) {
         return err(normalizedPath.error);
       }
-      return refreshCredential(normalizedPath.value, { force });
+      return refreshCredential(normalizedPath.value, { force, credential });
     },
 
     async disconnect(input: ConnectDisconnectInput) {

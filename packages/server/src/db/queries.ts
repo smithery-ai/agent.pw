@@ -53,7 +53,7 @@ interface QueryHelpers {
       displayName?: string;
       description?: string;
     },
-  ): Promise<Result<void>>;
+  ): Promise<Result<CredProfileRow>>;
   deleteCredProfile(
     db: Database,
     path: string,
@@ -74,7 +74,7 @@ interface QueryHelpers {
       auth: Record<string, unknown>;
       secret: Buffer;
     },
-  ): Promise<Result<void>>;
+  ): Promise<Result<CredentialRow>>;
   moveCredential(db: Database, fromPath: string, toPath: string): Promise<Result<boolean>>;
   deleteCredential(
     db: Database,
@@ -261,25 +261,28 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       return runDb(
         "db.upsertCredProfile",
         async () => {
-          await db
-            .insert(credProfiles)
-            .values({
-              path,
-              resourcePatterns,
-              auth: data.auth,
-              displayName: data.displayName ?? null,
-              description: data.description ?? null,
-            })
-            .onConflictDoUpdate({
-              target: credProfiles.path,
-              set: {
+          return (
+            await db
+              .insert(credProfiles)
+              .values({
+                path,
                 resourcePatterns,
                 auth: data.auth,
                 displayName: data.displayName ?? null,
                 description: data.description ?? null,
-                updatedAt: new Date(),
-              },
-            });
+              })
+              .onConflictDoUpdate({
+                target: credProfiles.path,
+                set: {
+                  resourcePatterns,
+                  auth: data.auth,
+                  displayName: data.displayName ?? null,
+                  description: data.description ?? null,
+                  updatedAt: new Date(),
+                },
+              })
+              .returning()
+          )[0];
         },
         { label: "path", value: path },
       );
@@ -338,21 +341,24 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       return runDb(
         "db.upsertCredential",
         async () => {
-          await db
-            .insert(credentials)
-            .values({
-              path: data.path,
-              auth: normalizedAuth.value,
-              secret: data.secret,
-            })
-            .onConflictDoUpdate({
-              target: credentials.path,
-              set: {
+          return (
+            await db
+              .insert(credentials)
+              .values({
+                path: data.path,
                 auth: normalizedAuth.value,
                 secret: data.secret,
-                updatedAt: new Date(),
-              },
-            });
+              })
+              .onConflictDoUpdate({
+                target: credentials.path,
+                set: {
+                  auth: normalizedAuth.value,
+                  secret: data.secret,
+                  updatedAt: new Date(),
+                },
+              })
+              .returning()
+          )[0];
         },
         { label: "path", value: data.path },
       );
