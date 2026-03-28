@@ -15,6 +15,7 @@ import {
 } from "./lib/credentials-crypto.js";
 import { mergeHeaders } from "./lib/connect-headers.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
+import { assertPath } from "./paths.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
   CimdDocumentInput,
@@ -33,13 +34,6 @@ import type {
   OAuthResolvedConfig,
   PendingFlow,
 } from "./types.js";
-
-function assertPath(path: string, label: string) {
-  if (!path.startsWith("/") || path === "/" || path.includes("..")) {
-    return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
-  }
-  return ok(path);
-}
 
 function assertUrl(value: string, label: string) {
   const parsed = result(() => new URL(value));
@@ -790,11 +784,11 @@ export function createOAuthService(options: {
       }
       const path = assertPath(input.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
       const redirectUri = assertUrl(input.redirectUri, "redirect uri");
       if (!redirectUri.ok) {
-        return redirectUri;
+        return err(redirectUri.error);
       }
       const oauthConfig = await resolveOAuthConfigForOption(input.option, input.client);
       if (!oauthConfig.ok) {
@@ -867,7 +861,7 @@ export function createOAuthService(options: {
 
       const callbackUrl = assertUrl(input.callbackUri, "callback uri");
       if (!callbackUrl.ok) {
-        return callbackUrl;
+        return err(callbackUrl.error);
       }
 
       const flowId = callbackUrl.value.searchParams.get("state");
@@ -984,7 +978,7 @@ export function createOAuthService(options: {
     async refreshCredential(path: string, force = false) {
       const normalizedPath = assertPath(path, "path");
       if (!normalizedPath.ok) {
-        return normalizedPath;
+        return err(normalizedPath.error);
       }
       return refreshCredential(normalizedPath.value, { force });
     },
@@ -992,7 +986,7 @@ export function createOAuthService(options: {
     async disconnect(input: ConnectDisconnectInput) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
 
       const credential = await options.getCredential(path.value);
@@ -1118,16 +1112,9 @@ export function createOAuthService(options: {
       return {
         start: async (request, input) => {
           try {
-            const path = assertPath(input.path, "path");
-            if (!path.ok) {
-              return optionsForHandlers.error
-                ? optionsForHandlers.error(path.error, request)
-                : defaultErrorResponse(path.error);
-            }
-
             const session = await this.startAuthorization({
               ...input,
-              path: path.value,
+              path: input.path,
               redirectUri: input.redirectUri ?? resolveRedirectUri(request, callbackPath),
             });
             if (!session.ok) {

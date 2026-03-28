@@ -25,8 +25,8 @@ describe("biscuit advanced helpers", () => {
     const parent = mintToken(
       BISCUIT_PRIVATE_KEY,
       "user_alpha",
-      [{ action: "credential.use", root: "/org_alpha" }],
-      ['org_id("org_alpha")', 'home_path("/org_alpha")', 'scope("repo")', 'custom("value")'],
+      [{ action: "credential.use", root: "org_alpha" }],
+      ['org_id("org_alpha")', 'home_path("org_alpha")', 'scope("repo")', 'custom("value")'],
     );
     const appended = appendTokenBlocks(parent, PUBLIC_KEY_HEX, [
       'check if operation($op), ["GET"].contains($op);',
@@ -35,7 +35,7 @@ describe("biscuit advanced helpers", () => {
 
     expect(extractAuthorityExtraFacts(appended, PUBLIC_KEY_HEX)).toEqual([
       'org_id("org_alpha");',
-      'home_path("/org_alpha");',
+      'home_path("org_alpha");',
       'scope("repo");',
       'custom("value");',
     ]);
@@ -51,7 +51,7 @@ describe("biscuit advanced helpers", () => {
     const parent = mintToken(
       BISCUIT_PRIVATE_KEY,
       "user_alpha",
-      [{ action: "credential.use", root: "/org_alpha" }],
+      [{ action: "credential.use", root: "org_alpha" }],
       ['org_id("org_alpha")', 'scope("repo")'],
     );
 
@@ -60,7 +60,7 @@ describe("biscuit advanced helpers", () => {
         BISCUIT_PRIVATE_KEY,
         PUBLIC_KEY_HEX,
         parent,
-        [{ action: "credential.use", root: "/org_alpha/ws_engineering" }],
+        [{ action: "credential.use", root: "org_alpha.ws_engineering" }],
         [{ methods: "GET", paths: "/org_alpha/ws_engineering", ttl: "1m" }],
       ),
     );
@@ -70,7 +70,7 @@ describe("biscuit advanced helpers", () => {
         userId: "user_alpha",
         orgId: "org_alpha",
         scopes: ["repo"],
-        rights: [{ action: "credential.use", root: "/org_alpha/ws_engineering" }],
+        rights: [{ action: "credential.use", root: "org_alpha.ws_engineering" }],
       }),
     );
 
@@ -88,19 +88,19 @@ describe("biscuit advanced helpers", () => {
         {
           action: "credential.use",
           host: "api.linear.app",
-          requestedRoot: "/org_alpha/ws_engineering",
+          requestedRoot: "org_alpha.ws_engineering",
         },
       ).authorized,
     ).toBe(true);
 
     const rooted = mintToken(BISCUIT_PRIVATE_KEY, "user_alpha", [
-      { action: "credential.use", root: "/org_alpha" },
+      { action: "credential.use", root: "org_alpha" },
     ]);
     const rootRestricted = must(
       restrictToken(rooted, PUBLIC_KEY_HEX, [
         {
           actions: "credential.use",
-          roots: "/org_alpha/ws_engineering",
+          roots: "org_alpha.ws_engineering",
           methods: "GET",
           paths: "/org_alpha/ws_engineering",
         },
@@ -116,7 +116,7 @@ describe("biscuit advanced helpers", () => {
         {
           action: "credential.use",
           host: "api.linear.app",
-          requestedRoot: "/org_alpha/ws_engineering",
+          requestedRoot: "org_alpha.ws_engineering",
         },
       ).authorized,
     ).toBe(true);
@@ -134,7 +134,7 @@ describe("biscuit advanced helpers", () => {
           BISCUIT_PRIVATE_KEY,
           PUBLIC_KEY_HEX,
           parentWithoutIdentity,
-          [{ action: "credential.use", root: "/org_alpha" }],
+          [{ action: "credential.use", root: "org_alpha" }],
           [],
         ),
       ).message,

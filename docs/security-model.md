@@ -40,12 +40,14 @@ That split keeps the framework focused on provider auth state and auth decisions
 
 The core security boundary is the connection `path`.
 
+Paths use strict dot-separated `ltree` syntax. Each segment must match `[A-Za-z0-9_-]+`.
+
 Examples:
 
 ```txt
-/acme/connections/github
-/acme/connections/docs
-/acme/workspaces/finance/connections/linear
+acme.connections.github
+acme.connections.docs
+acme.workspaces.finance.connections.linear
 ```
 
 Each exact path stores one credential.
@@ -122,9 +124,9 @@ Profiles live at paths and match connection paths by ancestry.
 Examples:
 
 ```txt
-/github
-/acme/github
-/acme/workspaces/finance/linear
+github
+acme.github
+acme.workspaces.finance.linear
 ```
 
 Deeper matching profiles win when multiple profiles apply. That lets teams express defaults and more specific overrides without flattening configuration into a single global row.
@@ -199,12 +201,14 @@ The framework does not silently rely on process-local memory in production.
 Rules are path-based grants such as:
 
 ```txt
-credential.use on /acme
-credential.manage on /acme/connections
-profile.read on /
+credential.use on acme
+credential.manage on acme.connections
+profile.read (global)
 ```
 
 Rules are the authorization facts that the framework understands directly.
+
+Global scope is represented by omitting `root`, not by using a root-path literal.
 
 That means the same grant language can protect:
 
@@ -231,10 +235,10 @@ Example:
 
 ```ts
 const api = agentPw.scope({
-  rights: [{ action: "credential.use", root: "/acme" }],
+  rights: [{ action: "credential.use", root: "acme" }],
 });
 
-await api.connect.resolveHeaders({ path: "/acme/connections/docs" });
+await api.connect.resolveHeaders({ path: "acme.connections.docs" });
 ```
 
 The framework only asks for path-based rights because those are the facts it actually checks. Apps can derive those rights from Biscuits, sessions, or any other permission store.

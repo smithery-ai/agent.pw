@@ -1,12 +1,13 @@
 import { err, ok, result, type Result } from "okay-error";
-import { eq, like, type InferSelectModel } from "drizzle-orm";
+import { and, eq, sql, type InferSelectModel } from "drizzle-orm";
 import { inputError, internalError } from "../errors.js";
 import { isRecord } from "../lib/utils.js";
 import {
-  canonicalizePath,
+  assertOptionalPath,
+  assertPath,
   credentialParentPath,
   isAncestorOrEqual,
-  validatePath,
+  pathDepth,
 } from "../paths.js";
 import {
   anyResourcePatternMatches,
@@ -35,6 +36,7 @@ interface QueryHelpers {
     db: Database,
     options?: {
       path?: string;
+      recursive?: boolean;
     },
   ): Promise<Result<CredProfileRow[]>>;
   getMatchingCredProfiles(
@@ -52,12 +54,17 @@ interface QueryHelpers {
       description?: string;
     },
   ): Promise<Result<void>>;
-  deleteCredProfile(db: Database, path: string): Promise<Result<boolean>>;
+  deleteCredProfile(
+    db: Database,
+    path: string,
+    options?: { recursive?: boolean },
+  ): Promise<Result<boolean>>;
   getCredential(db: Database, path: string): Promise<Result<CredentialRow | null>>;
   listCredentials(
     db: Database,
     options?: {
       path?: string;
+      recursive?: boolean;
     },
   ): Promise<Result<CredentialRow[]>>;
   upsertCredential(
@@ -69,21 +76,15 @@ interface QueryHelpers {
     },
   ): Promise<Result<void>>;
   moveCredential(db: Database, fromPath: string, toPath: string): Promise<Result<boolean>>;
-  deleteCredential(db: Database, path: string): Promise<Result<boolean>>;
+  deleteCredential(
+    db: Database,
+    path: string,
+    options?: { recursive?: boolean },
+  ): Promise<Result<boolean>>;
 }
 
 function sortByDeepestPath<T extends { path: string }>(a: T, b: T) {
-  const aDepth = a.path.split("/").filter(Boolean).length;
-  const bDepth = b.path.split("/").filter(Boolean).length;
-  return bDepth - aDepth || a.path.localeCompare(b.path);
-}
-
-function normalizeListPath(path: string | undefined) {
-  const normalized = canonicalizePath(path ?? "/");
-  if (!validatePath(normalized)) {
-    return err(inputError(`Invalid path '${path}'`, { field: "path", value: path }));
-  }
-  return ok(normalized);
+  return pathDepth(b.path) - pathDepth(a.path) || a.path.localeCompare(b.path);
 }
 
 function normalizeCredentialAuthRecord(auth: Record<string, unknown>) {
@@ -101,7 +102,68 @@ function normalizeCredentialAuthRecord(auth: Record<string, unknown>) {
     normalized.value.resource = normalizedResource.value;
   }
 
+  const profilePath = normalized.value.profilePath;
+  if (typeof profilePath === "string") normalized.value.profilePath = profilePath;
+
   return ok(normalized.value);
+}
+
+function isLtreeSyntaxError(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "cause" in error &&
+    isLtreeSyntaxError(error.cause)
+  ) {
+    return true;
+  }
+
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string" &&
+    error.message.includes("ltree syntax error")
+  );
+}
+
+function mapDbError(source: string, error: unknown, path?: { label: string; value: string }) {
+  if (path && isLtreeSyntaxError(error)) {
+    return inputError(`Invalid ${path.label} '${path.value}'`, {
+      field: path.label,
+      value: path.value,
+    });
+  }
+
+  return internalError("Database query failed", {
+    cause: error,
+    ...(path ? { path: path.value } : {}),
+    source,
+  });
+}
+
+async function runDb<T>(
+  source: string,
+  fn: () => Promise<T>,
+  path?: { label: string; value: string },
+): Promise<Result<T>> {
+  try {
+    return ok(await fn());
+  } catch (error) {
+    return err(mapDbError(source, error, path));
+  }
+}
+
+function directChildrenWhere(pathColumn: { getSQL(): unknown }, path: string) {
+  const depth = pathDepth(path);
+  return and(
+    sql<boolean>`nlevel(${pathColumn}) = ${depth + 1}`,
+    sql<boolean>`subpath(${pathColumn}, 0, ${depth}) = ${path}::ltree`,
+  );
+}
+
+function descendantsWhere(pathColumn: { getSQL(): unknown }, path: string) {
+  return sql<boolean>`${pathColumn} <@ ${path}::ltree`;
 }
 
 export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
@@ -114,26 +176,36 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
 
   const helpers: QueryHelpers = {
     async getCredProfile(db, path) {
-      return ok(
-        (await db.select().from(credProfiles).where(eq(credProfiles.path, path)))[0] ?? null,
+      return runDb(
+        "db.getCredProfile",
+        async () =>
+          (await db.select().from(credProfiles).where(eq(credProfiles.path, path)))[0] ?? null,
+        { label: "path", value: path },
       );
     },
 
     async listCredProfiles(db, options = {}) {
-      const path = normalizeListPath(options.path);
+      const path = assertOptionalPath(options.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
 
-      const rows =
-        path.value === "/"
-          ? await db.select().from(credProfiles)
-          : await db
-              .select()
-              .from(credProfiles)
-              .where(like(credProfiles.path, `${path.value}/%`));
-
-      return ok(rows.sort((a, b) => a.path.localeCompare(b.path)));
+      return runDb(
+        "db.listCredProfiles",
+        async () => {
+          const where =
+            path.value === undefined
+              ? undefined
+              : options.recursive
+                ? descendantsWhere(credProfiles.path, path.value)
+                : directChildrenWhere(credProfiles.path, path.value);
+          const rows = where
+            ? await db.select().from(credProfiles).where(where)
+            : await db.select().from(credProfiles);
+          return rows.sort((a, b) => a.path.localeCompare(b.path));
+        },
+        path.value === undefined ? undefined : { label: "path", value: path.value },
+      );
     },
 
     async getMatchingCredProfiles(db, path, resource) {
@@ -142,13 +214,22 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
         return normalizedResource;
       }
 
-      const normalizedPath = canonicalizePath(path);
-      const rows = await db.select().from(credProfiles);
+      const normalizedPath = assertPath(path, "path");
+      if (!normalizedPath.ok) {
+        return err(normalizedPath.error);
+      }
+      const rowsResult = await runDb("db.getMatchingCredProfiles", async () =>
+        db.select().from(credProfiles),
+      );
+      if (!rowsResult.ok) {
+        return rowsResult;
+      }
+      const rows = rowsResult.value;
       const matches: CredProfileRow[] = [];
 
       for (const profile of rows) {
         const profileScope = credentialParentPath(profile.path);
-        if (!isAncestorOrEqual(profileScope, normalizedPath)) {
+        if (profileScope && !isAncestorOrEqual(profileScope, normalizedPath.value)) {
           continue;
         }
 
@@ -177,56 +258,74 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
         resourcePatterns.push(normalized.value);
       }
 
-      await db
-        .insert(credProfiles)
-        .values({
-          path,
-          resourcePatterns,
-          auth: data.auth,
-          displayName: data.displayName ?? null,
-          description: data.description ?? null,
-        })
-        .onConflictDoUpdate({
-          target: credProfiles.path,
-          set: {
-            resourcePatterns,
-            auth: data.auth,
-            displayName: data.displayName ?? null,
-            description: data.description ?? null,
-            updatedAt: new Date(),
-          },
-        });
-
-      return ok();
+      return runDb(
+        "db.upsertCredProfile",
+        async () => {
+          await db
+            .insert(credProfiles)
+            .values({
+              path,
+              resourcePatterns,
+              auth: data.auth,
+              displayName: data.displayName ?? null,
+              description: data.description ?? null,
+            })
+            .onConflictDoUpdate({
+              target: credProfiles.path,
+              set: {
+                resourcePatterns,
+                auth: data.auth,
+                displayName: data.displayName ?? null,
+                description: data.description ?? null,
+                updatedAt: new Date(),
+              },
+            });
+        },
+        { label: "path", value: path },
+      );
     },
 
-    async deleteCredProfile(db, path) {
-      const deleted = await db.delete(credProfiles).where(eq(credProfiles.path, path)).returning();
-      return ok(deleted.length > 0);
+    async deleteCredProfile(db, path, options) {
+      const where = options?.recursive
+        ? sql<boolean>`${credProfiles.path} <@ ${path}::ltree`
+        : eq(credProfiles.path, path);
+      return runDb(
+        "db.deleteCredProfile",
+        async () => (await db.delete(credProfiles).where(where).returning()).length > 0,
+        { label: "path", value: path },
+      );
     },
 
     async getCredential(db, path) {
-      return ok((await db.select().from(credentials).where(eq(credentials.path, path)))[0] ?? null);
+      return runDb(
+        "db.getCredential",
+        async () =>
+          (await db.select().from(credentials).where(eq(credentials.path, path)))[0] ?? null,
+        { label: "path", value: path },
+      );
     },
 
     async listCredentials(db, options = {}) {
-      const path = normalizeListPath(options.path);
+      const path = assertOptionalPath(options.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
 
-      const rows =
-        path.value === "/"
-          ? await db.select().from(credentials)
-          : await db
-              .select()
-              .from(credentials)
-              .where(like(credentials.path, `${path.value}/%`));
-
-      return ok(
-        rows
-          .filter((row) => credentialParentPath(row.path) === path.value)
-          .sort((a, b) => a.path.localeCompare(b.path)),
+      return runDb(
+        "db.listCredentials",
+        async () => {
+          const where =
+            path.value === undefined
+              ? undefined
+              : options.recursive
+                ? descendantsWhere(credentials.path, path.value)
+                : directChildrenWhere(credentials.path, path.value);
+          const rows = where
+            ? await db.select().from(credentials).where(where)
+            : await db.select().from(credentials);
+          return rows.sort((a, b) => a.path.localeCompare(b.path));
+        },
+        path.value === undefined ? undefined : { label: "path", value: path.value },
       );
     },
 
@@ -236,23 +335,27 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
         return normalizedAuth;
       }
 
-      await db
-        .insert(credentials)
-        .values({
-          path: data.path,
-          auth: normalizedAuth.value,
-          secret: data.secret,
-        })
-        .onConflictDoUpdate({
-          target: credentials.path,
-          set: {
-            auth: normalizedAuth.value,
-            secret: data.secret,
-            updatedAt: new Date(),
-          },
-        });
-
-      return ok();
+      return runDb(
+        "db.upsertCredential",
+        async () => {
+          await db
+            .insert(credentials)
+            .values({
+              path: data.path,
+              auth: normalizedAuth.value,
+              secret: data.secret,
+            })
+            .onConflictDoUpdate({
+              target: credentials.path,
+              set: {
+                auth: normalizedAuth.value,
+                secret: data.secret,
+                updatedAt: new Date(),
+              },
+            });
+        },
+        { label: "path", value: data.path },
+      );
     },
 
     async moveCredential(db, fromPath, toPath) {
@@ -266,34 +369,37 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
 
       const existingRow = row.value;
 
-      const transaction = await result(
-        db.transaction(async (tx) => {
-          await tx.delete(credentials).where(eq(credentials.path, fromPath));
-          await tx.insert(credentials).values({
-            path: toPath,
-            auth: existingRow.auth,
-            secret: existingRow.secret,
-            createdAt: existingRow.createdAt,
-            updatedAt: new Date(),
-          });
-        }),
+      const transaction = await runDb(
+        "db.moveCredential",
+        async () =>
+          db.transaction(async (tx) => {
+            await tx.delete(credentials).where(eq(credentials.path, fromPath));
+            await tx.insert(credentials).values({
+              path: toPath,
+              auth: existingRow.auth,
+              secret: existingRow.secret,
+              createdAt: existingRow.createdAt,
+              updatedAt: new Date(),
+            });
+          }),
+        { label: "target path", value: toPath },
       );
       if (!transaction.ok) {
-        return err(
-          internalError("Failed to move credential", {
-            cause: transaction.error,
-            path: fromPath,
-            source: "db.moveCredential",
-          }),
-        );
+        return transaction;
       }
 
       return ok(true);
     },
 
-    async deleteCredential(db, path) {
-      const deleted = await db.delete(credentials).where(eq(credentials.path, path)).returning();
-      return ok(deleted.length > 0);
+    async deleteCredential(db, path, options) {
+      const where = options?.recursive
+        ? sql<boolean>`${credentials.path} <@ ${path}::ltree`
+        : eq(credentials.path, path);
+      return runDb(
+        "db.deleteCredential",
+        async () => (await db.delete(credentials).where(where).returning()).length > 0,
+        { label: "path", value: path },
+      );
     },
   };
 

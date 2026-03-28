@@ -17,7 +17,7 @@ import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
 import { createOAuthService } from "./oauth.js";
-import { canonicalizePath, credentialName, validatePath } from "./paths.js";
+import { assertOptionalPath, assertPath, credentialName, pathDepth } from "./paths.js";
 import { normalizeResource } from "./resource-patterns.js";
 import { authorizeRules, can as canRule } from "./rules.js";
 import type {
@@ -39,33 +39,15 @@ import type {
   ScopedAgentPw,
 } from "./types.js";
 
-function assertPath(path: string, label: string) {
-  const normalized = canonicalizePath(path);
-  if (!validatePath(normalized) || normalized === "/") {
-    return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
-  }
-  return ok(normalized);
-}
-
-function assertListPath(path: string | undefined, label: string) {
-  const normalized = canonicalizePath(path ?? "/");
-  if (!validatePath(normalized)) {
-    return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
-  }
-  return ok(normalized);
-}
-
 function resolveSingleMatch<T extends { path: string }>(matches: T[], description: string) {
   if (matches.length === 0) {
     return ok(undefined);
   }
 
   const topDepth = matches
-    .map((match) => match.path.split("/").filter(Boolean).length)
+    .map((match) => pathDepth(match.path))
     .reduce((max, depth) => Math.max(max, depth), 0);
-  const conflicts = matches.filter(
-    (match) => match.path.split("/").filter(Boolean).length === topDepth,
-  );
+  const conflicts = matches.filter((match) => pathDepth(match.path) === topDepth);
   if (conflicts.length > 1) {
     return err(
       conflictError(
@@ -376,7 +358,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     async resolve(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
       const resource = normalizeResource(input.resource);
       if (!resource.ok) {
@@ -402,12 +384,15 @@ export async function createAgentPw(options: AgentPwOptions) {
       return toProfileRecord(selected.value);
     },
 
-    async get(path) {
+    async get(path, opts) {
       const normalizedPath = assertPath(path, "profile path");
       if (!normalizedPath.ok) {
-        return normalizedPath;
+        return err(normalizedPath.error);
       }
-      const selected = await queryHelpers.getCredProfile(options.db, normalizedPath.value);
+      const selected = await queryHelpers.getCredProfile(
+        opts?.db ?? options.db,
+        normalizedPath.value,
+      );
       if (!selected.ok) {
         return selected;
       }
@@ -418,12 +403,13 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
 
     async list(query = {}) {
-      const path = assertListPath(query.path, "profile path");
+      const path = assertOptionalPath(query.path, "profile path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
-      const rows = await queryHelpers.listCredProfiles(options.db, {
+      const rows = await queryHelpers.listCredProfiles(query.db ?? options.db, {
         path: path.value,
+        recursive: query.recursive,
       });
       if (!rows.ok) {
         return rows;
@@ -440,10 +426,11 @@ export async function createAgentPw(options: AgentPwOptions) {
       return ok(records);
     },
 
-    async put(path, data: CredentialProfilePutInput) {
+    async put(path, data: CredentialProfilePutInput, opts) {
+      const db = opts?.db ?? options.db;
       const profilePath = assertPath(path, "profile path");
       if (!profilePath.ok) {
-        return profilePath;
+        return err(profilePath.error);
       }
       if (data.resourcePatterns.length === 0) {
         return err(inputError("Credential Profile resourcePatterns cannot be empty"));
@@ -454,7 +441,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         return auth;
       }
 
-      const persisted = await queryHelpers.upsertCredProfile(options.db, profilePath.value, {
+      const persisted = await queryHelpers.upsertCredProfile(db, profilePath.value, {
         resourcePatterns: data.resourcePatterns,
         auth: auth.value,
         displayName: data.displayName,
@@ -464,7 +451,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         return persisted;
       }
 
-      const stored = await queryHelpers.getCredProfile(options.db, profilePath.value);
+      const stored = await queryHelpers.getCredProfile(db, profilePath.value);
       if (!stored.ok) {
         return stored;
       }
@@ -482,22 +469,24 @@ export async function createAgentPw(options: AgentPwOptions) {
       return toProfileRecord(stored.value);
     },
 
-    delete(path) {
+    delete(path, opts) {
       const normalizedPath = assertPath(path, "profile path");
       if (!normalizedPath.ok) {
-        return Promise.resolve(normalizedPath);
+        return Promise.resolve(err(normalizedPath.error));
       }
-      return queryHelpers.deleteCredProfile(options.db, normalizedPath.value);
+      return queryHelpers.deleteCredProfile(opts?.db ?? options.db, normalizedPath.value, {
+        recursive: opts?.recursive,
+      });
     },
   };
 
-  const getCredential: AgentPw["credentials"]["get"] = async (path) => {
+  const getCredential: AgentPw["credentials"]["get"] = async (path, opts) => {
     const normalizedPath = assertPath(path, "credential path");
     if (!normalizedPath.ok) {
-      return normalizedPath;
+      return err(normalizedPath.error);
     }
 
-    const selected = await queryHelpers.getCredential(options.db, normalizedPath.value);
+    const selected = await queryHelpers.getCredential(opts?.db ?? options.db, normalizedPath.value);
     if (!selected.ok) {
       return selected;
     }
@@ -507,10 +496,11 @@ export async function createAgentPw(options: AgentPwOptions) {
     return decryptCredentialRecord(encryptionKey, selected.value);
   };
 
-  const putCredential: AgentPw["credentials"]["put"] = async (input) => {
+  const putCredential: AgentPw["credentials"]["put"] = async (input, opts) => {
+    const db = opts?.db ?? options.db;
     const path = assertPath(input.path, "credential path");
     if (!path.ok) {
-      return path;
+      return err(path.error);
     }
 
     const authRecord = toJsonRecord(input.auth);
@@ -562,7 +552,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return storedAuth;
     }
 
-    const persisted = await queryHelpers.upsertCredential(options.db, {
+    const persisted = await queryHelpers.upsertCredential(db, {
       path: path.value,
       auth: storedAuth.value,
       secret: encryptedSecret.value,
@@ -571,7 +561,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return persisted;
     }
 
-    const stored = await queryHelpers.getCredential(options.db, path.value);
+    const stored = await queryHelpers.getCredential(db, path.value);
     if (!stored.ok) {
       return stored;
     }
@@ -635,7 +625,7 @@ export async function createAgentPw(options: AgentPwOptions) {
   async function resolveConnection(input: ConnectPrepareInput) {
     const path = assertPath(input.path, "path");
     if (!path.ok) {
-      return path;
+      return err(path.error);
     }
     const resource = normalizeResource(input.resource);
     if (!resource.ok) {
@@ -775,7 +765,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     deleteCredential(path) {
       const normalizedPath = assertPath(path, "credential path");
       if (!normalizedPath.ok) {
-        return Promise.resolve(normalizedPath);
+        return Promise.resolve(err(normalizedPath.error));
       }
       return queryHelpers.deleteCredential(options.db, normalizedPath.value);
     },
@@ -785,12 +775,13 @@ export async function createAgentPw(options: AgentPwOptions) {
     get: getCredential,
 
     async list(query = {}) {
-      const path = assertListPath(query.path, "credential path");
+      const path = assertOptionalPath(query.path, "credential path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
-      const rows = await queryHelpers.listCredentials(options.db, {
+      const rows = await queryHelpers.listCredentials(query.db ?? options.db, {
         path: path.value,
+        recursive: query.recursive,
       });
       if (!rows.ok) {
         return rows;
@@ -812,28 +803,34 @@ export async function createAgentPw(options: AgentPwOptions) {
       return ok(items);
     },
 
-    put(input) {
-      return putCredential(input);
+    put(input, opts) {
+      return putCredential(input, opts);
     },
 
-    move(fromPath, toPath) {
+    move(fromPath, toPath, opts) {
       const normalizedFrom = assertPath(fromPath, "source path");
       if (!normalizedFrom.ok) {
-        return Promise.resolve(normalizedFrom);
+        return Promise.resolve(err(normalizedFrom.error));
       }
       const normalizedTo = assertPath(toPath, "target path");
       if (!normalizedTo.ok) {
-        return Promise.resolve(normalizedTo);
+        return Promise.resolve(err(normalizedTo.error));
       }
-      return queryHelpers.moveCredential(options.db, normalizedFrom.value, normalizedTo.value);
+      return queryHelpers.moveCredential(
+        opts?.db ?? options.db,
+        normalizedFrom.value,
+        normalizedTo.value,
+      );
     },
 
-    delete(path) {
+    delete(path, opts) {
       const normalizedPath = assertPath(path, "credential path");
       if (!normalizedPath.ok) {
-        return Promise.resolve(normalizedPath);
+        return Promise.resolve(err(normalizedPath.error));
       }
-      return queryHelpers.deleteCredential(options.db, normalizedPath.value);
+      return queryHelpers.deleteCredential(opts?.db ?? options.db, normalizedPath.value, {
+        recursive: opts?.recursive,
+      });
     },
   };
 
@@ -887,7 +884,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
       const path = assertPath(input.path, "path");
       if (!path.ok) {
-        return Promise.resolve(path);
+        return Promise.resolve(err(path.error));
       }
       const headers =
         typeof input.headers === "undefined"
@@ -910,7 +907,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     async setHeaders(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
 
       const headers = parseHeaders(input.headers);
@@ -1024,7 +1021,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     async resolveHeaders(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
-        return path;
+        return err(path.error);
       }
       const credential =
         input.refresh === false
@@ -1055,7 +1052,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     disconnect(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
-        return Promise.resolve(path);
+        return Promise.resolve(err(path.error));
       }
       return oauth.disconnect({
         path: path.value,
@@ -1082,7 +1079,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         async prepare(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
           const allowed = requireRule(scope, "credential.connect", path.value);
           if (!allowed.ok) {
@@ -1116,7 +1113,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         async startOAuth(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
           const allowed = requireRule(scope, "credential.connect", path.value);
           if (!allowed.ok) {
@@ -1144,7 +1141,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         async setHeaders(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
           const allowed = requireRule(scope, "credential.connect", path.value);
           if (!allowed.ok) {
@@ -1156,7 +1153,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         async resolveHeaders(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
           const allowed = requireRule(scope, "credential.use", path.value);
           if (!allowed.ok) {
@@ -1168,7 +1165,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         async disconnect(input) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
           const allowed = requireRule(scope, "credential.connect", path.value);
           if (!allowed.ok) {
@@ -1179,24 +1176,28 @@ export async function createAgentPw(options: AgentPwOptions) {
       },
 
       credentials: {
-        async get(path) {
+        async get(path, opts) {
           const normalizedPath = assertPath(path, "credential path");
           if (!normalizedPath.ok) {
-            return normalizedPath;
+            return err(normalizedPath.error);
           }
           const allowed = requireRule(scope, "credential.read", normalizedPath.value);
           if (!allowed.ok) {
             return allowed;
           }
-          return credentials.get(normalizedPath.value);
+          return credentials.get(normalizedPath.value, opts);
         },
 
         async list(query = {}) {
-          const path = assertListPath(query.path, "credential path");
+          const path = assertOptionalPath(query.path, "credential path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
-          const items = await credentials.list({ path: path.value });
+          const items = await credentials.list({
+            path: path.value,
+            recursive: query.recursive,
+            db: query.db,
+          });
           if (!items.ok) {
             return items;
           }
@@ -1211,26 +1212,26 @@ export async function createAgentPw(options: AgentPwOptions) {
           );
         },
 
-        async put(input) {
+        async put(input, opts) {
           const path = assertPath(input.path, "credential path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
           const allowed = requireRule(scope, "credential.manage", path.value);
           if (!allowed.ok) {
             return allowed;
           }
-          return credentials.put(input);
+          return credentials.put(input, opts);
         },
 
-        async move(fromPath, toPath) {
+        async move(fromPath, toPath, opts) {
           const normalizedFrom = assertPath(fromPath, "source path");
           const normalizedTo = assertPath(toPath, "target path");
           if (!normalizedFrom.ok) {
-            return normalizedFrom;
+            return err(normalizedFrom.error);
           }
           if (!normalizedTo.ok) {
-            return normalizedTo;
+            return err(normalizedTo.error);
           }
           const fromAllowed = requireRule(scope, "credential.manage", normalizedFrom.value);
           if (!fromAllowed.ok) {
@@ -1240,41 +1241,45 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!toAllowed.ok) {
             return toAllowed;
           }
-          return credentials.move(normalizedFrom.value, normalizedTo.value);
+          return credentials.move(normalizedFrom.value, normalizedTo.value, opts);
         },
 
-        async delete(path) {
+        async delete(path, opts) {
           const normalizedPath = assertPath(path, "credential path");
           if (!normalizedPath.ok) {
-            return normalizedPath;
+            return err(normalizedPath.error);
           }
           const allowed = requireRule(scope, "credential.manage", normalizedPath.value);
           if (!allowed.ok) {
             return allowed;
           }
-          return credentials.delete(normalizedPath.value);
+          return credentials.delete(normalizedPath.value, opts);
         },
       },
 
       profiles: {
-        async get(path) {
+        async get(path, opts) {
           const normalizedPath = assertPath(path, "profile path");
           if (!normalizedPath.ok) {
-            return normalizedPath;
+            return err(normalizedPath.error);
           }
           const allowed = requireRule(scope, "profile.read", normalizedPath.value);
           if (!allowed.ok) {
             return allowed;
           }
-          return profiles.get(normalizedPath.value);
+          return profiles.get(normalizedPath.value, opts);
         },
 
         async list(query = {}) {
-          const path = assertListPath(query.path, "profile path");
+          const path = assertOptionalPath(query.path, "profile path");
           if (!path.ok) {
-            return path;
+            return err(path.error);
           }
-          const items = await profiles.list({ path: path.value });
+          const items = await profiles.list({
+            path: path.value,
+            recursive: query.recursive,
+            db: query.db,
+          });
           if (!items.ok) {
             return items;
           }
@@ -1289,28 +1294,28 @@ export async function createAgentPw(options: AgentPwOptions) {
           );
         },
 
-        async put(path, data) {
+        async put(path, data, opts) {
           const normalizedPath = assertPath(path, "profile path");
           if (!normalizedPath.ok) {
-            return normalizedPath;
+            return err(normalizedPath.error);
           }
           const allowed = requireRule(scope, "profile.manage", normalizedPath.value);
           if (!allowed.ok) {
             return allowed;
           }
-          return profiles.put(normalizedPath.value, data);
+          return profiles.put(normalizedPath.value, data, opts);
         },
 
-        async delete(path) {
+        async delete(path, opts) {
           const normalizedPath = assertPath(path, "profile path");
           if (!normalizedPath.ok) {
-            return normalizedPath;
+            return err(normalizedPath.error);
           }
           const allowed = requireRule(scope, "profile.manage", normalizedPath.value);
           if (!allowed.ok) {
             return allowed;
           }
-          return profiles.delete(normalizedPath.value);
+          return profiles.delete(normalizedPath.value, opts);
         },
       },
     };
@@ -1332,6 +1337,8 @@ export async function createAgentPw(options: AgentPwOptions) {
 export {
   ConnectFlowSchema,
   ConnectOAuthOptionSchema,
+  LtreeLabelSchema,
+  LtreePathSchema,
   OAuthResolvedConfigSchema,
   PendingFlowSchema,
 } from "./types.js";

@@ -8,13 +8,15 @@ It stores encrypted credentials, runs OAuth flows, supports manual header-based 
 
 ## Concepts
 
-- `path`: one saved connection in your app, such as `/acme/connections/github`
+- `path`: one saved connection in your app, such as `acme.connections.github`
 - `resource`: the protected resource a connect flow is trying to access, such as `https://api.github.com/` or `https://docs.example.com/mcp`
 - `credential`: the encrypted auth stored at that exact path
 - `profile`: admin-configured setup guidance and polyfills that help `agent.pw` choose the right auth path
 - `rules`: path-based authorization facts that can be enforced directly or compiled into Biscuits
 
 Profiles are background configuration. End users usually do not need to know they exist.
+
+Paths use strict dot-separated `ltree` syntax. Each segment must match `[A-Za-z0-9_-]+`.
 
 ## Package Surface
 
@@ -67,7 +69,7 @@ The main API is `connect.*`, with `prepare(...)` as the choice-bearing entry poi
 ```ts
 const prepared = await unwrap(
   agentPw.connect.prepare({
-    path: "/acme/connections/docs",
+    path: "acme.connections.docs",
     resource: "https://docs.example.com/mcp",
   }),
 );
@@ -85,7 +87,7 @@ if (!option) {
 if (option.kind === "oauth") {
   const session = await unwrap(
     agentPw.connect.startOAuth({
-      path: "/acme/connections/docs",
+      path: "acme.connections.docs",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
       headers: {
@@ -99,7 +101,7 @@ if (option.kind === "oauth") {
 
 await unwrap(
   agentPw.connect.setHeaders({
-    path: "/acme/connections/docs",
+    path: "acme.connections.docs",
     resource: "https://docs.example.com/mcp",
     headers: {
       Authorization: "Bearer api-key-value",
@@ -113,7 +115,7 @@ Later, resolve fresh headers for that same connection:
 ```ts
 const headers = await unwrap(
   agentPw.connect.resolveHeaders({
-    path: "/acme/connections/docs",
+    path: "acme.connections.docs",
   }),
 );
 ```
@@ -169,7 +171,7 @@ When a known profile matches, `agent.pw` prefers that profile and skips generic 
 ```ts
 const prepared = await unwrap(
   agentPw.connect.prepare({
-    path: "/acme/connections/docs",
+    path: "acme.connections.docs",
     resource: "https://docs.example.com/mcp",
     response: unauthorizedResponse,
   }),
@@ -184,7 +186,7 @@ console.log(prepared.resolution);
 //   canonicalResource: 'https://docs.example.com/mcp',
 //   source: 'profile',
 //   reason: 'matched-profile',
-//   profilePath: '/docs',
+//   profilePath: 'docs',
 //   option: { kind: 'oauth', ... }
 // }
 ```
@@ -225,7 +227,7 @@ Profiles are useful for:
 Header-based profiles define which fields are expected:
 
 ```ts
-await agentPw.profiles.put("/resend", {
+await agentPw.profiles.put("resend", {
   resourcePatterns: ["https://api.resend.com*"],
   displayName: "Resend",
   auth: {
@@ -247,7 +249,7 @@ await agentPw.profiles.put("/resend", {
 OAuth profiles define the auth configuration the framework should use when discovery is not enough or an admin wants a fixed setup:
 
 ```ts
-await agentPw.profiles.put("/linear", {
+await agentPw.profiles.put("linear", {
   resourcePatterns: ["https://api.linear.app/*"],
   displayName: "Linear",
   auth: {
@@ -273,7 +275,7 @@ Apps can still store a one-off credential directly:
 
 ```ts
 await agentPw.credentials.put({
-  path: "/acme/connections/manual_resend",
+  path: "acme.connections.manual_resend",
   auth: {
     kind: "headers",
     label: "Manual Resend key",
@@ -291,7 +293,7 @@ Store env credentials directly through the vault layer:
 
 ```ts
 await agentPw.credentials.put({
-  path: "/acme/connections/github_cli",
+  path: "acme.connections.github_cli",
   auth: {
     kind: "env",
     label: "GitHub CLI",
@@ -303,19 +305,33 @@ await agentPw.credentials.put({
   },
 });
 
-const githubCli = await agentPw.credentials.get("/acme/connections/github_cli");
+const githubCli = await agentPw.credentials.get("acme.connections.github_cli");
 const env = githubCli?.secret.env;
 ```
 
-List stored credentials directly under a path:
+List stored credentials:
 
 ```ts
-const children = await agentPw.credentials.list({
-  path: "/acme/connections",
-});
+const all = await agentPw.credentials.list();
+const children = await agentPw.credentials.list({ path: "acme.connections" });
+const subtree = await agentPw.credentials.list({ path: "acme", recursive: true });
 ```
 
-`credentials.list({ path })` returns direct children only.
+Without `path`, returns everything. With `path`, returns direct children. With `recursive: true`, returns all descendants (backed by a GiST index on the ltree column).
+
+## CRUD Options
+
+Every `credentials.*` and `profiles.*` method accepts an optional `{ db }` to run the operation on a Drizzle transaction instead of the default connection. `list` and `delete` also accept `{ recursive }` to operate on the full subtree.
+
+```ts
+import type { Database } from "agent.pw";
+
+await db.transaction(async (tx: Database) => {
+  await tx.delete(orgs).where(eq(orgs.id, orgId));
+  await agentPw.credentials.delete(orgId, { db: tx, recursive: true });
+  await agentPw.profiles.delete(orgId, { db: tx, recursive: true });
+});
+```
 
 ## Scoped API
 
@@ -323,11 +339,11 @@ Use `scope(...)` to get a scoped API that enforces rules automatically.
 
 ```ts
 const api = agentPw.scope({
-  rights: [{ action: "credential.use", root: "/acme" }],
+  rights: [{ action: "credential.use", root: "acme" }],
 });
 
 const headers = await api.connect.resolveHeaders({
-  path: "/acme/connections/docs",
+  path: "acme.connections.docs",
 });
 ```
 
@@ -343,14 +359,14 @@ Rules are the base authorization model.
 import { can } from "agent.pw/rules";
 
 const allowed = can({
-  rights: [{ action: "credential.use", root: "/acme" }],
+  rights: [{ action: "credential.use", root: "acme" }],
   action: "credential.use",
-  path: "/acme/connections/docs",
+  path: "acme.connections.docs",
 });
 ```
 
 if (!allowed) {
-throw new Error('Missing credential.use for /acme/connections/docs')
+throw new Error("Missing credential.use for acme.connections.docs");
 }
 
 If an app wants Biscuit tokens, it can compile the same rules into Biscuits:
@@ -361,7 +377,7 @@ import { compileRulesToBiscuit } from "agent.pw/biscuit";
 const token = compileRulesToBiscuit({
   privateKeyHex: process.env.BISCUIT_PRIVATE_KEY!,
   subject: "agent_finance",
-  rights: [{ action: "credential.use", root: "/acme" }],
+  rights: [{ action: "credential.use", root: "acme" }],
 });
 ```
 
@@ -376,7 +392,7 @@ const handlers = agentPw.connect.createWebHandlers({
 
 export async function oauthStart(request: Request) {
   return handlers.start(request, {
-    path: "/acme/connections/docs",
+    path: "acme.connections.docs",
     option: {
       kind: "oauth",
       source: "discovery",

@@ -121,8 +121,25 @@ export async function createLocalDb(
     return bundledAssets;
   }
 
+  const ltreeExtension = await result(import("@electric-sql/pglite/contrib/ltree"));
+  if (!ltreeExtension.ok) {
+    return err(
+      internalError("Failed to load @electric-sql/pglite ltree extension", {
+        cause: ltreeExtension.error,
+        source: "db.createLocalDb.ltree",
+      }),
+    );
+  }
+
   const client = bundledAssets.value
-    ? new imported.value.PGlite({ dataDir, ...bundledAssets.value })
-    : new imported.value.PGlite(dataDir);
+    ? new imported.value.PGlite({
+        dataDir,
+        extensions: { ltree: ltreeExtension.value.ltree },
+        ...bundledAssets.value,
+      })
+    : new imported.value.PGlite({
+        dataDir,
+        extensions: { ltree: ltreeExtension.value.ltree },
+      });
   return ok(drizzlePglite(client, { schema: sqlNamespace.value.tables }));
 }

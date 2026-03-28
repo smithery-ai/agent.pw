@@ -33,16 +33,20 @@ describe("db entrypoints", () => {
     const dataDir = await mkdtemp(join(tmpdir(), "agentpw-migrate-"));
     try {
       db = await mustAsync(createLocalDb(dataDir));
-      await bootstrapLocalSchema(db);
+      await mustAsync(bootstrapLocalSchema(db));
 
       const result = await db.execute(sql`
-        SELECT table_name
-        FROM information_schema.tables
+        SELECT table_name, udt_name
+        FROM information_schema.columns
         WHERE table_schema = 'agentpw'
+          AND column_name = 'path'
         ORDER BY table_name
       `);
 
-      expect(result.rows.map((row) => row.table_name)).toEqual(["cred_profiles", "credentials"]);
+      expect(result.rows).toEqual([
+        { table_name: "cred_profiles", udt_name: "ltree" },
+        { table_name: "credentials", udt_name: "ltree" },
+      ]);
     } finally {
       await closeLocalDb(db);
       await rm(dataDir, { recursive: true, force: true });
@@ -72,20 +76,22 @@ describe("db entrypoints", () => {
           sql: sqlNamespace,
         }),
       );
-      await bootstrapLocalSchema(db, {
-        sql: sqlNamespace,
-      });
+      await mustAsync(
+        bootstrapLocalSchema(db, {
+          sql: sqlNamespace,
+        }),
+      );
 
-      await queries.upsertCredProfile(db, "/github", {
+      await queries.upsertCredProfile(db, "github", {
         resourcePatterns: ["https://api.github.com/*"],
         auth: {
           kind: "headers",
           fields: [{ name: "Authorization", label: "Token", prefix: "Bearer " }],
         },
       });
-      expect(await queries.getCredProfile(db, "/github")).toEqual(
+      expect(await queries.getCredProfile(db, "github")).toEqual(
         expect.objectContaining({
-          path: "/github",
+          path: "github",
           resourcePatterns: ["https://api.github.com/*"],
         }),
       );

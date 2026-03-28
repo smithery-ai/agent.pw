@@ -27,6 +27,6 @@ export const jsonb = <T>() =>
 
 export const ltree = customType<{ data: string; driverValue: string }>({
   dataType() {
-    return "text";
+    return "ltree";
   },
 });

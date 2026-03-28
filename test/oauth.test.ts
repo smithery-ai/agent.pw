@@ -135,7 +135,7 @@ async function createOAuthAgent() {
     ),
   );
 
-  await agentPw.profiles.put("/linear", {
+  await agentPw.profiles.put("linear", {
     resourcePatterns: ["https://api.linear.app/*"],
     auth: {
       kind: "oauth",
@@ -158,7 +158,7 @@ describe("oauth runtime", () => {
     const { agentPw, calls } = await createOAuthAgent();
 
     const prepared = await agentPw.connect.prepare({
-      path: "/org_alpha/connections/linear_1",
+      path: "org_alpha.connections.linear_1",
       resource: "https://api.linear.app/projects",
     });
     expect(prepared.kind).toBe("options");
@@ -171,13 +171,13 @@ describe("oauth runtime", () => {
       expect.objectContaining({
         kind: "oauth",
         source: "profile",
-        profilePath: "/linear",
+        profilePath: "linear",
         label: "Linear",
       }),
     );
 
     const session = await agentPw.connect.startOAuth({
-      path: "/org_alpha/connections/linear_1",
+      path: "org_alpha.connections.linear_1",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
     });
@@ -191,10 +191,10 @@ describe("oauth runtime", () => {
       callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
     });
 
-    expect(completed.path).toBe("/org_alpha/connections/linear_1");
+    expect(completed.path).toBe("org_alpha.connections.linear_1");
     expect(completed.credential.auth).toEqual({
       kind: "oauth",
-      profilePath: "/linear",
+      profilePath: "linear",
       resource: "https://api.linear.app/projects",
     });
     expect(completed.credential.secret).toEqual(
@@ -255,7 +255,7 @@ describe("oauth runtime", () => {
     const { agentPw, calls } = await createOAuthAgent();
 
     const prepared = await agentPw.connect.prepare({
-      path: "/org_alpha/connections/docs_mcp",
+      path: "org_alpha.connections.docs_mcp",
       resource: "https://docs.example.com/mcp",
     });
 
@@ -272,7 +272,7 @@ describe("oauth runtime", () => {
     }
 
     const session = await agentPw.connect.startOAuth({
-      path: "/org_alpha/connections/docs_mcp",
+      path: "org_alpha.connections.docs_mcp",
       option: oauthOption,
       redirectUri: "https://app.example.com/oauth/callback",
       additionalParameters: { prompt: "consent" },
@@ -299,7 +299,7 @@ describe("oauth runtime", () => {
       callbackPath: "/oauth/callback",
     });
     const startResponse = await handlers.start(new Request("https://app.example.com/connect"), {
-      path: "/org_alpha/connections/docs_mcp_next",
+      path: "org_alpha.connections.docs_mcp_next",
       option: oauthOption,
     });
     expect(startResponse.status).toBe(302);
@@ -354,7 +354,7 @@ describe("oauth runtime", () => {
   it("stores pending oauth flows until oauth completion", async () => {
     const { agentPw } = await createOAuthAgent();
 
-    await agentPw.profiles.put("/docs", {
+    await agentPw.profiles.put("docs", {
       resourcePatterns: ["https://docs.example.com/mcp"],
       auth: {
         kind: "oauth",
@@ -370,7 +370,7 @@ describe("oauth runtime", () => {
     });
 
     const prepared = await agentPw.connect.prepare({
-      path: "/org_alpha/connections/docs_profiled",
+      path: "org_alpha.connections.docs_profiled",
       resource: "https://docs.example.com/mcp",
     });
     if (prepared.kind !== "options") {
@@ -381,18 +381,18 @@ describe("oauth runtime", () => {
       canonicalResource: "https://docs.example.com/mcp",
       source: "profile",
       reason: "matched-profile",
-      profilePath: "/docs",
+      profilePath: "docs",
       option: {
         kind: "oauth",
         source: "profile",
         resource: "https://docs.example.com/mcp",
-        profilePath: "/docs",
+        profilePath: "docs",
         label: "Docs Profile",
         scopes: ["docs.read"],
       },
     });
     const started = await agentPw.connect.startOAuth({
-      path: "/org_alpha/connections/docs_profiled",
+      path: "org_alpha.connections.docs_profiled",
       option: prepared.options[0],
       redirectUri: "https://app.example.com/oauth/callback",
     });
@@ -401,9 +401,9 @@ describe("oauth runtime", () => {
 
     expect(await agentPw.connect.getFlow(started.flowId)).toEqual({
       flowId: started.flowId,
-      path: "/org_alpha/connections/docs_profiled",
+      path: "org_alpha.connections.docs_profiled",
       resource: "https://docs.example.com/mcp",
-      profilePath: "/docs",
+      profilePath: "docs",
       expiresAt: started.expiresAt,
     });
 
@@ -413,7 +413,7 @@ describe("oauth runtime", () => {
 
     expect(completed.credential.auth).toEqual({
       kind: "oauth",
-      profilePath: "/docs",
+      profilePath: "docs",
       resource: "https://docs.example.com/mcp",
     });
     await expect(agentPw.connect.getFlow(started.flowId)).rejects.toThrow(
@@ -425,7 +425,7 @@ describe("oauth runtime", () => {
     const { agentPw } = await createOAuthAgent();
 
     const prepared = await agentPw.connect.prepare({
-      path: "/org_alpha/connections/linear_merge",
+      path: "org_alpha.connections.linear_merge",
       resource: "https://api.linear.app/projects",
     });
     if (prepared.kind !== "options") {
@@ -434,7 +434,7 @@ describe("oauth runtime", () => {
     const option = prepared.options[0];
 
     await agentPw.credentials.put({
-      path: "/org_alpha/connections/linear_merge",
+      path: "org_alpha.connections.linear_merge",
       resource: "https://api.linear.app/projects",
       auth: {
         kind: "headers",
@@ -451,7 +451,7 @@ describe("oauth runtime", () => {
     });
 
     const session = await agentPw.connect.startOAuth({
-      path: "/org_alpha/connections/linear_merge",
+      path: "org_alpha.connections.linear_merge",
       option,
       redirectUri: "https://app.example.com/oauth/callback",
       headers: {
@@ -500,11 +500,11 @@ describe("oauth runtime", () => {
     const { agentPw } = await createOAuthAgent();
 
     await agentPw.credentials.put({
-      path: "/org_alpha/connections/linear_runtime_headers",
+      path: "org_alpha.connections.linear_runtime_headers",
       resource: "https://api.linear.app/projects",
       auth: {
         kind: "oauth",
-        profilePath: "/linear",
+        profilePath: "linear",
         label: "Linear",
         resource: "https://api.linear.app/projects",
       },
@@ -521,7 +521,7 @@ describe("oauth runtime", () => {
     });
 
     const merged = await agentPw.connect.setHeaders({
-      path: "/org_alpha/connections/linear_runtime_headers",
+      path: "org_alpha.connections.linear_runtime_headers",
       headers: {
         Authorization: "Bearer ignored",
         "X-Smithery-Connection": "conn_123",
@@ -530,7 +530,7 @@ describe("oauth runtime", () => {
 
     expect(merged.auth).toEqual({
       kind: "oauth",
-      profilePath: "/linear",
+      profilePath: "linear",
       resource: "https://api.linear.app/projects",
     });
     expect(merged.secret.headers).toEqual({
