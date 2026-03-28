@@ -253,6 +253,101 @@ describe("oauth direct coverage", () => {
         }),
       ).message,
     ).toBe("mock profile failure");
+    const discoveryCredentialErrorService = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch(),
+      getCredential: async () => err(inputError("mock discovery credential failure")),
+    });
+    expect(
+      errorOf(
+        await discoveryCredentialErrorService.startAuthorization({
+          path: "org.oauth",
+          option: discoveryOption(),
+          redirectUri: "https://app.example.com/oauth/callback",
+        }),
+      ).message,
+    ).toBe("mock discovery credential failure");
+    const missingStoredClientService = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch(),
+      getCredential: async () =>
+        ok<CredentialRecord | null>(oauthCredential("org.oauth", { clientId: undefined })),
+    });
+    expect(
+      errorOf(
+        await missingStoredClientService.startAuthorization({
+          path: "org.oauth",
+          option: discoveryOption(),
+          redirectUri: "https://app.example.com/oauth/callback",
+        }),
+      ).message,
+    ).toBe("Resource 'https://resource.example.com' requires oauth client configuration");
+    const missingAdvertisedMetadataService = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch({
+        "https://issuer.example.com/.well-known/oauth-authorization-server": new Response(null, {
+          status: 404,
+        }),
+        "https://issuer.example.com/.well-known/openid-configuration": new Response(null, {
+          status: 404,
+        }),
+      }),
+      getCredential: async () =>
+        ok<CredentialRecord | null>(
+          oauthCredential("org.oauth", {
+            issuer: undefined,
+            authorizationUrl: undefined,
+            tokenUrl: undefined,
+          }),
+        ),
+    });
+    expect(
+      errorOf(
+        await missingAdvertisedMetadataService.startAuthorization({
+          path: "org.oauth",
+          option: discoveryOption(),
+          redirectUri: "https://app.example.com/oauth/callback",
+        }),
+      ).message,
+    ).toBe("Authorization server 'https://issuer.example.com' does not publish usable metadata");
+    const noAdvertisedAuthorizationServerService = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch({
+        "https://resource.example.com/.well-known/oauth-protected-resource": Response.json({
+          resource: "https://resource.example.com/",
+          authorization_servers: [],
+        }),
+      }),
+      getCredential: async () => ok<CredentialRecord | null>(oauthCredential("org.oauth")),
+    });
+    expect(
+      errorOf(
+        await noAdvertisedAuthorizationServerService.startAuthorization({
+          path: "org.oauth",
+          option: discoveryOption(),
+          redirectUri: "https://app.example.com/oauth/callback",
+        }),
+      ).message,
+    ).toBe("Resource 'https://resource.example.com' does not advertise an authorization server");
+    const invalidAdvertisedAuthorizationServerService = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch({
+        "https://resource.example.com/.well-known/oauth-protected-resource": Response.json({
+          resource: "https://resource.example.com/",
+          authorization_servers: ["not-a-url"],
+        }),
+      }),
+      getCredential: async () => ok<CredentialRecord | null>(oauthCredential("org.oauth")),
+    });
+    expect(
+      errorOf(
+        await invalidAdvertisedAuthorizationServerService.startAuthorization({
+          path: "org.oauth",
+          option: discoveryOption(),
+          redirectUri: "https://app.example.com/oauth/callback",
+        }),
+      ).message,
+    ).toBe("Invalid authorization server 'not-a-url'");
     expect(
       errorOf(
         await service.startAuthorization({
@@ -262,6 +357,26 @@ describe("oauth direct coverage", () => {
         }),
       ).message,
     ).toBe("Invalid resource 'not-a-url'");
+
+    const metadataClientSession = await createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch(),
+    }).startAuthorization({
+      path: "org.oauth",
+      option: discoveryOption(),
+      redirectUri: "https://app.example.com/oauth/callback",
+      client: {
+        metadata: {
+          clientId: "meta-client-id",
+          redirectUris: ["https://app.example.com/oauth/callback"],
+          tokenEndpointAuthMethod: "none",
+        },
+      },
+    });
+    expect(metadataClientSession.ok).toBe(true);
+    if (metadataClientSession.ok) {
+      expect(metadataClientSession.value.authorizationUrl).toContain("client_id=meta-client-id");
+    }
   });
 
   it("covers discovery-option and dynamic registration failures", async () => {
@@ -406,18 +521,48 @@ describe("oauth direct coverage", () => {
         ),
       ).message,
     ).toBe("Invalid oauth issuer 'not-a-url'");
+    const incompleteCredential = {
+      ...oauthCredential("org.oauth", {
+        resource: undefined,
+        issuer: undefined,
+        authorizationUrl: "not-a-url",
+      }),
+      auth: { kind: "oauth", profilePath: null } as const,
+    };
+    expect(await service.refreshCredential("org.oauth", true, incompleteCredential)).toEqual({
+      ok: true,
+      value: incompleteCredential,
+    });
     expect(
-      errorOf(
-        await service.refreshCredential(
-          "org.oauth",
-          true,
-          oauthCredential("org.oauth", {
+      (
+        await createService({
+          customFetch: createFetch(),
+        }).refreshCredential("org.oauth", true, {
+          ...oauthCredential("org.oauth", {
             issuer: undefined,
-            authorizationUrl: "not-a-url",
+            resource: undefined,
           }),
-        ),
-      ).message,
-    ).toBe("Invalid authorization url 'not-a-url'");
+          auth: { kind: "oauth", profilePath: null },
+        })
+      ).ok,
+    ).toBe(true);
+    const fallbackFlowStore = createInMemoryFlowStore();
+    await fallbackFlowStore.create(
+      seededFlow({
+        issuer: undefined,
+        resource: undefined as never,
+      }),
+    );
+    expect(
+      (
+        await createService({
+          flowStore: fallbackFlowStore,
+          customFetch: createFetch(),
+        }).completeAuthorization({
+          callbackUri: "https://app.example.com/oauth/callback?state=flow-1&code=ok",
+        })
+      ).ok,
+    ).toBe(true);
     expect(
       errorOf(
         await service.refreshCredential(
@@ -499,10 +644,18 @@ describe("oauth direct coverage", () => {
     ).toBe("Invalid oauth issuer 'not-a-url'");
 
     const authMethodFlowStore = createInMemoryFlowStore();
-    await authMethodFlowStore.create(seededFlow({ clientAuthentication: "client_secret_post" }));
+    await authMethodFlowStore.create(
+      seededFlow({
+        issuer: "https://issuer.example.com",
+        clientAuthentication: "client_secret_post",
+      }),
+    );
     expect(
       errorOf(
-        await createService({ flowStore: authMethodFlowStore }).completeAuthorization({
+        await createService({
+          flowStore: authMethodFlowStore,
+          customFetch: createFetch(),
+        }).completeAuthorization({
           callbackUri: "https://app.example.com/oauth/callback?state=flow-1&code=ok",
         }),
       ).message,
