@@ -409,12 +409,12 @@ async function maybeRegisterDynamicClient(
   const usesConfiguredClientId = hasConfiguredClientId && configuredClientId === currentClientId;
   const shouldRegisterDynamically = Boolean(
     (client.useDynamicRegistration && (!currentClientId || usesConfiguredClientId)) ||
-      (!currentClientId && client.metadata) ||
-      (client.metadata &&
-        hasConfiguredClientId &&
-        usesConfiguredClientId &&
-        isClientMetadataDocumentUrl(configuredClientId) &&
-        authorizationServer.client_id_metadata_document_supported !== true),
+    (!currentClientId && client.metadata) ||
+    (client.metadata &&
+      hasConfiguredClientId &&
+      usesConfiguredClientId &&
+      isClientMetadataDocumentUrl(configuredClientId) &&
+      authorizationServer.client_id_metadata_document_supported !== true),
   );
 
   if (!shouldRegisterDynamically) {
