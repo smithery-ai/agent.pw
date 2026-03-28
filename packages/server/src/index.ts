@@ -355,7 +355,7 @@ export async function createAgentPw(options: AgentPwOptions) {
   const queryHelpers = queries.value;
 
   const profiles: AgentPw["profiles"] = {
-    async resolve(input) {
+    async resolve(input, opts) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return err(path.error);
@@ -366,7 +366,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
 
       const matches = await queryHelpers.getMatchingCredProfiles(
-        options.db,
+        opts?.db ?? options.db,
         path.value,
         resource.value,
       );
@@ -757,8 +757,8 @@ export async function createAgentPw(options: AgentPwOptions) {
     clock: options.clock ?? (() => new Date()),
     customFetch: options.oauthFetch,
     defaultClient: options.oauthClient,
-    getProfile(path) {
-      return profiles.get(path);
+    getProfile(path, opts) {
+      return profiles.get(path, opts);
     },
     getCredential,
     putCredential,
@@ -900,11 +900,11 @@ export async function createAgentPw(options: AgentPwOptions) {
       });
     },
 
-    completeOAuth(input) {
-      return oauth.completeAuthorization(input);
+    completeOAuth(input, opts) {
+      return oauth.completeAuthorization(input, opts);
     },
 
-    async setHeaders(input) {
+    async setHeaders(input, opts) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return err(path.error);
@@ -915,7 +915,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         return headers;
       }
 
-      const existing = await getCredential(path.value);
+      const existing = await getCredential(path.value, opts);
       if (!existing.ok) {
         return existing;
       }
@@ -930,10 +930,13 @@ export async function createAgentPw(options: AgentPwOptions) {
           return resource;
         }
 
-        const profile = await profiles.resolve({
-          path: path.value,
-          resource: resource.value,
-        });
+        const profile = await profiles.resolve(
+          {
+            path: path.value,
+            resource: resource.value,
+          },
+          opts,
+        );
         if (!profile.ok) {
           return profile;
         }
@@ -950,19 +953,22 @@ export async function createAgentPw(options: AgentPwOptions) {
           );
         }
 
-        return putCredential({
-          path: path.value,
-          auth: {
-            kind: "headers",
-            ...(selectedOption?.value.kind === "headers" && selectedOption.value.profilePath
-              ? { profilePath: selectedOption.value.profilePath }
-              : {}),
-            resource: resource.value,
+        return putCredential(
+          {
+            path: path.value,
+            auth: {
+              kind: "headers",
+              ...(selectedOption?.value.kind === "headers" && selectedOption.value.profilePath
+                ? { profilePath: selectedOption.value.profilePath }
+                : {}),
+              resource: resource.value,
+            },
+            secret: {
+              headers: headers.value,
+            },
           },
-          secret: {
-            headers: headers.value,
-          },
-        });
+          opts,
+        );
       }
 
       if (existing.value.auth.kind === "env") {
@@ -979,23 +985,26 @@ export async function createAgentPw(options: AgentPwOptions) {
           return secret;
         }
 
-        return putCredential({
-          path: path.value,
-          auth: {
-            kind: "oauth",
-            ...(existing.value.auth.profilePath
-              ? { profilePath: existing.value.auth.profilePath }
-              : {}),
-            ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+        return putCredential(
+          {
+            path: path.value,
+            auth: {
+              kind: "oauth",
+              ...(existing.value.auth.profilePath
+                ? { profilePath: existing.value.auth.profilePath }
+                : {}),
+              ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+            },
+            secret: {
+              ...secret.value,
+              headers: mergeHeaders({
+                headers: headers.value,
+                oauthHeaders: secret.value.headers,
+              }),
+            },
           },
-          secret: {
-            ...secret.value,
-            headers: mergeHeaders({
-              headers: headers.value,
-              oauthHeaders: secret.value.headers,
-            }),
-          },
-        });
+          opts,
+        );
       }
 
       const secret = requireHeadersSecret(existing.value.secret, existing.value.path);
@@ -1003,19 +1012,22 @@ export async function createAgentPw(options: AgentPwOptions) {
         return secret;
       }
 
-      return putCredential({
-        path: path.value,
-        auth: {
-          kind: "headers",
-          ...(existing.value.auth.profilePath
-            ? { profilePath: existing.value.auth.profilePath }
-            : {}),
-          ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+      return putCredential(
+        {
+          path: path.value,
+          auth: {
+            kind: "headers",
+            ...(existing.value.auth.profilePath
+              ? { profilePath: existing.value.auth.profilePath }
+              : {}),
+            ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+          },
+          secret: {
+            headers: mergeHeaders({ headers: headers.value }),
+          },
         },
-        secret: {
-          headers: mergeHeaders({ headers: headers.value }),
-        },
-      });
+        opts,
+      );
     },
 
     async resolveHeaders(input) {
@@ -1122,7 +1134,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           return connect.startOAuth(input);
         },
 
-        async completeOAuth(input) {
+        async completeOAuth(input, opts) {
           const flowId = extractFlowId(input.callbackUri);
           if (!flowId) {
             return err(inputError("OAuth callback is missing state"));
@@ -1135,10 +1147,10 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.completeOAuth(input);
+          return connect.completeOAuth(input, opts);
         },
 
-        async setHeaders(input) {
+        async setHeaders(input, opts) {
           const path = assertPath(input.path, "path");
           if (!path.ok) {
             return err(path.error);
@@ -1147,7 +1159,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return connect.setHeaders(input);
+          return connect.setHeaders(input, opts);
         },
 
         async resolveHeaders(input) {

@@ -463,8 +463,14 @@ export interface ScopedAgentPw {
     prepare(input: ConnectPrepareInput): Promise<Result<ConnectPrepareResult>>;
     getFlow(flowId: string): Promise<Result<ConnectFlow>>;
     startOAuth(input: ConnectStartOAuthInput): Promise<Result<ConnectAuthorizationSession>>;
-    completeOAuth(input: ConnectCompleteOAuthInput): Promise<Result<ConnectCompleteResult>>;
-    setHeaders(input: ConnectSetHeadersInput): Promise<Result<CredentialRecord>>;
+    completeOAuth(
+      input: ConnectCompleteOAuthInput,
+      options?: CrudOptions,
+    ): Promise<Result<ConnectCompleteResult>>;
+    setHeaders(
+      input: ConnectSetHeadersInput,
+      options?: CrudOptions,
+    ): Promise<Result<CredentialRecord>>;
     resolveHeaders(input: ConnectResolveHeadersInput): Promise<Result<Record<string, string>>>;
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
@@ -508,10 +514,13 @@ export interface AgentPwOptions {
 
 export interface AgentPw extends ScopedAgentPw {
   profiles: ScopedAgentPw["profiles"] & {
-    resolve(input: {
-      path: string;
-      resource: string;
-    }): Promise<Result<CredentialProfileRecord | null>>;
+    resolve(
+      input: {
+        path: string;
+        resource: string;
+      },
+      options?: CrudOptions,
+    ): Promise<Result<CredentialProfileRecord | null>>;
   };
   connect: ScopedAgentPw["connect"] & {
     createWebHandlers(options?: ConnectWebHandlerOptions): ConnectWebHandlers;
