@@ -45,6 +45,7 @@ function createDiscoveryFetch() {
         issuer: "https://accounts.example.com",
         authorization_endpoint: "https://accounts.example.com/authorize",
         token_endpoint: "https://accounts.example.com/token",
+        code_challenge_methods_supported: ["S256"],
       });
     }
 

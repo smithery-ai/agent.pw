@@ -44,12 +44,43 @@ function assertUrl(value: string, label: string) {
   return parsed;
 }
 
+function isLoopbackHostname(value: string) {
+  return value === "localhost" || value === "127.0.0.1" || value === "::1" || value === "[::1]";
+}
+
+function assertRedirectUrl(value: string, label: string) {
+  const parsed = assertUrl(value, label);
+  if (!parsed.ok) {
+    return parsed;
+  }
+  if (
+    parsed.value.protocol === "https:" ||
+    (parsed.value.protocol === "http:" && isLoopbackHostname(parsed.value.hostname))
+  ) {
+    return parsed;
+  }
+  return err(inputError(`Invalid ${label} '${value}'`, { field: label, value }));
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function isClientMetadataDocumentUrl(value: string) {
+  const parsed = result(() => new URL(value));
+  if (!parsed.ok) {
+    return false;
+  }
+
+  return parsed.value.protocol === "https:" && parsed.value.pathname !== "/";
+}
+
 function toScopeString(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.join(" ") : value;
+}
+
+function scopeList(value: string | undefined) {
+  return value?.split(/\s+/).filter(Boolean);
 }
 
 function defaultExpiry(clock: () => Date) {
@@ -64,6 +95,15 @@ function normalizeClientAuthentication(
     return value;
   }
   return hasSecret ? "client_secret_basic" : "none";
+}
+
+function assertPkceS256Support(authorizationServer: oauth.AuthorizationServer) {
+  if (authorizationServer.code_challenge_methods_supported?.includes("S256")) {
+    return ok(undefined);
+  }
+  return err(
+    inputError(`Authorization server '${authorizationServer.issuer}' does not support PKCE S256`),
+  );
 }
 
 function buildClientAuthentication(config: OAuthResolvedConfig) {
@@ -320,20 +360,99 @@ async function discoverAuthorizationServerMetadata(
   return ok(null);
 }
 
-async function discoverResource(resource: string, customFetch: typeof fetch | undefined) {
+async function readResourceChallenge(resourceUrl: URL, response: Response | undefined) {
+  if (!response || response.status !== 401 || !response.headers.get("www-authenticate")) {
+    return ok<{
+      resourceMetadataUrl?: URL;
+      scopes?: string[];
+    } | null>(null);
+  }
+
+  type ChallengeFetch = NonNullable<
+    NonNullable<Parameters<typeof oauth.protectedResourceRequest>[5]>[typeof oauth.customFetch]
+  >;
+  const challengeFetch: ChallengeFetch = async (_url, _options) =>
+    new Response(await response.clone().text(), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+
+  const challenged = await result(
+    oauth.protectedResourceRequest("challenge-probe", "GET", resourceUrl, undefined, undefined, {
+      [oauth.customFetch]: challengeFetch,
+    }),
+  );
+  /* v8 ignore next 13 -- oauth4webapi turns 401 challenges into WWWAuthenticateChallengeError */
+  if (challenged.ok) {
+    return ok(null);
+  }
+  if (!(challenged.error instanceof oauth.WWWAuthenticateChallengeError)) {
+    return err(
+      oauthError(
+        "resource-discovery",
+        `Failed to parse resource challenge for '${resourceUrl.toString()}'`,
+        { cause: challenged.error },
+      ),
+    );
+  }
+
+  const bearerChallenge = challenged.error.cause.find((challenge) => challenge.scheme === "bearer");
+  if (!bearerChallenge) {
+    return ok(null);
+  }
+
+  const resourceMetadata = stringValue(bearerChallenge.parameters.resource_metadata);
+  const resourceMetadataUrl = resourceMetadata
+    ? assertUrl(resourceMetadata, "resource metadata")
+    : ok<URL | undefined>(undefined);
+  if (!resourceMetadataUrl.ok) {
+    return err(
+      oauthError(
+        "resource-discovery",
+        `Failed to parse resource challenge for '${resourceUrl.toString()}'`,
+        { cause: resourceMetadataUrl.error },
+      ),
+    );
+  }
+
+  return ok({
+    resourceMetadataUrl: resourceMetadataUrl.value,
+    scopes: scopeList(stringValue(bearerChallenge.parameters.scope)),
+  });
+}
+
+function tokenRequestOptions(resource: string, customFetch: typeof fetch | undefined) {
+  return {
+    additionalParameters: { resource },
+    ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
+  };
+}
+
+async function discoverResource(
+  resource: string,
+  customFetch: typeof fetch | undefined,
+  response?: Response,
+) {
   const normalizedResource = normalizeResource(resource);
   if (!normalizedResource.ok) {
     return normalizedResource;
   }
 
   const resourceUrl = new URL(normalizedResource.value);
+  const challenged = await readResourceChallenge(resourceUrl, response);
+  if (!challenged.ok) {
+    return challenged;
+  }
 
-  const metadataResponse = await result(
-    oauth.resourceDiscoveryRequest(
-      resourceUrl,
-      customFetch ? { [oauth.customFetch]: customFetch } : undefined,
-    ),
-  );
+  const metadataResponse = challenged.value?.resourceMetadataUrl
+    ? await result((customFetch ?? fetch)(challenged.value.resourceMetadataUrl))
+    : await result(
+        oauth.resourceDiscoveryRequest(
+          resourceUrl,
+          customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+        ),
+      );
   if (!metadataResponse.ok) {
     return err(
       oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
@@ -357,11 +476,13 @@ async function discoverResource(resource: string, customFetch: typeof fetch | un
     resource: normalizedResource.value,
     authorizationServers: resourceServer.value.authorization_servers ?? [],
     resourceName: stringValue(resourceServer.value.resource_name),
-    scopes: Array.isArray(resourceServer.value.scopes_supported)
-      ? resourceServer.value.scopes_supported.filter(
-          (entry): entry is string => typeof entry === "string",
-        )
-      : [],
+    scopes:
+      challenged.value?.scopes ??
+      (Array.isArray(resourceServer.value.scopes_supported)
+        ? resourceServer.value.scopes_supported.filter(
+            (entry): entry is string => typeof entry === "string",
+          )
+        : []),
   });
 }
 
@@ -377,6 +498,94 @@ function cimdToClientMetadata(input: NonNullable<OAuthClientInput["metadata"]>) 
     jwks: input.jwks ? JSON.parse(JSON.stringify(input.jwks)) : undefined,
     token_endpoint_auth_signing_alg: input.tokenEndpointAuthSigningAlg,
   } satisfies Partial<oauth.Client>;
+}
+
+async function maybeRegisterDynamicClient(
+  authorizationServer: oauth.AuthorizationServer,
+  client: OAuthClientInput | undefined,
+  currentClientId: string | undefined,
+  customFetch: typeof fetch | undefined,
+) {
+  type DynamicClientRegistration = {
+    clientId: string;
+    clientSecret: string | undefined;
+    clientAuthentication: OAuthClientAuthenticationMethod;
+  };
+
+  if (!client) {
+    return ok<DynamicClientRegistration | null>(null);
+  }
+
+  const configuredClientId = client.clientId ?? client.metadata?.clientId;
+  const hasConfiguredClientId = typeof configuredClientId === "string";
+  const usesConfiguredClientId = hasConfiguredClientId && configuredClientId === currentClientId;
+  const shouldRegisterDynamically = Boolean(
+    (client.useDynamicRegistration && (!currentClientId || usesConfiguredClientId)) ||
+    (!currentClientId && client.metadata) ||
+    (client.metadata &&
+      hasConfiguredClientId &&
+      usesConfiguredClientId &&
+      isClientMetadataDocumentUrl(configuredClientId) &&
+      authorizationServer.client_id_metadata_document_supported !== true),
+  );
+
+  if (!shouldRegisterDynamically) {
+    return ok(null);
+  }
+
+  if (!client.metadata) {
+    return err(inputError("Dynamic client registration requires client metadata"));
+  }
+
+  if (!authorizationServer.registration_endpoint) {
+    return err(
+      inputError(
+        `Authorization server '${authorizationServer.issuer}' does not support dynamic client registration`,
+      ),
+    );
+  }
+
+  const registrationResponse = await result(
+    oauth.dynamicClientRegistrationRequest(
+      authorizationServer,
+      cimdToClientMetadata(client.metadata),
+      {
+        initialAccessToken: client.initialAccessToken,
+        ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
+      },
+    ),
+  );
+  if (!registrationResponse.ok) {
+    return err(
+      oauthError("dynamic-client-registration", "Dynamic client registration failed", {
+        cause: registrationResponse.error,
+      }),
+    );
+  }
+
+  const registered = await result(
+    oauth.processDynamicClientRegistrationResponse(registrationResponse.value),
+  );
+  if (!registered.ok) {
+    return err(
+      oauthError(
+        "dynamic-client-registration",
+        "Failed to process dynamic client registration response",
+        { cause: registered.error },
+      ),
+    );
+  }
+
+  const clientId = registered.value.client_id;
+  const clientSecret = stringValue(registered.value.client_secret);
+  return ok({
+    clientId,
+    clientSecret,
+    clientAuthentication: normalizeClientAuthentication(
+      stringValue(registered.value.token_endpoint_auth_method),
+      Boolean(clientSecret),
+    ),
+  });
 }
 
 function resolveRedirectUri(request: Request, callbackPath: string) {
@@ -517,9 +726,6 @@ async function resolveOAuthConfigForResourceOption(
   if (!authorizationServer.value) {
     return err(inputError(`Authorization server '${issuer}' does not publish usable metadata`));
   }
-  const shouldRegisterDynamically = Boolean(
-    client.useDynamicRegistration || (!client.clientId && client.metadata),
-  );
   let clientId = client.clientId ?? client.metadata?.clientId;
   let clientSecret = client.clientSecret;
   let clientAuthentication = normalizeClientAuthentication(
@@ -527,54 +733,19 @@ async function resolveOAuthConfigForResourceOption(
     Boolean(clientSecret),
   );
 
-  if (shouldRegisterDynamically) {
-    if (!client.metadata) {
-      return err(inputError("Dynamic client registration requires client metadata"));
-    }
-    if (!authorizationServer.value.registration_endpoint) {
-      return err(
-        inputError(
-          `Authorization server '${authorizationServer.value.issuer}' does not support dynamic client registration`,
-        ),
-      );
-    }
-
-    const registrationResponse = await result(
-      oauth.dynamicClientRegistrationRequest(
-        authorizationServer.value,
-        cimdToClientMetadata(client.metadata),
-        {
-          initialAccessToken: client.initialAccessToken,
-          ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
-        },
-      ),
-    );
-    if (!registrationResponse.ok) {
-      return err(
-        oauthError("dynamic-client-registration", "Dynamic client registration failed", {
-          cause: registrationResponse.error,
-        }),
-      );
-    }
-
-    const registered = await result(
-      oauth.processDynamicClientRegistrationResponse(registrationResponse.value),
-    );
-    if (!registered.ok) {
-      return err(
-        oauthError(
-          "dynamic-client-registration",
-          "Failed to process dynamic client registration response",
-          { cause: registered.error },
-        ),
-      );
-    }
-    clientId = stringValue(registered.value.client_id);
-    clientSecret = stringValue(registered.value.client_secret);
-    clientAuthentication = normalizeClientAuthentication(
-      stringValue(registered.value.token_endpoint_auth_method),
-      Boolean(clientSecret),
-    );
+  const registeredClient = await maybeRegisterDynamicClient(
+    authorizationServer.value,
+    client,
+    clientId,
+    customFetch,
+  );
+  if (!registeredClient.ok) {
+    return registeredClient;
+  }
+  if (registeredClient.value) {
+    clientId = registeredClient.value.clientId;
+    clientSecret = registeredClient.value.clientSecret;
+    clientAuthentication = registeredClient.value.clientAuthentication;
   }
 
   if (!clientId) {
@@ -705,7 +876,7 @@ export function createOAuthService(options: {
         client,
         clientAuthentication.value,
         refreshToken,
-        options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+        tokenRequestOptions(oauthConfig.resource, options.customFetch),
       ),
     );
     if (!tokenResponse.ok) {
@@ -763,7 +934,7 @@ export function createOAuthService(options: {
     },
 
     async discoverResource(input: { resource: string; response?: Response }) {
-      return discoverResource(input.resource, options.customFetch);
+      return discoverResource(input.resource, options.customFetch, input.response);
     },
 
     async startAuthorization(input: ConnectStartOAuthInput) {
@@ -775,7 +946,7 @@ export function createOAuthService(options: {
       if (!path.ok) {
         return err(path.error);
       }
-      const redirectUri = assertUrl(input.redirectUri, "redirect uri");
+      const redirectUri = assertRedirectUrl(input.redirectUri, "redirect uri");
       if (!redirectUri.ok) {
         return err(redirectUri.error);
       }
@@ -797,21 +968,45 @@ export function createOAuthService(options: {
           ),
         );
       }
+      const pkceSupport = assertPkceS256Support(authorizationServer.value);
+      if (!pkceSupport.ok) {
+        return err(pkceSupport.error);
+      }
+      let resolvedOAuthConfig = oauthConfig.value;
+      if (input.option.source === "profile") {
+        const registeredClient = await maybeRegisterDynamicClient(
+          authorizationServer.value,
+          input.client ?? options.defaultClient,
+          resolvedOAuthConfig.clientId,
+          options.customFetch,
+        );
+        if (!registeredClient.ok) {
+          return registeredClient;
+        }
+        if (registeredClient.value) {
+          resolvedOAuthConfig = {
+            ...resolvedOAuthConfig,
+            clientId: registeredClient.value.clientId,
+            clientSecret: registeredClient.value.clientSecret,
+            clientAuthentication: registeredClient.value.clientAuthentication,
+          };
+        }
+      }
 
       const flowId = validateFlowId(undefined) ?? randomId() + randomId();
       const codeVerifier = oauth.generateRandomCodeVerifier();
       const codeChallenge = await oauth.calculatePKCECodeChallenge(codeVerifier);
       const authorizationUrl = new URL(authorizationServer.value.authorization_endpoint);
 
-      authorizationUrl.searchParams.set("client_id", oauthConfig.value.clientId);
+      authorizationUrl.searchParams.set("client_id", resolvedOAuthConfig.clientId);
       authorizationUrl.searchParams.set("redirect_uri", redirectUri.value.toString());
       authorizationUrl.searchParams.set("response_type", "code");
       authorizationUrl.searchParams.set("state", flowId);
       authorizationUrl.searchParams.set("code_challenge", codeChallenge);
       authorizationUrl.searchParams.set("code_challenge_method", "S256");
-      authorizationUrl.searchParams.set("resource", oauthConfig.value.resource);
+      authorizationUrl.searchParams.set("resource", resolvedOAuthConfig.resource);
 
-      const scopes = toScopeString(input.scopes) ?? toScopeString(oauthConfig.value.scopes);
+      const scopes = toScopeString(input.scopes) ?? toScopeString(resolvedOAuthConfig.scopes);
       if (scopes) {
         authorizationUrl.searchParams.set("scope", scopes);
       }
@@ -828,7 +1023,7 @@ export function createOAuthService(options: {
         redirectUri: redirectUri.value.toString(),
         codeVerifier,
         expiresAt: input.expiresAt ?? defaultExpiry(options.clock),
-        oauthConfig: oauthConfig.value,
+        oauthConfig: resolvedOAuthConfig,
       };
       await flowStore.value.create(flow);
 
@@ -902,7 +1097,7 @@ export function createOAuthService(options: {
           validated.value,
           flow.redirectUri,
           flow.codeVerifier,
-          options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+          tokenRequestOptions(flow.oauthConfig.resource, options.customFetch),
         ),
       );
       if (!tokenResponse.ok) {
@@ -1168,13 +1363,25 @@ export function createOAuthService(options: {
       if (!clientId.ok) {
         return clientId;
       }
+      if (!isClientMetadataDocumentUrl(clientId.value.toString())) {
+        return err(
+          inputError(`Invalid client id '${input.clientId}'`, {
+            field: "client id",
+            value: input.clientId,
+          }),
+        );
+      }
+      const clientName = stringValue(input.clientName);
+      if (!clientName) {
+        return err(inputError("CIMD requires clientName"));
+      }
       if (input.redirectUris.length === 0) {
         return err(inputError("CIMD requires at least one redirect URI"));
       }
 
       const redirectUris = [];
       for (const uri of input.redirectUris) {
-        const redirectUri = assertUrl(uri, "redirect uri");
+        const redirectUri = assertRedirectUrl(uri, "redirect uri");
         if (!redirectUri.ok) {
           return redirectUri;
         }
@@ -1194,7 +1401,7 @@ export function createOAuthService(options: {
         response_types: ["code"],
         grant_types: ["authorization_code", "refresh_token"],
         token_endpoint_auth_method: input.tokenEndpointAuthMethod ?? "none",
-        client_name: input.clientName,
+        client_name: clientName,
         scope: toScopeString(input.scope),
         jwks_uri: jwksUri.value?.toString(),
         jwks: input.jwks,
