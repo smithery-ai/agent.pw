@@ -166,5 +166,15 @@ describe("biscuit advanced helpers", () => {
       "Invalid TTL format: bad",
     );
     expect(must(restrictToken(token, PUBLIC_KEY_HEX, []))).toBe(token);
+    expect(
+      extractTokenFacts(
+        mintToken(BISCUIT_PRIVATE_KEY, "user_alpha", [{ action: "credential.use" }]),
+        PUBLIC_KEY_HEX,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        rights: [{ action: "credential.use" }],
+      }),
+    );
   });
 });

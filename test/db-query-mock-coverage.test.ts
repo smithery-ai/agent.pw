@@ -67,5 +67,24 @@ describe("db query helper mock coverage", () => {
     expect(
       errorOf(await helpers.moveCredential(txFailureDb as never, "good.path", "next.path")).message,
     ).toBe("Database query failed");
+
+    const lookupFailureDb = {
+      select() {
+        return {
+          from() {
+            return {
+              where() {
+                throw new Error("lookup failed");
+              },
+            };
+          },
+        };
+      },
+    };
+
+    expect(
+      errorOf(await helpers.moveCredential(lookupFailureDb as never, "good.path", "next.path"))
+        .message,
+    ).toBe("Database query failed");
   });
 });

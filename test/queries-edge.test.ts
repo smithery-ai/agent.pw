@@ -90,5 +90,16 @@ describe("query edge cases", () => {
         },
       ]),
     ).rejects.toThrow("Invalid credential auth payload");
+
+    await expect(
+      Reflect.apply(queries.upsertCredential, queries, [
+        db,
+        {
+          path: "bad.resource",
+          auth: { kind: "headers", resource: "not-a-url" },
+          secret: await secret("bad"),
+        },
+      ]),
+    ).rejects.toThrow("Invalid resource 'not-a-url'");
   });
 });
