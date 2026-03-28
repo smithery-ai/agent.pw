@@ -47,6 +47,19 @@ function createOAuthFetch() {
       return new Response(null, { status: 200 });
     }
 
+    if (
+      url === "https://accounts.example.com/.well-known/oauth-authorization-server" ||
+      url === "https://accounts.example.com/.well-known/openid-configuration"
+    ) {
+      return Response.json({
+        issuer: "https://accounts.example.com",
+        authorization_endpoint: "https://accounts.example.com/authorize",
+        token_endpoint: "https://accounts.example.com/token",
+        revocation_endpoint: "https://accounts.example.com/revoke",
+        code_challenge_methods_supported: ["S256"],
+      });
+    }
+
     if (url.includes("/.well-known/oauth-protected-resource")) {
       return Response.json({
         resource: "https://docs.example.com/mcp",
@@ -66,6 +79,7 @@ function createOAuthFetch() {
         token_endpoint: "https://auth.docs.example.com/token",
         revocation_endpoint: "https://auth.docs.example.com/revoke",
         registration_endpoint: "https://auth.docs.example.com/register",
+        code_challenge_methods_supported: ["S256"],
       });
     }
 
@@ -139,9 +153,7 @@ async function createOAuthAgent() {
     resourcePatterns: ["https://api.linear.app/*"],
     auth: {
       kind: "oauth",
-      authorizationUrl: "https://accounts.example.com/authorize",
-      tokenUrl: "https://accounts.example.com/token",
-      revocationUrl: "https://accounts.example.com/revoke",
+      issuer: "https://accounts.example.com",
       clientId: "client-linear",
       clientSecret: "secret-linear",
       clientAuthentication: "client_secret_post",
@@ -243,6 +255,12 @@ describe("oauth runtime", () => {
       }),
     ).toBe(true);
 
+    const profileTokenCalls = calls.filter(
+      (call) => call.url === "https://accounts.example.com/token",
+    );
+    expect(profileTokenCalls).toHaveLength(2);
+    expect(profileTokenCalls[0]?.body.get("resource")).toBe("https://api.linear.app/projects");
+    expect(profileTokenCalls[1]?.body.get("resource")).toBe("https://api.linear.app/projects");
     expect(calls.map((call) => call.url)).toEqual(
       expect.arrayContaining([
         "https://accounts.example.com/token",
@@ -358,9 +376,7 @@ describe("oauth runtime", () => {
       resourcePatterns: ["https://docs.example.com/mcp"],
       auth: {
         kind: "oauth",
-        authorizationUrl: "https://accounts.example.com/authorize",
-        tokenUrl: "https://accounts.example.com/token",
-        revocationUrl: "https://accounts.example.com/revoke",
+        issuer: "https://accounts.example.com",
         clientId: "client-docs",
         clientSecret: "secret-docs",
         clientAuthentication: "client_secret_post",

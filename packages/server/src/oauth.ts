@@ -44,6 +44,24 @@ function assertUrl(value: string, label: string) {
   return parsed;
 }
 
+function isLoopbackHostname(value: string) {
+  return value === "localhost" || value === "127.0.0.1" || value === "::1" || value === "[::1]";
+}
+
+function assertRedirectUrl(value: string, label: string) {
+  const parsed = assertUrl(value, label);
+  if (!parsed.ok) {
+    return parsed;
+  }
+  if (
+    parsed.value.protocol === "https:" ||
+    (parsed.value.protocol === "http:" && isLoopbackHostname(parsed.value.hostname))
+  ) {
+    return parsed;
+  }
+  return err(inputError(`Invalid ${label} '${value}'`, { field: label, value }));
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -61,6 +79,10 @@ function toScopeString(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.join(" ") : value;
 }
 
+function scopeList(value: string | undefined) {
+  return value?.split(/\s+/).filter(Boolean);
+}
+
 function defaultExpiry(clock: () => Date) {
   return new Date(clock().getTime() + 10 * 60 * 1000);
 }
@@ -73,6 +95,15 @@ function normalizeClientAuthentication(
     return value;
   }
   return hasSecret ? "client_secret_basic" : "none";
+}
+
+function assertPkceS256Support(authorizationServer: oauth.AuthorizationServer) {
+  if (authorizationServer.code_challenge_methods_supported?.includes("S256")) {
+    return ok(undefined);
+  }
+  return err(
+    inputError(`Authorization server '${authorizationServer.issuer}' does not support PKCE S256`),
+  );
 }
 
 function buildClientAuthentication(config: OAuthResolvedConfig) {
@@ -329,20 +360,99 @@ async function discoverAuthorizationServerMetadata(
   return ok(null);
 }
 
-async function discoverResource(resource: string, customFetch: typeof fetch | undefined) {
+async function readResourceChallenge(resourceUrl: URL, response: Response | undefined) {
+  if (!response || response.status !== 401 || !response.headers.get("www-authenticate")) {
+    return ok<{
+      resourceMetadataUrl?: URL;
+      scopes?: string[];
+    } | null>(null);
+  }
+
+  type ChallengeFetch = NonNullable<
+    NonNullable<Parameters<typeof oauth.protectedResourceRequest>[5]>[typeof oauth.customFetch]
+  >;
+  const challengeFetch: ChallengeFetch = async (_url, _options) =>
+    new Response(await response.clone().text(), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+
+  const challenged = await result(
+    oauth.protectedResourceRequest("challenge-probe", "GET", resourceUrl, undefined, undefined, {
+      [oauth.customFetch]: challengeFetch,
+    }),
+  );
+  /* v8 ignore next 13 -- oauth4webapi turns 401 challenges into WWWAuthenticateChallengeError */
+  if (challenged.ok) {
+    return ok(null);
+  }
+  if (!(challenged.error instanceof oauth.WWWAuthenticateChallengeError)) {
+    return err(
+      oauthError(
+        "resource-discovery",
+        `Failed to parse resource challenge for '${resourceUrl.toString()}'`,
+        { cause: challenged.error },
+      ),
+    );
+  }
+
+  const bearerChallenge = challenged.error.cause.find((challenge) => challenge.scheme === "bearer");
+  if (!bearerChallenge) {
+    return ok(null);
+  }
+
+  const resourceMetadata = stringValue(bearerChallenge.parameters.resource_metadata);
+  const resourceMetadataUrl = resourceMetadata
+    ? assertUrl(resourceMetadata, "resource metadata")
+    : ok<URL | undefined>(undefined);
+  if (!resourceMetadataUrl.ok) {
+    return err(
+      oauthError(
+        "resource-discovery",
+        `Failed to parse resource challenge for '${resourceUrl.toString()}'`,
+        { cause: resourceMetadataUrl.error },
+      ),
+    );
+  }
+
+  return ok({
+    resourceMetadataUrl: resourceMetadataUrl.value,
+    scopes: scopeList(stringValue(bearerChallenge.parameters.scope)),
+  });
+}
+
+function tokenRequestOptions(resource: string, customFetch: typeof fetch | undefined) {
+  return {
+    additionalParameters: { resource },
+    ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
+  };
+}
+
+async function discoverResource(
+  resource: string,
+  customFetch: typeof fetch | undefined,
+  response?: Response,
+) {
   const normalizedResource = normalizeResource(resource);
   if (!normalizedResource.ok) {
     return normalizedResource;
   }
 
   const resourceUrl = new URL(normalizedResource.value);
+  const challenged = await readResourceChallenge(resourceUrl, response);
+  if (!challenged.ok) {
+    return challenged;
+  }
 
-  const metadataResponse = await result(
-    oauth.resourceDiscoveryRequest(
-      resourceUrl,
-      customFetch ? { [oauth.customFetch]: customFetch } : undefined,
-    ),
-  );
+  const metadataResponse = challenged.value?.resourceMetadataUrl
+    ? await result((customFetch ?? fetch)(challenged.value.resourceMetadataUrl))
+    : await result(
+        oauth.resourceDiscoveryRequest(
+          resourceUrl,
+          customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+        ),
+      );
   if (!metadataResponse.ok) {
     return err(
       oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
@@ -366,11 +476,13 @@ async function discoverResource(resource: string, customFetch: typeof fetch | un
     resource: normalizedResource.value,
     authorizationServers: resourceServer.value.authorization_servers ?? [],
     resourceName: stringValue(resourceServer.value.resource_name),
-    scopes: Array.isArray(resourceServer.value.scopes_supported)
-      ? resourceServer.value.scopes_supported.filter(
-          (entry): entry is string => typeof entry === "string",
-        )
-      : [],
+    scopes:
+      challenged.value?.scopes ??
+      (Array.isArray(resourceServer.value.scopes_supported)
+        ? resourceServer.value.scopes_supported.filter(
+            (entry): entry is string => typeof entry === "string",
+          )
+        : []),
   });
 }
 
@@ -764,7 +876,7 @@ export function createOAuthService(options: {
         client,
         clientAuthentication.value,
         refreshToken,
-        options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+        tokenRequestOptions(oauthConfig.resource, options.customFetch),
       ),
     );
     if (!tokenResponse.ok) {
@@ -822,7 +934,7 @@ export function createOAuthService(options: {
     },
 
     async discoverResource(input: { resource: string; response?: Response }) {
-      return discoverResource(input.resource, options.customFetch);
+      return discoverResource(input.resource, options.customFetch, input.response);
     },
 
     async startAuthorization(input: ConnectStartOAuthInput) {
@@ -834,7 +946,7 @@ export function createOAuthService(options: {
       if (!path.ok) {
         return err(path.error);
       }
-      const redirectUri = assertUrl(input.redirectUri, "redirect uri");
+      const redirectUri = assertRedirectUrl(input.redirectUri, "redirect uri");
       if (!redirectUri.ok) {
         return err(redirectUri.error);
       }
@@ -848,6 +960,17 @@ export function createOAuthService(options: {
       );
       if (!authorizationServer.ok) {
         return authorizationServer;
+      }
+      if (!authorizationServer.value.authorization_endpoint) {
+        return err(
+          inputError(
+            `OAuth option for '${input.option.resource}' is missing an authorization endpoint`,
+          ),
+        );
+      }
+      const pkceSupport = assertPkceS256Support(authorizationServer.value);
+      if (!pkceSupport.ok) {
+        return err(pkceSupport.error);
       }
       let resolvedOAuthConfig = oauthConfig.value;
       if (input.option.source === "profile") {
@@ -868,13 +991,6 @@ export function createOAuthService(options: {
             clientAuthentication: registeredClient.value.clientAuthentication,
           };
         }
-      }
-      if (!authorizationServer.value.authorization_endpoint) {
-        return err(
-          inputError(
-            `OAuth option for '${input.option.resource}' is missing an authorization endpoint`,
-          ),
-        );
       }
 
       const flowId = validateFlowId(undefined) ?? randomId() + randomId();
@@ -981,7 +1097,7 @@ export function createOAuthService(options: {
           validated.value,
           flow.redirectUri,
           flow.codeVerifier,
-          options.customFetch ? { [oauth.customFetch]: options.customFetch } : undefined,
+          tokenRequestOptions(flow.oauthConfig.resource, options.customFetch),
         ),
       );
       if (!tokenResponse.ok) {
@@ -1247,13 +1363,25 @@ export function createOAuthService(options: {
       if (!clientId.ok) {
         return clientId;
       }
+      if (!isClientMetadataDocumentUrl(clientId.value.toString())) {
+        return err(
+          inputError(`Invalid client id '${input.clientId}'`, {
+            field: "client id",
+            value: input.clientId,
+          }),
+        );
+      }
+      const clientName = stringValue(input.clientName);
+      if (!clientName) {
+        return err(inputError("CIMD requires clientName"));
+      }
       if (input.redirectUris.length === 0) {
         return err(inputError("CIMD requires at least one redirect URI"));
       }
 
       const redirectUris = [];
       for (const uri of input.redirectUris) {
-        const redirectUri = assertUrl(uri, "redirect uri");
+        const redirectUri = assertRedirectUrl(uri, "redirect uri");
         if (!redirectUri.ok) {
           return redirectUri;
         }
@@ -1273,7 +1401,7 @@ export function createOAuthService(options: {
         response_types: ["code"],
         grant_types: ["authorization_code", "refresh_token"],
         token_endpoint_auth_method: input.tokenEndpointAuthMethod ?? "none",
-        client_name: input.clientName,
+        client_name: clientName,
         scope: toScopeString(input.scope),
         jwks_uri: jwksUri.value?.toString(),
         jwks: input.jwks,

@@ -10,11 +10,13 @@ function createDiscoveryFetch(
   options: {
     authorizationServers?: string[];
     includeRegistrationEndpoint?: boolean;
+    pkceMethods?: string[] | null;
   } = {},
 ) {
   const calls: string[] = [];
   const authorizationServers = options.authorizationServers ?? ["https://auth.example.com"];
   const includeRegistrationEndpoint = options.includeRegistrationEndpoint ?? true;
+  const pkceMethods = options.pkceMethods === undefined ? ["S256"] : options.pkceMethods;
 
   const fetchImpl: typeof fetch = async (input) => {
     const url =
@@ -22,6 +24,15 @@ function createDiscoveryFetch(
     calls.push(url);
 
     if (url.includes("/.well-known/oauth-protected-resource")) {
+      return Response.json({
+        resource: "https://docs.example.com/mcp",
+        authorization_servers: authorizationServers,
+        resource_name: "Docs MCP",
+        scopes_supported: ["mcp.tools.read"],
+      });
+    }
+
+    if (url === "https://docs.example.com/oauth-resource-metadata") {
       return Response.json({
         resource: "https://docs.example.com/mcp",
         authorization_servers: authorizationServers,
@@ -38,6 +49,7 @@ function createDiscoveryFetch(
         issuer: "https://auth.example.com",
         authorization_endpoint: "https://auth.example.com/authorize",
         token_endpoint: "https://auth.example.com/token",
+        ...(pkceMethods ? { code_challenge_methods_supported: pkceMethods } : {}),
         ...(includeRegistrationEndpoint
           ? { registration_endpoint: "https://auth.example.com/register" }
           : {}),
@@ -190,6 +202,103 @@ describe("oauth edge cases", () => {
       }),
     ).rejects.toThrow("Profile-backed OAuth option is missing profilePath");
   }, 10_000);
+
+  it("uses WWW-Authenticate resource metadata and challenged scope during prepare", async () => {
+    const calls: string[] = [];
+    const agentPw = await createAgent({
+      oauthFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        calls.push(url);
+
+        if (url === "https://docs.example.com/oauth-resource-metadata") {
+          return Response.json({
+            resource: "https://docs.example.com/mcp",
+            authorization_servers: ["https://auth.example.com"],
+            resource_name: "Docs MCP",
+            scopes_supported: ["ignored.scope"],
+          });
+        }
+
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "org.connections.docs",
+      resource: "https://docs.example.com/mcp",
+      response: new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer realm="docs", resource_metadata="https://docs.example.com/oauth-resource-metadata", scope="mcp.tools.read mcp.tools.write"',
+        },
+      }),
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+
+    const option = prepared.options.find((candidate) => candidate.kind === "oauth");
+    if (!option || option.kind !== "oauth") {
+      throw new Error("Expected oauth option");
+    }
+
+    expect(option.scopes).toEqual(["mcp.tools.read", "mcp.tools.write"]);
+    expect(calls).toEqual(["https://docs.example.com/oauth-resource-metadata"]);
+  });
+
+  it("falls back from non-bearer and missing resource metadata challenges", async () => {
+    const { fetchImpl, calls } = createDiscoveryFetch();
+    const agentPw = await createAgent({
+      oauthFetch: fetchImpl,
+    });
+
+    const basicChallenge = await agentPw.connect.prepare({
+      path: "org.connections.docs",
+      resource: "https://docs.example.com/mcp",
+      response: new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate": 'Basic realm="docs"',
+        },
+      }),
+    });
+    expect(basicChallenge.kind).toBe("options");
+    if (basicChallenge.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+    const basicOption = basicChallenge.options.find((candidate) => candidate.kind === "oauth");
+    if (!basicOption || basicOption.kind !== "oauth") {
+      throw new Error("Expected oauth option");
+    }
+    expect(basicOption.scopes).toEqual(["mcp.tools.read"]);
+
+    const scopedChallenge = await agentPw.connect.prepare({
+      path: "org.connections.docs",
+      resource: "https://docs.example.com/mcp",
+      response: new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate": 'Bearer scope="mcp.tools.write"',
+        },
+      }),
+    });
+    expect(scopedChallenge.kind).toBe("options");
+    if (scopedChallenge.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+    const scopedOption = scopedChallenge.options.find((candidate) => candidate.kind === "oauth");
+    if (!scopedOption || scopedOption.kind !== "oauth") {
+      throw new Error("Expected oauth option");
+    }
+    expect(scopedOption.scopes).toEqual(["mcp.tools.write"]);
+    expect(
+      calls.filter((url) => url.includes("/.well-known/oauth-protected-resource")),
+    ).toHaveLength(2);
+  });
 
   it("validates missing state, unknown flows, expired flows, and profile oauth config errors", async () => {
     const flowStore = createInMemoryFlowStore();
@@ -436,6 +545,27 @@ describe("oauth edge cases", () => {
       throw new Error("Expected oauth option");
     }
 
+    const challenged = await agentPw.connect.prepare({
+      path: "org.connections.docs",
+      resource: "https://docs.example.com/mcp",
+      response: new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer resource_metadata="https://docs.example.com/oauth-resource-metadata", scope="mcp.tools.read"',
+        },
+      }),
+    });
+    expect(challenged.kind).toBe("options");
+    if (challenged.kind !== "options") {
+      throw new Error("Expected challenged options");
+    }
+    const challengedOption = challenged.options.find((candidate) => candidate.kind === "oauth");
+    if (!challengedOption || challengedOption.kind !== "oauth") {
+      throw new Error("Expected challenged oauth option");
+    }
+    expect(challengedOption.scopes).toEqual(["mcp.tools.read"]);
+
     const handlers = agentPw.connect.createWebHandlers({
       callbackPath: "/oauth/callback",
       success(result) {
@@ -473,6 +603,7 @@ describe("oauth edge cases", () => {
       agentPw.connect.createClientMetadataDocument({
         clientId: "not-a-url",
         redirectUris: ["https://app.example.com/oauth/callback"],
+        clientName: "Connect Client",
       }),
     ).toThrow("Invalid client id 'not-a-url'");
 
@@ -480,10 +611,35 @@ describe("oauth edge cases", () => {
       agentPw.connect.createClientMetadataDocument({
         clientId: "https://app.example.com/.well-known/oauth-client",
         redirectUris: [],
+        clientName: "Connect Client",
       }),
     ).toThrow("CIMD requires at least one redirect URI");
 
+    expect(() =>
+      agentPw.connect.createClientMetadataDocument({
+        clientId: "https://app.example.com/.well-known/oauth-client",
+        redirectUris: ["https://app.example.com/oauth/callback"],
+      }),
+    ).toThrow("CIMD requires clientName");
+
+    expect(() =>
+      agentPw.connect.createClientMetadataDocument({
+        clientId: "https://app.example.com",
+        redirectUris: ["https://app.example.com/oauth/callback"],
+        clientName: "Connect Client",
+      }),
+    ).toThrow("Invalid client id 'https://app.example.com'");
+
+    expect(() =>
+      agentPw.connect.createClientMetadataDocument({
+        clientId: "https://app.example.com/.well-known/oauth-client",
+        redirectUris: ["http://app.example.com/oauth/callback"],
+        clientName: "Connect Client",
+      }),
+    ).toThrow("Invalid redirect uri 'http://app.example.com/oauth/callback'");
+
     expect(calls.some((url) => url.includes("/.well-known/oauth-protected-resource"))).toBe(true);
+    expect(calls).toContain("https://docs.example.com/oauth-resource-metadata");
   });
 
   it("surfaces discovery option validation and dynamic registration errors", async () => {
@@ -550,5 +706,40 @@ describe("oauth edge cases", () => {
     ).rejects.toThrow(
       "Authorization server 'https://other-auth.example.com' is not advertised for resource 'https://docs.example.com/mcp'",
     );
+
+    const missingPkce = await createAgent({
+      flowStore: createInMemoryFlowStore(),
+      oauthFetch: createDiscoveryFetch({ pkceMethods: null }).fetchImpl,
+      oauthClient: {
+        clientId: "fixed-client",
+        clientAuthentication: "none",
+      },
+    });
+
+    await expect(
+      missingPkce.connect.startOAuth({
+        path: "org.connections.docs",
+        option: {
+          kind: "oauth",
+          source: "discovery",
+          label: "Docs",
+          resource: "https://docs.example.com/mcp",
+        },
+        redirectUri: "https://app.example.com/oauth/callback",
+      }),
+    ).rejects.toThrow("Authorization server 'https://auth.example.com' does not support PKCE S256");
+
+    await expect(
+      agentWithFixedClient.connect.startOAuth({
+        path: "org.connections.docs",
+        option: {
+          kind: "oauth",
+          source: "discovery",
+          label: "Docs",
+          resource: "https://docs.example.com/mcp",
+        },
+        redirectUri: "http://app.example.com/oauth/callback",
+      }),
+    ).rejects.toThrow("Invalid redirect uri 'http://app.example.com/oauth/callback'");
   });
 });

@@ -132,6 +132,7 @@ describe("oauth service coverage", () => {
           authorization_endpoint: "https://issuer.example.com/authorize",
           token_endpoint: "https://issuer.example.com/token",
           revocation_endpoint: "https://issuer.example.com/revoke",
+          code_challenge_methods_supported: ["S256"],
         });
       }
 
@@ -380,6 +381,7 @@ describe("oauth service coverage", () => {
           issuer: "https://root-auth.example.com",
           authorization_endpoint: "https://root-auth.example.com/authorize",
           token_endpoint: "https://root-auth.example.com/token",
+          code_challenge_methods_supported: ["S256"],
         });
       }
 
@@ -396,6 +398,7 @@ describe("oauth service coverage", () => {
           issuer: "https://path-auth.example.com/tenant",
           authorization_endpoint: "https://path-auth.example.com/authorize",
           token_endpoint: "https://path-auth.example.com/token",
+          code_challenge_methods_supported: ["S256"],
         });
       }
 
@@ -550,6 +553,7 @@ describe("oauth service coverage", () => {
           issuer: "https://global-path-auth.example.com/tenant",
           authorization_endpoint: "https://global-path-auth.example.com/authorize",
           token_endpoint: "https://global-path-auth.example.com/token",
+          code_challenge_methods_supported: ["S256"],
         });
       }
 
@@ -619,6 +623,7 @@ describe("oauth service coverage", () => {
           issuer: "https://issuer-meta.example.com",
           authorization_endpoint: "https://issuer-meta.example.com/authorize",
           token_endpoint: "https://issuer-meta.example.com/token",
+          code_challenge_methods_supported: ["S256"],
         });
       }
 
@@ -711,6 +716,7 @@ describe("oauth service coverage", () => {
           token_endpoint: "https://issuer-register.example.com/token",
           registration_endpoint: "https://issuer-register.example.com/register",
           client_id_metadata_document_supported: false,
+          code_challenge_methods_supported: ["S256"],
         });
       }
 
@@ -787,6 +793,7 @@ describe("oauth service coverage", () => {
           authorization_endpoint: "https://issuer-register.example.com/authorize",
           token_endpoint: "https://issuer-register.example.com/token",
           client_id_metadata_document_supported: false,
+          code_challenge_methods_supported: ["S256"],
         });
       }
 
@@ -859,6 +866,18 @@ describe("oauth service coverage", () => {
         });
       }
 
+      if (
+        url === "https://override.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://override.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://override.example.com",
+          authorization_endpoint: "https://override.example.com/authorize",
+          token_endpoint: "https://override.example.com/token",
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
       throw new Error(`Unexpected fetch ${url}`);
     };
 
@@ -904,6 +923,7 @@ describe("oauth service coverage", () => {
             authorization_endpoint: "https://auth.example.com/authorize",
             token_endpoint: "https://auth.example.com/token",
             registration_endpoint: "https://auth.example.com/register",
+            code_challenge_methods_supported: ["S256"],
           });
         }
         if (url === "https://auth.example.com/.well-known/openid-configuration") {
@@ -912,6 +932,7 @@ describe("oauth service coverage", () => {
             authorization_endpoint: "https://auth.example.com/authorize",
             token_endpoint: "https://auth.example.com/token",
             registration_endpoint: "https://auth.example.com/register",
+            code_challenge_methods_supported: ["S256"],
           });
         }
         throw new Error(`Unexpected fetch ${url}`);
@@ -939,6 +960,26 @@ describe("oauth service coverage", () => {
         redirectUri: "https://app.example.com/oauth/callback",
       }),
     ).rejects.toThrow("Dynamic client registration requires client metadata");
+
+    const challengeParseFailure = await noMetadataService.raw.discoverResource({
+      resource: "https://docs.example.com/mcp",
+      response: new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer realm="docs", resource_metadata="not-a-url", scope="mcp.tools.read"',
+        },
+      }),
+    });
+    expect(challengeParseFailure.ok).toBe(false);
+    if (challengeParseFailure.ok) {
+      throw new Error("Expected resource challenge parse failure");
+    }
+    expect(challengeParseFailure.error).toEqual(
+      expect.objectContaining({
+        message: "Failed to parse resource challenge for 'https://docs.example.com/mcp'",
+      }),
+    );
 
     const noAuthorizationMetadataService = state.service({
       flowStore,
@@ -1079,8 +1120,7 @@ describe("oauth service coverage", () => {
       resourcePatterns: ["https://override.example.com/*"],
       auth: {
         kind: "oauth",
-        authorizationUrl: "https://override.example.com/authorize",
-        tokenUrl: "https://override.example.com/token",
+        issuer: "https://override.example.com",
       },
       displayName: null,
       description: null,
@@ -1128,6 +1168,7 @@ describe("oauth service coverage", () => {
             issuer: "https://auth.example.com",
             authorization_endpoint: "https://auth.example.com/authorize",
             token_endpoint: "https://auth.example.com/token",
+            code_challenge_methods_supported: ["S256"],
           });
         }
         throw new Error(`Unexpected fetch ${url}`);
@@ -1197,6 +1238,7 @@ describe("oauth service coverage", () => {
       missingEndpointService.createClientMetadataDocument({
         clientId: "https://app.example.com/.well-known/oauth-client",
         redirectUris: ["https://app.example.com/oauth/callback"],
+        clientName: "Connect Client",
       }),
     ).toEqual({
       client_id: "https://app.example.com/.well-known/oauth-client",
@@ -1204,7 +1246,7 @@ describe("oauth service coverage", () => {
       response_types: ["code"],
       grant_types: ["authorization_code", "refresh_token"],
       token_endpoint_auth_method: "none",
-      client_name: undefined,
+      client_name: "Connect Client",
       scope: undefined,
       jwks_uri: undefined,
       jwks: undefined,
@@ -1232,6 +1274,7 @@ describe("oauth service coverage", () => {
           token_endpoint: "https://auth.example.com/token",
           revocation_endpoint: "https://auth.example.com/revoke",
           registration_endpoint: "https://auth.example.com/register",
+          code_challenge_methods_supported: ["S256"],
         });
       }
       if (url === "https://auth.example.com/register") {
@@ -1398,6 +1441,7 @@ describe("oauth service coverage", () => {
       dynamicService.createClientMetadataDocument({
         clientId: "https://app.example.com/.well-known/oauth-client",
         redirectUris: ["https://app.example.com/oauth/callback"],
+        clientName: "Connect Client",
         jwksUri: "https://app.example.com/jwks.json",
         jwks: { keys: [] },
         tokenEndpointAuthSigningAlg: "EdDSA",

@@ -412,7 +412,7 @@ export interface CimdDocument {
   grant_types: string[];
   token_endpoint_auth_method: OAuthClientAuthenticationMethod | "private_key_jwt";
   scope?: string;
-  client_name?: string;
+  client_name: string;
   jwks_uri?: string;
   jwks?: JWKS;
   token_endpoint_auth_signing_alg?: string;

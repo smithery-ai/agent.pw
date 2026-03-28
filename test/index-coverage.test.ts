@@ -41,6 +41,19 @@ function createProfileFetch() {
       return new Response(null, { status: 200 });
     }
 
+    if (
+      url === "https://accounts.example.com/.well-known/oauth-authorization-server" ||
+      url === "https://accounts.example.com/.well-known/openid-configuration"
+    ) {
+      return Response.json({
+        issuer: "https://accounts.example.com",
+        authorization_endpoint: "https://accounts.example.com/authorize",
+        token_endpoint: "https://accounts.example.com/token",
+        revocation_endpoint: "https://accounts.example.com/revoke",
+        code_challenge_methods_supported: ["S256"],
+      });
+    }
+
     throw new Error(`Unexpected fetch ${url}`);
   };
 
@@ -365,8 +378,7 @@ describe("index coverage helpers", () => {
       resourcePatterns: ["https://api.linear.app/*"],
       auth: {
         kind: "oauth",
-        authorizationUrl: "https://accounts.example.com/authorize",
-        tokenUrl: "https://accounts.example.com/token",
+        issuer: "https://accounts.example.com",
         revocationUrl: "https://accounts.example.com/revoke",
         clientId: "linear-client",
         clientSecret: "linear-secret",

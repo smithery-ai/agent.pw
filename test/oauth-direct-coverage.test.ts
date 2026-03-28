@@ -138,6 +138,7 @@ function createFetch(overrides: Record<string, Response | Error> = {}): typeof f
         token_endpoint: "https://issuer.example.com/token",
         revocation_endpoint: "https://issuer.example.com/revoke",
         registration_endpoint: "https://issuer.example.com/register",
+        code_challenge_methods_supported: ["S256"],
       });
     }
 
@@ -267,7 +268,7 @@ describe("oauth direct coverage", () => {
     const defaultClient: OAuthClientInput = {
       clientId: "static-client",
       metadata: {
-        clientId: "https://client.example.com",
+        clientId: "https://client.example.com/oauth/client.json",
         redirectUris: ["https://app.example.com/oauth/callback"],
       },
       useDynamicRegistration: true,
@@ -721,8 +722,36 @@ describe("oauth direct coverage", () => {
     expect(
       errorOf(
         service.createClientMetadataDocument({
-          clientId: "https://client.example.com",
+          clientId: "https://client.example.com/oauth/client.json",
           redirectUris: ["not-a-url"],
+          clientName: "Connect Client",
+        }),
+      ).message,
+    ).toBe("Invalid redirect uri 'not-a-url'");
+    expect(
+      errorOf(
+        service.createClientMetadataDocument({
+          clientId: "https://client.example.com/oauth/client.json",
+          redirectUris: ["https://app.example.com/oauth/callback"],
+          clientName: "Connect Client",
+          jwksUri: "not-a-url",
+        }),
+      ).message,
+    ).toBe("Invalid jwks uri 'not-a-url'");
+    expect(
+      errorOf(
+        service.createClientMetadataDocument({
+          clientId: "https://client.example.com/oauth/client.json",
+          redirectUris: ["https://app.example.com/oauth/callback"],
+        }),
+      ).message,
+    ).toBe("CIMD requires clientName");
+    expect(
+      errorOf(
+        service.createClientMetadataResponse({
+          clientId: "https://client.example.com/oauth/client.json",
+          redirectUris: ["not-a-url"],
+          clientName: "Connect Client",
         }),
       ).message,
     ).toBe("Invalid redirect uri 'not-a-url'");
@@ -731,17 +760,18 @@ describe("oauth direct coverage", () => {
         service.createClientMetadataDocument({
           clientId: "https://client.example.com",
           redirectUris: ["https://app.example.com/oauth/callback"],
-          jwksUri: "not-a-url",
+          clientName: "Connect Client",
         }),
       ).message,
-    ).toBe("Invalid jwks uri 'not-a-url'");
+    ).toBe("Invalid client id 'https://client.example.com'");
     expect(
       errorOf(
-        service.createClientMetadataResponse({
-          clientId: "https://client.example.com",
-          redirectUris: ["not-a-url"],
+        service.createClientMetadataDocument({
+          clientId: "https://client.example.com/oauth/client.json",
+          redirectUris: ["http://app.example.com/oauth/callback"],
+          clientName: "Connect Client",
         }),
       ).message,
-    ).toBe("Invalid redirect uri 'not-a-url'");
+    ).toBe("Invalid redirect uri 'http://app.example.com/oauth/callback'");
   });
 });
