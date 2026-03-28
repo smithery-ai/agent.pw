@@ -43,6 +43,7 @@ describe("credentials crypto", () => {
           refreshToken: "refresh",
           scopes: "repo",
           tokenType: "bearer",
+          revocationUrl: "https://issuer.example.com/revoke",
         },
       }),
     );
@@ -54,6 +55,7 @@ describe("credentials crypto", () => {
         refreshToken: "refresh",
         scopes: "repo",
         tokenType: "bearer",
+        revocationUrl: "https://issuer.example.com/revoke",
       },
     });
   });

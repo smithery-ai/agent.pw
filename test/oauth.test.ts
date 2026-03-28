@@ -604,4 +604,69 @@ describe("oauth runtime", () => {
 
     expect(await agentPw.credentials.get("org_alpha.connections.linear_tx")).toBe(null);
   });
+
+  it("reauthorizes legacy discovery credentials without storing discovered endpoints", async () => {
+    const db = await createTestDb();
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const { fetchImpl } = createOAuthFetch();
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+          flowStore: createInMemoryFlowStore(),
+          oauthFetch: fetchImpl,
+        }),
+      ),
+    );
+
+    await agentPw.credentials.put({
+      path: "org_alpha.connections.docs_legacy",
+      resource: "https://docs.example.com/mcp",
+      auth: { kind: "oauth" },
+      secret: {
+        headers: { Authorization: "Bearer legacy-access" },
+        oauth: {
+          accessToken: "legacy-access",
+          refreshToken: "legacy-refresh",
+          clientId: "legacy-client",
+          clientAuthentication: "none",
+          resource: "https://docs.example.com/mcp",
+        },
+      },
+    });
+
+    const started = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.docs_legacy",
+      option: {
+        kind: "oauth",
+        source: "discovery",
+        label: "Docs MCP",
+        resource: "https://docs.example.com/mcp",
+      },
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+    expect(started.authorizationUrl).toContain("client_id=legacy-client");
+
+    const completed = await agentPw.connect.completeOAuth({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-legacy&state=${started.flowId}`,
+    });
+    expect(completed.credential.auth).toEqual({
+      kind: "oauth",
+      profilePath: null,
+      resource: "https://docs.example.com/mcp",
+    });
+    expect(completed.credential.secret.oauth).toEqual(
+      expect.objectContaining({
+        accessToken: "docs-access-1",
+        refreshToken: "docs-refresh-1",
+        clientId: "legacy-client",
+        issuer: "https://auth.docs.example.com",
+      }),
+    );
+    expect(completed.credential.secret.oauth.authorizationUrl).toBeUndefined();
+    expect(completed.credential.secret.oauth.tokenUrl).toBeUndefined();
+    expect(completed.credential.secret.oauth.revocationUrl).toBeUndefined();
+    expect(await agentPw.profiles.get("org_alpha.connections.docs_legacy.oauth")).toBe(null);
+  });
 });

@@ -1113,7 +1113,7 @@ describe("oauth service coverage", () => {
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow("OAuth configuration requires either issuer or authorizationUrl + tokenUrl");
+    ).rejects.toThrow("Failed to process resource metadata for 'https://broken.example.com/api'");
 
     await state.profiles.set("client-override", {
       path: "client-override",
@@ -1452,6 +1452,107 @@ describe("oauth service coverage", () => {
         jwks: { keys: [] },
         token_endpoint_auth_signing_alg: "EdDSA",
       }),
+    );
+  });
+
+  it("recovers stored discovery clients and ignores mismatched resources", async () => {
+    const state = await createState();
+    const flowStore = createInMemoryFlowStore();
+    const calls: string[] = [];
+
+    const fetchImpl: typeof fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push(url);
+
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        return Response.json({
+          resource: "https://docs.example.com/mcp",
+          authorization_servers: ["https://auth.docs.example.com"],
+        });
+      }
+
+      if (
+        url === "https://auth.docs.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://auth.docs.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://auth.docs.example.com",
+          authorization_endpoint: "https://auth.docs.example.com/authorize",
+          token_endpoint: "https://auth.docs.example.com/token",
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    await state.credentials.set("org.docs", {
+      path: "org.docs",
+      resource: "https://docs.example.com/mcp",
+      auth: { kind: "oauth", label: "Docs" },
+      secret: {
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          accessToken: "stale",
+          refreshToken: "refresh",
+          clientId: "stored-client",
+          clientAuthentication: "none",
+          resource: "https://docs.example.com/mcp",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    });
+    const session = await service.startAuthorization({
+      path: "org.docs",
+      option: {
+        kind: "oauth",
+        source: "discovery",
+        label: "Docs",
+        resource: "https://docs.example.com/mcp",
+      },
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+    expect(session.authorizationUrl).toContain("client_id=stored-client");
+    expect(calls).toContain("https://auth.docs.example.com/.well-known/oauth-authorization-server");
+
+    await state.credentials.set("org.docs-mismatch", {
+      path: "org.docs-mismatch",
+      resource: "https://other.example.com/mcp",
+      auth: { kind: "oauth", label: "Docs mismatch" },
+      secret: {
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          accessToken: "stale",
+          refreshToken: "refresh",
+          clientId: "wrong-client",
+          clientAuthentication: "none",
+          resource: "https://other.example.com/mcp",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await expect(
+      service.startAuthorization({
+        path: "org.docs-mismatch",
+        option: {
+          kind: "oauth",
+          source: "discovery",
+          label: "Docs",
+          resource: "https://docs.example.com/mcp",
+        },
+        redirectUri: "https://app.example.com/oauth/callback",
+      }),
+    ).rejects.toThrow(
+      "Resource 'https://docs.example.com/mcp' requires oauth client configuration",
     );
   });
 });
