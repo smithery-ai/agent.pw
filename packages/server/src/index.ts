@@ -5,7 +5,6 @@ import {
   conflictError,
   inputError,
   notFoundError,
-  unsupportedCredentialKindError,
 } from "./errors.js";
 import {
   decryptCredentials,
@@ -106,33 +105,11 @@ function parseProfileAuth(value: unknown) {
       fields,
     });
   }
-  if (value.kind === "env") {
-    const fields = Array.isArray(value.fields)
-      ? value.fields
-          .filter(isRecord)
-          .map((field) => ({
-            name: typeof field.name === "string" ? field.name : "",
-            label: typeof field.label === "string" ? field.label : "",
-            description: typeof field.description === "string" ? field.description : undefined,
-            secret: typeof field.secret === "boolean" ? field.secret : undefined,
-          }))
-          .filter((field) => field.name.length > 0 && field.label.length > 0)
-      : [];
-
-    return ok<CredentialProfileAuth>({
-      kind: "env",
-      label: typeof value.label === "string" ? value.label : undefined,
-      fields,
-    });
-  }
   return err(inputError("Invalid profile auth kind"));
 }
 
 function parseCredentialAuth(value: unknown) {
-  if (
-    !isRecord(value) ||
-    (value.kind !== "oauth" && value.kind !== "headers" && value.kind !== "env")
-  ) {
+  if (!isRecord(value) || (value.kind !== "oauth" && value.kind !== "headers")) {
     return err(inputError("Invalid credential auth payload"));
   }
 
@@ -154,14 +131,8 @@ function parseCredentialAuth(value: unknown) {
       ...authBase,
     });
   }
-  if (value.kind === "headers") {
-    return ok<CredentialAuth>({
-      kind: "headers",
-      ...authBase,
-    });
-  }
   return ok<CredentialAuth>({
-    kind: "env",
+    kind: "headers",
     ...authBase,
   });
 }
@@ -198,13 +169,6 @@ function requireHeadersSecret(secret: StoredCredentials, path: string) {
   return ok(secret.headers);
 }
 
-function requireEnvSecret(secret: StoredCredentials, path: string) {
-  if (!secret.env || Object.keys(secret.env).length === 0) {
-    return err(inputError(`Credential '${path}' does not have env auth`, { path }));
-  }
-  return ok(secret.env);
-}
-
 function requireOAuthSecret(secret: StoredCredentials, path: string) {
   if (!secret.headers || Object.keys(secret.headers).length === 0 || !secret.oauth) {
     return err(inputError(`Credential '${path}' does not have oauth auth`, { path }));
@@ -216,10 +180,6 @@ function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, 
   if (auth.kind === "oauth") {
     const oauth = requireOAuthSecret(secret, path);
     return oauth.ok ? ok() : oauth;
-  }
-  if (auth.kind === "env") {
-    const env = requireEnvSecret(secret, path);
-    return env.ok ? ok() : env;
   }
   const headers = requireHeadersSecret(secret, path);
   return headers.ok ? ok() : headers;
@@ -417,10 +377,14 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!auth.ok) {
         return auth;
       }
+      const parsedAuth = parseProfileAuth(auth.value);
+      if (!parsedAuth.ok) {
+        return parsedAuth;
+      }
 
       const persisted = await queryHelpers.upsertCredProfile(db, profilePath.value, {
         resourcePatterns: data.resourcePatterns,
-        auth: auth.value,
+        auth: parsedAuth.value as unknown as Record<string, unknown>,
         displayName: data.displayName,
         description: data.description,
       });
@@ -513,9 +477,9 @@ export async function createAgentPw(options: AgentPwOptions) {
     return decryptCredentialRecord(encryptionKey, persisted.value);
   };
 
-  function optionFromProfile(profile: CredentialProfileRecord, resource: string) {
+  function optionFromProfile(profile: CredentialProfileRecord, resource: string): ConnectOption {
     if (profile.auth.kind === "oauth") {
-      return ok<ConnectOption>({
+      return {
         kind: "oauth",
         source: "profile",
         resource,
@@ -526,27 +490,17 @@ export async function createAgentPw(options: AgentPwOptions) {
           : typeof profile.auth.scopes === "string"
             ? profile.auth.scopes.split(/\s+/).filter(Boolean)
             : undefined,
-      });
+      };
     }
 
-    if (profile.auth.kind !== "headers") {
-      return err(
-        unsupportedCredentialKindError(
-          profile.auth.kind,
-          `Credential Profile '${profile.path}' stores ${profile.auth.kind} auth and cannot be used with connect.prepare`,
-          { path: profile.path },
-        ),
-      );
-    }
-
-    return ok<ConnectOption>({
+    return {
       kind: "headers",
       source: "profile",
       resource,
       profilePath: profile.path,
       label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
       fields: profile.auth.fields,
-    });
+    };
   }
 
   function toConnectFlow(flow: PendingFlow): ConnectFlow {
@@ -574,16 +528,6 @@ export async function createAgentPw(options: AgentPwOptions) {
     }
 
     if (existing.value) {
-      if (existing.value.auth.kind === "env") {
-        return err(
-          unsupportedCredentialKindError(
-            "env",
-            `Credential '${path.value}' stores env auth and cannot be used with connect.prepare`,
-            { path: path.value },
-          ),
-        );
-      }
-
       const existingResource = credentialResource(existing.value.auth);
       if (existingResource && existingResource !== resource.value) {
         return err(
@@ -615,9 +559,6 @@ export async function createAgentPw(options: AgentPwOptions) {
     }
     if (profile.value) {
       const option = optionFromProfile(profile.value, resource.value);
-      if (!option.ok) {
-        return option;
-      }
       return ok({
         path: path.value,
         resource: resource.value,
@@ -627,9 +568,9 @@ export async function createAgentPw(options: AgentPwOptions) {
           source: "profile",
           reason: "matched-profile",
           profilePath: profile.value.path,
-          option: option.value,
+          option,
         } satisfies ConnectResolutionResult,
-        options: [option.value],
+        options: [option],
       });
     }
 
@@ -874,10 +815,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         const selectedOption = profile.value
           ? optionFromProfile(profile.value, resource.value)
           : null;
-        if (selectedOption && !selectedOption.ok) {
-          return selectedOption;
-        }
-        if (selectedOption?.value.kind === "oauth") {
+        if (selectedOption?.kind === "oauth") {
           return err(
             inputError(`Resource '${resource.value}' requires OAuth; use connect.startOAuth(...)`),
           );
@@ -888,8 +826,8 @@ export async function createAgentPw(options: AgentPwOptions) {
             path: path.value,
             auth: {
               kind: "headers",
-              ...(selectedOption?.value.kind === "headers" && selectedOption.value.profilePath
-                ? { profilePath: selectedOption.value.profilePath }
+              ...(selectedOption?.kind === "headers" && selectedOption.profilePath
+                ? { profilePath: selectedOption.profilePath }
                 : {}),
               resource: resource.value,
             },
@@ -898,14 +836,6 @@ export async function createAgentPw(options: AgentPwOptions) {
             },
           },
           opts,
-        );
-      }
-
-      if (existing.value.auth.kind === "env") {
-        return err(
-          unsupportedCredentialKindError("env", `Credential '${path.value}' stores env auth`, {
-            path: path.value,
-          }),
         );
       }
 
@@ -972,13 +902,6 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!credential.value) {
         return err(
           notFoundError("credential", `No credential exists at '${path.value}'`, {
-            path: path.value,
-          }),
-        );
-      }
-      if (credential.value.auth.kind === "env") {
-        return err(
-          unsupportedCredentialKindError("env", `Credential '${path.value}' stores env auth`, {
             path: path.value,
           }),
         );

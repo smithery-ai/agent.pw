@@ -142,7 +142,7 @@ export async function bootstrapLocalSchema(
         SET auth = jsonb_set(auth, '{resource}', to_jsonb(resource), true)
         WHERE coalesce(resource, '') <> ''
           AND coalesce(auth->>'resource', '') = ''
-          AND coalesce(auth->>'kind', '') IN ('oauth', 'headers', 'env');
+          AND coalesce(auth->>'kind', '') IN ('oauth', 'headers');
 
         DROP INDEX IF EXISTS ${quoteIdentifier(`${credentialsTable}_resource_idx`)};
         ALTER TABLE ${credentialsSql} DROP COLUMN resource;

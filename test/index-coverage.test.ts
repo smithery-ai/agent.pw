@@ -330,11 +330,11 @@ describe("index coverage helpers", () => {
     ).rejects.toThrow("Credential 'broken.headerless' does not have header-based auth");
     await expect(
       agentPw.credentials.put({
-        path: "broken.envless",
-        auth: { kind: "env" },
+        path: "broken.invalid_kind",
+        auth: { kind: "unsupported" } as never,
         secret: { headers: { Authorization: "Bearer wrong" } },
       }),
-    ).rejects.toThrow("Credential 'broken.envless' does not have env auth");
+    ).rejects.toThrow("Invalid credential auth payload");
     await expect(
       agentPw.credentials.put({
         path: "broken.oauthless",
