@@ -114,7 +114,6 @@ describe("createAgentPw", () => {
         auth: {
           kind: "headers",
           profilePath: "/acme/github",
-          label: "Acme GitHub",
           resource: "https://api.github.com/",
         },
         secret: {
@@ -237,7 +236,6 @@ describe("createAgentPw", () => {
     expect(saved.auth).toEqual({
       kind: "headers",
       profilePath: "/resend",
-      label: "Resend",
       resource: "https://api.resend.com/",
     });
     expect(saved.secret.headers).toEqual({
@@ -263,7 +261,6 @@ describe("createAgentPw", () => {
     expect(created.auth).toEqual({
       kind: "headers",
       profilePath: null,
-      label: null,
       resource: "https://api.resend.com/",
     });
     expect(created.secret.headers).toEqual({
@@ -391,7 +388,6 @@ describe("createAgentPw", () => {
           auth: {
             kind: "headers",
             profilePath: "/resend",
-            label: "Resend",
             resource: "https://api.resend.com/",
           },
         }),
@@ -622,7 +618,6 @@ describe("createAgentPw", () => {
       flowId: session.flowId,
       path: "/acme/connections/docs_fresh",
       resource: "https://docs.example.com/mcp",
-      label: "OAuth via accounts.example.com",
       expiresAt: session.expiresAt,
     });
   });

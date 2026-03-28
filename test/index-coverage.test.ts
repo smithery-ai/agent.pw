@@ -304,7 +304,6 @@ describe("index coverage helpers", () => {
         auth: {
           kind: "headers",
           profilePath: null,
-          label: null,
           resource: "https://listed.example.com/",
         },
       }),
@@ -529,7 +528,6 @@ describe("index coverage helpers", () => {
       flowId: expect.any(String),
       path: "/acme/connections/linear",
       resource: "https://api.linear.app/projects",
-      label: "Linear",
       profilePath: "/linear",
       expiresAt: expect.any(Date),
     });

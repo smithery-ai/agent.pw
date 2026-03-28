@@ -760,7 +760,6 @@ export function createOAuthService(options: {
         ...(credential.value.auth.profilePath
           ? { profilePath: credential.value.auth.profilePath }
           : {}),
-        ...(credential.value.auth.label ? { label: credential.value.auth.label } : {}),
         ...(credential.value.auth.resource ? { resource: credential.value.auth.resource } : {}),
       },
       secret,
@@ -842,7 +841,6 @@ export function createOAuthService(options: {
         id: flowId,
         path: path.value,
         credential: {
-          label: input.option.label,
           ...(input.option.profilePath ? { profilePath: input.option.profilePath } : {}),
         },
         headers: input.headers,
@@ -969,7 +967,6 @@ export function createOAuthService(options: {
         auth: {
           kind: "oauth",
           profilePath: flow.credential.profilePath,
-          label: flow.credential.label,
           resource: flow.oauthConfig.resource,
         },
         secret,

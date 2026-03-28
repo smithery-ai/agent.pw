@@ -25,7 +25,6 @@ describe("oauth schemas", () => {
       id: "flow-123",
       path: "/org/example",
       credential: {
-        label: "Example",
         profilePath: "/example",
       },
       redirectUri: "https://app.example.com/oauth/callback",
@@ -37,13 +36,12 @@ describe("oauth schemas", () => {
       flowId: "flow-123",
       path: "/org/example",
       resource: "https://api.example.com",
-      label: "Example",
       profilePath: "/example",
       expiresAt: "2026-03-28T00:00:00.000Z",
     });
 
     expect(flow.expiresAt).toBeInstanceOf(Date);
-    expect(flow.credential).toEqual({ label: "Example", profilePath: "/example" });
+    expect(flow.credential).toEqual({ profilePath: "/example" });
     expect(flow.oauthConfig).toEqual(oauthConfig);
     expect(publicFlow.expiresAt).toBeInstanceOf(Date);
   });

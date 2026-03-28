@@ -138,7 +138,6 @@ export interface CredentialProfilePutInput {
 
 interface CredentialAuthBase {
   profilePath: string | null;
-  label: string | null;
   resource?: string;
 }
 
@@ -267,7 +266,6 @@ export type ConnectOAuthOption = z.infer<typeof ConnectOAuthOptionSchema>;
 
 export const PendingFlowCredentialSchema = z
   .object({
-    label: z.string(),
     profilePath: z.string().optional(),
   })
   .meta({ id: "PendingFlowCredential" });
@@ -374,7 +372,6 @@ export const ConnectFlowSchema = z
     flowId: z.string(),
     path: z.string(),
     resource: z.string(),
-    label: z.string(),
     profilePath: z.string().optional(),
     expiresAt: z.coerce.date(),
   })

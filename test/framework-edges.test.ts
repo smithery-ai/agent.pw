@@ -363,7 +363,6 @@ describe("createAgentPw edge cases", () => {
           path: "/org/connections/docs",
           auth: expect.objectContaining({
             kind: "oauth",
-            label: "Docs",
           }),
         }),
         headers: {
@@ -385,7 +384,6 @@ describe("createAgentPw edge cases", () => {
           path: "/org/connections/docs",
           auth: expect.objectContaining({
             kind: "oauth",
-            label: "Docs",
           }),
         }),
         headers: {

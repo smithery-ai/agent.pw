@@ -165,7 +165,6 @@ function parseCredentialAuth(value: unknown) {
 
   const authBase = {
     profilePath: typeof value.profilePath === "string" ? value.profilePath : null,
-    label: typeof value.label === "string" ? value.label : null,
     ...(resource.value ? { resource: resource.value } : {}),
   };
   if (value.kind === "oauth") {
@@ -225,7 +224,6 @@ function serializeCredentialAuth(auth: CredentialAuth) {
   return {
     kind: auth.kind,
     ...(auth.profilePath ? { profilePath: auth.profilePath } : {}),
-    ...(auth.label ? { label: auth.label } : {}),
     ...(auth.resource ? { resource: auth.resource } : {}),
   };
 }
@@ -629,7 +627,6 @@ export async function createAgentPw(options: AgentPwOptions) {
       flowId: flow.id,
       path: flow.path,
       resource: flow.oauthConfig.resource,
-      label: flow.credential.label,
       ...(flow.credential.profilePath ? { profilePath: flow.credential.profilePath } : {}),
       expiresAt: flow.expiresAt,
     };
@@ -963,9 +960,6 @@ export async function createAgentPw(options: AgentPwOptions) {
             ...(selectedOption?.value.kind === "headers" && selectedOption.value.profilePath
               ? { profilePath: selectedOption.value.profilePath }
               : {}),
-            ...(selectedOption?.value.kind === "headers" && selectedOption.value.label
-              ? { label: selectedOption.value.label }
-              : {}),
             resource: resource.value,
           },
           secret: {
@@ -995,7 +989,6 @@ export async function createAgentPw(options: AgentPwOptions) {
             ...(existing.value.auth.profilePath
               ? { profilePath: existing.value.auth.profilePath }
               : {}),
-            ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
             ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
           },
           secret: {
@@ -1020,7 +1013,6 @@ export async function createAgentPw(options: AgentPwOptions) {
           ...(existing.value.auth.profilePath
             ? { profilePath: existing.value.auth.profilePath }
             : {}),
-          ...(existing.value.auth.label ? { label: existing.value.auth.label } : {}),
           ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
         },
         secret: {
