@@ -215,14 +215,6 @@ describe("index mock coverage", () => {
             if (path === "profile.err" || path === "setheaders.profile.err") {
               return err(inputError("mock match failure"));
             }
-            if (path === "env.profile" || path === "setheaders.env.profile") {
-              return ok([
-                profileRow("env.profile", {
-                  kind: "env",
-                  fields: [{ name: "API_KEY", label: "API key" }],
-                }),
-              ]);
-            }
             return ok([]);
           },
           async getCredProfile(_db: unknown, path: string) {
@@ -456,15 +448,6 @@ describe("index mock coverage", () => {
           if (path === "resolve.missing") {
             return ok(null);
           }
-          if (path === "env.credential") {
-            return ok({
-              path,
-              auth: { kind: "env", resource: "https://resource.example.com" },
-              secret: { env: { API_KEY: "secret" } },
-              createdAt: DATE,
-              updatedAt: DATE,
-            });
-          }
           return ok(null);
         },
         async startAuthorization() {
@@ -623,12 +606,6 @@ describe("index mock coverage", () => {
     ).toEqual({ ok: true, value: true });
 
     expect(
-      errorOf(await agentPw.connect.prepare({ path: "env.profile", resource: "https://ok" }))
-        .message,
-    ).toBe(
-      "Credential Profile 'env.profile' stores env auth and cannot be used with connect.prepare",
-    );
-    expect(
       errorOf(await agentPw.connect.prepare({ path: "org.oauth", resource: "not-a-url" })).message,
     ).toBe("Invalid resource 'not-a-url'");
     expect(
@@ -717,17 +694,6 @@ describe("index mock coverage", () => {
     expect(
       errorOf(
         await agentPw.connect.setHeaders({
-          path: "setheaders.env.profile",
-          resource: "https://ok",
-          headers: { Authorization: "Bearer token" },
-        }),
-      ).message,
-    ).toBe(
-      "Credential Profile 'env.profile' stores env auth and cannot be used with connect.prepare",
-    );
-    expect(
-      errorOf(
-        await agentPw.connect.setHeaders({
           path: "oauth.secret.missing",
           headers: { Authorization: "Bearer token" },
         }),
@@ -778,9 +744,6 @@ describe("index mock coverage", () => {
     );
     expect(errorOf(await agentPw.connect.resolveHeaders({ path: "resolve.missing" })).message).toBe(
       "No credential exists at 'resolve.missing'",
-    );
-    expect(errorOf(await agentPw.connect.resolveHeaders({ path: "env.credential" })).message).toBe(
-      "Credential 'env.credential' stores env auth",
     );
     expect(
       errorOf(

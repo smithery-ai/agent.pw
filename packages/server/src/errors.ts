@@ -29,14 +29,6 @@ export function expiredError(resource: string, message: string) {
   return { type: "Expired" as const, resource, message };
 }
 
-export function unsupportedCredentialKindError(
-  kind: "oauth" | "headers" | "env",
-  message: string,
-  data: { path: string },
-) {
-  return { type: "UnsupportedCredentialKind" as const, kind, message, ...data };
-}
-
 export function persistenceError(operation: string, message: string, data: { path: string }) {
   return { type: "Persistence" as const, operation, message, ...data };
 }
@@ -75,8 +67,7 @@ export function isAgentPwError(
   | ReturnType<typeof internalError>
   | ReturnType<typeof notFoundError>
   | ReturnType<typeof oauthError>
-  | ReturnType<typeof persistenceError>
-  | ReturnType<typeof unsupportedCredentialKindError> {
+  | ReturnType<typeof persistenceError> {
   return (
     typeof error === "object" &&
     error !== null &&
