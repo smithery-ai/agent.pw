@@ -10,9 +10,9 @@ function nonAuthHeaders(headers: Record<string, string> | undefined) {
   return merged;
 }
 
-function authHeaders(headers: Record<string, string> | undefined) {
+function authHeaders(headers: Record<string, string>) {
   const merged: Record<string, string> = {};
-  for (const [name, value] of Object.entries(headers ?? {})) {
+  for (const [name, value] of Object.entries(headers)) {
     if (AUTH_HEADER_NAMES.has(name.toLowerCase())) {
       merged[name] = value;
     }

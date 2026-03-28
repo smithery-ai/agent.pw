@@ -167,38 +167,20 @@ function parseCredentialAuth(value: unknown) {
 }
 
 function credentialResource(auth: CredentialAuth) {
-  if (typeof auth.resource !== "string") {
-    return ok<string | null>(null);
-  }
-  return normalizeResource(auth.resource);
+  return typeof auth.resource === "string" ? auth.resource : null;
 }
 
 function normalizeCredentialAuth(auth: CredentialAuth, fallbackResource?: string) {
   const resource =
     typeof auth.resource === "string"
-      ? normalizeResource(auth.resource)
+      ? auth.resource
       : typeof fallbackResource === "string"
-        ? normalizeResource(fallbackResource)
-        : ok<string | null>(null);
-  if (!resource.ok) {
-    return resource;
-  }
-  if (auth.kind === "oauth") {
-    return ok<CredentialAuth>({
-      ...auth,
-      ...(resource.value ? { resource: resource.value } : {}),
-    });
-  }
-  if (auth.kind === "headers") {
-    return ok<CredentialAuth>({
-      ...auth,
-      ...(resource.value ? { resource: resource.value } : {}),
-    });
-  }
-  return ok<CredentialAuth>({
+        ? fallbackResource
+        : null;
+  return {
     ...auth,
-    ...(resource.value ? { resource: resource.value } : {}),
-  });
+    ...(resource ? { resource } : {}),
+  };
 }
 
 function serializeCredentialAuth(auth: CredentialAuth) {
@@ -292,10 +274,6 @@ async function decryptCredentialRecord(
   }
 
   const resource = credentialResource(auth.value);
-  if (!resource.ok) {
-    return resource;
-  }
-
   const secret = await decryptCredentials(encryptionKey, row.secret);
   if (!secret.ok) {
     return secret;
@@ -303,7 +281,7 @@ async function decryptCredentialRecord(
 
   return ok<CredentialRecord>({
     path: row.path,
-    ...(resource.value ? { resource: resource.value } : {}),
+    ...(resource ? { resource } : {}),
     auth: auth.value,
     secret: secret.value,
     createdAt: row.createdAt,
@@ -505,20 +483,13 @@ export async function createAgentPw(options: AgentPwOptions) {
     }
 
     const existingResource = credentialResource(parsedAuth.value);
-    if (!existingResource.ok) {
-      return existingResource;
-    }
-
     const auth = normalizeCredentialAuth(
       parsedAuth.value,
-      parsedResource.value && !existingResource.value ? parsedResource.value : undefined,
+      parsedResource.value && !existingResource ? parsedResource.value : undefined,
     );
-    if (!auth.ok) {
-      return auth;
-    }
     const plaintextSecret = Buffer.isBuffer(input.secret) ? undefined : input.secret;
     if (plaintextSecret) {
-      const validSecret = validateSecretForAuth(auth.value, plaintextSecret, path.value);
+      const validSecret = validateSecretForAuth(auth, plaintextSecret, path.value);
       if (!validSecret.ok) {
         return validSecret;
       }
@@ -530,22 +501,17 @@ export async function createAgentPw(options: AgentPwOptions) {
       return encryptedSecret;
     }
 
-    const storedAuth = toJsonRecord(serializeCredentialAuth(auth.value));
-    if (!storedAuth.ok) {
-      return storedAuth;
-    }
-
     const persisted = await queryHelpers.upsertCredential(db, {
       path: path.value,
-      auth: storedAuth.value,
+      auth: serializeCredentialAuth(auth),
       secret: encryptedSecret.value,
     });
     if (!persisted.ok) {
       return persisted;
     }
 
-    return decryptCredentialRecord(encryptionKey, persisted.value);
-  };
+      return decryptCredentialRecord(encryptionKey, persisted.value);
+    };
 
   function optionFromProfile(profile: CredentialProfileRecord, resource: string) {
     if (profile.auth.kind === "oauth") {
@@ -619,13 +585,10 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
 
       const existingResource = credentialResource(existing.value.auth);
-      if (!existingResource.ok) {
-        return existingResource;
-      }
-      if (existingResource.value && existingResource.value !== resource.value) {
+      if (existingResource && existingResource !== resource.value) {
         return err(
           conflictError(
-            `Credential '${path.value}' is already connected to '${existingResource.value}', not '${resource.value}'`,
+            `Credential '${path.value}' is already connected to '${existingResource}', not '${resource.value}'`,
             { path: path.value },
           ),
         );
@@ -734,11 +697,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     getCredential,
     putCredential,
     deleteCredential(path) {
-      const normalizedPath = assertPath(path, "credential path");
-      if (!normalizedPath.ok) {
-        return Promise.resolve(err(normalizedPath.error));
-      }
-      return queryHelpers.deleteCredential(options.db, normalizedPath.value);
+      return queryHelpers.deleteCredential(options.db, path);
     },
   });
 
@@ -961,10 +920,8 @@ export async function createAgentPw(options: AgentPwOptions) {
             path: path.value,
             auth: {
               kind: "oauth",
-              ...(existing.value.auth.profilePath
-                ? { profilePath: existing.value.auth.profilePath }
-                : {}),
-              ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+              profilePath: existing.value.auth.profilePath ?? undefined,
+              resource: existing.value.auth.resource ?? undefined,
             },
             secret: {
               ...secret.value,
@@ -988,10 +945,8 @@ export async function createAgentPw(options: AgentPwOptions) {
           path: path.value,
           auth: {
             kind: "headers",
-            ...(existing.value.auth.profilePath
-              ? { profilePath: existing.value.auth.profilePath }
-              : {}),
-            ...(existing.value.auth.resource ? { resource: existing.value.auth.resource } : {}),
+            profilePath: existing.value.auth.profilePath ?? undefined,
+            resource: existing.value.auth.resource ?? undefined,
           },
           secret: {
             headers: mergeHeaders({ headers: headers.value }),

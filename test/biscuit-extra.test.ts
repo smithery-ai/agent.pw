@@ -120,6 +120,27 @@ describe("biscuit advanced helpers", () => {
         },
       ).authorized,
     ).toBe(true);
+
+    const rootPathRestricted = must(
+      restrictToken(rooted, PUBLIC_KEY_HEX, [
+        {
+          methods: "GET",
+          paths: "/",
+        },
+      ]),
+    );
+    expect(
+      authorizeRequest(rootPathRestricted, PUBLIC_KEY_HEX, "api.linear.app", "GET", "/").authorized,
+    ).toBe(true);
+    expect(
+      authorizeRequest(
+        rootPathRestricted,
+        PUBLIC_KEY_HEX,
+        "api.linear.app",
+        "GET",
+        "/nested/path",
+      ).authorized,
+    ).toBe(true);
   });
 
   it("rejects descendant minting without parent identity and ignores bad expiry input", () => {
@@ -139,5 +160,16 @@ describe("biscuit advanced helpers", () => {
         ),
       ).message,
     ).toBe("Parent token has no identity");
+  });
+
+  it("returns ttl and empty-constraint results from restrictToken", () => {
+    const token = mintToken(BISCUIT_PRIVATE_KEY, "user_alpha", [
+      { action: "credential.use", root: "org_alpha" },
+    ]);
+
+    expect(errorOf(restrictToken(token, PUBLIC_KEY_HEX, [{ ttl: "bad" }])).message).toBe(
+      "Invalid TTL format: bad",
+    );
+    expect(must(restrictToken(token, PUBLIC_KEY_HEX, []))).toBe(token);
   });
 });

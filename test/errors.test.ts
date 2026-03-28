@@ -5,6 +5,7 @@ import {
   inputError,
   internalError,
   isAgentPwError,
+  persistenceError,
 } from "../packages/server/src/errors";
 
 describe("agent.pw errors", () => {
@@ -36,6 +37,7 @@ describe("agent.pw errors", () => {
   it("recognizes known error objects", () => {
     const known = internalError("known");
     expect(isAgentPwError(known)).toBe(true);
+    expect(isAgentPwError(persistenceError("write", "persist", { path: "org.docs" }))).toBe(true);
     expect(isAgentPwError(new Error("boom"))).toBe(false);
   });
 });

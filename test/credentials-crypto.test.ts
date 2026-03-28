@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildCredentialHeaders,
   decryptCredentials,
@@ -9,6 +9,10 @@ import {
 } from "../packages/server/src/lib/credentials-crypto";
 import { BISCUIT_PRIVATE_KEY } from "./setup";
 import { mustAsync } from "./support/results";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 async function decryptSecretBuffer(encryptionKey: string, encrypted: Buffer) {
   const key = await mustAsync(importAesKey(encryptionKey));
@@ -88,6 +92,84 @@ describe("credentials crypto", () => {
     expect(decrypted.ok).toBe(false);
     if (!decrypted.ok) {
       expect(decrypted.error.message).toBe("Failed to parse decrypted credentials");
+    }
+  });
+
+  it("surfaces crypto API failures", async () => {
+    vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(new Error("digest failed"));
+    const digestFailure = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY);
+    expect(digestFailure.ok).toBe(false);
+    if (!digestFailure.ok) {
+      expect(digestFailure.error.message).toBe("Failed to derive encryption key");
+    }
+
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    vi.spyOn(crypto.subtle, "importKey").mockRejectedValueOnce(new Error("import failed"));
+    const importFailure = await importAesKey(encryptionKey);
+    expect(importFailure.ok).toBe(false);
+    if (!importFailure.ok) {
+      expect(importFailure.error.message).toBe("Failed to import AES key");
+    }
+
+    vi.spyOn(crypto.subtle, "encrypt").mockRejectedValueOnce(new Error("encrypt failed"));
+    const encryptFailure = await encryptCredentials(encryptionKey, {
+      headers: { Authorization: "Bearer secret" },
+    });
+    expect(encryptFailure.ok).toBe(false);
+    if (!encryptFailure.ok) {
+      expect(encryptFailure.error.message).toBe("Failed to encrypt credentials");
+    }
+
+    const encrypted = await mustAsync(
+      encryptCredentials(encryptionKey, {
+        headers: { Authorization: "Bearer secret" },
+      }),
+    );
+    vi.spyOn(crypto.subtle, "decrypt").mockRejectedValueOnce(new Error("decrypt failed"));
+    const decryptFailure = await decryptCredentials(encryptionKey, encrypted);
+    expect(decryptFailure.ok).toBe(false);
+    if (!decryptFailure.ok) {
+      expect(decryptFailure.error.message).toBe("Failed to decrypt credentials");
+    }
+  });
+
+  it("propagates key import failures and parse errors across the remaining helpers", async () => {
+    const shortKey = Buffer.from("short").toString("base64");
+
+    const encryptWithShortKey = await encryptCredentials(shortKey, {
+      headers: { Authorization: "Bearer secret" },
+    });
+    expect(encryptWithShortKey.ok).toBe(false);
+    if (!encryptWithShortKey.ok) {
+      expect(encryptWithShortKey.error.message).toBe("Encryption key must be 32 bytes");
+    }
+
+    const encryptedSecretWithShortKey = await encryptSecret(shortKey, "oauth-secret");
+    expect(encryptedSecretWithShortKey.ok).toBe(false);
+    if (!encryptedSecretWithShortKey.ok) {
+      expect(encryptedSecretWithShortKey.error.message).toBe("Encryption key must be 32 bytes");
+    }
+
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const invalidJson = await mustAsync(encryptSecret(encryptionKey, "{"));
+    const parsed = await decryptCredentials(encryptionKey, invalidJson);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.error.message).toBe("Failed to parse decrypted credentials");
+    }
+
+    const body = await mustAsync(encryptSecret(encryptionKey, "oauth-secret"));
+    const decryptWithShortKey = await decryptCredentials(shortKey, body);
+    expect(decryptWithShortKey.ok).toBe(false);
+    if (!decryptWithShortKey.ok) {
+      expect(decryptWithShortKey.error.message).toBe("Encryption key must be 32 bytes");
+    }
+
+    vi.spyOn(crypto.subtle, "encrypt").mockRejectedValueOnce(new Error("encrypt secret failed"));
+    const encryptSecretFailure = await encryptSecret(encryptionKey, "oauth-secret");
+    expect(encryptSecretFailure.ok).toBe(false);
+    if (!encryptSecretFailure.ok) {
+      expect(encryptSecretFailure.error.message).toBe("Failed to encrypt secret");
     }
   });
 
