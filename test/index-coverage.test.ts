@@ -288,11 +288,13 @@ describe("index coverage helpers", () => {
       auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer listed" } },
     });
-    const listedAuthResult = await db.execute(sql.raw(`
+    const listedAuthResult = await db.execute(
+      sql.raw(`
       SELECT auth
       FROM agentpw.credentials
       WHERE path = '/listed/credential'
-    `));
+    `),
+    );
     expect(listedAuthResult.rows).toEqual([
       { auth: { kind: "headers", resource: "https://listed.example.com/" } },
     ]);

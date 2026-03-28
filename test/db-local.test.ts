@@ -106,5 +106,4 @@ describe("db entrypoints", () => {
       await rm(dataDir, { recursive: true, force: true });
     }
   });
-
 });
