@@ -17,9 +17,12 @@ import type { Database } from "./db/index.js";
 
 export type { Database } from "./db/index.js";
 
-export interface DeleteOptions {
-  recursive?: boolean;
+export interface CrudOptions {
   db?: Database;
+}
+
+export interface RecursiveCrudOptions extends CrudOptions {
+  recursive?: boolean;
 }
 import type {
   StoredCredentials,
@@ -466,20 +469,17 @@ export interface ScopedAgentPw {
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
   credentials: {
-    get(path: string): Promise<Result<CredentialRecord | null>>;
-    list(options?: { path?: string; recursive?: boolean }): Promise<Result<CredentialSummary[]>>;
-    put(input: CredentialPutInput): Promise<Result<CredentialRecord>>;
-    move(fromPath: string, toPath: string): Promise<Result<boolean>>;
-    delete(path: string, options?: DeleteOptions): Promise<Result<boolean>>;
+    get(path: string, options?: CrudOptions): Promise<Result<CredentialRecord | null>>;
+    list(options?: { path?: string; recursive?: boolean } & CrudOptions): Promise<Result<CredentialSummary[]>>;
+    put(input: CredentialPutInput, options?: CrudOptions): Promise<Result<CredentialRecord>>;
+    move(fromPath: string, toPath: string, options?: CrudOptions): Promise<Result<boolean>>;
+    delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
   };
   profiles: {
-    get(path: string): Promise<Result<CredentialProfileRecord | null>>;
-    list(options?: {
-      path?: string;
-      recursive?: boolean;
-    }): Promise<Result<CredentialProfileRecord[]>>;
-    put(path: string, data: CredentialProfilePutInput): Promise<Result<CredentialProfileRecord>>;
-    delete(path: string, options?: DeleteOptions): Promise<Result<boolean>>;
+    get(path: string, options?: CrudOptions): Promise<Result<CredentialProfileRecord | null>>;
+    list(options?: { path?: string; recursive?: boolean } & CrudOptions): Promise<Result<CredentialProfileRecord[]>>;
+    put(path: string, data: CredentialProfilePutInput, options?: CrudOptions): Promise<Result<CredentialProfileRecord>>;
+    delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
   };
 }
 

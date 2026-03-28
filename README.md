@@ -309,56 +309,23 @@ const githubCli = await agentPw.credentials.get("acme.connections.github_cli");
 const env = githubCli?.secret.env;
 ```
 
-List stored credentials directly under a path:
+List stored credentials:
 
 ```ts
-const allCredentials = await agentPw.credentials.list();
-const children = await agentPw.credentials.list({
-  path: "acme.connections",
-});
+const all = await agentPw.credentials.list();
+const children = await agentPw.credentials.list({ path: "acme.connections" });
+const subtree = await agentPw.credentials.list({ path: "acme", recursive: true });
 ```
 
-`credentials.list()` returns all stored credentials. `credentials.list({ path })` returns direct children only.
+Without `path`, returns everything. With `path`, returns direct children. With `recursive: true`, returns all descendants (backed by a GiST index on the ltree column).
 
-## Recursive Delete and Transaction Passthrough
+## CRUD Options
 
-Both `credentials.delete(...)` and `profiles.delete(...)` accept an optional second argument:
-
-```ts
-interface DeleteOptions {
-  recursive?: boolean;
-  db?: Database;
-}
-```
-
-**Recursive delete** removes a path and all its descendants in a single query, backed by a GiST index on the ltree column:
+Every `credentials.*` and `profiles.*` method accepts an optional `{ db }` to run the operation on a Drizzle transaction instead of the default connection. `list` and `delete` also accept `{ recursive }` to operate on the full subtree.
 
 ```ts
-// Delete all credentials under an org
-await agentPw.credentials.delete("acme", { recursive: true });
+import type { Database } from "agent.pw";
 
-// Delete all profiles under an org
-await agentPw.profiles.delete("acme", { recursive: true });
-```
-
-Without `recursive`, only the exact path is removed.
-
-**Transaction passthrough** lets embedders delete credentials atomically alongside their own data by passing a Drizzle transaction as `db`:
-
-```ts
-import { Database } from "agent.pw";
-
-await db.transaction(async (tx: Database) => {
-  // Delete the app's own row
-  await tx.delete(connections).where(eq(connections.id, connectionId));
-  // Delete the associated credentials in the same transaction
-  await agentPw.credentials.delete(credentialPath, { db: tx });
-});
-```
-
-Both options compose. For example, when an embedder deletes an org, they can cascade-delete all associated credentials in one atomic operation:
-
-```ts
 await db.transaction(async (tx: Database) => {
   await tx.delete(orgs).where(eq(orgs.id, orgId));
   await agentPw.credentials.delete(orgId, { db: tx, recursive: true });

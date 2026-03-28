@@ -87,6 +87,11 @@ describe("query layer", () => {
     expect(
       (await queries.listCredProfiles(db, { path: "acme" })).map((profile) => profile.path),
     ).toEqual(["acme.github"]);
+    expect(
+      (await queries.listCredProfiles(db, { path: "acme", recursive: true })).map(
+        (profile) => profile.path,
+      ),
+    ).toEqual(["acme.github", "acme.team.github"]);
     expect((await queries.listCredProfiles(db)).map((profile) => profile.path)).toEqual([
       "acme.github",
       "acme.team.github",
@@ -123,6 +128,16 @@ describe("query layer", () => {
     expect(
       (await queries.listCredentials(db, { path: "acme.connections" })).map((row) => row.path),
     ).toEqual(["acme.connections.github"]);
+    expect(
+      (await queries.listCredentials(db, { path: "acme.connections", recursive: true })).map(
+        (row) => row.path,
+      ),
+    ).toEqual(["acme.connections.github", "acme.connections.team.docs"]);
+    expect(
+      (await queries.listCredentials(db, { path: "acme", recursive: true })).map(
+        (row) => row.path,
+      ),
+    ).toEqual(["acme.connections.github", "acme.connections.team.docs", "acme.elsewhere.notion"]);
     expect(
       (await queries.listCredentials(db, { path: "acme.connections.team" })).map((row) => row.path),
     ).toEqual(["acme.connections.team.docs"]);

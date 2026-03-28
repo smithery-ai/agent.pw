@@ -384,12 +384,12 @@ export async function createAgentPw(options: AgentPwOptions) {
       return toProfileRecord(selected.value);
     },
 
-    async get(path) {
+    async get(path, opts) {
       const normalizedPath = assertPath(path, "profile path");
       if (!normalizedPath.ok) {
         return err(normalizedPath.error);
       }
-      const selected = await queryHelpers.getCredProfile(options.db, normalizedPath.value);
+      const selected = await queryHelpers.getCredProfile(opts?.db ?? options.db, normalizedPath.value);
       if (!selected.ok) {
         return selected;
       }
@@ -404,7 +404,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!path.ok) {
         return err(path.error);
       }
-      const rows = await queryHelpers.listCredProfiles(options.db, {
+      const rows = await queryHelpers.listCredProfiles(query.db ?? options.db, {
         path: path.value,
         recursive: query.recursive,
       });
@@ -423,7 +423,8 @@ export async function createAgentPw(options: AgentPwOptions) {
       return ok(records);
     },
 
-    async put(path, data: CredentialProfilePutInput) {
+    async put(path, data: CredentialProfilePutInput, opts) {
+      const db = opts?.db ?? options.db;
       const profilePath = assertPath(path, "profile path");
       if (!profilePath.ok) {
         return err(profilePath.error);
@@ -437,7 +438,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         return auth;
       }
 
-      const persisted = await queryHelpers.upsertCredProfile(options.db, profilePath.value, {
+      const persisted = await queryHelpers.upsertCredProfile(db, profilePath.value, {
         resourcePatterns: data.resourcePatterns,
         auth: auth.value,
         displayName: data.displayName,
@@ -447,7 +448,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         return persisted;
       }
 
-      const stored = await queryHelpers.getCredProfile(options.db, profilePath.value);
+      const stored = await queryHelpers.getCredProfile(db, profilePath.value);
       if (!stored.ok) {
         return stored;
       }
@@ -476,13 +477,13 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
   };
 
-  const getCredential: AgentPw["credentials"]["get"] = async (path) => {
+  const getCredential: AgentPw["credentials"]["get"] = async (path, opts) => {
     const normalizedPath = assertPath(path, "credential path");
     if (!normalizedPath.ok) {
       return err(normalizedPath.error);
     }
 
-    const selected = await queryHelpers.getCredential(options.db, normalizedPath.value);
+    const selected = await queryHelpers.getCredential(opts?.db ?? options.db, normalizedPath.value);
     if (!selected.ok) {
       return selected;
     }
@@ -492,7 +493,8 @@ export async function createAgentPw(options: AgentPwOptions) {
     return decryptCredentialRecord(encryptionKey, selected.value);
   };
 
-  const putCredential: AgentPw["credentials"]["put"] = async (input) => {
+  const putCredential: AgentPw["credentials"]["put"] = async (input, opts) => {
+    const db = opts?.db ?? options.db;
     const path = assertPath(input.path, "credential path");
     if (!path.ok) {
       return err(path.error);
@@ -547,7 +549,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return storedAuth;
     }
 
-    const persisted = await queryHelpers.upsertCredential(options.db, {
+    const persisted = await queryHelpers.upsertCredential(db, {
       path: path.value,
       auth: storedAuth.value,
       secret: encryptedSecret.value,
@@ -556,7 +558,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return persisted;
     }
 
-    const stored = await queryHelpers.getCredential(options.db, path.value);
+    const stored = await queryHelpers.getCredential(db, path.value);
     if (!stored.ok) {
       return stored;
     }
@@ -774,7 +776,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!path.ok) {
         return err(path.error);
       }
-      const rows = await queryHelpers.listCredentials(options.db, {
+      const rows = await queryHelpers.listCredentials(query.db ?? options.db, {
         path: path.value,
         recursive: query.recursive,
       });
@@ -798,11 +800,11 @@ export async function createAgentPw(options: AgentPwOptions) {
       return ok(items);
     },
 
-    put(input) {
-      return putCredential(input);
+    put(input, opts) {
+      return putCredential(input, opts);
     },
 
-    move(fromPath, toPath) {
+    move(fromPath, toPath, opts) {
       const normalizedFrom = assertPath(fromPath, "source path");
       if (!normalizedFrom.ok) {
         return Promise.resolve(err(normalizedFrom.error));
@@ -811,7 +813,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!normalizedTo.ok) {
         return Promise.resolve(err(normalizedTo.error));
       }
-      return queryHelpers.moveCredential(options.db, normalizedFrom.value, normalizedTo.value);
+      return queryHelpers.moveCredential(opts?.db ?? options.db, normalizedFrom.value, normalizedTo.value);
     },
 
     delete(path, opts) {
@@ -1167,7 +1169,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       },
 
       credentials: {
-        async get(path) {
+        async get(path, opts) {
           const normalizedPath = assertPath(path, "credential path");
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
@@ -1176,7 +1178,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return credentials.get(normalizedPath.value);
+          return credentials.get(normalizedPath.value, opts);
         },
 
         async list(query = {}) {
@@ -1184,7 +1186,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!path.ok) {
             return err(path.error);
           }
-          const items = await credentials.list({ path: path.value, recursive: query.recursive });
+          const items = await credentials.list({ path: path.value, recursive: query.recursive, db: query.db });
           if (!items.ok) {
             return items;
           }
@@ -1199,7 +1201,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           );
         },
 
-        async put(input) {
+        async put(input, opts) {
           const path = assertPath(input.path, "credential path");
           if (!path.ok) {
             return err(path.error);
@@ -1208,10 +1210,10 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return credentials.put(input);
+          return credentials.put(input, opts);
         },
 
-        async move(fromPath, toPath) {
+        async move(fromPath, toPath, opts) {
           const normalizedFrom = assertPath(fromPath, "source path");
           const normalizedTo = assertPath(toPath, "target path");
           if (!normalizedFrom.ok) {
@@ -1228,7 +1230,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!toAllowed.ok) {
             return toAllowed;
           }
-          return credentials.move(normalizedFrom.value, normalizedTo.value);
+          return credentials.move(normalizedFrom.value, normalizedTo.value, opts);
         },
 
         async delete(path, opts) {
@@ -1245,7 +1247,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       },
 
       profiles: {
-        async get(path) {
+        async get(path, opts) {
           const normalizedPath = assertPath(path, "profile path");
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
@@ -1254,7 +1256,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return profiles.get(normalizedPath.value);
+          return profiles.get(normalizedPath.value, opts);
         },
 
         async list(query = {}) {
@@ -1262,7 +1264,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!path.ok) {
             return err(path.error);
           }
-          const items = await profiles.list({ path: path.value });
+          const items = await profiles.list({ path: path.value, recursive: query.recursive, db: query.db });
           if (!items.ok) {
             return items;
           }
@@ -1277,7 +1279,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           );
         },
 
-        async put(path, data) {
+        async put(path, data, opts) {
           const normalizedPath = assertPath(path, "profile path");
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
@@ -1286,7 +1288,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return profiles.put(normalizedPath.value, data);
+          return profiles.put(normalizedPath.value, data, opts);
         },
 
         async delete(path, opts) {
