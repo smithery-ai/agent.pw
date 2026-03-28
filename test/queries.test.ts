@@ -134,9 +134,7 @@ describe("query layer", () => {
       ),
     ).toEqual(["acme.connections.github", "acme.connections.team.docs"]);
     expect(
-      (await queries.listCredentials(db, { path: "acme", recursive: true })).map(
-        (row) => row.path,
-      ),
+      (await queries.listCredentials(db, { path: "acme", recursive: true })).map((row) => row.path),
     ).toEqual(["acme.connections.github", "acme.connections.team.docs", "acme.elsewhere.notion"]);
     expect(
       (await queries.listCredentials(db, { path: "acme.connections.team" })).map((row) => row.path),

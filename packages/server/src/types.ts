@@ -470,15 +470,23 @@ export interface ScopedAgentPw {
   };
   credentials: {
     get(path: string, options?: CrudOptions): Promise<Result<CredentialRecord | null>>;
-    list(options?: { path?: string; recursive?: boolean } & CrudOptions): Promise<Result<CredentialSummary[]>>;
+    list(
+      options?: { path?: string; recursive?: boolean } & CrudOptions,
+    ): Promise<Result<CredentialSummary[]>>;
     put(input: CredentialPutInput, options?: CrudOptions): Promise<Result<CredentialRecord>>;
     move(fromPath: string, toPath: string, options?: CrudOptions): Promise<Result<boolean>>;
     delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
   };
   profiles: {
     get(path: string, options?: CrudOptions): Promise<Result<CredentialProfileRecord | null>>;
-    list(options?: { path?: string; recursive?: boolean } & CrudOptions): Promise<Result<CredentialProfileRecord[]>>;
-    put(path: string, data: CredentialProfilePutInput, options?: CrudOptions): Promise<Result<CredentialProfileRecord>>;
+    list(
+      options?: { path?: string; recursive?: boolean } & CrudOptions,
+    ): Promise<Result<CredentialProfileRecord[]>>;
+    put(
+      path: string,
+      data: CredentialProfilePutInput,
+      options?: CrudOptions,
+    ): Promise<Result<CredentialProfileRecord>>;
     delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
   };
 }

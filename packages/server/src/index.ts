@@ -389,7 +389,10 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!normalizedPath.ok) {
         return err(normalizedPath.error);
       }
-      const selected = await queryHelpers.getCredProfile(opts?.db ?? options.db, normalizedPath.value);
+      const selected = await queryHelpers.getCredProfile(
+        opts?.db ?? options.db,
+        normalizedPath.value,
+      );
       if (!selected.ok) {
         return selected;
       }
@@ -813,7 +816,11 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!normalizedTo.ok) {
         return Promise.resolve(err(normalizedTo.error));
       }
-      return queryHelpers.moveCredential(opts?.db ?? options.db, normalizedFrom.value, normalizedTo.value);
+      return queryHelpers.moveCredential(
+        opts?.db ?? options.db,
+        normalizedFrom.value,
+        normalizedTo.value,
+      );
     },
 
     delete(path, opts) {
@@ -1186,7 +1193,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!path.ok) {
             return err(path.error);
           }
-          const items = await credentials.list({ path: path.value, recursive: query.recursive, db: query.db });
+          const items = await credentials.list({
+            path: path.value,
+            recursive: query.recursive,
+            db: query.db,
+          });
           if (!items.ok) {
             return items;
           }
@@ -1264,7 +1275,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!path.ok) {
             return err(path.error);
           }
-          const items = await profiles.list({ path: path.value, recursive: query.recursive, db: query.db });
+          const items = await profiles.list({
+            path: path.value,
+            recursive: query.recursive,
+            db: query.db,
+          });
           if (!items.ok) {
             return items;
           }
