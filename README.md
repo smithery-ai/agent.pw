@@ -168,6 +168,8 @@ Credentials always store the runtime material they need:
 
 When a known profile matches, `agent.pw` prefers that profile and skips generic discovery. Otherwise it falls back to resource discovery. MCP servers are one example, but the flow is not MCP-specific.
 
+For the full matching rules, override behavior, and embedder guidance, see [docs/credential-profiles.md](./docs/credential-profiles.md).
+
 ```ts
 const prepared = await unwrap(
   agentPw.connect.prepare({
@@ -215,57 +217,18 @@ The helper keeps examples focused on the happy path. Production code should usua
 
 ## Profiles
 
-Profiles are admin-side configuration. They help `agent.pw` decide what to do when discovery is unavailable, incomplete, or intentionally overridden.
+Profiles are admin-side configuration for advanced setup control.
 
-Profiles are useful for:
+Use them when an embedder wants to:
 
-- OAuth overrides for known resources
-- header-based setup templates
-- internal APIs that do not publish discovery metadata
-- constraining and documenting the headers an app should collect
+- override discovery for a known resource
+- work around broken or incomplete upstream metadata
+- define header-entry templates for admin UIs
+- apply global defaults and narrower org or workspace overrides
 
-Header-based profiles define which fields are expected:
+The full matching model and examples live in [docs/credential-profiles.md](./docs/credential-profiles.md).
 
-```ts
-await agentPw.profiles.put("resend", {
-  resourcePatterns: ["https://api.resend.com*"],
-  displayName: "Resend",
-  auth: {
-    kind: "headers",
-    label: "Resend API key",
-    fields: [
-      {
-        name: "Authorization",
-        label: "API key",
-        description: "Your Resend API key",
-        prefix: "Bearer ",
-        secret: true,
-      },
-    ],
-  },
-});
-```
-
-OAuth profiles define the auth configuration the framework should use when discovery is not enough or an admin wants a fixed setup:
-
-```ts
-await agentPw.profiles.put("linear", {
-  resourcePatterns: ["https://api.linear.app/*"],
-  displayName: "Linear",
-  auth: {
-    kind: "oauth",
-    authorizationUrl: "https://linear.app/oauth/authorize",
-    tokenUrl: "https://api.linear.app/oauth/token",
-    clientId: process.env.LINEAR_CLIENT_ID!,
-    clientSecret: process.env.LINEAR_CLIENT_SECRET!,
-    scopes: "read write",
-  },
-});
-```
-
-Profiles are path-scoped configuration, so apps can keep global defaults and more specific org or workspace overrides.
-
-Apps can also store env-oriented profile hints for custom admin UIs, but `connect.prepare(...)` does not use them in this version.
+One important rule: profiles are only consulted for fresh guided setup. If an exact-path credential already exists, `connect.prepare(...)` returns that credential instead of re-resolving profiles.
 
 ## One-Off Credentials
 
