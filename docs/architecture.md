@@ -61,7 +61,6 @@ Each credential stores:
 At runtime:
 
 - `oauth` and `headers` credentials expose `secret.headers`
-- `env` credentials expose `secret.env`
 - OAuth credentials may also include stored refresh state
 
 ### Profile
@@ -171,13 +170,10 @@ Disconnects a stored credential and optionally revokes upstream OAuth tokens.
 
 ## Auth Kinds
 
-At the vault level there are three credential families:
+At the vault level there are two credential families:
 
 - `oauth`
 - `headers`
-- `env`
-
-`connect.*` only guides `oauth` and `headers`.
 
 Everything manual collapses into header auth:
 
@@ -268,28 +264,9 @@ That is enough because:
 - the exact connection path is the runtime identity
 - the resource only matters when a connect flow or profile match needs it
 - runtime consumption only needs resolved headers
-- env credentials only need encrypted env pairs
 - OAuth lifecycle state can live inside the encrypted secret payload
 
 Profiles, discovery logic, and option selection happen around the credential. They are not the credential’s primary identity.
-
-## Env Credentials
-
-Some agent runtimes need env-var injection instead of HTTP headers. `agent.pw` supports that as a vault concern, not as part of guided connect.
-
-Examples:
-
-```txt
-acme.connections.github_cli
-acme.connections.openai_cli
-```
-
-These credentials are stored and retrieved through `credentials.*`:
-
-- `credentials.put(...)`
-- `credentials.get(...)`
-
-That keeps `connect.*` focused on resource-backed auth setup, while the vault layer remains flexible enough for CLI and sandbox-agent workflows.
 
 ## Exact-Path Credentials
 

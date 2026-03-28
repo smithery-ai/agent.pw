@@ -71,7 +71,7 @@ The stored model is intentionally small:
 - encrypted `secret`
 - timestamps
 
-`secret.headers` is the runtime output for `oauth` and `headers` credentials. `env` credentials use `secret.env`.
+`secret.headers` is the runtime output for supported credentials.
 
 OAuth credentials may also store encrypted lifecycle material such as:
 
@@ -87,7 +87,7 @@ From an implementer perspective, the main obligations are:
 
 - protect the encryption key separately from the database
 - control who can read or use a connection path
-- avoid copying decrypted headers or env values into logs or long-lived storage
+- avoid copying decrypted headers into logs or long-lived storage
 
 ## Resource as Setup Target
 
@@ -110,7 +110,6 @@ They exist to help `agent.pw` guide setup when discovery is not enough.
 Profiles can:
 
 - define a manual header-entry template
-- define an env-template for admin-facing vault setup
 - provide a fixed OAuth configuration
 - override defaults within a path subtree
 - constrain how an app should collect or shape credentials
@@ -143,8 +142,6 @@ The framework's setup model is:
 6. the framework returns explicit next steps as `oauth` or `headers` options
 
 This matters because implementers do not need to re-implement auth decision logic inconsistently across products or runtimes.
-
-Generic env credentials live outside this guided setup flow and are written directly through `credentials.put(...)`.
 
 ## OAuth Lifecycle Ownership
 
@@ -182,7 +179,7 @@ The implementer decides:
 
 - where OAuth routes live
 - whether to use `createWebHandlers(...)` or wire routes manually
-- how returned headers or env values are attached to downstream execution
+- how returned headers are attached to downstream execution
 
 ## FlowStore
 
@@ -227,7 +224,6 @@ This gives embedders a consistent way to evaluate permissions before:
 
 - using a credential
 - connecting a resource
-- resolving env credentials for sandboxes or CLIs
 - listing credentials
 - managing profiles
 
@@ -274,4 +270,4 @@ When embedding `agent.pw`, verify these boundaries explicitly:
 - store the encryption key separately from the credential database
 - use a durable `FlowStore` in multi-instance deployments
 - derive least-privilege rights before calling scoped APIs
-- avoid logging decrypted headers, env values, tokens, or OAuth callback secrets
+- avoid logging decrypted headers, tokens, or OAuth callback secrets

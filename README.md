@@ -4,7 +4,7 @@
 
 `agent.pw` helps apps connect external resources once and reuse the resulting auth safely across agents, tools, MCP clients, and sandboxed CLIs.
 
-It stores encrypted credentials, runs OAuth flows, supports manual header-based auth, stores env secrets, and resolves fresh authenticated headers or env values from a connection `path`.
+It stores encrypted credentials, runs OAuth flows, supports manual header-based auth, and resolves fresh authenticated headers from a connection `path`.
 
 ## Concepts
 
@@ -148,20 +148,16 @@ Each `prepare(...)` result includes `resolution`, which exposes the library deci
 
 ## Auth Kinds
 
-At the vault level there are three credential kinds:
+At the vault level there are two credential kinds:
 
 - `oauth`
 - `headers`
-- `env`
-
-`connect.*` only guides `oauth` and `headers`.
 
 API keys are header auth. Basic auth, bearer tokens, vendor-specific headers, cookies, and similar schemes are all header auth.
 
 Credentials always store the runtime material they need:
 
 - `oauth` and `headers` credentials store resolved runtime headers
-- `env` credentials store env name/value pairs
 - OAuth credentials may also store refresh state so `agent.pw` can keep headers fresh
 
 ## Profile-Aware OAuth
@@ -230,6 +226,45 @@ The full matching model and examples live in [docs/credential-profiles.md](./doc
 
 One important rule: profiles are only consulted for fresh guided setup. If an exact-path credential already exists, `connect.prepare(...)` returns that credential instead of re-resolving profiles.
 
+```ts
+await agentPw.profiles.put("resend", {
+  resourcePatterns: ["https://api.resend.com*"],
+  displayName: "Resend",
+  auth: {
+    kind: "headers",
+    label: "Resend API key",
+    fields: [
+      {
+        name: "Authorization",
+        label: "API key",
+        description: "Your Resend API key",
+        prefix: "Bearer ",
+        secret: true,
+      },
+    ],
+  },
+});
+```
+
+OAuth profiles define the auth configuration the framework should use when discovery is not enough or an admin wants a fixed setup:
+
+```ts
+await agentPw.profiles.put("linear", {
+  resourcePatterns: ["https://api.linear.app/*"],
+  displayName: "Linear",
+  auth: {
+    kind: "oauth",
+    authorizationUrl: "https://linear.app/oauth/authorize",
+    tokenUrl: "https://api.linear.app/oauth/token",
+    clientId: process.env.LINEAR_CLIENT_ID!,
+    clientSecret: process.env.LINEAR_CLIENT_SECRET!,
+    scopes: "read write",
+  },
+});
+```
+
+Profiles are path-scoped configuration, so apps can keep global defaults and more specific org or workspace overrides.
+
 ## One-Off Credentials
 
 Profiles guide setup, but they do not define what is possible.
@@ -250,26 +285,6 @@ await agentPw.credentials.put({
     },
   },
 });
-```
-
-Store env credentials directly through the vault layer:
-
-```ts
-await agentPw.credentials.put({
-  path: "acme.connections.github_cli",
-  auth: {
-    kind: "env",
-    label: "GitHub CLI",
-  },
-  secret: {
-    env: {
-      GH_TOKEN: process.env.GH_TOKEN!,
-    },
-  },
-});
-
-const githubCli = await agentPw.credentials.get("acme.connections.github_cli");
-const env = githubCli?.secret.env;
 ```
 
 List stored credentials:

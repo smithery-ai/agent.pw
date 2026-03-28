@@ -19,19 +19,11 @@ export async function deriveEncryptionKey(secretSeed: string) {
 
 export interface StoredHeadersCredentials {
   headers: Record<string, string>;
-  env?: never;
-  oauth?: never;
-}
-
-export interface StoredEnvCredentials {
-  headers?: never;
-  env: Record<string, string>;
   oauth?: never;
 }
 
 export interface StoredOAuthCredentials {
   headers: Record<string, string>;
-  env?: never;
   oauth: {
     refreshToken?: string | null;
     accessToken?: string | null;
@@ -49,12 +41,9 @@ export interface StoredOAuthCredentials {
   };
 }
 
-export type StoredCredentials =
-  | StoredHeadersCredentials
-  | StoredEnvCredentials
-  | StoredOAuthCredentials;
+export type StoredCredentials = StoredHeadersCredentials | StoredOAuthCredentials;
 
-const STORED_CREDENTIAL_KEYS = new Set(["env", "headers", "oauth"]);
+const STORED_CREDENTIAL_KEYS = new Set(["headers", "oauth"]);
 const STORED_OAUTH_KEYS = new Set([
   "accessToken",
   "authorizationUrl",
@@ -109,9 +98,6 @@ function isStoredOAuth(value: unknown): value is StoredOAuthCredentials["oauth"]
 function isStoredCredentials(value: unknown): value is StoredCredentials {
   if (!isRecord(value) || !hasOnlyKeys(value, STORED_CREDENTIAL_KEYS)) {
     return false;
-  }
-  if ("env" in value) {
-    return !("headers" in value) && !("oauth" in value) && isStringMap(value.env);
   }
   if ("oauth" in value) {
     return "headers" in value && isStringMap(value.headers) && isStoredOAuth(value.oauth);
