@@ -1,4 +1,6 @@
+import { err, ok } from "okay-error";
 import { sql } from "drizzle-orm";
+import { inputError } from "../errors.js";
 import type { SqlNamespaceOptions } from "../types.js";
 import type { Database } from "./index";
 import { coerceSqlNamespace, type AgentPwSqlNamespace } from "./schema/index.js";
@@ -11,6 +13,32 @@ function quoteIdentifier(identifier: string) {
 
 function qualifyTable(schema: string, tableName: string) {
   return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`;
+}
+
+async function ensureLtreePathColumn(
+  db: Database,
+  schemaName: string,
+  tableName: string,
+  tableLabel: string,
+) {
+  const result = await db.execute(sql`
+    SELECT udt_name
+    FROM information_schema.columns
+    WHERE table_schema = ${schemaName}
+      AND table_name = ${tableName}
+      AND column_name = 'path'
+  `);
+  const rows = "rows" in result ? result.rows : (result as unknown as Record<string, unknown>[]);
+  const row = rows[0] as { udt_name?: string } | undefined;
+  if (!row?.udt_name || row.udt_name === "ltree") {
+    return ok();
+  }
+
+  return err(
+    inputError(
+      `${tableLabel} path column must use ltree; recreate or migrate the local database before bootstrapping`,
+    ),
+  );
 }
 
 /** Bootstrap the local PGlite schema without relying on framework-owned migration files. */
@@ -35,12 +63,33 @@ export async function bootstrapLocalSchema(
   const credProfilesSql = qualifyTable(schemaName, credProfilesTable);
   const credentialsSql = qualifyTable(schemaName, credentialsTable);
 
+  await db.execute(sql.raw("CREATE EXTENSION IF NOT EXISTS ltree"));
   await db.execute(sql.raw(`CREATE SCHEMA IF NOT EXISTS ${schemaSql}`));
+
+  const credProfilesPath = await ensureLtreePathColumn(
+    db,
+    schemaName,
+    credProfilesTable,
+    "Credential profile",
+  );
+  if (!credProfilesPath.ok) {
+    return credProfilesPath;
+  }
+
+  const credentialsPath = await ensureLtreePathColumn(
+    db,
+    schemaName,
+    credentialsTable,
+    "Credential",
+  );
+  if (!credentialsPath.ok) {
+    return credentialsPath;
+  }
 
   await db.execute(
     sql.raw(`
     CREATE TABLE IF NOT EXISTS ${credProfilesSql} (
-      path TEXT PRIMARY KEY,
+      path LTREE PRIMARY KEY,
       resource_patterns JSONB NOT NULL DEFAULT '[]'::jsonb,
       auth JSONB NOT NULL DEFAULT '{}'::jsonb,
       display_name TEXT,
@@ -54,7 +103,7 @@ export async function bootstrapLocalSchema(
   await db.execute(
     sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credProfilesPathIndex)}
-    ON ${credProfilesSql} (path)
+    ON ${credProfilesSql} USING gist (path)
   `),
   );
 
@@ -68,7 +117,7 @@ export async function bootstrapLocalSchema(
   await db.execute(
     sql.raw(`
     CREATE TABLE IF NOT EXISTS ${credentialsSql} (
-      path TEXT NOT NULL,
+      path LTREE NOT NULL,
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
@@ -105,7 +154,7 @@ export async function bootstrapLocalSchema(
   await db.execute(
     sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsPathIndex)}
-    ON ${credentialsSql} (path)
+    ON ${credentialsSql} USING gist (path)
   `),
   );
 
@@ -156,4 +205,6 @@ export async function bootstrapLocalSchema(
     DROP TABLE IF EXISTS ${qualifyTable(schemaName, "revocations")}
   `),
   );
+
+  return ok();
 }

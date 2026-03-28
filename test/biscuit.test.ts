@@ -42,13 +42,13 @@ describe("biscuit helpers", () => {
     const token = mintToken(
       BISCUIT_PRIVATE_KEY,
       "user_test_123",
-      [{ action: "credential.use", root: `/${TEST_ORG_ID}` }],
+      [{ action: "credential.use", root: TEST_ORG_ID }],
       [`org_id("${TEST_ORG_ID}")`, "  ", 'scope("repo");', 'scope("write")', 'custom("value")'],
     );
 
     const facts = extractTokenFacts(token, PUBLIC_KEY_HEX);
     expect(facts).toEqual({
-      rights: [{ action: "credential.use", root: `/${TEST_ORG_ID}` }],
+      rights: [{ action: "credential.use", root: TEST_ORG_ID }],
       userId: "user_test_123",
       orgId: TEST_ORG_ID,
       homePath: null,
@@ -61,10 +61,10 @@ describe("biscuit helpers", () => {
     expect(
       subjectFactsToExtraFacts({
         orgId: TEST_ORG_ID,
-        homePath: `/${TEST_ORG_ID}`,
+        homePath: TEST_ORG_ID,
         scopes: ["repo"],
       }),
-    ).toEqual([`org_id("${TEST_ORG_ID}");`, `home_path("/${TEST_ORG_ID}");`, 'scope("repo");']);
+    ).toEqual([`org_id("${TEST_ORG_ID}");`, `home_path("${TEST_ORG_ID}");`, 'scope("repo");']);
     expect(subjectFactsToExtraFacts({ orgId: TEST_ORG_ID })).toEqual([`org_id("${TEST_ORG_ID}");`]);
     expect(subjectFactsToExtraFacts(undefined)).toEqual([]);
   });
@@ -134,13 +134,13 @@ describe("biscuit helpers", () => {
       [
         'user_id("legacy-user");',
         'org_id("legacy-org");',
-        'right("/legacy-org", "credential.use");',
+        'right("legacy-org", "credential.use");',
         'scope("repo");',
       ].join("\n"),
     );
 
     expect(extractTokenFacts(bareToken, PUBLIC_KEY_HEX)).toEqual({
-      rights: [{ action: "credential.use", root: "/legacy-org" }],
+      rights: [{ action: "credential.use", root: "legacy-org" }],
       userId: "legacy-user",
       orgId: "legacy-org",
       homePath: null,
@@ -148,11 +148,11 @@ describe("biscuit helpers", () => {
     });
 
     const withHomePath = buildCustomToken(
-      ['user_id("legacy-user");', 'home_path("/legacy-org");'].join("\n"),
+      ['user_id("legacy-user");', 'home_path("legacy-org");'].join("\n"),
     );
     expect(extractTokenFacts(withHomePath, PUBLIC_KEY_HEX)).toEqual(
       expect.objectContaining({
-        homePath: "/legacy-org",
+        homePath: "legacy-org",
       }),
     );
 
@@ -165,7 +165,7 @@ describe("biscuit helpers", () => {
       [
         'user_id("legacy-user");',
         'org_id("legacy-org");',
-        'right("/legacy-org", "profile.manage");',
+        'right("legacy-org", "profile.manage");',
       ].join("\n"),
     );
 
@@ -185,7 +185,7 @@ describe("biscuit helpers", () => {
       compileRulesToBiscuit({
         privateKeyHex: BISCUIT_PRIVATE_KEY,
         subject: "compiled-user",
-        rights: [{ action: "credential.use", root: "/org_alpha" }],
+        rights: [{ action: "credential.use", root: "org_alpha" }],
         constraints: [{ methods: "GET", paths: "/org_alpha" }],
         extraFacts: ['org_id("org_alpha")'],
       }),
@@ -195,7 +195,7 @@ describe("biscuit helpers", () => {
       expect.objectContaining({
         userId: "compiled-user",
         orgId: "org_alpha",
-        rights: [{ action: "credential.use", root: "/org_alpha" }],
+        rights: [{ action: "credential.use", root: "org_alpha" }],
       }),
     );
 
@@ -203,7 +203,7 @@ describe("biscuit helpers", () => {
       compileRulesToBiscuit({
         privateKeyHex: BISCUIT_PRIVATE_KEY,
         subject: "compiled-user",
-        rights: [{ action: "credential.use", root: "/org_alpha" }],
+        rights: [{ action: "credential.use", root: "org_alpha" }],
       }),
     );
     expect(extractTokenFacts(unconstrained, PUBLIC_KEY_HEX)).toEqual(
@@ -217,7 +217,7 @@ describe("biscuit helpers", () => {
     const token = mintToken(
       BISCUIT_PRIVATE_KEY,
       "user_test_123",
-      [{ action: "credential.manage", root: `/${TEST_ORG_ID}` }],
+      [{ action: "credential.manage", root: TEST_ORG_ID }],
       [`org_id("${TEST_ORG_ID}")`],
     );
     const publicKey = getPublicKey(BISCUIT_PRIVATE_KEY);
@@ -229,7 +229,7 @@ describe("biscuit helpers", () => {
       .filter(Boolean);
 
     expect(authorityLines).toContain('user_id("user_test_123");');
-    expect(authorityLines).toContain(`right("/${TEST_ORG_ID}", "credential.manage");`);
+    expect(authorityLines).toContain(`right("${TEST_ORG_ID}", "credential.manage");`);
     expect(authorityLines).not.toContain('right("credential.manage");');
 
     const restricted = must(

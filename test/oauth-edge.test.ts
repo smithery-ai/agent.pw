@@ -117,7 +117,7 @@ describe("oauth edge cases", () => {
 
     await expect(
       headersOnly.connect.startOAuth({
-        path: "/org/connections/docs",
+        path: "org.connections.docs",
         option: {
           kind: "oauth",
           source: "discovery",
@@ -136,13 +136,13 @@ describe("oauth edge cases", () => {
 
     await expect(
       agentPw.connect.startOAuth({
-        path: "/org/connections/docs",
+        path: "org.connections.docs",
         option: {
           kind: "headers",
           source: "profile",
           label: "Docs",
           resource: "https://docs.example.com/mcp",
-          profilePath: "/docs",
+          profilePath: "docs",
           fields: [{ name: "Authorization", label: "Token" }],
         },
         redirectUri: "https://app.example.com/oauth/callback",
@@ -151,7 +151,7 @@ describe("oauth edge cases", () => {
 
     await expect(
       agentPw.connect.startOAuth({
-        path: "/org/connections/docs",
+        path: "org.connections.docs",
         option: {
           kind: "oauth",
           source: "discovery",
@@ -164,7 +164,7 @@ describe("oauth edge cases", () => {
       "Resource 'https://docs.example.com/mcp' requires oauth client configuration",
     );
 
-    await agentPw.profiles.put("/linear", {
+    await agentPw.profiles.put("linear", {
       resourcePatterns: ["https://api.linear.app/*"],
       auth: {
         kind: "oauth",
@@ -175,7 +175,7 @@ describe("oauth edge cases", () => {
 
     await expect(
       agentPw.connect.startOAuth({
-        path: "/org/connections/linear",
+        path: "org.connections.linear",
         option: {
           kind: "oauth",
           source: "profile",
@@ -211,7 +211,7 @@ describe("oauth edge cases", () => {
 
     await flowStore.create({
       id: "expired-state",
-      path: "/org/connections/docs",
+      path: "org.connections.docs",
       credential: {
         label: "Docs",
       },
@@ -233,7 +233,7 @@ describe("oauth edge cases", () => {
       }),
     ).rejects.toThrow("OAuth flow 'expired-state' has expired");
 
-    await agentPw.profiles.put("/broken", {
+    await agentPw.profiles.put("broken", {
       resourcePatterns: ["https://api.linear.app/*"],
       auth: {
         kind: "oauth",
@@ -244,31 +244,31 @@ describe("oauth edge cases", () => {
 
     await expect(
       agentPw.connect.startOAuth({
-        path: "/org/connections/broken",
+        path: "org.connections.broken",
         option: {
           kind: "oauth",
           source: "profile",
           label: "Broken",
-          profilePath: "/missing",
+          profilePath: "missing",
           resource: "https://api.linear.app",
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow("Credential Profile '/missing' does not exist");
+    ).rejects.toThrow("Credential Profile 'missing' does not exist");
 
     await expect(
       agentPw.connect.startOAuth({
-        path: "/org/connections/broken",
+        path: "org.connections.broken",
         option: {
           kind: "oauth",
           source: "profile",
           label: "Broken",
-          profilePath: "/broken",
+          profilePath: "broken",
           resource: "https://api.linear.app",
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow("Credential Profile '/broken' requires a clientId or default oauth client");
+    ).rejects.toThrow("Credential Profile 'broken' requires a clientId or default oauth client");
   });
 
   it("handles discovery fallback, refresh edge cases, and disconnect behavior", async () => {
@@ -281,7 +281,7 @@ describe("oauth edge cases", () => {
 
     expect(
       await failingDiscovery.connect.prepare({
-        path: "/org/connections/unconfigured",
+        path: "org.connections.unconfigured",
         resource: "https://unknown.example.com",
       }),
     ).toEqual({
@@ -306,7 +306,7 @@ describe("oauth edge cases", () => {
       },
     });
 
-    await agentPw.profiles.put("/docs-api", {
+    await agentPw.profiles.put("docs-api", {
       resourcePatterns: ["https://docs.example.com/*"],
       auth: {
         kind: "headers",
@@ -316,7 +316,7 @@ describe("oauth edge cases", () => {
     });
 
     const prepared = await agentPw.connect.prepare({
-      path: "/org/connections/docs",
+      path: "org.connections.docs",
       resource: "https://docs.example.com/mcp",
     });
     expect(prepared.kind).toBe("options");
@@ -328,24 +328,24 @@ describe("oauth edge cases", () => {
         kind: "headers",
         source: "profile",
         resource: "https://docs.example.com/mcp",
-        profilePath: "/docs-api",
+        profilePath: "docs-api",
         label: "Docs API key",
         fields: [{ name: "Authorization", label: "Bearer token", prefix: "Bearer " }],
       },
     ]);
 
     await agentPw.credentials.put({
-      path: "/org/connections/manual",
+      path: "org.connections.manual",
       resource: "https://manual.example.com",
       auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer manual-token" } },
     });
-    expect(await agentPw.connect.resolveHeaders({ path: "/org/connections/manual" })).toEqual({
+    expect(await agentPw.connect.resolveHeaders({ path: "org.connections.manual" })).toEqual({
       Authorization: "Bearer manual-token",
     });
 
     await agentPw.credentials.put({
-      path: "/org/connections/oauth-no-refresh",
+      path: "org.connections.oauth-no-refresh",
       resource: "https://docs.example.com/mcp",
       auth: { kind: "oauth" },
       secret: {
@@ -358,14 +358,14 @@ describe("oauth edge cases", () => {
     });
     expect(
       await agentPw.connect.resolveHeaders({
-        path: "/org/connections/oauth-no-refresh",
+        path: "org.connections.oauth-no-refresh",
       }),
     ).toEqual({
       Authorization: "Bearer stale-token",
     });
 
     await agentPw.credentials.put({
-      path: "/org/connections/oauth-no-client",
+      path: "org.connections.oauth-no-client",
       resource: "https://docs.example.com/mcp",
       auth: { kind: "oauth" },
       secret: {
@@ -379,14 +379,14 @@ describe("oauth edge cases", () => {
     });
     expect(
       await agentPw.connect.resolveHeaders({
-        path: "/org/connections/oauth-no-client",
+        path: "org.connections.oauth-no-client",
       }),
     ).toEqual({
       Authorization: "Bearer stale-token-2",
     });
 
     await agentPw.credentials.put({
-      path: "/org/connections/oauth-no-revoke",
+      path: "org.connections.oauth-no-revoke",
       resource: "https://docs.example.com/mcp",
       auth: { kind: "oauth" },
       secret: {
@@ -403,10 +403,10 @@ describe("oauth edge cases", () => {
       },
     });
 
-    expect(await agentPw.connect.disconnect({ path: "/missing" })).toBe(false);
+    expect(await agentPw.connect.disconnect({ path: "missing" })).toBe(false);
     expect(
       await agentPw.connect.disconnect({
-        path: "/org/connections/oauth-no-revoke",
+        path: "org.connections.oauth-no-revoke",
         revoke: "both",
       }),
     ).toBe(true);
@@ -425,7 +425,7 @@ describe("oauth edge cases", () => {
     });
 
     const prepared = await agentPw.connect.prepare({
-      path: "/org/connections/docs",
+      path: "org.connections.docs",
       resource: "https://docs.example.com/mcp",
     });
     if (prepared.kind !== "options") {
@@ -447,7 +447,7 @@ describe("oauth edge cases", () => {
     });
 
     const startResponse = await handlers.start(new Request("https://app.example.com/connect"), {
-      path: "/org/connections/docs",
+      path: "org.connections.docs",
       option,
     });
     const flowId = new URL(startResponse.headers.get("location") ?? "").searchParams.get("state");
@@ -459,7 +459,7 @@ describe("oauth edge cases", () => {
       new Request(`https://app.example.com/oauth/callback?code=code-123&state=${flowId}`),
     );
     expect(success.status).toBe(201);
-    expect(await success.json()).toEqual({ path: "/org/connections/docs" });
+    expect(await success.json()).toEqual({ path: "org.connections.docs" });
 
     const failure = await handlers.callback(
       new Request("https://app.example.com/oauth/callback?code=missing"),
@@ -504,7 +504,7 @@ describe("oauth edge cases", () => {
     });
 
     const prepared = await agentPw.connect.prepare({
-      path: "/org/connections/docs",
+      path: "org.connections.docs",
       resource: "https://docs.example.com/mcp",
     });
     if (prepared.kind !== "options") {
@@ -517,7 +517,7 @@ describe("oauth edge cases", () => {
 
     await expect(
       agentPw.connect.startOAuth({
-        path: "/org/connections/docs",
+        path: "org.connections.docs",
         option,
         redirectUri: "https://app.example.com/oauth/callback",
       }),
@@ -537,7 +537,7 @@ describe("oauth edge cases", () => {
 
     await expect(
       agentWithFixedClient.connect.startOAuth({
-        path: "/org/connections/docs",
+        path: "org.connections.docs",
         option: {
           kind: "oauth",
           source: "discovery",

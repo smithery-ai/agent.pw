@@ -11,17 +11,27 @@ function compareRoots(a: string, b: string) {
   return pathDepth(b) - pathDepth(a) || a.localeCompare(b);
 }
 
+function matchesPathPrefix(prefix: string, path: string) {
+  return prefix === path || path.startsWith(`${prefix}.`);
+}
+
 export function uniqueRoots(roots: string[]) {
   return [...new Set(roots)].sort(compareRoots);
 }
 
 export function rootsForAction(rights: RuleGrant[], action: string) {
-  return uniqueRoots(rights.filter((right) => right.action === action).map((right) => right.root));
+  return uniqueRoots(
+    rights
+      .filter((right) => right.action === action)
+      .flatMap((right) => (right.root ? [right.root] : [])),
+  );
 }
 
 export function rootsForActions(rights: RuleGrant[], actions: string[]) {
   return uniqueRoots(
-    rights.filter((right) => actions.includes(right.action)).map((right) => right.root),
+    rights
+      .filter((right) => actions.includes(right.action))
+      .flatMap((right) => (right.root ? [right.root] : [])),
   );
 }
 
@@ -29,12 +39,16 @@ export function hasActionRight(rights: RuleGrant[], action: string) {
   return rights.some((right) => right.action === action);
 }
 
+export function hasGlobalRight(rights: RuleGrant[], action: string) {
+  return rights.some((right) => right.action === action && !right.root);
+}
+
 export function coveringRootsForPath(roots: string[], path: string) {
   return roots.filter((root) => isAncestorOrEqual(root, path)).sort(compareRoots);
 }
 
 export function hasRuleForPath(rights: RuleGrant[], action: string, path: string) {
-  return coveringRootsForPath(rootsForAction(rights, action), path).length > 0;
+  return hasGlobalRight(rights, action) || coveringRootsForPath(rootsForAction(rights, action), path).length > 0;
 }
 
 export function rootsForActionFromScope(scope: RuleScope, action: string) {
@@ -70,7 +84,7 @@ export function constraintAppliesToPath(
     host: string;
     method: string;
     path: string;
-    root: string;
+    root?: string;
     service?: string;
   },
 ) {
@@ -90,7 +104,7 @@ export function constraintAppliesToPath(
   }
 
   const roots = normalizeConstraintValues(constraint.roots);
-  if (roots.length > 0 && !roots.includes(input.root)) {
+  if (roots.length > 0 && !(input.root && roots.includes(input.root))) {
     return false;
   }
 
@@ -100,7 +114,7 @@ export function constraintAppliesToPath(
   }
 
   const paths = normalizeConstraintValues(constraint.paths);
-  if (paths.length > 0 && !paths.some((path) => input.path.startsWith(path))) {
+  if (paths.length > 0 && !paths.some((path) => matchesPathPrefix(path, input.path))) {
     return false;
   }
 

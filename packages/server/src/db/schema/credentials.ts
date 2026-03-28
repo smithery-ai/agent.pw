@@ -20,7 +20,7 @@ export function defineCredentialsTable(schema: PgSchemaNamespace, tablePrefix = 
         name: `${tableName}_path_pk`,
         columns: [table.path],
       }),
-      index(`${tableName}_path_idx`).on(table.path),
+      index(`${tableName}_path_idx`).using("gist", table.path),
     ],
   );
 }

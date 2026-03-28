@@ -64,21 +64,21 @@ describe("index coverage helpers", () => {
       ),
     );
 
-    await agentPw.profiles.put("/valid", {
+    await agentPw.profiles.put("valid", {
       resourcePatterns: ["https://valid.example.com/*"],
       auth: {
         kind: "headers",
         fields: [{ name: "Authorization", label: "Token" }],
       },
     });
-    await agentPw.profiles.put("/minimal-oauth", {
+    await agentPw.profiles.put("minimal-oauth", {
       resourcePatterns: ["https://oauth.example.com/*"],
       auth: {
         kind: "oauth",
         clientId: "oauth-client",
       },
     });
-    expect(await agentPw.profiles.get("/minimal-oauth")).toEqual(
+    expect(await agentPw.profiles.get("minimal-oauth")).toEqual(
       expect.objectContaining({
         auth: {
           kind: "oauth",
@@ -94,7 +94,7 @@ describe("index coverage helpers", () => {
         },
       }),
     );
-    await agentPw.profiles.put("/oauth-labeled", {
+    await agentPw.profiles.put("oauth-labeled", {
       resourcePatterns: ["https://oauth2.example.com/*"],
       auth: {
         kind: "oauth",
@@ -104,7 +104,7 @@ describe("index coverage helpers", () => {
         tokenUrl: "https://oauth2.example.com/token",
       },
     });
-    expect(await agentPw.profiles.get("/oauth-labeled")).toEqual(
+    expect(await agentPw.profiles.get("oauth-labeled")).toEqual(
       expect.objectContaining({
         auth: expect.objectContaining({
           label: "OAuth label",
@@ -114,11 +114,11 @@ describe("index coverage helpers", () => {
         }),
       }),
     );
-    expect(await agentPw.profiles.delete("/valid")).toBe(true);
+    expect(await agentPw.profiles.delete("valid")).toBe(true);
 
     await expect(
       Reflect.apply(agentPw.profiles.put, agentPw.profiles, [
-        "/invalid-json",
+        "invalid-json",
         {
           resourcePatterns: ["https://invalid.example.com/*"],
           auth: "bad",
@@ -129,7 +129,7 @@ describe("index coverage helpers", () => {
     await expect(
       Reflect.apply(agentPw.credentials.put, agentPw.credentials, [
         {
-          path: "/invalid/credential",
+          path: "invalid.credential",
           resource: "https://invalid.example.com",
           auth: "bad",
           secret: { headers: {} },
@@ -137,7 +137,7 @@ describe("index coverage helpers", () => {
       ]),
     ).rejects.toThrow("Expected JSON object");
 
-    await agentPw.profiles.put("/broken-profile", {
+    await agentPw.profiles.put("broken-profile", {
       resourcePatterns: ["https://broken.example.com/*"],
       auth: {
         kind: "headers",
@@ -149,14 +149,14 @@ describe("index coverage helpers", () => {
       sql.raw(`
       UPDATE agentpw.cred_profiles
       SET auth = '"broken"'::jsonb
-      WHERE path = '/broken-profile'
+      WHERE path = 'broken-profile'
     `),
     );
-    await expect(agentPw.profiles.get("/broken-profile")).rejects.toThrow(
+    await expect(agentPw.profiles.get("broken-profile")).rejects.toThrow(
       "Invalid profile auth payload",
     );
 
-    await agentPw.profiles.put("/broken-kind", {
+    await agentPw.profiles.put("broken-kind", {
       resourcePatterns: ["https://kind.example.com/*"],
       auth: {
         kind: "headers",
@@ -167,12 +167,12 @@ describe("index coverage helpers", () => {
       sql.raw(`
       UPDATE agentpw.cred_profiles
       SET auth = '{"kind":"weird"}'::jsonb
-      WHERE path = '/broken-kind'
+      WHERE path = 'broken-kind'
     `),
     );
-    await expect(agentPw.profiles.get("/broken-kind")).rejects.toThrow("Invalid profile auth kind");
+    await expect(agentPw.profiles.get("broken-kind")).rejects.toThrow("Invalid profile auth kind");
 
-    await agentPw.profiles.put("/field-fallback", {
+    await agentPw.profiles.put("field-fallback", {
       resourcePatterns: ["https://fields.example.com/*"],
       auth: {
         kind: "headers",
@@ -183,10 +183,10 @@ describe("index coverage helpers", () => {
       sql.raw(`
       UPDATE agentpw.cred_profiles
       SET auth = '{"kind":"headers","fields":[{"name":1,"label":"Bad"},{"name":"X-Invalid","label":1},{"name":"Authorization","label":"Token","description":1,"prefix":1,"secret":"no"}]}'::jsonb
-      WHERE path = '/field-fallback'
+      WHERE path = 'field-fallback'
     `),
     );
-    expect(await agentPw.profiles.get("/field-fallback")).toEqual(
+    expect(await agentPw.profiles.get("field-fallback")).toEqual(
       expect.objectContaining({
         auth: {
           kind: "headers",
@@ -203,7 +203,7 @@ describe("index coverage helpers", () => {
         },
       }),
     );
-    await agentPw.profiles.put("/headers-rich", {
+    await agentPw.profiles.put("headers-rich", {
       resourcePatterns: ["https://headers-rich.example.com/*"],
       auth: {
         kind: "headers",
@@ -219,7 +219,7 @@ describe("index coverage helpers", () => {
         ],
       },
     });
-    expect(await agentPw.profiles.get("/headers-rich")).toEqual(
+    expect(await agentPw.profiles.get("headers-rich")).toEqual(
       expect.objectContaining({
         auth: expect.objectContaining({
           label: "Headers",
@@ -236,7 +236,7 @@ describe("index coverage helpers", () => {
       }),
     );
 
-    await agentPw.profiles.put("/field-empty", {
+    await agentPw.profiles.put("field-empty", {
       resourcePatterns: ["https://empty.example.com/*"],
       auth: {
         kind: "headers",
@@ -247,10 +247,10 @@ describe("index coverage helpers", () => {
       sql.raw(`
       UPDATE agentpw.cred_profiles
       SET auth = '{"kind":"headers","fields":"nope"}'::jsonb
-      WHERE path = '/field-empty'
+      WHERE path = 'field-empty'
     `),
     );
-    expect(await agentPw.profiles.get("/field-empty")).toEqual(
+    expect(await agentPw.profiles.get("field-empty")).toEqual(
       expect.objectContaining({
         auth: {
           kind: "headers",
@@ -266,7 +266,7 @@ describe("index coverage helpers", () => {
       }),
     );
     await agentPw.credentials.put({
-      path: "/broken/credential",
+      path: "broken.credential",
       resource: "https://broken.example.com",
       auth: { kind: "headers" },
       secret,
@@ -275,15 +275,15 @@ describe("index coverage helpers", () => {
       sql.raw(`
       UPDATE agentpw.credentials
       SET auth = '"broken"'::jsonb
-      WHERE path = '/broken/credential'
+      WHERE path = 'broken.credential'
     `),
     );
-    await expect(agentPw.credentials.get("/broken/credential")).rejects.toThrow(
+    await expect(agentPw.credentials.get("broken.credential")).rejects.toThrow(
       "Invalid credential auth payload",
     );
 
     await agentPw.credentials.put({
-      path: "/listed/credential",
+      path: "listed.credential",
       resource: "https://listed.example.com",
       auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer listed" } },
@@ -292,15 +292,15 @@ describe("index coverage helpers", () => {
       sql.raw(`
       SELECT auth
       FROM agentpw.credentials
-      WHERE path = '/listed/credential'
+      WHERE path = 'listed.credential'
     `),
     );
     expect(listedAuthResult.rows).toEqual([
       { auth: { kind: "headers", resource: "https://listed.example.com/" } },
     ]);
-    expect(await agentPw.credentials.list({ path: "/listed" })).toEqual([
+    expect(await agentPw.credentials.list({ path: "listed" })).toEqual([
       expect.objectContaining({
-        path: "/listed/credential",
+        path: "listed.credential",
         auth: {
           kind: "headers",
           profilePath: null,
@@ -310,32 +310,34 @@ describe("index coverage helpers", () => {
     ]);
     await expect(
       agentPw.credentials.put({
-        path: "/broken/headerless",
+        path: "broken.headerless",
         auth: { kind: "headers" },
         secret: {},
       }),
-    ).rejects.toThrow("Credential '/broken/headerless' does not have header-based auth");
+    ).rejects.toThrow("Credential 'broken.headerless' does not have header-based auth");
     await expect(
       agentPw.credentials.put({
-        path: "/broken/envless",
+        path: "broken.envless",
         auth: { kind: "env" },
         secret: { headers: { Authorization: "Bearer wrong" } },
       }),
-    ).rejects.toThrow("Credential '/broken/envless' does not have env auth");
+    ).rejects.toThrow("Credential 'broken.envless' does not have env auth");
     await expect(
       agentPw.credentials.put({
-        path: "/broken/oauthless",
+        path: "broken.oauthless",
         auth: { kind: "oauth" },
         secret: { headers: { Authorization: "Bearer wrong" } } as never,
       }),
-    ).rejects.toThrow("Credential '/broken/oauthless' does not have oauth auth");
+    ).rejects.toThrow("Credential 'broken.oauthless' does not have oauth auth");
+    // Remove the corrupted row so list() can parse all remaining credentials.
+    await db.execute(sql.raw(`DELETE FROM agentpw.credentials WHERE path = 'broken.credential'::ltree`));
     expect(Array.isArray(await agentPw.credentials.list())).toBe(true);
 
     await expect(agentPw.credentials.list({ path: "/../bad" })).rejects.toThrow(
-      "Invalid credential path '/../bad'",
+      "Invalid path '/../bad'",
     );
     await expect(agentPw.profiles.list({ path: "/../bad" })).rejects.toThrow(
-      "Invalid profile path '/../bad'",
+      "Invalid path '/../bad'",
     );
   });
 
@@ -357,7 +359,7 @@ describe("index coverage helpers", () => {
       ),
     );
 
-    await agentPw.profiles.put("/linear", {
+    await agentPw.profiles.put("linear", {
       resourcePatterns: ["https://api.linear.app/*"],
       auth: {
         kind: "oauth",
@@ -371,7 +373,7 @@ describe("index coverage helpers", () => {
       },
       displayName: "Linear",
     });
-    await agentPw.profiles.put("/headers", {
+    await agentPw.profiles.put("headers", {
       resourcePatterns: ["https://headers.example.com*"],
       auth: {
         kind: "headers",
@@ -382,29 +384,29 @@ describe("index coverage helpers", () => {
 
     const api = agentPw.scope({
       rights: [
-        { action: "credential.connect", root: "/acme" },
-        { action: "credential.use", root: "/acme" },
-        { action: "credential.read", root: "/acme" },
-        { action: "credential.manage", root: "/acme" },
-        { action: "profile.read", root: "/" },
-        { action: "profile.manage", root: "/" },
+        { action: "credential.connect", root: "acme" },
+        { action: "credential.use", root: "acme" },
+        { action: "credential.read", root: "acme" },
+        { action: "credential.manage", root: "acme" },
+        { action: "profile.read" },
+        { action: "profile.manage" },
       ],
     });
 
     const result = await (async () => {
-      const readProfile = await api.profiles.get("/linear");
-      await api.profiles.put("/profiles/temp", {
+      const readProfile = await api.profiles.get("linear");
+      await api.profiles.put("profiles.temp", {
         resourcePatterns: ["https://temp.example.com/*"],
         auth: {
           kind: "headers",
           fields: [{ name: "Authorization", label: "Token" }],
         },
       });
-      const allProfiles = await api.profiles.list({ path: "/" });
-      await api.profiles.delete("/profiles/temp");
+      const allProfiles = await api.profiles.list();
+      await api.profiles.delete("profiles.temp");
 
       const prepared = await api.connect.prepare({
-        path: "/acme/connections/linear",
+        path: "acme.connections.linear",
         resource: "https://api.linear.app/projects",
       });
       if (prepared.kind !== "options") {
@@ -431,12 +433,12 @@ describe("index coverage helpers", () => {
       );
 
       const directSession = await api.connect.startOAuth({
-        path: "/acme/connections/linear_direct",
+        path: "acme.connections.linear_direct",
         option: oauthOption,
         redirectUri: "https://app.example.com/oauth/callback",
       });
       const session = await api.connect.startOAuth({
-        path: "/acme/connections/linear",
+        path: "acme.connections.linear",
         option: oauthOption,
         redirectUri: "https://app.example.com/oauth/callback",
       });
@@ -445,24 +447,24 @@ describe("index coverage helpers", () => {
         callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
       });
       const preparedReady = await api.connect.prepare({
-        path: "/acme/connections/linear",
+        path: "acme.connections.linear",
         resource: "https://api.linear.app/projects",
       });
       const readyAgain = await api.connect.prepare({
-        path: "/acme/connections/linear",
+        path: "acme.connections.linear",
         resource: "https://api.linear.app/projects",
       });
 
       const headers = await api.connect.resolveHeaders({
-        path: "/acme/connections/linear",
+        path: "acme.connections.linear",
         refresh: false,
       });
-      const readCredential = await api.credentials.get("/acme/connections/linear");
+      const readCredential = await api.credentials.get("acme.connections.linear");
       const listedCredentials = await api.credentials.list({
-        path: "/acme/connections",
+        path: "acme.connections",
       });
       const manualPrepared = await api.connect.prepare({
-        path: "/acme/connections/headered",
+        path: "acme.connections.headered",
         resource: "https://headers.example.com",
       });
       if (manualPrepared.kind !== "options") {
@@ -472,28 +474,28 @@ describe("index coverage helpers", () => {
         throw new Error("Expected header option");
       }
       const savedHeaders = await api.connect.setHeaders({
-        path: "/acme/connections/headered",
+        path: "acme.connections.headered",
         resource: "https://headers.example.com",
         headers: { Authorization: "header-token" },
       });
       const savedWithoutProfile = await api.connect.setHeaders({
-        path: "/acme/connections/headered_polyfill",
+        path: "acme.connections.headered_polyfill",
         resource: "https://headers-polyfill.example.com",
         headers: { Authorization: "header-token-2" },
       });
       const manual = await api.credentials.put({
-        path: "/acme/connections/manual",
+        path: "acme.connections.manual",
         resource: "https://manual.example.com",
         auth: { kind: "headers" },
         secret: { headers: { Authorization: "Bearer manual" } },
       });
       const moved = await api.credentials.move(
-        "/acme/connections/manual",
-        "/acme/connections/manual_next",
+        "acme.connections.manual",
+        "acme.connections.manual_next",
       );
-      const deleted = await api.credentials.delete("/acme/connections/manual_next");
+      const deleted = await api.credentials.delete("acme.connections.manual_next");
       const disconnected = await api.connect.disconnect({
-        path: "/acme/connections/linear",
+        path: "acme.connections.linear",
         revoke: "access_token",
       });
 
@@ -517,40 +519,40 @@ describe("index coverage helpers", () => {
       };
     })();
 
-    expect(result.readProfile?.path).toBe("/linear");
+    expect(result.readProfile?.path).toBe("linear");
     expect(result.allProfiles.map((profile) => profile.path)).toEqual([
-      "/headers",
-      "/linear",
-      "/profiles/temp",
+      "headers",
+      "linear",
+      "profiles.temp",
     ]);
-    expect(result.directSession.path).toBe("/acme/connections/linear_direct");
+    expect(result.directSession.path).toBe("acme.connections.linear_direct");
     expect(result.startedFlow).toEqual({
       flowId: expect.any(String),
-      path: "/acme/connections/linear",
+      path: "acme.connections.linear",
       resource: "https://api.linear.app/projects",
-      profilePath: "/linear",
+      profilePath: "linear",
       expiresAt: expect.any(Date),
     });
-    expect(result.completed.path).toBe("/acme/connections/linear");
+    expect(result.completed.path).toBe("acme.connections.linear");
     expect(result.preparedReady.kind).toBe("ready");
     expect(result.preparedReady.resolution).toEqual({
       canonicalResource: "https://api.linear.app/projects",
       source: null,
       reason: "existing-credential",
-      profilePath: "/linear",
+      profilePath: "linear",
       option: null,
     });
     expect(result.readyAgain.kind).toBe("ready");
     expect(result.headers).toEqual({ Authorization: "Bearer linear-access-1" });
-    expect(result.readCredential?.path).toBe("/acme/connections/linear");
+    expect(result.readCredential?.path).toBe("acme.connections.linear");
     expect(result.listedCredentials.map((credential) => credential.path)).toEqual([
-      "/acme/connections/linear",
+      "acme.connections.linear",
     ]);
     expect(result.savedHeaders.secret.headers).toEqual({
       Authorization: "header-token",
     });
     expect(result.savedWithoutProfile.auth.profilePath).toBeNull();
-    expect(result.manual.path).toBe("/acme/connections/manual");
+    expect(result.manual.path).toBe("acme.connections.manual");
     expect(result.moved).toBe(true);
     expect(result.deleted).toBe(true);
     expect(result.disconnected).toBe(true);

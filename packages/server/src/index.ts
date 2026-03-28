@@ -17,7 +17,12 @@ import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
 import { createOAuthService } from "./oauth.js";
-import { canonicalizePath, credentialName, validatePath } from "./paths.js";
+import {
+  assertOptionalPath,
+  assertPath,
+  credentialName,
+  pathDepth,
+} from "./paths.js";
 import { normalizeResource } from "./resource-patterns.js";
 import { authorizeRules, can as canRule } from "./rules.js";
 import type {
@@ -39,33 +44,15 @@ import type {
   ScopedAgentPw,
 } from "./types.js";
 
-function assertPath(path: string, label: string) {
-  const normalized = canonicalizePath(path);
-  if (!validatePath(normalized) || normalized === "/") {
-    return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
-  }
-  return ok(normalized);
-}
-
-function assertListPath(path: string | undefined, label: string) {
-  const normalized = canonicalizePath(path ?? "/");
-  if (!validatePath(normalized)) {
-    return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
-  }
-  return ok(normalized);
-}
-
 function resolveSingleMatch<T extends { path: string }>(matches: T[], description: string) {
   if (matches.length === 0) {
     return ok(undefined);
   }
 
   const topDepth = matches
-    .map((match) => match.path.split("/").filter(Boolean).length)
+    .map((match) => pathDepth(match.path))
     .reduce((max, depth) => Math.max(max, depth), 0);
-  const conflicts = matches.filter(
-    (match) => match.path.split("/").filter(Boolean).length === topDepth,
-  );
+  const conflicts = matches.filter((match) => pathDepth(match.path) === topDepth);
   if (conflicts.length > 1) {
     return err(
       conflictError(
@@ -418,7 +405,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
 
     async list(query = {}) {
-      const path = assertListPath(query.path, "profile path");
+      const path = assertOptionalPath(query.path, "profile path");
       if (!path.ok) {
         return path;
       }
@@ -482,12 +469,14 @@ export async function createAgentPw(options: AgentPwOptions) {
       return toProfileRecord(stored.value);
     },
 
-    delete(path) {
+    delete(path, opts) {
       const normalizedPath = assertPath(path, "profile path");
       if (!normalizedPath.ok) {
         return Promise.resolve(normalizedPath);
       }
-      return queryHelpers.deleteCredProfile(options.db, normalizedPath.value);
+      return queryHelpers.deleteCredProfile(opts?.db ?? options.db, normalizedPath.value, {
+        recursive: opts?.recursive,
+      });
     },
   };
 
@@ -785,7 +774,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     get: getCredential,
 
     async list(query = {}) {
-      const path = assertListPath(query.path, "credential path");
+      const path = assertOptionalPath(query.path, "credential path");
       if (!path.ok) {
         return path;
       }
@@ -828,12 +817,14 @@ export async function createAgentPw(options: AgentPwOptions) {
       return queryHelpers.moveCredential(options.db, normalizedFrom.value, normalizedTo.value);
     },
 
-    delete(path) {
+    delete(path, opts) {
       const normalizedPath = assertPath(path, "credential path");
       if (!normalizedPath.ok) {
         return Promise.resolve(normalizedPath);
       }
-      return queryHelpers.deleteCredential(options.db, normalizedPath.value);
+      return queryHelpers.deleteCredential(opts?.db ?? options.db, normalizedPath.value, {
+        recursive: opts?.recursive,
+      });
     },
   };
 
@@ -1192,7 +1183,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         },
 
         async list(query = {}) {
-          const path = assertListPath(query.path, "credential path");
+          const path = assertOptionalPath(query.path, "credential path");
           if (!path.ok) {
             return path;
           }
@@ -1243,7 +1234,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           return credentials.move(normalizedFrom.value, normalizedTo.value);
         },
 
-        async delete(path) {
+        async delete(path, opts) {
           const normalizedPath = assertPath(path, "credential path");
           if (!normalizedPath.ok) {
             return normalizedPath;
@@ -1252,7 +1243,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return credentials.delete(normalizedPath.value);
+          return credentials.delete(normalizedPath.value, opts);
         },
       },
 
@@ -1270,7 +1261,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         },
 
         async list(query = {}) {
-          const path = assertListPath(query.path, "profile path");
+          const path = assertOptionalPath(query.path, "profile path");
           if (!path.ok) {
             return path;
           }
@@ -1301,7 +1292,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           return profiles.put(normalizedPath.value, data);
         },
 
-        async delete(path) {
+        async delete(path, opts) {
           const normalizedPath = assertPath(path, "profile path");
           if (!normalizedPath.ok) {
             return normalizedPath;
@@ -1310,7 +1301,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!allowed.ok) {
             return allowed;
           }
-          return profiles.delete(normalizedPath.value);
+          return profiles.delete(normalizedPath.value, opts);
         },
       },
     };
@@ -1332,6 +1323,8 @@ export async function createAgentPw(options: AgentPwOptions) {
 export {
   ConnectFlowSchema,
   ConnectOAuthOptionSchema,
+  LtreeLabelSchema,
+  LtreePathSchema,
   OAuthResolvedConfigSchema,
   PendingFlowSchema,
 } from "./types.js";

@@ -18,7 +18,7 @@ export function defineCredProfilesTable(schema: PgSchemaNamespace, tablePrefix =
       updatedAt: timestamp("updated_at").defaultNow().notNull(),
     },
     (table) => [
-      index(`${tableName}_path_idx`).on(table.path),
+      index(`${tableName}_path_idx`).using("gist", table.path),
       index(`${tableName}_resource_patterns_idx`).using("gin", table.resourcePatterns),
     ],
   );

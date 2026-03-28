@@ -26,6 +26,10 @@ vi.mock("@electric-sql/pglite", () => ({
   PGlite: FakePGlite,
 }));
 
+vi.mock("@electric-sql/pglite/contrib/ltree", () => ({
+  ltree: { name: "ltree-extension" },
+}));
+
 vi.mock("drizzle-orm/pglite", () => ({
   drizzle: drizzlePglite,
 }));
@@ -79,11 +83,13 @@ describe("bundled PGlite assets", () => {
 
     const args = pgliteCtor.mock.calls[0][0] as {
       dataDir: string;
+      extensions: Record<string, unknown>;
       fsBundle: Blob;
       wasmModule: WebAssembly.Module;
     };
 
     expect(args.dataDir).toBe("/tmp/agentpw-data");
+    expect(args.extensions).toEqual({ ltree: { name: "ltree-extension" } });
     expect(args.fsBundle).toBeInstanceOf(Blob);
     expect(args.wasmModule).toBeInstanceOf(WebAssembly.Module);
     expect(drizzlePglite).toHaveBeenCalledWith(expect.any(FakePGlite), expect.any(Object));
@@ -101,11 +107,13 @@ describe("bundled PGlite assets", () => {
 
     const args = pgliteCtor.mock.calls[0][0] as {
       dataDir: string;
+      extensions: Record<string, unknown>;
       fsBundle: Blob;
       wasmModule: WebAssembly.Module;
     };
 
     expect(args.dataDir).toBe("/tmp/agentpw-data");
+    expect(args.extensions).toEqual({ ltree: { name: "ltree-extension" } });
     expect(args.fsBundle).toBeInstanceOf(Blob);
     expect(args.wasmModule).toBeInstanceOf(WebAssembly.Module);
     expect(drizzlePglite).toHaveBeenCalledWith(expect.any(FakePGlite), expect.any(Object));
@@ -129,7 +137,10 @@ describe("bundled PGlite assets", () => {
     const db = await mustAsync(createLocalDb("/tmp/plain-data"));
 
     expect(readFile).not.toHaveBeenCalled();
-    expect(pgliteCtor).toHaveBeenCalledWith("/tmp/plain-data");
+    expect(pgliteCtor).toHaveBeenCalledWith({
+      dataDir: "/tmp/plain-data",
+      extensions: { ltree: { name: "ltree-extension" } },
+    });
     expect(drizzlePglite).toHaveBeenCalledWith(expect.any(FakePGlite), expect.any(Object));
     expect(db).toEqual({ $client: expect.any(FakePGlite) });
   });

@@ -21,12 +21,14 @@ Profiles remain path-scoped configuration, but they are setup-time guidance and 
 
 A `path` is the durable identifier for one saved connection in an app.
 
+Paths use strict dot-separated `ltree` syntax. Each segment must match `[A-Za-z0-9_-]+`.
+
 Examples:
 
 ```txt
-/acme/connections/github
-/acme/connections/docs
-/acme/workspaces/finance/connections/linear
+acme.connections.github
+acme.connections.docs
+acme.workspaces.finance.connections.linear
 ```
 
 The framework does not store folder rows. Hierarchy is implicit in the path itself.
@@ -82,12 +84,14 @@ They are not required for every connection, and they do not define the complete 
 Rules are path grants such as:
 
 ```txt
-credential.use on /acme
-credential.manage on /acme/connections
-profile.read on /
+credential.use on acme
+credential.manage on acme.connections
+profile.read (global)
 ```
 
 The framework can enforce those rules directly or compile them into Biscuits.
+
+Global scope is represented by omitting `root`, not by using a root-path literal.
 
 ## Public Package Boundary
 
@@ -276,8 +280,8 @@ Some agent runtimes need env-var injection instead of HTTP headers. `agent.pw` s
 Examples:
 
 ```txt
-/acme/connections/github_cli
-/acme/connections/openai_cli
+acme.connections.github_cli
+acme.connections.openai_cli
 ```
 
 These credentials are stored and retrieved through `credentials.*`:
@@ -294,9 +298,9 @@ One exact path maps to one stored credential.
 Examples:
 
 ```txt
-/acme/connections/github
-/acme/connections/resend
-/acme/workspaces/finance/connections/linear
+acme.connections.github
+acme.connections.resend
+acme.workspaces.finance.connections.linear
 ```
 
 This keeps runtime resolution simple:
@@ -335,10 +339,10 @@ That scoped API can then be used directly:
 
 ```ts
 const api = agentPw.scope({
-  rights: [{ action: "credential.use", root: "/acme" }],
+  rights: [{ action: "credential.use", root: "acme" }],
 });
 
-await api.connect.resolveHeaders({ path: "/acme/connections/docs" });
+await api.connect.resolveHeaders({ path: "acme.connections.docs" });
 ```
 
 The framework only accepts the authorization facts it checks itself: path-based rights. Apps can derive those rights from Biscuits, sessions, or any other permission store.

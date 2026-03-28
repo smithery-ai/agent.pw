@@ -48,6 +48,13 @@ function escapeDatalog(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function buildPathPrefixCheck(path: string, variable = "$p") {
+  if (path === "/") {
+    return `${variable}.starts_with("/")`;
+  }
+  return `${variable} == "${escapeDatalog(path)}" || ${variable}.starts_with("${escapeDatalog(path)}/")`;
+}
+
 function toArray<T>(value: T | T[] | undefined): T[] {
   if (value === undefined) return [];
   return Array.isArray(value) ? value : [value];
@@ -116,7 +123,7 @@ function buildAttenuationCode(constraints: RuleConstraint[]) {
     }
 
     if (paths.length > 0) {
-      const pathChecks = paths.map((p) => `$p.starts_with("${escapeDatalog(p)}")`).join(" || ");
+      const pathChecks = paths.map((path) => buildPathPrefixCheck(path)).join(" || ");
       parts.push(`path($p), ${pathChecks}`);
     }
 
@@ -223,7 +230,7 @@ export function mintToken(
   const lines: string[] = [];
   lines.push(`user_id("${escapeDatalog(subject)}");`);
   for (const right of rights ?? []) {
-    lines.push(`right("${escapeDatalog(right.root)}", "${escapeDatalog(right.action)}");`);
+    lines.push(`right("${escapeDatalog(right.root ?? "")}", "${escapeDatalog(right.action)}");`);
   }
   for (const fact of (extraFacts ?? []).map(normalizeFactStatement)) {
     if (fact) lines.push(fact);
@@ -262,7 +269,7 @@ export function extractAuthorityExtraFacts(tokenBase64: string, publicKeyHex: st
     const normalized = normalizeFactStatement(line);
     if (!normalized) continue;
     if (/(?:^|[\s,])user_id\("([^"]+)"\)/.test(normalized)) continue;
-    if (/(?:^|[\s,])right\("([^"]+)",\s*"([^"]+)"\)/.test(normalized)) continue;
+    if (/(?:^|[\s,])right\("([^"]*)",\s*"([^"]+)"\)/.test(normalized)) continue;
     extras.push(normalized);
   }
 
@@ -381,10 +388,10 @@ export function extractTokenFacts(tokenBase64: string, publicKeyHex: string): Bi
 
     for (const line of source.split("\n")) {
       const trimmed = line.trim().replace(/;$/, "");
-      const rightMatch = trimmed.match(/(?:^|[\s,])right\("([^"]+)",\s*"([^"]+)"\)/);
+      const rightMatch = trimmed.match(/(?:^|[\s,])right\("([^"]*)",\s*"([^"]+)"\)/);
       if (rightMatch) {
         rights.push({
-          root: rightMatch[1],
+          ...(rightMatch[1] ? { root: rightMatch[1] } : {}),
           action: rightMatch[2],
         });
       }

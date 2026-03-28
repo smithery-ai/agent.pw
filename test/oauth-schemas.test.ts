@@ -13,7 +13,7 @@ describe("oauth schemas", () => {
       source: "profile",
       resource: "https://api.example.com",
       label: "Example",
-      profilePath: "/example",
+      profilePath: "example",
       scopes: ["read"],
     });
     const oauthConfig = OAuthResolvedConfigSchema.parse({
@@ -23,9 +23,9 @@ describe("oauth schemas", () => {
     });
     const flow = PendingFlowSchema.parse({
       id: "flow-123",
-      path: "/org/example",
+      path: "org.example",
       credential: {
-        profilePath: "/example",
+        profilePath: "example",
       },
       redirectUri: "https://app.example.com/oauth/callback",
       codeVerifier: "verifier-123",
@@ -34,14 +34,14 @@ describe("oauth schemas", () => {
     });
     const publicFlow = ConnectFlowSchema.parse({
       flowId: "flow-123",
-      path: "/org/example",
+      path: "org.example",
       resource: "https://api.example.com",
-      profilePath: "/example",
+      profilePath: "example",
       expiresAt: "2026-03-28T00:00:00.000Z",
     });
 
     expect(flow.expiresAt).toBeInstanceOf(Date);
-    expect(flow.credential).toEqual({ profilePath: "/example" });
+    expect(flow.credential).toEqual({ profilePath: "example" });
     expect(flow.oauthConfig).toEqual(oauthConfig);
     expect(publicFlow.expiresAt).toBeInstanceOf(Date);
   });

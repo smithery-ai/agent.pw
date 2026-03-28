@@ -1,98 +1,86 @@
+import { ok } from "okay-error";
+
 /**
  * Path-based security model utilities.
  *
- * Every credential and profile lives at a canonical path in a tree that
- * encodes organizational hierarchy (e.g. /org_ruzo/ws/engineering).
- *
- * Tokens grant explicit rights over descendant subtrees.
+ * Every credential and profile lives at a canonical ltree path such as
+ * `org_ruzo.ws_engineering.linear`.
  */
+
+export const LTREE_LABEL_PATTERN = /^[A-Za-z0-9_-]+$/;
+export const LTREE_PATH_PATTERN = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
 
 /** Check if `ancestor` is a path ancestor of (or equal to) `descendant`. */
 export function isAncestorOrEqual(ancestor: string, descendant: string) {
-  if (ancestor === descendant) return true;
-  if (ancestor === "/") return true;
-  // Ensure boundary match: /ab must NOT match /abc
-  const prefix = ancestor.endsWith("/") ? ancestor : `${ancestor}/`;
-  return descendant.startsWith(prefix);
+  return ancestor === descendant || descendant.startsWith(`${ancestor}.`);
 }
 
-/** Derive the canonical authorization path from token facts (orgId → /{orgId}). */
+/** Derive the canonical authorization path from token facts. */
 export function pathFromTokenFacts(facts: { orgId?: string | null }) {
-  if (facts.orgId) return `/${facts.orgId}`;
-  return "/";
+  return facts.orgId ?? null;
 }
 
 /** Validate a path string. */
 export function validatePath(path: string) {
-  if (!path.startsWith("/")) return false;
-  if (path !== "/" && path.endsWith("/")) return false;
-  if (path.includes("..")) return false;
-  return true;
+  return LTREE_PATH_PATTERN.test(path);
 }
 
-/** Normalize path strings to the canonical slash-delimited form used by agent.pw. */
+/** Canonical dot paths are already normalized. */
 export function canonicalizePath(path: string) {
-  if (!path.startsWith("/")) {
-    const normalized = `/${path.replace(/^\/+/, "").replace(/\/+/g, "/")}`;
-    return normalized.length > 1 && normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
-  }
-
-  const normalized = path.replace(/\/+/g, "/");
-  return normalized.length > 1 && normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
-}
-
-/** Extract the leaf credential name from a full credential path. */
-export function credentialName(path: string) {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
-
-/** Build the canonical root-level default profile path from a profile slug. */
-export function publicProfilePath(slug: string) {
-  return joinCredentialPath("/", slug);
-}
-
-/** Extract the containing node path for a full credential path. */
-export function credentialParentPath(path: string) {
-  const i = path.lastIndexOf("/");
-  return i <= 0 ? "/" : path.slice(0, i);
-}
-
-/** Join a node path and credential name into a full credential path. */
-export function joinCredentialPath(nodePath: string, name: string) {
-  return nodePath === "/" ? `/${name}` : `${nodePath}/${name}`;
-}
-
-/** Resolve an absolute-or-relative path reference against a base path. */
-export function resolvePathReference(reference: string, basePath: string | null | undefined) {
-  if (reference.startsWith("/")) return reference;
-  if (!basePath) return null;
-  const relative = reference.replace(/^\/+/, "");
-  return basePath === "/" ? `/${relative}` : `${basePath}/${relative}`;
+  return path;
 }
 
 /** Validate a credential name used as the final path segment. */
 export function validateCredentialName(name: string) {
-  return (
-    name.length > 0 && !name.includes("/") && !name.includes(".") && name !== "." && name !== ".."
-  );
+  return LTREE_LABEL_PATTERN.test(name);
 }
 
-/** Count slash-delimited path segments, excluding the leading slash. */
+export function assertPath(path: string, label: string) {
+  void label;
+  return ok(path);
+}
+
+export function assertOptionalPath(path: string | undefined, label: string) {
+  void label;
+  if (path === undefined) {
+    return ok(path);
+  }
+  return ok(path);
+}
+
+/** Extract the leaf credential name from a full credential path. */
+export function credentialName(path: string) {
+  const i = path.lastIndexOf(".");
+  return i < 0 ? path : path.slice(i + 1);
+}
+
+/** Build the canonical top-level default profile path from a profile slug. */
+export function publicProfilePath(slug: string) {
+  return joinCredentialPath(undefined, slug);
+}
+
+/** Extract the containing node path for a full credential path. */
+export function credentialParentPath(path: string) {
+  const i = path.lastIndexOf(".");
+  return i < 0 ? null : path.slice(0, i);
+}
+
+/** Join a node path and credential name into a full credential path. */
+export function joinCredentialPath(nodePath: string | null | undefined, name: string) {
+  return nodePath ? `${nodePath}.${name}` : name;
+}
+
+/** Count dot-delimited path segments. */
 export function pathDepth(path: string) {
-  if (path === "/") return 0;
-  return path.split("/").filter(Boolean).length;
+  return path.split(".").length;
 }
 
-/** Return ancestor roots from deepest to root, inclusive. */
+/** Return ancestor roots from deepest to top-level, inclusive. */
 export function ancestorPaths(path: string) {
-  const normalized = canonicalizePath(path);
-  if (normalized === "/") return ["/"];
-
   const roots: string[] = [];
-  let current = normalized;
-  while (true) {
+  let current: string | null = canonicalizePath(path);
+  while (current) {
     roots.push(current);
-    if (current === "/") break;
     current = credentialParentPath(current);
   }
   return roots;
@@ -108,7 +96,7 @@ export function deepestAncestor<T extends { path: string }>(
   let best: T | null = null;
   for (const c of candidates) {
     if (!isAncestorOrEqual(c.path, tokenPath)) continue;
-    if (!best || c.path.length > best.path.length) best = c;
+    if (!best || pathDepth(c.path) > pathDepth(best.path)) best = c;
   }
   return best;
 }

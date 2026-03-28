@@ -14,6 +14,13 @@ import type {
   unsupportedCredentialKindError,
 } from "./errors.js";
 import type { Database } from "./db/index.js";
+
+export type { Database } from "./db/index.js";
+
+export interface DeleteOptions {
+  recursive?: boolean;
+  db?: Database;
+}
 import type {
   StoredCredentials,
   StoredEnvCredentials,
@@ -21,12 +28,13 @@ import type {
   StoredOAuthCredentials,
 } from "./lib/credentials-crypto.js";
 import type { Logger } from "./lib/logger.js";
+import { LTREE_LABEL_PATTERN } from "./paths.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
 
 export interface RuleGrant {
   action: string;
-  root: string;
+  root?: string;
 }
 
 export interface RuleConstraint {
@@ -221,6 +229,17 @@ export interface OAuthClientInput {
   initialAccessToken?: string;
 }
 
+export const LtreeLabelSchema = z
+  .string()
+  .regex(LTREE_LABEL_PATTERN, "Invalid ltree label")
+  .meta({ id: "LtreeLabel" });
+export type LtreeLabel = z.infer<typeof LtreeLabelSchema>;
+
+export const LtreePathSchema = z
+  .string()
+  .meta({ id: "LtreePath" });
+export type LtreePath = z.infer<typeof LtreePathSchema>;
+
 const OAuthClientAuthenticationMethodSchema = z.enum([
   "none",
   "client_secret_basic",
@@ -239,7 +258,7 @@ const ConnectOptionBaseSchema = z.object({
   source: z.enum(["discovery", "profile"]),
   resource: z.string(),
   label: z.string(),
-  profilePath: z.string().optional(),
+  profilePath: LtreePathSchema.optional(),
 });
 
 export const OAuthResolvedConfigSchema = z
@@ -266,7 +285,7 @@ export type ConnectOAuthOption = z.infer<typeof ConnectOAuthOptionSchema>;
 
 export const PendingFlowCredentialSchema = z
   .object({
-    profilePath: z.string().optional(),
+    profilePath: LtreePathSchema.optional(),
   })
   .meta({ id: "PendingFlowCredential" });
 export type PendingFlowCredential = z.infer<typeof PendingFlowCredentialSchema>;
@@ -356,7 +375,7 @@ export interface ConnectDisconnectInput {
 export const PendingFlowSchema = z
   .object({
     id: z.string(),
-    path: z.string(),
+    path: LtreePathSchema,
     credential: PendingFlowCredentialSchema,
     headers: z.record(z.string(), z.string()).optional(),
     redirectUri: z.string(),
@@ -370,9 +389,9 @@ export type PendingFlow = z.infer<typeof PendingFlowSchema>;
 export const ConnectFlowSchema = z
   .object({
     flowId: z.string(),
-    path: z.string(),
+    path: LtreePathSchema,
     resource: z.string(),
-    profilePath: z.string().optional(),
+    profilePath: LtreePathSchema.optional(),
     expiresAt: z.coerce.date(),
   })
   .meta({ id: "ConnectFlow" });
@@ -453,13 +472,13 @@ export interface ScopedAgentPw {
     list(options?: { path?: string }): Promise<Result<CredentialSummary[]>>;
     put(input: CredentialPutInput): Promise<Result<CredentialRecord>>;
     move(fromPath: string, toPath: string): Promise<Result<boolean>>;
-    delete(path: string): Promise<Result<boolean>>;
+    delete(path: string, options?: DeleteOptions): Promise<Result<boolean>>;
   };
   profiles: {
     get(path: string): Promise<Result<CredentialProfileRecord | null>>;
     list(options?: { path?: string }): Promise<Result<CredentialProfileRecord[]>>;
     put(path: string, data: CredentialProfilePutInput): Promise<Result<CredentialProfileRecord>>;
-    delete(path: string): Promise<Result<boolean>>;
+    delete(path: string, options?: DeleteOptions): Promise<Result<boolean>>;
   };
 }
 

@@ -11,7 +11,7 @@ describe("agent.pw errors", () => {
   it("builds stable discriminated error objects", () => {
     const conflict = conflictError("conflict");
     const input = inputError("input", { field: "path", value: "/" });
-    const authorization = authorizationError("credential.use", "/acme/connections/docs");
+    const authorization = authorizationError("credential.use", "acme.connections.docs");
 
     expect(conflict).toEqual({
       type: "Conflict",
@@ -28,8 +28,8 @@ describe("agent.pw errors", () => {
     expect(authorization).toEqual({
       type: "Authorization",
       action: "credential.use",
-      path: "/acme/connections/docs",
-      message: "Missing 'credential.use' for '/acme/connections/docs'",
+      path: "acme.connections.docs",
+      message: "Missing 'credential.use' for 'acme.connections.docs'",
     });
   });
 

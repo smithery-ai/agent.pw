@@ -133,10 +133,8 @@ describe("oauth service coverage", () => {
       customFetch: profileFetch,
     });
 
-    await expect(service.refreshCredential("bad-path")).rejects.toThrow("Invalid path 'bad-path'");
-    await expect(service.disconnect({ path: "bad-path" })).rejects.toThrow(
-      "Invalid path 'bad-path'",
-    );
+    await expect(service.refreshCredential("/bad-path")).resolves.toBeNull();
+    await expect(service.disconnect({ path: "/bad-path" })).resolves.toBe(false);
 
     const handlers = service.raw.createWebHandlers();
     const defaultError = await handlers.callback(
@@ -158,8 +156,8 @@ describe("oauth service coverage", () => {
     expect(stringError.status).toBe(400);
     expect(await stringError.json()).toEqual({ error: "OAuth flow failed" });
 
-    state.profiles.set("/headers", {
-      path: "/headers",
+    state.profiles.set("headers", {
+      path: "headers",
       resourcePatterns: ["https://headers.example.com/*"],
       auth: {
         kind: "headers",
@@ -173,20 +171,20 @@ describe("oauth service coverage", () => {
 
     await expect(
       service.startAuthorization({
-        path: "/org/headers",
+        path: "org.headers",
         option: {
           kind: "oauth",
           source: "profile",
           label: "Headers",
-          profilePath: "/headers",
+          profilePath: "headers",
           resource: "https://headers.example.com/api",
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow("Credential Profile '/headers' is not an OAuth profile");
+    ).rejects.toThrow("Credential Profile 'headers' is not an OAuth profile");
 
-    state.profiles.set("/issuer", {
-      path: "/issuer",
+    state.profiles.set("issuer", {
+      path: "issuer",
       resourcePatterns: ["https://issuer.example.com/*"],
       auth: {
         kind: "oauth",
@@ -201,20 +199,20 @@ describe("oauth service coverage", () => {
     });
 
     const session = await service.startAuthorization({
-      path: "/org/issuer",
+      path: "org.issuer",
       option: {
         kind: "oauth",
         source: "profile",
         label: "Issuer",
-        profilePath: "/issuer",
+        profilePath: "issuer",
         resource: "https://issuer.example.com/api",
       },
       redirectUri: "https://app.example.com/oauth/callback",
     });
     expect(session.authorizationUrl).toContain("scope=read+write");
 
-    state.credentials.set("/org/forced-refresh", {
-      path: "/org/forced-refresh",
+    state.credentials.set("org.forced-refresh", {
+      path: "org.forced-refresh",
       auth: { kind: "oauth", label: "Forced", resource: "https://issuer.example.com/api" },
       secret: {
         headers: { Authorization: "Bearer stale" },
@@ -231,7 +229,7 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("/org/forced-refresh", true)).toEqual(
+    expect(await service.refreshCredential("org.forced-refresh", true)).toEqual(
       expect.objectContaining({
         secret: expect.objectContaining({
           headers: { Authorization: "Bearer forced-access" },
@@ -244,8 +242,8 @@ describe("oauth service coverage", () => {
       }),
     );
 
-    state.credentials.set("/org/no-expiry", {
-      path: "/org/no-expiry",
+    state.credentials.set("org.no-expiry", {
+      path: "org.no-expiry",
       auth: { kind: "oauth", label: "No expiry", resource: "https://issuer.example.com/api" },
       secret: {
         headers: { Authorization: "Bearer same" },
@@ -260,12 +258,12 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("/org/no-expiry")).toBe(
-      state.credentials.get("/org/no-expiry"),
+    expect(await service.refreshCredential("org.no-expiry")).toBe(
+      state.credentials.get("org.no-expiry"),
     );
 
     const legacyCredential = {
-      path: "/org/legacy-resource",
+      path: "org.legacy-resource",
       resource: "https://issuer.example.com/api",
       auth: { kind: "oauth", label: "Legacy resource" },
       secret: {
@@ -283,11 +281,11 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    state.credentials.set("/org/legacy-resource", legacyCredential);
-    expect(await service.refreshCredential("/org/legacy-resource", true)).toBe(legacyCredential);
+    state.credentials.set("org.legacy-resource", legacyCredential);
+    expect(await service.refreshCredential("org.legacy-resource", true)).toBe(legacyCredential);
 
-    state.credentials.set("/org/invalid-expiry", {
-      path: "/org/invalid-expiry",
+    state.credentials.set("org.invalid-expiry", {
+      path: "org.invalid-expiry",
       auth: { kind: "oauth", label: "Invalid expiry", resource: "https://issuer.example.com/api" },
       secret: {
         headers: { Authorization: "Bearer same-invalid" },
@@ -303,12 +301,12 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("/org/invalid-expiry")).toBe(
-      state.credentials.get("/org/invalid-expiry"),
+    expect(await service.refreshCredential("org.invalid-expiry")).toBe(
+      state.credentials.get("org.invalid-expiry"),
     );
 
-    state.credentials.set("/org/no-resource", {
-      path: "/org/no-resource",
+    state.credentials.set("org.no-resource", {
+      path: "org.no-resource",
       auth: { kind: "oauth", label: "No resource" },
       secret: {
         headers: { Authorization: "Bearer no-resource" },
@@ -323,8 +321,8 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("/org/no-resource", true)).toBe(
-      state.credentials.get("/org/no-resource"),
+    expect(await service.refreshCredential("org.no-resource", true)).toBe(
+      state.credentials.get("org.no-resource"),
     );
   });
 
@@ -365,8 +363,8 @@ describe("oauth service coverage", () => {
       throw new Error(`Unexpected fetch ${url}`);
     };
 
-    state.profiles.set("/root-auth", {
-      path: "/root-auth",
+    state.profiles.set("root-auth", {
+      path: "root-auth",
       resourcePatterns: ["https://root-auth.example.com/*"],
       auth: {
         kind: "oauth",
@@ -377,8 +375,8 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    state.profiles.set("/path-auth", {
-      path: "/path-auth",
+    state.profiles.set("path-auth", {
+      path: "path-auth",
       resourcePatterns: ["https://path-auth.example.com/*"],
       auth: {
         kind: "oauth",
@@ -396,12 +394,12 @@ describe("oauth service coverage", () => {
     });
 
     const rootSession = await service.startAuthorization({
-      path: "/org/root-auth",
+      path: "org.root-auth",
       option: {
         kind: "oauth",
         source: "profile",
         label: "Root auth",
-        profilePath: "/root-auth",
+        profilePath: "root-auth",
         resource: "https://root-auth.example.com/api",
       },
       redirectUri: "https://app.example.com/oauth/callback",
@@ -411,12 +409,12 @@ describe("oauth service coverage", () => {
     });
 
     const pathSession = await service.startAuthorization({
-      path: "/org/path-auth",
+      path: "org.path-auth",
       option: {
         kind: "oauth",
         source: "profile",
         label: "Path auth",
-        profilePath: "/path-auth",
+        profilePath: "path-auth",
         resource: "https://path-auth.example.com/api",
       },
       redirectUri: "https://app.example.com/oauth/callback",
@@ -453,8 +451,8 @@ describe("oauth service coverage", () => {
       throw new Error(`Unexpected fetch ${url}`);
     };
 
-    state.profiles.set("/missing-issuer", {
-      path: "/missing-issuer",
+    state.profiles.set("missing-issuer", {
+      path: "missing-issuer",
       resourcePatterns: ["https://missing-issuer.example.com/*"],
       auth: {
         kind: "oauth",
@@ -473,12 +471,12 @@ describe("oauth service coverage", () => {
 
     await expect(
       service.startAuthorization({
-        path: "/org/missing-issuer",
+        path: "org.missing-issuer",
         option: {
           kind: "oauth",
           source: "profile",
           label: "Missing issuer",
-          profilePath: "/missing-issuer",
+          profilePath: "missing-issuer",
           resource: "https://missing-issuer.example.com/api",
         },
         redirectUri: "https://app.example.com/oauth/callback",
@@ -520,8 +518,8 @@ describe("oauth service coverage", () => {
     }) as typeof fetch;
 
     try {
-      state.profiles.set("/global-path-auth", {
-        path: "/global-path-auth",
+      state.profiles.set("global-path-auth", {
+        path: "global-path-auth",
         resourcePatterns: ["https://global-path-auth.example.com/*"],
         auth: {
           kind: "oauth",
@@ -538,12 +536,12 @@ describe("oauth service coverage", () => {
       });
 
       const session = await service.startAuthorization({
-        path: "/org/global-path-auth",
+        path: "org.global-path-auth",
         option: {
           kind: "oauth",
           source: "profile",
           label: "Global path auth",
-          profilePath: "/global-path-auth",
+          profilePath: "global-path-auth",
           resource: "https://global-path-auth.example.com/api",
         },
         redirectUri: "https://app.example.com/oauth/callback",
@@ -597,8 +595,8 @@ describe("oauth service coverage", () => {
       throw new Error(`Unexpected fetch ${url}`);
     };
 
-    state.profiles.set("/meta-client", {
-      path: "/meta-client",
+    state.profiles.set("meta-client", {
+      path: "meta-client",
       resourcePatterns: ["https://issuer-meta.example.com/*"],
       auth: {
         kind: "oauth",
@@ -616,12 +614,12 @@ describe("oauth service coverage", () => {
     });
 
     const started = await service.startAuthorization({
-      path: "/org/meta",
+      path: "org.meta",
       option: {
         kind: "oauth",
         source: "profile",
         label: "Meta",
-        profilePath: "/meta-client",
+        profilePath: "meta-client",
         resource: "https://issuer-meta.example.com/api",
       },
       redirectUri: "https://app.example.com/oauth/callback",
@@ -684,7 +682,7 @@ describe("oauth service coverage", () => {
     });
     await expect(
       noClientService.startAuthorization({
-        path: "/org/docs",
+        path: "org.docs",
         option: {
           kind: "oauth",
           source: "discovery",
@@ -741,7 +739,7 @@ describe("oauth service coverage", () => {
     });
     await expect(
       noMetadataService.startAuthorization({
-        path: "/org/docs",
+        path: "org.docs",
         option: {
           kind: "oauth",
           source: "discovery",
@@ -778,7 +776,7 @@ describe("oauth service coverage", () => {
     });
     await expect(
       noAuthorizationMetadataService.startAuthorization({
-        path: "/org/docs",
+        path: "org.docs",
         option: {
           kind: "oauth",
           source: "discovery",
@@ -791,8 +789,8 @@ describe("oauth service coverage", () => {
       "Authorization server 'https://auth.example.com' does not publish usable metadata",
     );
 
-    state.profiles.set("/issuer-500", {
-      path: "/issuer-500",
+    state.profiles.set("issuer-500", {
+      path: "issuer-500",
       resourcePatterns: ["https://issuer-500.example.com/*"],
       auth: {
         kind: "oauth",
@@ -817,12 +815,12 @@ describe("oauth service coverage", () => {
     });
     await expect(
       discoveryFailureService.startAuthorization({
-        path: "/org/issuer-500",
+        path: "org.issuer-500",
         option: {
           kind: "oauth",
           source: "profile",
           label: "Issuer 500",
-          profilePath: "/issuer-500",
+          profilePath: "issuer-500",
           resource: "https://issuer-500.example.com/api",
         },
         redirectUri: "https://app.example.com/oauth/callback",
@@ -855,8 +853,8 @@ describe("oauth service coverage", () => {
       scopes: [],
     });
 
-    state.profiles.set("/broken-config", {
-      path: "/broken-config",
+    state.profiles.set("broken-config", {
+      path: "broken-config",
       resourcePatterns: ["https://broken.example.com/*"],
       auth: {
         kind: "oauth",
@@ -874,20 +872,20 @@ describe("oauth service coverage", () => {
     });
     await expect(
       brokenProfileService.startAuthorization({
-        path: "/org/broken",
+        path: "org.broken",
         option: {
           kind: "oauth",
           source: "profile",
           label: "Broken",
-          profilePath: "/broken-config",
+          profilePath: "broken-config",
           resource: "https://broken.example.com/api",
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
     ).rejects.toThrow("OAuth configuration requires either issuer or authorizationUrl + tokenUrl");
 
-    state.profiles.set("/client-override", {
-      path: "/client-override",
+    state.profiles.set("client-override", {
+      path: "client-override",
       resourcePatterns: ["https://override.example.com/*"],
       auth: {
         kind: "oauth",
@@ -904,12 +902,12 @@ describe("oauth service coverage", () => {
       customFetch: emptyDiscovery,
     });
     const overrideSession = await overrideService.startAuthorization({
-      path: "/org/override",
+      path: "org.override",
       option: {
         kind: "oauth",
         source: "profile",
         label: "Override",
-        profilePath: "/client-override",
+        profilePath: "client-override",
         resource: "https://override.example.com/api",
       },
       redirectUri: "https://app.example.com/oauth/callback",
@@ -948,7 +946,7 @@ describe("oauth service coverage", () => {
     });
     await expect(
       noIdService.startAuthorization({
-        path: "/org/no-id",
+        path: "org.no-id",
         option: {
           kind: "oauth",
           source: "discovery",
@@ -991,7 +989,7 @@ describe("oauth service coverage", () => {
     });
     await expect(
       missingEndpointService.startAuthorization({
-        path: "/org/docs",
+        path: "org.docs",
         option: {
           kind: "oauth",
           source: "discovery",
@@ -1077,8 +1075,8 @@ describe("oauth service coverage", () => {
       },
     });
 
-    state.credentials.set("/org/post", {
-      path: "/org/post",
+    state.credentials.set("org.post", {
+      path: "org.post",
       auth: { kind: "oauth", label: "Post", resource: "https://docs.example.com/mcp" },
       secret: {
         headers: { Authorization: "Bearer post" },
@@ -1093,12 +1091,12 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    await expect(service.disconnect({ path: "/org/post", revoke: "both" })).rejects.toThrow(
+    await expect(service.disconnect({ path: "org.post", revoke: "both" })).rejects.toThrow(
       "OAuth client_secret_post requires clientSecret",
     );
 
-    state.credentials.set("/org/basic", {
-      path: "/org/basic",
+    state.credentials.set("org.basic", {
+      path: "org.basic",
       auth: { kind: "oauth", label: "Basic", resource: "https://docs.example.com/mcp" },
       secret: {
         headers: { Authorization: "Bearer basic" },
@@ -1113,12 +1111,12 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    await expect(service.disconnect({ path: "/org/basic" })).rejects.toThrow(
+    await expect(service.disconnect({ path: "org.basic" })).rejects.toThrow(
       "OAuth client_secret_basic requires clientSecret",
     );
 
-    state.credentials.set("/org/global", {
-      path: "/org/global",
+    state.credentials.set("org.global", {
+      path: "org.global",
       auth: { kind: "oauth", label: "Global", resource: "https://docs.example.com/mcp" },
       secret: {
         headers: { Authorization: "Bearer global" },
@@ -1133,10 +1131,10 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.disconnect({ path: "/org/global", revoke: "both" })).toBe(true);
+    expect(await service.disconnect({ path: "org.global", revoke: "both" })).toBe(true);
 
-    state.credentials.set("/org/global-basic", {
-      path: "/org/global-basic",
+    state.credentials.set("org.global-basic", {
+      path: "org.global-basic",
       auth: { kind: "oauth", label: "Global basic", resource: "https://docs.example.com/mcp" },
       secret: {
         headers: { Authorization: "Bearer global-basic" },
@@ -1151,7 +1149,7 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.disconnect({ path: "/org/global-basic", revoke: "refresh_token" })).toBe(
+    expect(await service.disconnect({ path: "org.global-basic", revoke: "refresh_token" })).toBe(
       true,
     );
 
@@ -1168,7 +1166,7 @@ describe("oauth service coverage", () => {
       },
     });
     const dynamicSession = await dynamicService.startAuthorization({
-      path: "/org/dynamic",
+      path: "org.dynamic",
       option: {
         kind: "oauth",
         source: "discovery",
@@ -1181,8 +1179,8 @@ describe("oauth service coverage", () => {
       "client_id=https%3A%2F%2Fapp.example.com%2F.well-known%2Foauth-client",
     );
 
-    state.credentials.set("/org/global-refresh", {
-      path: "/org/global-refresh",
+    state.credentials.set("org.global-refresh", {
+      path: "org.global-refresh",
       auth: { kind: "oauth", label: "Refresh", resource: "https://docs.example.com/mcp" },
       secret: {
         headers: { Authorization: "Bearer stale-refresh" },
@@ -1198,7 +1196,7 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("/org/global-refresh", true)).toEqual(
+    expect(await service.refreshCredential("org.global-refresh", true)).toEqual(
       expect.objectContaining({
         secret: expect.objectContaining({
           headers: { Authorization: "Bearer global-refresh-access" },

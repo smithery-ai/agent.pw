@@ -54,9 +54,7 @@ describe("biscuit authorization retries", () => {
     state.attempts = 0;
     state.mode = "retry-once";
 
-    const adminToken = mintToken(BISCUIT_PRIVATE_KEY, "retry-user", [
-      { action: "credential.use", root: "/" },
-    ]);
+    const adminToken = mintToken(BISCUIT_PRIVATE_KEY, "retry-user", [{ action: "credential.use" }]);
     expect(authorizeRequest(adminToken, PUBLIC_KEY_HEX, "github", "GET", "/user")).toEqual({
       authorized: true,
     });

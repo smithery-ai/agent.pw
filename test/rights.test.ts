@@ -5,6 +5,7 @@ import {
   constraintAppliesToPath,
   coveringRootsForPath,
   hasActionRight,
+  hasGlobalRight,
   hasRuleForPath,
   normalizeConstraintValues,
   rootsForAction,
@@ -15,39 +16,42 @@ import {
 
 describe("rules helpers", () => {
   const rights = [
-    { action: "credential.use", root: "/org_alpha" },
-    { action: "credential.use", root: "/org_alpha/team" },
-    { action: "credential.manage", root: "/org_alpha" },
-    { action: "credential.use", root: "/org_alpha" },
+    { action: "credential.use", root: "org_alpha" },
+    { action: "credential.use", root: "org_alpha.team" },
+    { action: "credential.manage", root: "org_alpha" },
+    { action: "credential.use", root: "org_alpha" },
+    { action: "profile.manage" },
   ];
 
   it("deduplicates and sorts deeper roots first", () => {
-    expect(uniqueRoots(["/org_alpha", "/org_alpha/team", "/org_alpha"])).toEqual([
-      "/org_alpha/team",
-      "/org_alpha",
+    expect(uniqueRoots(["org_alpha", "org_alpha.team", "org_alpha"])).toEqual([
+      "org_alpha.team",
+      "org_alpha",
     ]);
   });
 
   it("sorts same-depth roots lexicographically", () => {
-    expect(uniqueRoots(["/org_beta", "/org_alpha"])).toEqual(["/org_alpha", "/org_beta"]);
+    expect(uniqueRoots(["org_beta", "org_alpha"])).toEqual(["org_alpha", "org_beta"]);
   });
 
   it("filters roots by one or many actions", () => {
-    expect(rootsForAction(rights, "credential.use")).toEqual(["/org_alpha/team", "/org_alpha"]);
+    expect(rootsForAction(rights, "credential.use")).toEqual(["org_alpha.team", "org_alpha"]);
     expect(rootsForActions(rights, ["credential.use", "credential.manage"])).toEqual([
-      "/org_alpha/team",
-      "/org_alpha",
+      "org_alpha.team",
+      "org_alpha",
     ]);
   });
 
   it("checks action presence and root coverage from facts", () => {
     expect(hasActionRight(rights, "credential.manage")).toBe(true);
-    expect(hasActionRight(rights, "profile.manage")).toBe(false);
-    expect(hasRuleForPath(rights, "credential.use", "/org_alpha/team/tool")).toBe(true);
-    expect(coveringRootsForPath(["/org_alpha", "/org_alpha/team"], "/org_alpha/team/tool")).toEqual(
-      ["/org_alpha/team", "/org_alpha"],
-    );
-    expect(rootsForActionFromScope({ rights }, "credential.manage")).toEqual(["/org_alpha"]);
+    expect(hasActionRight(rights, "profile.manage")).toBe(true);
+    expect(hasGlobalRight(rights, "profile.manage")).toBe(true);
+    expect(hasRuleForPath(rights, "credential.use", "org_alpha.team.tool")).toBe(true);
+    expect(coveringRootsForPath(["org_alpha", "org_alpha.team"], "org_alpha.team.tool")).toEqual([
+      "org_alpha.team",
+      "org_alpha",
+    ]);
+    expect(rootsForActionFromScope({ rights }, "credential.manage")).toEqual(["org_alpha"]);
   });
 
   it("authorizes rules and evaluates request constraints", () => {
@@ -55,7 +59,7 @@ describe("rules helpers", () => {
       authorizeRules({
         rights,
         action: "credential.use",
-        path: "/org_alpha/team/tool",
+        path: "org_alpha.team.tool",
       }),
     ).toEqual({ authorized: true });
 
@@ -63,11 +67,10 @@ describe("rules helpers", () => {
       authorizeRules({
         rights,
         action: "profile.manage",
-        path: "/org_alpha/team/tool",
+        path: "org_alpha.team.tool",
       }),
     ).toEqual({
-      authorized: false,
-      error: "Missing 'profile.manage' for '/org_alpha/team/tool'",
+      authorized: true,
     });
 
     expect(
@@ -76,16 +79,16 @@ describe("rules helpers", () => {
           actions: "credential.use",
           hosts: "api.linear.app",
           methods: "GET",
-          roots: "/org_alpha",
-          paths: "/org_alpha/team",
+          roots: "org_alpha",
+          paths: "org_alpha.team",
           services: "linear",
         },
         {
           action: "credential.use",
           host: "api.linear.app",
           method: "get",
-          root: "/org_alpha",
-          path: "/org_alpha/team/tool",
+          root: "org_alpha",
+          path: "org_alpha.team.tool",
           service: "linear",
         },
       ),
@@ -100,8 +103,8 @@ describe("rules helpers", () => {
           action: "credential.use",
           host: "api.github.com",
           method: "GET",
-          root: "/org_alpha",
-          path: "/org_alpha/team/tool",
+          root: "org_alpha",
+          path: "org_alpha.team.tool",
         },
       ),
     ).toBe(false);
@@ -115,8 +118,8 @@ describe("rules helpers", () => {
           action: "credential.use",
           host: "api.linear.app",
           method: "GET",
-          root: "/org_alpha",
-          path: "/org_alpha/team/tool",
+          root: "org_alpha",
+          path: "org_alpha.team.tool",
         },
       ),
     ).toBe(false);
@@ -130,8 +133,8 @@ describe("rules helpers", () => {
           action: "credential.use",
           host: "api.linear.app",
           method: "GET",
-          root: "/org_alpha",
-          path: "/org_alpha/team/tool",
+          root: "org_alpha",
+          path: "org_alpha.team.tool",
         },
       ),
     ).toBe(false);
@@ -139,14 +142,14 @@ describe("rules helpers", () => {
     expect(
       constraintAppliesToPath(
         {
-          roots: "/org_beta",
+          roots: "org_beta",
         },
         {
           action: "credential.use",
           host: "api.linear.app",
           method: "GET",
-          root: "/org_alpha",
-          path: "/org_alpha/team/tool",
+          root: "org_alpha",
+          path: "org_alpha.team.tool",
         },
       ),
     ).toBe(false);
@@ -160,8 +163,8 @@ describe("rules helpers", () => {
           action: "credential.use",
           host: "api.linear.app",
           method: "GET",
-          root: "/org_alpha",
-          path: "/org_alpha/team/tool",
+          root: "org_alpha",
+          path: "org_alpha.team.tool",
         },
       ),
     ).toBe(false);
@@ -169,14 +172,28 @@ describe("rules helpers", () => {
     expect(
       constraintAppliesToPath(
         {
-          paths: "/org_beta",
+          paths: "org_beta",
         },
         {
           action: "credential.use",
           host: "api.linear.app",
           method: "GET",
-          root: "/org_alpha",
-          path: "/org_alpha/team/tool",
+          root: "org_alpha",
+          path: "org_alpha.team.tool",
+        },
+      ),
+    ).toBe(false);
+
+    expect(
+      constraintAppliesToPath(
+        {
+          paths: "org_alpha",
+        },
+        {
+          action: "credential.use",
+          host: "api.linear.app",
+          method: "GET",
+          path: "org_alpha2.team.tool",
         },
       ),
     ).toBe(false);
@@ -192,14 +209,14 @@ describe("rules helpers", () => {
       can({
         rights,
         action: "credential.use",
-        path: "/org_alpha/team/tool",
+        path: "org_alpha.team.tool",
       }),
     ).toBe(true);
     expect(
       can({
         rights,
-        action: "profile.manage",
-        path: "/org_alpha/team/tool",
+        action: "credential.read",
+        path: "org_alpha.team.tool",
       }),
     ).toBe(false);
   });

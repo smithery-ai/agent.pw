@@ -15,6 +15,7 @@ import {
 } from "./lib/credentials-crypto.js";
 import { mergeHeaders } from "./lib/connect-headers.js";
 import { randomId, validateFlowId } from "./lib/utils.js";
+import { assertPath } from "./paths.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
   CimdDocumentInput,
@@ -33,13 +34,6 @@ import type {
   OAuthResolvedConfig,
   PendingFlow,
 } from "./types.js";
-
-function assertPath(path: string, label: string) {
-  if (!path.startsWith("/") || path === "/" || path.includes("..")) {
-    return err(inputError(`Invalid ${label} '${path}'`, { field: label, value: path }));
-  }
-  return ok(path);
-}
 
 function assertUrl(value: string, label: string) {
   const parsed = result(() => new URL(value));

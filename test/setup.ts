@@ -1,8 +1,11 @@
+import { PGlite } from "@electric-sql/pglite";
+import { ltree } from "@electric-sql/pglite/contrib/ltree";
 import { drizzle } from "drizzle-orm/pglite";
 import * as schema from "../packages/server/src/db/schema/index";
 import { bootstrapLocalSchema } from "../packages/server/src/db/bootstrap-local";
 import { mintToken } from "agent.pw/biscuit";
 import type { RuleGrant } from "../packages/server/src/types";
+import { mustAsync } from "./support/results";
 
 export const BISCUIT_PRIVATE_KEY =
   "ed25519-private/20cbf8e88a4d258a2af3b2ab1132ae6f753e46893eaea2427f732feefba7a8ad";
@@ -16,39 +19,38 @@ function escapeDatalog(value: string) {
 }
 
 function rightsAtRoot(root: string, actions: string[]): RuleGrant[] {
-  return actions.map((action) => ({ action, root }));
+  return actions.map((action) => (root ? { action, root } : { action }));
 }
 
 export const ROOT_TOKEN = mintToken(
   BISCUIT_PRIVATE_KEY,
   "local",
-  rightsAtRoot("/", [
+  rightsAtRoot("", [
     "credential.use",
     "credential.manage",
     "credential.bootstrap",
     "profile.manage",
   ]),
-  ['home_path("/")'],
 );
 
 export const ORG_TOKEN = mintToken(
   BISCUIT_PRIVATE_KEY,
   "user_test_123",
-  rightsAtRoot(`/${TEST_ORG_ID}`, [
+  rightsAtRoot(TEST_ORG_ID, [
     "credential.use",
     "credential.bootstrap",
     "credential.manage",
     "profile.manage",
   ]),
-  [`org_id("${escapeDatalog(TEST_ORG_ID)}")`, `home_path("/${escapeDatalog(TEST_ORG_ID)}")`],
+  [`org_id("${escapeDatalog(TEST_ORG_ID)}")`, `home_path("${escapeDatalog(TEST_ORG_ID)}")`],
 );
 
 export function mintTestToken(
   orgId: string,
   actions: string[] = ["credential.use"],
-  roots: string[] = [`/${orgId}`],
+  roots: string[] = [orgId],
 ) {
-  const extraFacts = [`org_id("${escapeDatalog(orgId)}")`, `home_path("/${escapeDatalog(orgId)}")`];
+  const extraFacts = [`org_id("${escapeDatalog(orgId)}")`, `home_path("${escapeDatalog(orgId)}")`];
   return mintToken(
     BISCUIT_PRIVATE_KEY,
     orgId,
@@ -58,8 +60,8 @@ export function mintTestToken(
 }
 
 export async function createTestDb() {
-  const db = drizzle({ connection: { dataDir: "memory://" }, schema });
-  await bootstrapLocalSchema(db);
+  const db = drizzle(new PGlite({ dataDir: "memory://", extensions: { ltree } }), { schema });
+  await mustAsync(bootstrapLocalSchema(db));
 
   return db;
 }
