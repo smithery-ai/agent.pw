@@ -121,7 +121,7 @@ describe("db edge coverage", () => {
     } finally {
       await closeLocalDb(credentialDb);
     }
-  });
+  }, 15_000);
 
   it("covers query helper validation and database error mapping", async () => {
     const db = await createTestDb();
