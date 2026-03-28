@@ -25,6 +25,7 @@ import type {
   ConnectWebHandlerOptions,
   ConnectOAuthOption,
   ConnectWebHandlers,
+  CrudOptions,
   CredentialProfileRecord,
   CredentialPutInput,
   CredentialRecord,
@@ -618,9 +619,12 @@ export function createOAuthService(options: {
   clock: () => Date;
   customFetch?: typeof fetch;
   defaultClient?: OAuthClientInput;
-  getProfile(path: string): Promise<Result<CredentialProfileRecord | null>>;
-  getCredential(path: string): Promise<Result<CredentialRecord | null>>;
-  putCredential(input: CredentialPutInput): Promise<Result<CredentialRecord>>;
+  getProfile(path: string, options?: CrudOptions): Promise<Result<CredentialProfileRecord | null>>;
+  getCredential(path: string, options?: CrudOptions): Promise<Result<CredentialRecord | null>>;
+  putCredential(
+    input: CredentialPutInput,
+    options?: CrudOptions,
+  ): Promise<Result<CredentialRecord>>;
   deleteCredential(path: string): Promise<Result<boolean>>;
 }) {
   async function requireFlowStore() {
@@ -853,7 +857,7 @@ export function createOAuthService(options: {
       });
     },
 
-    async completeAuthorization(input: ConnectCompleteOAuthInput) {
+    async completeAuthorization(input: ConnectCompleteOAuthInput, optionsForCrud?: CrudOptions) {
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -941,7 +945,7 @@ export function createOAuthService(options: {
         );
       }
 
-      const existing = await options.getCredential(flow.path);
+      const existing = await options.getCredential(flow.path, optionsForCrud);
       if (!existing.ok) {
         return existing;
       }
@@ -954,15 +958,18 @@ export function createOAuthService(options: {
         preserveExistingHeaders: true,
       });
 
-      const credential = await options.putCredential({
-        path: flow.path,
-        auth: {
-          kind: "oauth",
-          profilePath: flow.credential.profilePath,
-          resource: flow.oauthConfig.resource,
+      const credential = await options.putCredential(
+        {
+          path: flow.path,
+          auth: {
+            kind: "oauth",
+            profilePath: flow.credential.profilePath,
+            resource: flow.oauthConfig.resource,
+          },
+          secret,
         },
-        secret,
-      });
+        optionsForCrud,
+      );
       if (!credential.ok) {
         return credential;
       }

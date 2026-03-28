@@ -150,7 +150,7 @@ async function createOAuthAgent() {
     displayName: "Linear",
   });
 
-  return { agentPw, calls };
+  return { agentPw, calls, db };
 }
 
 describe("oauth runtime", () => {
@@ -541,5 +541,51 @@ describe("oauth runtime", () => {
       accessToken: "profile-access-1",
       refreshToken: "profile-refresh-1",
     });
+  });
+
+  it("uses the caller db for connect.completeOAuth", async () => {
+    const { agentPw, db } = await createOAuthAgent();
+
+    const prepared = await agentPw.connect.prepare({
+      path: "org_alpha.connections.linear_tx",
+      resource: "https://api.linear.app/projects",
+    });
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+
+    const option = prepared.options[0];
+    if (!option || option.kind !== "oauth") {
+      throw new Error("Expected oauth option");
+    }
+
+    const session = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.linear_tx",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+
+    await expect(
+      db.transaction(async (tx) => {
+        const completed = await agentPw.connect.completeOAuth(
+          {
+            callbackUri: `https://app.example.com/oauth/callback?code=code-tx&state=${session.flowId}`,
+          },
+          { db: tx },
+        );
+
+        expect(completed.path).toBe("org_alpha.connections.linear_tx");
+        expect(await agentPw.credentials.get(completed.path, { db: tx })).toEqual(
+          expect.objectContaining({
+            path: "org_alpha.connections.linear_tx",
+          }),
+        );
+
+        throw new Error("rollback completeOAuth tx");
+      }),
+    ).rejects.toThrow("rollback completeOAuth tx");
+
+    expect(await agentPw.credentials.get("org_alpha.connections.linear_tx")).toBe(null);
   });
 });

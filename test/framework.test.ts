@@ -282,6 +282,57 @@ describe("createAgentPw", () => {
     });
   });
 
+  it("uses the caller db for connect.setHeaders", async () => {
+    const db = await createTestDb();
+    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const agentPw = wrapAgentPw(
+      must(
+        await createAgentPw({
+          db,
+          encryptionKey,
+        }),
+      ),
+    );
+
+    await expect(
+      db.transaction(async (tx) => {
+        await agentPw.profiles.put(
+          "resendtx",
+          {
+            resourcePatterns: ["https://api.resend.com*"],
+            auth: {
+              kind: "headers",
+              fields: [{ name: "Authorization", label: "API key" }],
+            },
+          },
+          { db: tx },
+        );
+
+        const saved = await agentPw.connect.setHeaders(
+          {
+            path: "acme.connections.resend_tx",
+            resource: "https://api.resend.com",
+            headers: {
+              Authorization: "Bearer rs_tx",
+            },
+          },
+          { db: tx },
+        );
+
+        expect(saved.auth).toEqual({
+          kind: "headers",
+          profilePath: "resendtx",
+          resource: "https://api.resend.com/",
+        });
+
+        throw new Error("rollback setHeaders tx");
+      }),
+    ).rejects.toThrow("rollback setHeaders tx");
+
+    expect(await agentPw.profiles.get("resendtx")).toBe(null);
+    expect(await agentPw.credentials.get("acme.connections.resend_tx")).toBe(null);
+  });
+
   it("returns resolution metadata and ready/unconfigured prepare results", async () => {
     const agentPw = await createTestAgent();
 
