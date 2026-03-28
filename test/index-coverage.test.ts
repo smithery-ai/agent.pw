@@ -288,6 +288,14 @@ describe("index coverage helpers", () => {
       auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer listed" } },
     });
+    const listedAuthResult = await db.execute(sql.raw(`
+      SELECT auth
+      FROM agentpw.credentials
+      WHERE path = '/listed/credential'
+    `));
+    expect(listedAuthResult.rows).toEqual([
+      { auth: { kind: "headers", resource: "https://listed.example.com/" } },
+    ]);
     expect(await agentPw.credentials.list({ path: "/listed" })).toEqual([
       expect.objectContaining({
         path: "/listed/credential",
@@ -519,14 +527,8 @@ describe("index coverage helpers", () => {
       flowId: expect.any(String),
       path: "/acme/connections/linear",
       resource: "https://api.linear.app/projects",
-      option: {
-        kind: "oauth",
-        source: "profile",
-        resource: "https://api.linear.app/projects",
-        profilePath: "/linear",
-        label: "Linear",
-        scopes: ["read", "write"],
-      },
+      label: "Linear",
+      profilePath: "/linear",
       expiresAt: expect.any(Date),
     });
     expect(result.completed.path).toBe("/acme/connections/linear");

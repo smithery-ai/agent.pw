@@ -405,7 +405,8 @@ describe("oauth runtime", () => {
       flowId: started.flowId,
       path: "/org_alpha/connections/docs_profiled",
       resource: "https://docs.example.com/mcp",
-      option: started.option,
+      label: "Docs Profile",
+      profilePath: "/docs",
       expiresAt: started.expiresAt,
     });
 

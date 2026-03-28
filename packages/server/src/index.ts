@@ -1,5 +1,4 @@
 import { err, ok } from "okay-error";
-import { backfillCredentialResourcesToAuth } from "./db/legacy.js";
 import { createQueryHelpers } from "./db/queries.js";
 import {
   authorizationError,
@@ -222,6 +221,15 @@ function normalizeCredentialAuth(auth: CredentialAuth, fallbackResource?: string
   });
 }
 
+function serializeCredentialAuth(auth: CredentialAuth) {
+  return {
+    kind: auth.kind,
+    ...(auth.profilePath ? { profilePath: auth.profilePath } : {}),
+    ...(auth.label ? { label: auth.label } : {}),
+    ...(auth.resource ? { resource: auth.resource } : {}),
+  };
+}
+
 function requireHeadersSecret(secret: StoredCredentials, path: string) {
   if (!secret.headers || Object.keys(secret.headers).length === 0) {
     return err(inputError(`Credential '${path}' does not have header-based auth`, { path }));
@@ -365,8 +373,6 @@ export async function createAgentPw(options: AgentPwOptions) {
     return queries;
   }
   const queryHelpers = queries.value;
-
-  await backfillCredentialResourcesToAuth(options.db, { sql: options.sql });
 
   const profiles: AgentPw["profiles"] = {
     async resolve(input) {
@@ -553,7 +559,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return encryptedSecret;
     }
 
-    const storedAuth = toJsonRecord(auth.value);
+    const storedAuth = toJsonRecord(serializeCredentialAuth(auth.value));
     if (!storedAuth.ok) {
       return storedAuth;
     }
@@ -622,8 +628,9 @@ export async function createAgentPw(options: AgentPwOptions) {
     return {
       flowId: flow.id,
       path: flow.path,
-      resource: flow.resource,
-      option: flow.option,
+      resource: flow.oauthConfig.resource,
+      label: flow.credential.label,
+      ...(flow.credential.profilePath ? { profilePath: flow.credential.profilePath } : {}),
       expiresAt: flow.expiresAt,
     };
   }
@@ -1330,4 +1337,10 @@ export async function createAgentPw(options: AgentPwOptions) {
     scope,
   });
 }
+export {
+  ConnectFlowSchema,
+  ConnectOAuthOptionSchema,
+  OAuthResolvedConfigSchema,
+  PendingFlowSchema,
+} from "./types.js";
 export type * from "./types.js";

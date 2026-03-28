@@ -841,8 +841,10 @@ export function createOAuthService(options: {
       const flow: PendingFlow = {
         id: flowId,
         path: path.value,
-        resource: oauthConfig.value.resource,
-        option: input.option,
+        credential: {
+          label: input.option.label,
+          ...(input.option.profilePath ? { profilePath: input.option.profilePath } : {}),
+        },
         headers: input.headers,
         redirectUri: redirectUri.value.toString(),
         codeVerifier,
@@ -856,8 +858,8 @@ export function createOAuthService(options: {
         authorizationUrl: authorizationUrl.toString(),
         expiresAt: flow.expiresAt,
         path: flow.path,
-        resource: flow.resource,
-        option: flow.option,
+        resource: flow.oauthConfig.resource,
+        option: input.option,
       });
     },
 
@@ -966,9 +968,9 @@ export function createOAuthService(options: {
         path: flow.path,
         auth: {
           kind: "oauth",
-          profilePath: flow.option.profilePath,
-          label: flow.option.label,
-          resource: flow.resource,
+          profilePath: flow.credential.profilePath,
+          label: flow.credential.label,
+          resource: flow.oauthConfig.resource,
         },
         secret,
       });

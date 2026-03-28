@@ -212,12 +212,8 @@ describe("oauth edge cases", () => {
     await flowStore.create({
       id: "expired-state",
       path: "/org/connections/docs",
-      resource: "https://docs.example.com/mcp",
-      option: {
-        kind: "oauth",
-        source: "discovery",
+      credential: {
         label: "Docs",
-        resource: "https://docs.example.com/mcp",
       },
       redirectUri: "https://app.example.com/oauth/callback",
       codeVerifier: "verifier",

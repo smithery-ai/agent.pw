@@ -622,7 +622,7 @@ describe("createAgentPw", () => {
       flowId: session.flowId,
       path: "/acme/connections/docs_fresh",
       resource: "https://docs.example.com/mcp",
-      option: session.option,
+      label: "OAuth via accounts.example.com",
       expiresAt: session.expiresAt,
     });
   });

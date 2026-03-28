@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { JWKS } from "oauth4webapi";
 import type { Result } from "okay-error";
 import type {
@@ -221,17 +222,11 @@ export interface OAuthClientInput {
   initialAccessToken?: string;
 }
 
-export interface OAuthResolvedConfig {
-  issuer?: string;
-  authorizationUrl?: string;
-  tokenUrl?: string;
-  revocationUrl?: string;
-  clientId: string;
-  clientSecret?: string;
-  clientAuthentication: OAuthClientAuthenticationMethod;
-  scopes?: string | string[];
-  resource: string;
-}
+const OAuthClientAuthenticationMethodSchema = z.enum([
+  "none",
+  "client_secret_basic",
+  "client_secret_post",
+]);
 
 interface ConnectOptionBase {
   kind: "oauth" | "headers";
@@ -241,11 +236,42 @@ interface ConnectOptionBase {
   profilePath?: string;
 }
 
-export interface ConnectOAuthOption extends ConnectOptionBase {
-  kind: "oauth";
-  authorizationServer?: string;
-  scopes?: string[];
-}
+const ConnectOptionBaseSchema = z.object({
+  source: z.enum(["discovery", "profile"]),
+  resource: z.string(),
+  label: z.string(),
+  profilePath: z.string().optional(),
+});
+
+export const OAuthResolvedConfigSchema = z
+  .object({
+    clientId: z.string(),
+    resource: z.string(),
+    clientAuthentication: OAuthClientAuthenticationMethodSchema,
+    issuer: z.string().optional(),
+    authorizationUrl: z.string().optional(),
+    tokenUrl: z.string().optional(),
+    revocationUrl: z.string().optional(),
+    clientSecret: z.string().optional(),
+    scopes: z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .meta({ id: "OAuthResolvedConfig" });
+export type OAuthResolvedConfig = z.infer<typeof OAuthResolvedConfigSchema>;
+
+export const ConnectOAuthOptionSchema = ConnectOptionBaseSchema.extend({
+  kind: z.literal("oauth"),
+  authorizationServer: z.string().optional(),
+  scopes: z.array(z.string()).optional(),
+}).meta({ id: "ConnectOAuthOption" });
+export type ConnectOAuthOption = z.infer<typeof ConnectOAuthOptionSchema>;
+
+export const PendingFlowCredentialSchema = z
+  .object({
+    label: z.string(),
+    profilePath: z.string().optional(),
+  })
+  .meta({ id: "PendingFlowCredential" });
+export type PendingFlowCredential = z.infer<typeof PendingFlowCredentialSchema>;
 
 export interface ConnectHeadersOption extends ConnectOptionBase {
   kind: "headers";
@@ -329,25 +355,31 @@ export interface ConnectDisconnectInput {
   revoke?: "refresh_token" | "access_token" | "both";
 }
 
-export interface PendingFlow {
-  id: string;
-  path: string;
-  resource: string;
-  option: ConnectOAuthOption;
-  headers?: Record<string, string>;
-  redirectUri: string;
-  codeVerifier: string;
-  expiresAt: Date;
-  oauthConfig: OAuthResolvedConfig;
-}
+export const PendingFlowSchema = z
+  .object({
+    id: z.string(),
+    path: z.string(),
+    credential: PendingFlowCredentialSchema,
+    headers: z.record(z.string(), z.string()).optional(),
+    redirectUri: z.string(),
+    codeVerifier: z.string(),
+    expiresAt: z.coerce.date(),
+    oauthConfig: OAuthResolvedConfigSchema,
+  })
+  .meta({ id: "PendingFlow" });
+export type PendingFlow = z.infer<typeof PendingFlowSchema>;
 
-export interface ConnectFlow {
-  flowId: string;
-  path: string;
-  resource: string;
-  option: ConnectOAuthOption;
-  expiresAt: Date;
-}
+export const ConnectFlowSchema = z
+  .object({
+    flowId: z.string(),
+    path: z.string(),
+    resource: z.string(),
+    label: z.string(),
+    profilePath: z.string().optional(),
+    expiresAt: z.coerce.date(),
+  })
+  .meta({ id: "ConnectFlow" });
+export type ConnectFlow = z.infer<typeof ConnectFlowSchema>;
 
 export interface FlowStore {
   create(flow: PendingFlow): Promise<void>;
