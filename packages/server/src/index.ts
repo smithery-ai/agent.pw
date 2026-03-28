@@ -5,7 +5,6 @@ import {
   conflictError,
   inputError,
   notFoundError,
-  persistenceError,
   unsupportedCredentialKindError,
 } from "./errors.js";
 import {
@@ -450,23 +449,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!persisted.ok) {
         return persisted;
       }
-
-      const stored = await queryHelpers.getCredProfile(db, profilePath.value);
-      if (!stored.ok) {
-        return stored;
-      }
-      if (!stored.value) {
-        return err(
-          persistenceError(
-            "upsertCredProfile",
-            `Failed to persist Credential Profile '${profilePath.value}'`,
-            {
-              path: profilePath.value,
-            },
-          ),
-        );
-      }
-      return toProfileRecord(stored.value);
+      return toProfileRecord(persisted.value);
     },
 
     delete(path, opts) {
@@ -561,19 +544,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return persisted;
     }
 
-    const stored = await queryHelpers.getCredential(db, path.value);
-    if (!stored.ok) {
-      return stored;
-    }
-    if (!stored.value) {
-      return err(
-        persistenceError("upsertCredential", `Failed to persist Credential '${path.value}'`, {
-          path: path.value,
-        }),
-      );
-    }
-
-    return decryptCredentialRecord(encryptionKey, stored.value);
+    return decryptCredentialRecord(encryptionKey, persisted.value);
   };
 
   function optionFromProfile(profile: CredentialProfileRecord, resource: string) {
@@ -843,7 +814,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (resolved.value.existing) {
         const credential =
           resolved.value.existing.auth.kind === "oauth"
-            ? await oauth.refreshCredential(resolved.value.path)
+            ? await oauth.refreshCredential(resolved.value.path, false, resolved.value.existing)
             : ok(resolved.value.existing);
         if (!credential.ok) {
           return credential;

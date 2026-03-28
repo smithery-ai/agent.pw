@@ -1,20 +1,57 @@
+import { createAgentPw } from "agent.pw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryFlowStore, createOAuthService } from "agent.pw/oauth";
-import { ok } from "okay-error";
 import type {
   CredentialProfileRecord,
   CredentialRecord,
   OAuthClientInput,
 } from "../packages/server/src/types";
+import { createTestDb } from "./setup";
 import { must, mustAsync } from "./support/results";
 
-function createState() {
-  const profiles = new Map<string, CredentialProfileRecord>();
-  const credentials = new Map<string, CredentialRecord>();
+const TEST_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+const openDbs: Array<{ $client?: { close?: () => Promise<void> } }> = [];
+
+async function createState() {
+  const db = await createTestDb();
+  const agentPw = must(
+    await createAgentPw({
+      db,
+      encryptionKey: TEST_ENCRYPTION_KEY,
+    }),
+  );
+  openDbs.push(db);
 
   return {
-    profiles,
-    credentials,
+    profiles: {
+      set(path: string, profile: CredentialProfileRecord) {
+        return mustAsync(
+          agentPw.profiles.put(path, {
+            resourcePatterns: profile.resourcePatterns,
+            auth: profile.auth,
+            ...(profile.displayName ? { displayName: profile.displayName } : {}),
+            ...(profile.description ? { description: profile.description } : {}),
+          }),
+        );
+      },
+    },
+    credentials: {
+      set(path: string, credential: CredentialRecord) {
+        const resource =
+          typeof credential.resource === "string" ? credential.resource : credential.auth.resource;
+        return mustAsync(
+          agentPw.credentials.put({
+            path,
+            ...(resource ? { resource } : {}),
+            auth: credential.auth,
+            secret: credential.secret,
+          }),
+        );
+      },
+      get(path: string) {
+        return mustAsync(agentPw.credentials.get(path));
+      },
+    },
     service(
       options: {
         customFetch?: typeof fetch;
@@ -28,20 +65,10 @@ function createState() {
         clock: options.clock ?? (() => new Date("2026-01-01T00:00:00.000Z")),
         customFetch: options.customFetch,
         defaultClient: options.defaultClient,
-        getProfile: async (path) => ok(profiles.get(path) ?? null),
-        getCredential: async (path) => ok(credentials.get(path) ?? null),
-        putCredential: async (input) => {
-          const record: CredentialRecord = {
-            path: input.path,
-            auth: input.auth,
-            secret: Buffer.isBuffer(input.secret) ? { headers: {} } : input.secret,
-            createdAt: new Date("2026-01-01T00:00:00.000Z"),
-            updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-          };
-          credentials.set(input.path, record);
-          return ok(record);
-        },
-        deleteCredential: async (path) => ok(credentials.delete(path)),
+        getProfile: agentPw.profiles.get,
+        getCredential: agentPw.credentials.get,
+        putCredential: agentPw.credentials.put,
+        deleteCredential: agentPw.credentials.delete,
       });
       const wrapped = { ...service, raw: service } as typeof service & { raw: typeof service };
       wrapped.discoverResource = (input) =>
@@ -76,13 +103,16 @@ function createState() {
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  while (openDbs.length > 0) {
+    await openDbs.pop()?.$client?.close?.();
+  }
   vi.restoreAllMocks();
 });
 
 describe("oauth service coverage", () => {
   it("covers low-level validation, refresh, and default callback errors", async () => {
-    const state = createState();
+    const state = await createState();
     const flowStore = createInMemoryFlowStore();
 
     const profileFetch: typeof fetch = async (input, init) => {
@@ -133,8 +163,8 @@ describe("oauth service coverage", () => {
       customFetch: profileFetch,
     });
 
-    await expect(service.refreshCredential("/bad-path")).resolves.toBeNull();
-    await expect(service.disconnect({ path: "/bad-path" })).resolves.toBe(false);
+    await expect(service.refreshCredential("missing")).resolves.toBeNull();
+    await expect(service.disconnect({ path: "missing" })).resolves.toBe(false);
 
     const handlers = service.raw.createWebHandlers();
     const defaultError = await handlers.callback(
@@ -156,7 +186,7 @@ describe("oauth service coverage", () => {
     expect(stringError.status).toBe(400);
     expect(await stringError.json()).toEqual({ error: "OAuth flow failed" });
 
-    state.profiles.set("headers", {
+    await state.profiles.set("headers", {
       path: "headers",
       resourcePatterns: ["https://headers.example.com/*"],
       auth: {
@@ -183,7 +213,7 @@ describe("oauth service coverage", () => {
       }),
     ).rejects.toThrow("Credential Profile 'headers' is not an OAuth profile");
 
-    state.profiles.set("issuer", {
+    await state.profiles.set("issuer", {
       path: "issuer",
       resourcePatterns: ["https://issuer.example.com/*"],
       auth: {
@@ -211,7 +241,7 @@ describe("oauth service coverage", () => {
     });
     expect(session.authorizationUrl).toContain("scope=read+write");
 
-    state.credentials.set("org.forced-refresh", {
+    await state.credentials.set("org.forced-refresh", {
       path: "org.forced-refresh",
       auth: { kind: "oauth", label: "Forced", resource: "https://issuer.example.com/api" },
       secret: {
@@ -242,7 +272,7 @@ describe("oauth service coverage", () => {
       }),
     );
 
-    state.credentials.set("org.no-expiry", {
+    const noExpiryCredential = await state.credentials.set("org.no-expiry", {
       path: "org.no-expiry",
       auth: { kind: "oauth", label: "No expiry", resource: "https://issuer.example.com/api" },
       secret: {
@@ -258,9 +288,7 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("org.no-expiry")).toBe(
-      state.credentials.get("org.no-expiry"),
-    );
+    expect(await service.refreshCredential("org.no-expiry")).toEqual(noExpiryCredential);
 
     const legacyCredential = {
       path: "org.legacy-resource",
@@ -281,10 +309,25 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    state.credentials.set("org.legacy-resource", legacyCredential);
-    expect(await service.refreshCredential("org.legacy-resource", true)).toBe(legacyCredential);
+    const storedLegacyCredential = await state.credentials.set(
+      "org.legacy-resource",
+      legacyCredential,
+    );
+    expect(await service.refreshCredential("org.legacy-resource", true)).toEqual(
+      expect.objectContaining({
+        path: storedLegacyCredential.path,
+        secret: expect.objectContaining({
+          headers: { Authorization: "Bearer forced-access" },
+          oauth: expect.objectContaining({
+            accessToken: "forced-access",
+            refreshToken: "refresh-token",
+            scopes: "existing-scope",
+          }),
+        }),
+      }),
+    );
 
-    state.credentials.set("org.invalid-expiry", {
+    const invalidExpiryCredential = await state.credentials.set("org.invalid-expiry", {
       path: "org.invalid-expiry",
       auth: { kind: "oauth", label: "Invalid expiry", resource: "https://issuer.example.com/api" },
       secret: {
@@ -301,11 +344,9 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("org.invalid-expiry")).toBe(
-      state.credentials.get("org.invalid-expiry"),
-    );
+    expect(await service.refreshCredential("org.invalid-expiry")).toEqual(invalidExpiryCredential);
 
-    state.credentials.set("org.no-resource", {
+    const noResourceCredential = await state.credentials.set("org.no-resource", {
       path: "org.no-resource",
       auth: { kind: "oauth", label: "No resource" },
       secret: {
@@ -321,13 +362,11 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("org.no-resource", true)).toBe(
-      state.credentials.get("org.no-resource"),
-    );
+    expect(await service.refreshCredential("org.no-resource", true)).toEqual(noResourceCredential);
   });
 
   it("discovers authorization server metadata in MCP order for root and path issuers", async () => {
-    const state = createState();
+    const state = await createState();
     const flowStore = createInMemoryFlowStore();
     const calls: string[] = [];
 
@@ -363,7 +402,7 @@ describe("oauth service coverage", () => {
       throw new Error(`Unexpected fetch ${url}`);
     };
 
-    state.profiles.set("root-auth", {
+    await state.profiles.set("root-auth", {
       path: "root-auth",
       resourcePatterns: ["https://root-auth.example.com/*"],
       auth: {
@@ -375,7 +414,7 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    state.profiles.set("path-auth", {
+    await state.profiles.set("path-auth", {
       path: "path-auth",
       resourcePatterns: ["https://path-auth.example.com/*"],
       auth: {
@@ -434,7 +473,7 @@ describe("oauth service coverage", () => {
   });
 
   it("rejects profile issuers that do not publish usable metadata", async () => {
-    const state = createState();
+    const state = await createState();
     const flowStore = createInMemoryFlowStore();
 
     const fetchImpl: typeof fetch = async (input) => {
@@ -451,7 +490,7 @@ describe("oauth service coverage", () => {
       throw new Error(`Unexpected fetch ${url}`);
     };
 
-    state.profiles.set("missing-issuer", {
+    await state.profiles.set("missing-issuer", {
       path: "missing-issuer",
       resourcePatterns: ["https://missing-issuer.example.com/*"],
       auth: {
@@ -490,7 +529,7 @@ describe("oauth service coverage", () => {
   });
 
   it("uses global fetch for the MCP prepended OIDC fallback when no custom fetch is configured", async () => {
-    const state = createState();
+    const state = await createState();
     const flowStore = createInMemoryFlowStore();
     const calls: string[] = [];
     const originalFetch = globalThis.fetch;
@@ -518,7 +557,7 @@ describe("oauth service coverage", () => {
     }) as typeof fetch;
 
     try {
-      state.profiles.set("global-path-auth", {
+      await state.profiles.set("global-path-auth", {
         path: "global-path-auth",
         resourcePatterns: ["https://global-path-auth.example.com/*"],
         auth: {
@@ -561,7 +600,7 @@ describe("oauth service coverage", () => {
   });
 
   it("covers oauth completion without refresh tokens and metadata-sourced client ids", async () => {
-    const state = createState();
+    const state = await createState();
     const flowStore = createInMemoryFlowStore();
 
     const fetchImpl: typeof fetch = async (input, init) => {
@@ -595,7 +634,7 @@ describe("oauth service coverage", () => {
       throw new Error(`Unexpected fetch ${url}`);
     };
 
-    state.profiles.set("meta-client", {
+    await state.profiles.set("meta-client", {
       path: "meta-client",
       resourcePatterns: ["https://issuer-meta.example.com/*"],
       auth: {
@@ -672,7 +711,7 @@ describe("oauth service coverage", () => {
       throw new Error(`Unexpected fetch ${url}`);
     };
 
-    const state = createState();
+    const state = await createState();
     const flowStore = createInMemoryFlowStore();
 
     const noClientService = state.service({
@@ -789,7 +828,7 @@ describe("oauth service coverage", () => {
       "Authorization server 'https://auth.example.com' does not publish usable metadata",
     );
 
-    state.profiles.set("issuer-500", {
+    await state.profiles.set("issuer-500", {
       path: "issuer-500",
       resourcePatterns: ["https://issuer-500.example.com/*"],
       auth: {
@@ -853,7 +892,7 @@ describe("oauth service coverage", () => {
       scopes: [],
     });
 
-    state.profiles.set("broken-config", {
+    await state.profiles.set("broken-config", {
       path: "broken-config",
       resourcePatterns: ["https://broken.example.com/*"],
       auth: {
@@ -884,7 +923,7 @@ describe("oauth service coverage", () => {
       }),
     ).rejects.toThrow("OAuth configuration requires either issuer or authorizationUrl + tokenUrl");
 
-    state.profiles.set("client-override", {
+    await state.profiles.set("client-override", {
       path: "client-override",
       resourcePatterns: ["https://override.example.com/*"],
       auth: {
@@ -1066,7 +1105,7 @@ describe("oauth service coverage", () => {
     };
     vi.stubGlobal("fetch", fetchImpl);
 
-    const state = createState();
+    const state = await createState();
     const service = state.service({
       flowStore: createInMemoryFlowStore(),
       defaultClient: {
@@ -1075,7 +1114,7 @@ describe("oauth service coverage", () => {
       },
     });
 
-    state.credentials.set("org.post", {
+    await state.credentials.set("org.post", {
       path: "org.post",
       auth: { kind: "oauth", label: "Post", resource: "https://docs.example.com/mcp" },
       secret: {
@@ -1095,7 +1134,7 @@ describe("oauth service coverage", () => {
       "OAuth client_secret_post requires clientSecret",
     );
 
-    state.credentials.set("org.basic", {
+    await state.credentials.set("org.basic", {
       path: "org.basic",
       auth: { kind: "oauth", label: "Basic", resource: "https://docs.example.com/mcp" },
       secret: {
@@ -1115,7 +1154,7 @@ describe("oauth service coverage", () => {
       "OAuth client_secret_basic requires clientSecret",
     );
 
-    state.credentials.set("org.global", {
+    await state.credentials.set("org.global", {
       path: "org.global",
       auth: { kind: "oauth", label: "Global", resource: "https://docs.example.com/mcp" },
       secret: {
@@ -1133,7 +1172,7 @@ describe("oauth service coverage", () => {
     });
     expect(await service.disconnect({ path: "org.global", revoke: "both" })).toBe(true);
 
-    state.credentials.set("org.global-basic", {
+    await state.credentials.set("org.global-basic", {
       path: "org.global-basic",
       auth: { kind: "oauth", label: "Global basic", resource: "https://docs.example.com/mcp" },
       secret: {
@@ -1179,7 +1218,7 @@ describe("oauth service coverage", () => {
       "client_id=https%3A%2F%2Fapp.example.com%2F.well-known%2Foauth-client",
     );
 
-    state.credentials.set("org.global-refresh", {
+    await state.credentials.set("org.global-refresh", {
       path: "org.global-refresh",
       auth: { kind: "oauth", label: "Refresh", resource: "https://docs.example.com/mcp" },
       secret: {
