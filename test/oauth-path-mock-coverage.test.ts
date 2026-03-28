@@ -1,7 +1,7 @@
 import { err, ok } from "okay-error";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inputError } from "../packages/server/src/errors";
-import { errorOf, must } from "./support/results";
+import { errorOf } from "./support/results";
 
 afterEach(() => {
   vi.resetModules();
