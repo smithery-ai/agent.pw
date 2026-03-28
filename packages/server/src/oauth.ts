@@ -48,6 +48,15 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function isClientMetadataDocumentUrl(value: string) {
+  const parsed = result(() => new URL(value));
+  if (!parsed.ok) {
+    return false;
+  }
+
+  return parsed.value.protocol === "https:" && parsed.value.pathname !== "/";
+}
+
 function toScopeString(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.join(" ") : value;
 }
@@ -379,6 +388,94 @@ function cimdToClientMetadata(input: NonNullable<OAuthClientInput["metadata"]>) 
   } satisfies Partial<oauth.Client>;
 }
 
+async function maybeRegisterDynamicClient(
+  authorizationServer: oauth.AuthorizationServer,
+  client: OAuthClientInput | undefined,
+  currentClientId: string | undefined,
+  customFetch: typeof fetch | undefined,
+) {
+  type DynamicClientRegistration = {
+    clientId: string;
+    clientSecret: string | undefined;
+    clientAuthentication: OAuthClientAuthenticationMethod;
+  };
+
+  if (!client) {
+    return ok<DynamicClientRegistration | null>(null);
+  }
+
+  const configuredClientId = client.clientId ?? client.metadata?.clientId;
+  const hasConfiguredClientId = typeof configuredClientId === "string";
+  const usesConfiguredClientId = hasConfiguredClientId && configuredClientId === currentClientId;
+  const shouldRegisterDynamically = Boolean(
+    (client.useDynamicRegistration && (!currentClientId || usesConfiguredClientId)) ||
+      (!currentClientId && client.metadata) ||
+      (client.metadata &&
+        hasConfiguredClientId &&
+        usesConfiguredClientId &&
+        isClientMetadataDocumentUrl(configuredClientId) &&
+        authorizationServer.client_id_metadata_document_supported !== true),
+  );
+
+  if (!shouldRegisterDynamically) {
+    return ok(null);
+  }
+
+  if (!client.metadata) {
+    return err(inputError("Dynamic client registration requires client metadata"));
+  }
+
+  if (!authorizationServer.registration_endpoint) {
+    return err(
+      inputError(
+        `Authorization server '${authorizationServer.issuer}' does not support dynamic client registration`,
+      ),
+    );
+  }
+
+  const registrationResponse = await result(
+    oauth.dynamicClientRegistrationRequest(
+      authorizationServer,
+      cimdToClientMetadata(client.metadata),
+      {
+        initialAccessToken: client.initialAccessToken,
+        ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
+      },
+    ),
+  );
+  if (!registrationResponse.ok) {
+    return err(
+      oauthError("dynamic-client-registration", "Dynamic client registration failed", {
+        cause: registrationResponse.error,
+      }),
+    );
+  }
+
+  const registered = await result(
+    oauth.processDynamicClientRegistrationResponse(registrationResponse.value),
+  );
+  if (!registered.ok) {
+    return err(
+      oauthError(
+        "dynamic-client-registration",
+        "Failed to process dynamic client registration response",
+        { cause: registered.error },
+      ),
+    );
+  }
+
+  const clientId = registered.value.client_id;
+  const clientSecret = stringValue(registered.value.client_secret);
+  return ok({
+    clientId,
+    clientSecret,
+    clientAuthentication: normalizeClientAuthentication(
+      stringValue(registered.value.token_endpoint_auth_method),
+      Boolean(clientSecret),
+    ),
+  });
+}
+
 function resolveRedirectUri(request: Request, callbackPath: string) {
   const url = new URL(request.url);
   const callbackUrl = new URL(callbackPath, url);
@@ -517,9 +614,6 @@ async function resolveOAuthConfigForResourceOption(
   if (!authorizationServer.value) {
     return err(inputError(`Authorization server '${issuer}' does not publish usable metadata`));
   }
-  const shouldRegisterDynamically = Boolean(
-    client.useDynamicRegistration || (!client.clientId && client.metadata),
-  );
   let clientId = client.clientId ?? client.metadata?.clientId;
   let clientSecret = client.clientSecret;
   let clientAuthentication = normalizeClientAuthentication(
@@ -527,54 +621,19 @@ async function resolveOAuthConfigForResourceOption(
     Boolean(clientSecret),
   );
 
-  if (shouldRegisterDynamically) {
-    if (!client.metadata) {
-      return err(inputError("Dynamic client registration requires client metadata"));
-    }
-    if (!authorizationServer.value.registration_endpoint) {
-      return err(
-        inputError(
-          `Authorization server '${authorizationServer.value.issuer}' does not support dynamic client registration`,
-        ),
-      );
-    }
-
-    const registrationResponse = await result(
-      oauth.dynamicClientRegistrationRequest(
-        authorizationServer.value,
-        cimdToClientMetadata(client.metadata),
-        {
-          initialAccessToken: client.initialAccessToken,
-          ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
-        },
-      ),
-    );
-    if (!registrationResponse.ok) {
-      return err(
-        oauthError("dynamic-client-registration", "Dynamic client registration failed", {
-          cause: registrationResponse.error,
-        }),
-      );
-    }
-
-    const registered = await result(
-      oauth.processDynamicClientRegistrationResponse(registrationResponse.value),
-    );
-    if (!registered.ok) {
-      return err(
-        oauthError(
-          "dynamic-client-registration",
-          "Failed to process dynamic client registration response",
-          { cause: registered.error },
-        ),
-      );
-    }
-    clientId = stringValue(registered.value.client_id);
-    clientSecret = stringValue(registered.value.client_secret);
-    clientAuthentication = normalizeClientAuthentication(
-      stringValue(registered.value.token_endpoint_auth_method),
-      Boolean(clientSecret),
-    );
+  const registeredClient = await maybeRegisterDynamicClient(
+    authorizationServer.value,
+    client,
+    clientId,
+    customFetch,
+  );
+  if (!registeredClient.ok) {
+    return registeredClient;
+  }
+  if (registeredClient.value) {
+    clientId = registeredClient.value.clientId;
+    clientSecret = registeredClient.value.clientSecret;
+    clientAuthentication = registeredClient.value.clientAuthentication;
   }
 
   if (!clientId) {
@@ -790,6 +849,26 @@ export function createOAuthService(options: {
       if (!authorizationServer.ok) {
         return authorizationServer;
       }
+      let resolvedOAuthConfig = oauthConfig.value;
+      if (input.option.source === "profile") {
+        const registeredClient = await maybeRegisterDynamicClient(
+          authorizationServer.value,
+          input.client ?? options.defaultClient,
+          resolvedOAuthConfig.clientId,
+          options.customFetch,
+        );
+        if (!registeredClient.ok) {
+          return registeredClient;
+        }
+        if (registeredClient.value) {
+          resolvedOAuthConfig = {
+            ...resolvedOAuthConfig,
+            clientId: registeredClient.value.clientId,
+            clientSecret: registeredClient.value.clientSecret,
+            clientAuthentication: registeredClient.value.clientAuthentication,
+          };
+        }
+      }
       if (!authorizationServer.value.authorization_endpoint) {
         return err(
           inputError(
@@ -803,15 +882,15 @@ export function createOAuthService(options: {
       const codeChallenge = await oauth.calculatePKCECodeChallenge(codeVerifier);
       const authorizationUrl = new URL(authorizationServer.value.authorization_endpoint);
 
-      authorizationUrl.searchParams.set("client_id", oauthConfig.value.clientId);
+      authorizationUrl.searchParams.set("client_id", resolvedOAuthConfig.clientId);
       authorizationUrl.searchParams.set("redirect_uri", redirectUri.value.toString());
       authorizationUrl.searchParams.set("response_type", "code");
       authorizationUrl.searchParams.set("state", flowId);
       authorizationUrl.searchParams.set("code_challenge", codeChallenge);
       authorizationUrl.searchParams.set("code_challenge_method", "S256");
-      authorizationUrl.searchParams.set("resource", oauthConfig.value.resource);
+      authorizationUrl.searchParams.set("resource", resolvedOAuthConfig.resource);
 
-      const scopes = toScopeString(input.scopes) ?? toScopeString(oauthConfig.value.scopes);
+      const scopes = toScopeString(input.scopes) ?? toScopeString(resolvedOAuthConfig.scopes);
       if (scopes) {
         authorizationUrl.searchParams.set("scope", scopes);
       }
@@ -828,7 +907,7 @@ export function createOAuthService(options: {
         redirectUri: redirectUri.value.toString(),
         codeVerifier,
         expiresAt: input.expiresAt ?? defaultExpiry(options.clock),
-        oauthConfig: oauthConfig.value,
+        oauthConfig: resolvedOAuthConfig,
       };
       await flowStore.value.create(flow);
 
