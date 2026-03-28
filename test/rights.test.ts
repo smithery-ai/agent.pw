@@ -40,6 +40,8 @@ describe("rules helpers", () => {
       "org_alpha.team",
       "org_alpha",
     ]);
+    expect(rootsForAction(rights, "profile.manage")).toEqual([]);
+    expect(rootsForActions(rights, ["profile.manage"])).toEqual([]);
   });
 
   it("checks action presence and root coverage from facts", () => {

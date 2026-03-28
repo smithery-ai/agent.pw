@@ -10,6 +10,12 @@ export default defineConfig({
       all: true,
       include: ["packages/server/src/**/*.ts"],
       exclude: ["packages/server/src/db/schema/**", "packages/server/src/types.ts"],
+      thresholds: {
+        statements: 100,
+        branches: 100,
+        functions: 100,
+        lines: 100,
+      },
     },
   },
 });

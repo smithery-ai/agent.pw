@@ -326,14 +326,11 @@ async function discoverResource(resource: string, customFetch: typeof fetch | un
     return normalizedResource;
   }
 
-  const resourceUrl = assertUrl(normalizedResource.value, "resource");
-  if (!resourceUrl.ok) {
-    return resourceUrl;
-  }
+  const resourceUrl = new URL(normalizedResource.value);
 
   const metadataResponse = await result(
     oauth.resourceDiscoveryRequest(
-      resourceUrl.value,
+      resourceUrl,
       customFetch ? { [oauth.customFetch]: customFetch } : undefined,
     ),
   );
@@ -346,7 +343,7 @@ async function discoverResource(resource: string, customFetch: typeof fetch | un
   }
 
   const resourceServer = await result(
-    oauth.processResourceDiscoveryResponse(resourceUrl.value, metadataResponse.value),
+    oauth.processResourceDiscoveryResponse(resourceUrl, metadataResponse.value),
   );
   if (!resourceServer.ok) {
     return err(
@@ -400,16 +397,8 @@ function defaultSuccessResponse() {
   );
 }
 
-function defaultErrorResponse(error: unknown) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "object" &&
-          error !== null &&
-          "message" in error &&
-          typeof error.message === "string"
-        ? error.message
-        : "OAuth flow failed";
+function defaultErrorResponse(error: { message: string }) {
+  const message = error.message;
   return new Response(JSON.stringify({ error: message }), {
     status: 400,
     headers: {
@@ -596,11 +585,6 @@ async function resolveOAuthConfigForResourceOption(
     );
   }
 
-  const normalizedResource = normalizeResource(option.resource);
-  if (!normalizedResource.ok) {
-    return normalizedResource;
-  }
-
   return ok({
     issuer: authorizationServer.value.issuer,
     authorizationUrl: authorizationServer.value.authorization_endpoint,
@@ -610,7 +594,7 @@ async function resolveOAuthConfigForResourceOption(
     clientSecret,
     clientAuthentication,
     scopes: option.scopes,
-    resource: normalizedResource.value,
+    resource: discovered.value.resource,
   } satisfies OAuthResolvedConfig);
 }
 
@@ -758,10 +742,8 @@ export function createOAuthService(options: {
       path: credential.value.path,
       auth: {
         kind: "oauth",
-        ...(credential.value.auth.profilePath
-          ? { profilePath: credential.value.auth.profilePath }
-          : {}),
-        ...(credential.value.auth.resource ? { resource: credential.value.auth.resource } : {}),
+        profilePath: credential.value.auth.profilePath ?? undefined,
+        resource: credential.value.auth.resource ?? undefined,
       },
       secret,
     });
