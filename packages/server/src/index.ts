@@ -23,6 +23,7 @@ import type {
   ConnectResolutionResult,
   CredentialAuth,
   CredentialProfileAuth,
+  CredentialProfileOAuthAuth,
   CredentialProfilePutInput,
   CredentialProfileRecord,
   CredentialRecord,
@@ -476,20 +477,28 @@ export async function createAgentPw(options: AgentPwOptions) {
     return decryptCredentialRecord(encryptionKey, persisted.value);
   };
 
+  function oauthOptionFromProfile(
+    profile: CredentialProfileRecord,
+    oauthAuth: CredentialProfileOAuthAuth,
+    resource: string,
+  ): ConnectOAuthOption {
+    return {
+      kind: "oauth",
+      source: "profile",
+      resource,
+      profilePath: profile.path,
+      label: profile.displayName ?? oauthAuth.label ?? credentialName(profile.path),
+      scopes: Array.isArray(oauthAuth.scopes)
+        ? oauthAuth.scopes
+        : typeof oauthAuth.scopes === "string"
+          ? oauthAuth.scopes.split(/\s+/).filter(Boolean)
+          : undefined,
+    };
+  }
+
   function optionFromProfile(profile: CredentialProfileRecord, resource: string): ConnectOption {
     if (profile.auth.kind === "oauth") {
-      return {
-        kind: "oauth",
-        source: "profile",
-        resource,
-        profilePath: profile.path,
-        label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
-        scopes: Array.isArray(profile.auth.scopes)
-          ? profile.auth.scopes
-          : typeof profile.auth.scopes === "string"
-            ? profile.auth.scopes.split(/\s+/).filter(Boolean)
-            : undefined,
-      };
+      return oauthOptionFromProfile(profile, profile.auth, resource);
     }
 
     return {
@@ -728,10 +737,11 @@ export async function createAgentPw(options: AgentPwOptions) {
             const stepUpOption: ConnectOAuthOption =
               profile.value?.auth.kind === "oauth"
                 ? {
-                    ...(optionFromProfile(
+                    ...oauthOptionFromProfile(
                       profile.value,
+                      profile.value.auth,
                       resolved.value.resource,
-                    ) as ConnectOAuthOption),
+                    ),
                     scopes: mergedScopes,
                   }
                 : {
