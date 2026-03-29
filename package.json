@@ -9,7 +9,8 @@
     "./oauth": "./packages/server/src/oauth.ts",
     "./rules": "./packages/server/src/rules.ts",
     "./sql": "./packages/server/src/sql/index.ts",
-    "./types": "./packages/server/src/types.ts"
+    "./types": "./packages/server/src/types.ts",
+    "./errors": "./packages/server/src/errors.ts"
   },
   "scripts": {
     "build": "pnpm typecheck",

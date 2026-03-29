@@ -1,17 +1,7 @@
 import { z } from "zod";
 import type { JWKS } from "oauth4webapi";
 import type { Result } from "okay-error";
-import type {
-  authorizationError,
-  conflictError,
-  cryptoError,
-  expiredError,
-  inputError,
-  internalError,
-  notFoundError,
-  oauthError,
-  persistenceError,
-} from "./errors.js";
+import type { AgentPwError } from "./errors.js";
 import type { Database } from "./db/index.js";
 
 export type { Database } from "./db/index.js";
@@ -399,19 +389,7 @@ export interface ConnectWebHandlers {
 export interface ConnectWebHandlerOptions {
   callbackPath?: string;
   success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
-  error?(
-    error:
-      | ReturnType<typeof authorizationError>
-      | ReturnType<typeof conflictError>
-      | ReturnType<typeof cryptoError>
-      | ReturnType<typeof expiredError>
-      | ReturnType<typeof inputError>
-      | ReturnType<typeof internalError>
-      | ReturnType<typeof notFoundError>
-      | ReturnType<typeof oauthError>
-      | ReturnType<typeof persistenceError>,
-    request: Request,
-  ): Response | Promise<Response>;
+  error?(error: AgentPwError, request: Request): Response | Promise<Response>;
 }
 
 export interface ScopedAgentPw {

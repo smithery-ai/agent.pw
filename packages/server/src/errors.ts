@@ -56,18 +56,28 @@ export function internalError(
   return { type: "Internal" as const, message, ...data };
 }
 
-export function isAgentPwError(
-  error: unknown,
-): error is
-  | ReturnType<typeof authorizationError>
-  | ReturnType<typeof conflictError>
-  | ReturnType<typeof cryptoError>
-  | ReturnType<typeof expiredError>
-  | ReturnType<typeof inputError>
-  | ReturnType<typeof internalError>
-  | ReturnType<typeof notFoundError>
-  | ReturnType<typeof oauthError>
-  | ReturnType<typeof persistenceError> {
+export type InputError = ReturnType<typeof inputError>;
+export type ConflictError = ReturnType<typeof conflictError>;
+export type AuthorizationError = ReturnType<typeof authorizationError>;
+export type NotFoundError = ReturnType<typeof notFoundError>;
+export type ExpiredError = ReturnType<typeof expiredError>;
+export type PersistenceError = ReturnType<typeof persistenceError>;
+export type OAuthError = ReturnType<typeof oauthError>;
+export type CryptoError = ReturnType<typeof cryptoError>;
+export type InternalError = ReturnType<typeof internalError>;
+
+export type AgentPwError =
+  | InputError
+  | ConflictError
+  | AuthorizationError
+  | NotFoundError
+  | ExpiredError
+  | PersistenceError
+  | OAuthError
+  | CryptoError
+  | InternalError;
+
+export function isAgentPwError(error: unknown): error is AgentPwError {
   return (
     typeof error === "object" &&
     error !== null &&
@@ -76,4 +86,44 @@ export function isAgentPwError(
     typeof error.type === "string" &&
     typeof error.message === "string"
   );
+}
+
+export function isInputError(error: unknown): error is InputError {
+  return isAgentPwError(error) && error.type === "Input";
+}
+
+export function isConflictError(error: unknown): error is ConflictError {
+  return isAgentPwError(error) && error.type === "Conflict";
+}
+
+export function isAuthorizationError(error: unknown): error is AuthorizationError {
+  return isAgentPwError(error) && error.type === "Authorization";
+}
+
+export function isNotFoundError(error: unknown, resource?: string): error is NotFoundError {
+  return (
+    isAgentPwError(error) &&
+    error.type === "NotFound" &&
+    (resource === undefined || error.resource === resource)
+  );
+}
+
+export function isExpiredError(error: unknown): error is ExpiredError {
+  return isAgentPwError(error) && error.type === "Expired";
+}
+
+export function isPersistenceError(error: unknown): error is PersistenceError {
+  return isAgentPwError(error) && error.type === "Persistence";
+}
+
+export function isOAuthError(error: unknown): error is OAuthError {
+  return isAgentPwError(error) && error.type === "OAuth";
+}
+
+export function isCryptoError(error: unknown): error is CryptoError {
+  return isAgentPwError(error) && error.type === "Crypto";
+}
+
+export function isInternalError(error: unknown): error is InternalError {
+  return isAgentPwError(error) && error.type === "Internal";
 }
