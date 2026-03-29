@@ -1779,10 +1779,13 @@ describe("oauth service coverage", () => {
 
     expect(
       await service.raw.classifyResponse({
-        response: new Response(null, {
+        response: {
           status: 401,
-          headers: { "WWW-Authenticate": 'Bearer scope="read write"' },
-        }),
+          headers: {
+            Authorization: undefined,
+            "WWW-Authenticate": 'Bearer scope="read write"',
+          },
+        },
       }),
     ).toEqual({
       ok: true,
@@ -1810,6 +1813,25 @@ describe("oauth service coverage", () => {
         kind: "auth-required",
         scheme: "bearer",
         scopes: ["admin"],
+        resourceMetadataUrl: new URL("https://meta.example.com/resource"),
+      },
+    });
+
+    expect(
+      await service.raw.classifyResponse({
+        response: {
+          status: 401,
+          headers: {
+            "WWW-Authenticate": ['Bearer resource_metadata="https://meta.example.com/resource"'],
+          },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        kind: "auth-required",
+        scheme: "bearer",
+        scopes: [],
         resourceMetadataUrl: new URL("https://meta.example.com/resource"),
       },
     });
@@ -1905,5 +1927,24 @@ describe("oauth service coverage", () => {
       }),
     });
     expect(invalidMetadata.ok).toBe(false);
+
+    const invalidResourceLabel = await service.raw.classifyResponse({
+      resource: "not-a-url",
+      response: {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": 'Bearer resource_metadata="not-a-url"',
+        },
+      },
+    });
+    expect(invalidResourceLabel.ok).toBe(false);
+    if (invalidResourceLabel.ok) {
+      throw new Error("Expected classifyResponse resource parse failure");
+    }
+    expect(invalidResourceLabel.error).toEqual(
+      expect.objectContaining({
+        message: "Failed to parse resource challenge for 'not-a-url'",
+      }),
+    );
   });
 });

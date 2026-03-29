@@ -101,10 +101,7 @@ function normalizeResponseHeaders(headers: ResponseLike["headers"]) {
       );
 }
 
-function getResponseHeader(response: ResponseLike | undefined, name: string) {
-  if (!response) {
-    return null;
-  }
+function getResponseHeader(response: ResponseLike, name: string) {
   return normalizeResponseHeaders(response.headers).get(name);
 }
 

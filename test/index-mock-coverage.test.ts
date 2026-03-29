@@ -303,6 +303,18 @@ describe("index mock coverage", () => {
                 ),
               );
             }
+            if (path === "oauth.stepup.classify.err") {
+              return ok(
+                credentialRow(
+                  "oauth.stepup.classify.err",
+                  {
+                    kind: "oauth",
+                    resource: "https://classify.err",
+                  },
+                  "oauth-secret",
+                ),
+              );
+            }
             if (path === "oauth.nullish.persist") {
               return ok(
                 credentialRow(
@@ -469,7 +481,19 @@ describe("index mock coverage", () => {
         async completeAuthorization() {
           return err(inputError("mock completion failure"));
         },
-        async parseScopeChallenge(response: Response | undefined, _resource?: string) {
+        async classifyResponse(input: { response?: Response; resource?: string }) {
+          if (
+            input.response?.status === 403 &&
+            input.response.headers.get("x-classify-error") === "1"
+          ) {
+            return err(inputError("mock classify failure"));
+          }
+          if (input.response?.status === 403) {
+            return ok({ kind: "step-up", scheme: "bearer" as const, scopes: ["admin"] });
+          }
+          return ok({ kind: "none" as const });
+        },
+        async parseScopeChallenge(response: { status: number } | undefined, _resource?: string) {
           if (response?.status === 403) {
             return ok({ scopes: ["admin"] });
           }
@@ -683,6 +707,18 @@ describe("index mock coverage", () => {
         }),
       ).message,
     ).toBe("mock profile get failure");
+    expect(
+      errorOf(
+        await agentPw.connect.prepare({
+          path: "oauth.stepup.classify.err",
+          resource: "https://classify.err",
+          response: new Response(null, {
+            status: 403,
+            headers: { "x-classify-error": "1" },
+          }),
+        }),
+      ).message,
+    ).toBe("mock classify failure");
     expect(
       errorOf(
         await agentPw.connect.startOAuth({
