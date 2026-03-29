@@ -13,6 +13,11 @@ export interface CrudOptions {
 export interface RecursiveCrudOptions extends CrudOptions {
   recursive?: boolean;
 }
+
+export type ResponseLike = {
+  status: number;
+  headers: Headers | Record<string, string | string[] | undefined>;
+};
 import type {
   StoredCredentials,
   StoredHeadersCredentials,
@@ -262,8 +267,28 @@ export interface ConnectResolutionResult {
 export interface ConnectPrepareInput {
   path: string;
   resource: string;
-  response?: Response;
+  response?: ResponseLike;
 }
+
+export interface ConnectClassifyResponseInput {
+  response?: ResponseLike;
+  resource?: string;
+}
+
+export type ConnectClassifyResponseResult =
+  | { kind: "none" }
+  | {
+      kind: "auth-required";
+      scheme: "bearer";
+      scopes: string[];
+      resourceMetadataUrl?: URL;
+    }
+  | {
+      kind: "step-up";
+      scheme: "bearer";
+      scopes: string[];
+      resourceMetadataUrl?: URL;
+    };
 
 export interface ConnectReadyResult {
   kind: "ready";
@@ -400,6 +425,9 @@ export interface ConnectWebHandlerOptions {
 export interface ScopedAgentPw {
   connect: {
     prepare(input: ConnectPrepareInput): Promise<Result<ConnectPrepareResult>>;
+    classifyResponse(
+      input: ConnectClassifyResponseInput,
+    ): Promise<Result<ConnectClassifyResponseResult>>;
     getFlow(flowId: string): Promise<Result<ConnectFlow>>;
     startOAuth(input: ConnectStartOAuthInput): Promise<Result<ConnectAuthorizationSession>>;
     completeOAuth(
