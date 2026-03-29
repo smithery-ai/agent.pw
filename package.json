@@ -1,7 +1,11 @@
 {
   "name": "agent.pw",
-  "version": "0.5.0",
+  "version": "0.4.0",
   "description": "Credential vault and auth framework for agents",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/smithery-ai/agent.pw.git"
+  },
   "type": "module",
   "exports": {
     ".": "./packages/server/src/index.ts",
