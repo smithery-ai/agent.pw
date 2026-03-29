@@ -1579,4 +1579,41 @@ describe("oauth service coverage", () => {
       "Resource 'https://docs.example.com/mcp' requires oauth client configuration",
     );
   });
+
+  it("covers parseScopeChallenge edge cases", async () => {
+    const state = await createState();
+    const service = state.service({ flowStore: createInMemoryFlowStore() });
+
+    // Non-Bearer www-authenticate
+    expect(
+      await service.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Basic realm="test"' },
+        }),
+      ),
+    ).toEqual({ ok: true, value: null });
+
+    // insufficient_scope with no scope param
+    expect(
+      await service.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope"' },
+        }),
+      ),
+    ).toEqual({ ok: true, value: null });
+
+    // Invalid resource_metadata URL
+    const invalidMetadata = await service.raw.parseScopeChallenge(
+      new Response(null, {
+        status: 403,
+        headers: {
+          "WWW-Authenticate":
+            'Bearer error="insufficient_scope", scope="admin", resource_metadata="not-a-url"',
+        },
+      }),
+    );
+    expect(invalidMetadata.ok).toBe(false);
+  });
 });

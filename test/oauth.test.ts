@@ -839,4 +839,73 @@ describe("oauth runtime", () => {
     // Headers credentials don't support step-up — return ready
     expect(prepared.kind).toBe("ready");
   });
+
+  it("returns step-up options for discovery-backed credentials without profile", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    // Create a discovery-backed credential (no profile)
+    const prepared = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_mcp",
+      resource: "https://docs.example.com/mcp",
+    });
+    if (prepared.kind !== "options") throw new Error("Expected options");
+    const option = prepared.options.find((o) => o.kind === "oauth")!;
+
+    const session = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.docs_mcp",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+    await agentPw.connect.completeOAuth({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
+    });
+
+    // Now send a 403 insufficient_scope
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", scope="mcp.tools.read mcp.tools.write"',
+      },
+    });
+
+    const stepUp = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_mcp",
+      resource: "https://docs.example.com/mcp",
+      response: response403,
+    });
+
+    expect(stepUp.kind).toBe("options");
+    if (stepUp.kind !== "options") throw new Error("Expected options");
+    expect(stepUp.resolution.reason).toBe("step-up");
+
+    const stepUpOption = stepUp.options[0]!;
+    expect(stepUpOption.kind).toBe("oauth");
+    if (stepUpOption.kind !== "oauth") throw new Error("Expected oauth");
+    // Discovery-backed: source should be "discovery"
+    expect(stepUpOption.source).toBe("discovery");
+    // Merged scopes: existing "mcp.tools.read" + challenged "mcp.tools.read mcp.tools.write"
+    expect(stepUpOption.scopes).toEqual(
+      expect.arrayContaining(["mcp.tools.read", "mcp.tools.write"]),
+    );
+  });
+
+  it("returns null for 403 insufficient_scope with no scope parameter", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="insufficient_scope"',
+      },
+    });
+
+    // Should still return ready since there are no scopes to step up to
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+    expect(prepared.kind).toBe("ready");
+  });
 });
