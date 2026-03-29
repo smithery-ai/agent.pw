@@ -756,4 +756,88 @@ describe("oauth runtime", () => {
       Authorization: "Bearer profile-access-2",
     });
   });
+
+  it("returns step-up options with merged scopes on 403 insufficient_scope", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", scope="read write admin", resource_metadata="https://api.linear.app/.well-known/oauth-protected-resource"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("Expected options");
+
+    expect(prepared.resolution.reason).toBe("step-up");
+    expect(prepared.options).toHaveLength(1);
+
+    const option = prepared.options[0]!;
+    expect(option.kind).toBe("oauth");
+    if (option.kind !== "oauth") throw new Error("Expected oauth option");
+
+    // Existing scopes ("read write") merged with challenged scopes ("read write admin")
+    expect(option.scopes).toEqual(expect.arrayContaining(["read", "write", "admin"]));
+    expect(option.scopes).toHaveLength(3);
+
+    // Should preserve profile source
+    expect(option.source).toBe("profile");
+    expect(option.profilePath).toBe("linear");
+  });
+
+  it("returns ready for non-insufficient_scope 403 responses", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    // 403 without insufficient_scope error
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="invalid_token"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+
+    // Should still return ready since it's not insufficient_scope
+    expect(prepared.kind).toBe("ready");
+  });
+
+  it("returns ready for headers credentials even with 403 insufficient_scope", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.api_key",
+      resource: "https://api.headers-only.com",
+      headers: { Authorization: "Bearer static-key" },
+    });
+
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", scope="admin"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.api_key",
+      resource: "https://api.headers-only.com",
+      response: response403,
+    });
+
+    // Headers credentials don't support step-up — return ready
+    expect(prepared.kind).toBe("ready");
+  });
 });

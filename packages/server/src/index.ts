@@ -188,6 +188,10 @@ function toJsonRecord(value: unknown) {
   return ok(normalized);
 }
 
+function scopeList(value: string | undefined) {
+  return value?.split(/\s+/).filter(Boolean) ?? [];
+}
+
 function toProfileRecord(row: {
   path: string;
   resourcePatterns: string[];
@@ -707,6 +711,50 @@ export async function createAgentPw(options: AgentPwOptions) {
         return resolved;
       }
       if (resolved.value.existing) {
+        // Check for 403 insufficient_scope step-up challenge
+        if (resolved.value.existing.auth.kind === "oauth") {
+          const scopeChallenge = await oauth.parseScopeChallenge(input.response);
+          if (scopeChallenge.ok && scopeChallenge.value) {
+            const existingScopes = scopeList(resolved.value.existing.secret.oauth?.scopes);
+            const mergedScopes = [
+              ...new Set([...existingScopes, ...scopeChallenge.value.scopes]),
+            ];
+
+            const profile = resolved.value.existing.auth.profilePath
+              ? await profiles.get(resolved.value.existing.auth.profilePath)
+              : ok(null);
+            if (!profile.ok) {
+              return profile;
+            }
+
+            const stepUpOption: ConnectOAuthOption = profile.value?.auth.kind === "oauth"
+              ? {
+                  ...optionFromProfile(profile.value, resolved.value.resource) as ConnectOAuthOption,
+                  scopes: mergedScopes,
+                }
+              : {
+                  kind: "oauth",
+                  source: "discovery",
+                  resource: resolved.value.resource,
+                  label: credentialName(resolved.value.path),
+                  scopes: mergedScopes,
+                  authorizationServer: resolved.value.existing.secret.oauth?.issuer,
+                };
+
+            return ok({
+              kind: "options",
+              options: [stepUpOption],
+              resolution: {
+                canonicalResource: resolved.value.resource,
+                source: stepUpOption.source,
+                reason: "step-up",
+                profilePath: resolved.value.existing.auth.profilePath ?? null,
+                option: stepUpOption,
+              } satisfies ConnectResolutionResult,
+            });
+          }
+        }
+
         const credential =
           resolved.value.existing.auth.kind === "oauth"
             ? await oauth.refreshCredential(resolved.value.path, false, resolved.value.existing)

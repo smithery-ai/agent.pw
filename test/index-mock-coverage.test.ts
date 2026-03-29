@@ -456,6 +456,9 @@ describe("index mock coverage", () => {
         async completeAuthorization() {
           return err(inputError("mock completion failure"));
         },
+        async parseScopeChallenge() {
+          return ok(null);
+        },
         async disconnect() {
           return err(inputError("mock disconnect failure"));
         },

@@ -520,6 +520,49 @@ async function readResourceChallenge(resourceUrl: URL, response: Response | unde
   });
 }
 
+async function readScopeChallenge(response: Response | undefined) {
+  if (!response || response.status !== 403 || !response.headers.get("www-authenticate")) {
+    return ok<{
+      resourceMetadataUrl?: URL;
+      scopes: string[];
+    } | null>(null);
+  }
+
+  const wwwAuthenticate = response.headers.get("www-authenticate")!;
+  const bearerMatch = wwwAuthenticate.match(/Bearer\s+/i);
+  if (!bearerMatch) {
+    return ok(null);
+  }
+
+  const errorMatch = wwwAuthenticate.match(/error="([^"]+)"/);
+  if (!errorMatch || errorMatch[1] !== "insufficient_scope") {
+    return ok(null);
+  }
+
+  const scopeMatch = wwwAuthenticate.match(/scope="([^"]+)"/);
+  const scopes = scopeMatch ? scopeMatch[1]!.split(/\s+/).filter(Boolean) : [];
+  if (scopes.length === 0) {
+    return ok(null);
+  }
+
+  const metadataMatch = wwwAuthenticate.match(/resource_metadata="([^"]+)"/);
+  const resourceMetadataUrl = metadataMatch
+    ? assertUrl(metadataMatch[1]!, "resource metadata")
+    : ok<URL | undefined>(undefined);
+  if (!resourceMetadataUrl.ok) {
+    return err(
+      oauthError("resource-discovery", "Failed to parse scope challenge resource_metadata", {
+        cause: resourceMetadataUrl.error,
+      }),
+    );
+  }
+
+  return ok({
+    resourceMetadataUrl: resourceMetadataUrl.value,
+    scopes,
+  });
+}
+
 function tokenRequestOptions(resource: string, customFetch: typeof fetch | undefined) {
   return {
     additionalParameters: { resource },
@@ -1052,6 +1095,10 @@ export function createOAuthService(options: {
 
     async discoverResource(input: { resource: string; response?: Response }) {
       return discoverResource(input.resource, options.customFetch, input.response);
+    },
+
+    async parseScopeChallenge(response: Response | undefined) {
+      return readScopeChallenge(response);
     },
 
     async startAuthorization(input: ConnectStartOAuthInput) {
