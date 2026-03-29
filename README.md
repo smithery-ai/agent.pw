@@ -12,7 +12,7 @@ It stores encrypted credentials, runs OAuth flows, supports manual header-based 
 - `resource`: the protected resource a connect flow is trying to access, such as `https://api.github.com/` or `https://docs.example.com/mcp`
 - `credential`: the encrypted auth stored at that exact path
 - `profile`: admin-configured setup guidance and polyfills that help `agent.pw` choose the right auth path
-- `rules`: path-based authorization facts that can be enforced directly or compiled into Biscuits
+- `rules`: path-based authorization facts that can be enforced directly
 
 Profiles are background configuration. End users usually do not need to know they exist.
 
@@ -24,7 +24,6 @@ Paths use strict dot-separated `ltree` syntax. Each segment must match `[A-Za-z0
 import { createAgentPw } from "agent.pw";
 import * as oauth from "agent.pw/oauth";
 import * as rules from "agent.pw/rules";
-import * as biscuit from "agent.pw/biscuit";
 import * as sql from "agent.pw/sql";
 import * as paths from "agent.pw/paths";
 ```
@@ -310,11 +309,11 @@ const headers = await api.connect.resolveHeaders({
 });
 ```
 
-Apps are responsible for deriving those rights from whatever auth system they use, such as a Biscuit token, a session, or an internal permission store.
+Apps are responsible for deriving those rights from whatever auth system they use, such as a session or an internal permission store.
 
 `scope(...)` only accepts the facts the framework actually checks: path-based rights.
 
-## Rules and Biscuits
+## Rules
 
 Rules are the base authorization model.
 
@@ -326,22 +325,9 @@ const allowed = can({
   action: "credential.use",
   path: "acme.connections.docs",
 });
-```
-
 if (!allowed) {
-throw new Error("Missing credential.use for acme.connections.docs");
+  throw new Error("Missing credential.use for acme.connections.docs");
 }
-
-If an app wants Biscuit tokens, it can compile the same rules into Biscuits:
-
-```ts
-import { compileRulesToBiscuit } from "agent.pw/biscuit";
-
-const token = compileRulesToBiscuit({
-  privateKeyHex: process.env.BISCUIT_PRIVATE_KEY!,
-  subject: "agent_finance",
-  rights: [{ action: "credential.use", root: "acme" }],
-});
 ```
 
 ## Hosted OAuth and Client Metadata

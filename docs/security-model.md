@@ -32,7 +32,7 @@ The implementer owns:
 - guided auth selection through `connect.prepare(...)`
 - OAuth lifecycle operations for stored credentials
 - profile storage and profile matching
-- rule evaluation and optional Biscuit helpers
+- rule evaluation
 
 That split keeps the framework focused on provider auth state and auth decisions while leaving product-specific control to the embedding app.
 
@@ -241,19 +241,13 @@ const api = agentPw.scope({
 await api.connect.resolveHeaders({ path: "acme.connections.docs" });
 ```
 
-The framework only asks for path-based rights because those are the facts it actually checks. Apps can derive those rights from Biscuits, sessions, or any other permission store.
-
-## Biscuits
-
-`agent.pw/biscuit` is an optional token helper for the same rule model.
-
-Apps that want Biscuit tokens can compile rules into Biscuits, attenuate them, and extract facts from them, but the framework does not depend on Biscuit for its own authorization semantics.
+The framework only asks for path-based rights because those are the facts it actually checks. Apps can derive those rights from sessions or any other permission store.
 
 The core security model stays the same either way:
 
 - paths define the protected namespace
 - rules define the granted actions
-- optional token formats can carry those facts across runtimes
+- apps can carry those facts across runtimes however they choose
 
 ## SQL Footprint
 

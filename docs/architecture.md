@@ -89,7 +89,7 @@ credential.manage on acme.connections
 profile.read (global)
 ```
 
-The framework can enforce those rules directly or compile them into Biscuits.
+The framework enforces those rules directly.
 
 Global scope is represented by omitting `root`, not by using a root-path literal.
 
@@ -101,7 +101,6 @@ The public package surface is:
 import { createAgentPw } from "agent.pw";
 import * as oauth from "agent.pw/oauth";
 import * as rules from "agent.pw/rules";
-import * as biscuit from "agent.pw/biscuit";
 import * as sql from "agent.pw/sql";
 import * as paths from "agent.pw/paths";
 ```
@@ -345,7 +344,7 @@ const api = agentPw.scope({
 await api.connect.resolveHeaders({ path: "acme.connections.docs" });
 ```
 
-The framework only accepts the authorization facts it checks itself: path-based rights. Apps can derive those rights from Biscuits, sessions, or any other permission store.
+The framework only accepts the authorization facts it checks itself: path-based rights. Apps can derive those rights from sessions or any other permission store.
 
 ## OAuth Runtime Ownership
 

@@ -6,7 +6,7 @@ import {
   encryptSecret,
   importAesKey,
 } from "../packages/server/src/lib/credentials-crypto";
-import { BISCUIT_PRIVATE_KEY } from "./setup";
+import { TEST_KEY_MATERIAL } from "./setup";
 import { errorOfAsync, mustAsync } from "./support/results";
 
 afterEach(() => {
@@ -23,7 +23,7 @@ describe("helper coverage", () => {
     );
     digestSpy.mockRestore();
 
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const importSpy = vi
       .spyOn(crypto.subtle, "importKey")
       .mockRejectedValueOnce(new Error("import failed"));

@@ -3,12 +3,12 @@ import { createInMemoryFlowStore } from "agent.pw/oauth";
 import { describe, expect, it } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
 import type { RuleScope } from "../packages/server/src/types";
-import { BISCUIT_PRIVATE_KEY, createTestDb } from "./setup";
+import { TEST_KEY_MATERIAL, createTestDb } from "./setup";
 import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 async function createTestAgent() {
   const db = await createTestDb();
-  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+  const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
   return wrapAgentPw(
     must(
       await createAgentPw({
@@ -285,7 +285,7 @@ describe("createAgentPw", () => {
 
   it("uses the caller db for connect.setHeaders", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const agentPw = wrapAgentPw(
       must(
         await createAgentPw({
@@ -456,7 +456,7 @@ describe("createAgentPw", () => {
 
   it("guides existing oauth connections, discovery-first oauth, and profile oauth without scopes", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const agentPw = wrapAgentPw(
       must(
         await createAgentPw({
@@ -631,7 +631,7 @@ describe("createAgentPw", () => {
 
   it("does not leak oauth flow secrets through scoped getFlow", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const agentPw = wrapAgentPw(
       must(
         await createAgentPw({

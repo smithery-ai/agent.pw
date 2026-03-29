@@ -54,19 +54,6 @@ export interface RuleScope {
   rights: RuleGrant[];
 }
 
-export interface BiscuitSubject {
-  orgId?: string | null;
-  homePath?: string | null;
-  scopes?: string[];
-}
-
-export interface BiscuitTokenFacts extends RuleScope {
-  userId: string | null;
-  orgId: string | null;
-  homePath: string | null;
-  scopes: string[];
-}
-
 export interface RuleAuthorizationInput {
   rights: RuleGrant[];
   action: string;
@@ -498,8 +485,6 @@ export interface ScopedAgentPw {
 }
 
 export type AuthorizedAgentPw = ScopedAgentPw;
-export type RuleFacts = BiscuitTokenFacts;
-export type RuleSubject = BiscuitSubject;
 
 export interface AgentPwOptions {
   db: Database;

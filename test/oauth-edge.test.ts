@@ -3,7 +3,7 @@ import { createInMemoryFlowStore } from "agent.pw/oauth";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
 import type { ConnectOAuthOption } from "../packages/server/src/types";
-import { BISCUIT_PRIVATE_KEY, createTestDb } from "./setup";
+import { TEST_KEY_MATERIAL, createTestDb } from "./setup";
 import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 function createDiscoveryFetch(
@@ -105,7 +105,7 @@ async function createAgent(
   } = {},
 ) {
   const db = await createTestDb();
-  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+  const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
   return wrapAgentPw(
     must(
       await createAgentPw({
