@@ -290,6 +290,19 @@ describe("index mock coverage", () => {
                 ),
               );
             }
+            if (path === "oauth.stepup.profile.err") {
+              return ok(
+                credentialRow(
+                  "oauth.stepup.profile.err",
+                  {
+                    kind: "oauth",
+                    profilePath: "profile.get.err",
+                    resource: "https://resource.example.com",
+                  },
+                  "oauth-secret",
+                ),
+              );
+            }
             if (path === "oauth.nullish.persist") {
               return ok(
                 credentialRow(
@@ -455,6 +468,12 @@ describe("index mock coverage", () => {
         },
         async completeAuthorization() {
           return err(inputError("mock completion failure"));
+        },
+        async parseScopeChallenge(response: Response | undefined, _resource?: string) {
+          if (response?.status === 403) {
+            return ok({ scopes: ["admin"] });
+          }
+          return ok(null);
         },
         async disconnect() {
           return err(inputError("mock disconnect failure"));
@@ -655,6 +674,15 @@ describe("index mock coverage", () => {
         }),
       ).message,
     ).toBe("Credential 'headerless.prepare' does not have header-based auth");
+    expect(
+      errorOf(
+        await agentPw.connect.prepare({
+          path: "oauth.stepup.profile.err",
+          resource: "https://resource.example.com",
+          response: new Response(null, { status: 403 }),
+        }),
+      ).message,
+    ).toBe("mock profile get failure");
     expect(
       errorOf(
         await agentPw.connect.startOAuth({

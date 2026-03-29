@@ -249,7 +249,12 @@ export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
 export interface ConnectResolutionResult {
   canonicalResource: string;
   source: ConnectOption["source"] | null;
-  reason: "existing-credential" | "matched-profile" | "discovered-oauth" | "unconfigured";
+  reason:
+    | "existing-credential"
+    | "matched-profile"
+    | "discovered-oauth"
+    | "unconfigured"
+    | "step-up";
   profilePath: string | null;
   option: ConnectOption | null;
 }
@@ -312,7 +317,7 @@ export interface ConnectSetHeadersInput {
 
 export interface ConnectResolveHeadersInput {
   path: string;
-  refresh?: boolean;
+  refresh?: boolean | "force";
 }
 
 export interface ConnectDisconnectInput {

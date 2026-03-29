@@ -350,6 +350,21 @@ if (!allowed) {
 Apps that need a hosted OAuth callback and a Client ID Metadata Document can use the built-in helpers:
 
 ```ts
+const agentPw = await createAgentPw({
+  db,
+  encryptionKey: process.env.AGENTPW_ENCRYPTION_KEY!,
+  flowStore: createInMemoryFlowStore(),
+  oauthClient: {
+    metadata: {
+      clientId: "https://app.example.com/.well-known/oauth-client",
+      redirectUris: ["https://app.example.com/oauth/callback"],
+      clientName: "App Client",
+      tokenEndpointAuthMethod: "none",
+    },
+    useDynamicRegistration: true,
+  },
+});
+
 const handlers = agentPw.connect.createWebHandlers({
   callbackPath: "/oauth/callback",
 });
@@ -379,6 +394,14 @@ export async function clientMetadata() {
   });
 }
 ```
+
+Use `oauthClient.clientId` when the app already has a fixed registered client ID.
+
+Use `oauthClient.metadata.clientId` when the client ID is the URL of a hosted Client ID Metadata Document. In that case, the same URL should be served by `connect.createClientMetadataResponse(...)`.
+
+Set `useDynamicRegistration: true` when the authorization server may require dynamic client registration from that metadata instead of accepting the metadata document URL directly.
+
+`connect.startOAuth({ client })` can override the default client for one flow when an embedder needs per-tenant or per-request client registration behavior.
 
 Under the hood, OAuth is implemented with [`oauth4webapi`](https://github.com/panva/oauth4webapi).
 
