@@ -11,7 +11,6 @@ import type {
   notFoundError,
   oauthError,
   persistenceError,
-  unsupportedCredentialKindError,
 } from "./errors.js";
 import type { Database } from "./db/index.js";
 
@@ -26,7 +25,6 @@ export interface RecursiveCrudOptions extends CrudOptions {
 }
 import type {
   StoredCredentials,
-  StoredEnvCredentials,
   StoredHeadersCredentials,
   StoredOAuthCredentials,
 } from "./lib/credentials-crypto.js";
@@ -80,13 +78,6 @@ export interface HeaderFieldDefinition {
   secret?: boolean;
 }
 
-export interface EnvFieldDefinition {
-  name: string;
-  label: string;
-  description?: string;
-  secret?: boolean;
-}
-
 export interface CredentialProfileOAuthAuth {
   kind: "oauth";
   label?: string;
@@ -106,16 +97,7 @@ export interface CredentialProfileHeadersAuth {
   fields: HeaderFieldDefinition[];
 }
 
-export interface CredentialProfileEnvAuth {
-  kind: "env";
-  label?: string;
-  fields: EnvFieldDefinition[];
-}
-
-export type CredentialProfileAuth =
-  | CredentialProfileOAuthAuth
-  | CredentialProfileHeadersAuth
-  | CredentialProfileEnvAuth;
+export type CredentialProfileAuth = CredentialProfileOAuthAuth | CredentialProfileHeadersAuth;
 
 export interface CredentialProfileRecord {
   path: string;
@@ -147,11 +129,7 @@ export interface OAuthCredentialAuth extends CredentialAuthBase {
   kind: "oauth";
 }
 
-export interface EnvCredentialAuth extends CredentialAuthBase {
-  kind: "env";
-}
-
-export type CredentialAuth = HeadersCredentialAuth | OAuthCredentialAuth | EnvCredentialAuth;
+export type CredentialAuth = HeadersCredentialAuth | OAuthCredentialAuth;
 
 interface CredentialAuthInputBase {
   profilePath?: string;
@@ -167,14 +145,7 @@ export interface OAuthCredentialAuthInput extends CredentialAuthInputBase {
   kind: "oauth";
 }
 
-export interface EnvCredentialAuthInput extends CredentialAuthInputBase {
-  kind: "env";
-}
-
-export type CredentialAuthInput =
-  | HeadersCredentialAuthInput
-  | OAuthCredentialAuthInput
-  | EnvCredentialAuthInput;
+export type CredentialAuthInput = HeadersCredentialAuthInput | OAuthCredentialAuthInput;
 
 export interface CredentialSummary {
   path: string;
@@ -196,8 +167,7 @@ interface CredentialPutInputBase<TAuth extends CredentialAuthInput, TSecret> {
 
 export type CredentialPutInput =
   | CredentialPutInputBase<HeadersCredentialAuthInput, StoredHeadersCredentials>
-  | CredentialPutInputBase<OAuthCredentialAuthInput, StoredOAuthCredentials>
-  | CredentialPutInputBase<EnvCredentialAuthInput, StoredEnvCredentials>;
+  | CredentialPutInputBase<OAuthCredentialAuthInput, StoredOAuthCredentials>;
 
 export interface OAuthClientMetadataInput {
   clientId?: string;
@@ -439,8 +409,7 @@ export interface ConnectWebHandlerOptions {
       | ReturnType<typeof internalError>
       | ReturnType<typeof notFoundError>
       | ReturnType<typeof oauthError>
-      | ReturnType<typeof persistenceError>
-      | ReturnType<typeof unsupportedCredentialKindError>,
+      | ReturnType<typeof persistenceError>,
     request: Request,
   ): Response | Promise<Response>;
 }
