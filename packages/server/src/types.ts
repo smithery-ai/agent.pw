@@ -249,7 +249,12 @@ export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
 export interface ConnectResolutionResult {
   canonicalResource: string;
   source: ConnectOption["source"] | null;
-  reason: "existing-credential" | "matched-profile" | "discovered-oauth" | "unconfigured" | "step-up";
+  reason:
+    | "existing-credential"
+    | "matched-profile"
+    | "discovered-oauth"
+    | "unconfigured"
+    | "step-up";
   profilePath: string | null;
   option: ConnectOption | null;
 }

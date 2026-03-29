@@ -716,9 +716,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           const scopeChallenge = await oauth.parseScopeChallenge(input.response);
           if (scopeChallenge.ok && scopeChallenge.value) {
             const existingScopes = scopeList(resolved.value.existing.secret.oauth?.scopes);
-            const mergedScopes = [
-              ...new Set([...existingScopes, ...scopeChallenge.value.scopes]),
-            ];
+            const mergedScopes = [...new Set([...existingScopes, ...scopeChallenge.value.scopes])];
 
             const profile = resolved.value.existing.auth.profilePath
               ? await profiles.get(resolved.value.existing.auth.profilePath)
@@ -727,19 +725,23 @@ export async function createAgentPw(options: AgentPwOptions) {
               return profile;
             }
 
-            const stepUpOption: ConnectOAuthOption = profile.value?.auth.kind === "oauth"
-              ? {
-                  ...optionFromProfile(profile.value, resolved.value.resource) as ConnectOAuthOption,
-                  scopes: mergedScopes,
-                }
-              : {
-                  kind: "oauth",
-                  source: "discovery",
-                  resource: resolved.value.resource,
-                  label: credentialName(resolved.value.path),
-                  scopes: mergedScopes,
-                  authorizationServer: resolved.value.existing.secret.oauth?.issuer,
-                };
+            const stepUpOption: ConnectOAuthOption =
+              profile.value?.auth.kind === "oauth"
+                ? {
+                    ...(optionFromProfile(
+                      profile.value,
+                      resolved.value.resource,
+                    ) as ConnectOAuthOption),
+                    scopes: mergedScopes,
+                  }
+                : {
+                    kind: "oauth",
+                    source: "discovery",
+                    resource: resolved.value.resource,
+                    label: credentialName(resolved.value.path),
+                    scopes: mergedScopes,
+                    authorizationServer: resolved.value.existing.secret.oauth?.issuer,
+                  };
 
             return ok({
               kind: "options",

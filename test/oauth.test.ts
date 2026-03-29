@@ -826,8 +826,7 @@ describe("oauth runtime", () => {
     const response403 = new Response(null, {
       status: 403,
       headers: {
-        "WWW-Authenticate":
-          'Bearer error="insufficient_scope", scope="admin"',
+        "WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin"',
       },
     });
 
