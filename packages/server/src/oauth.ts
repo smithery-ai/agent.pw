@@ -251,11 +251,11 @@ function shouldRefresh(secret: StoredCredentials | undefined, clock: () => Date,
   }
   const expiresAt = secret?.oauth?.expiresAt;
   if (!expiresAt) {
-    return false;
+    return true;
   }
   const parsed = new Date(expiresAt);
   if (Number.isNaN(parsed.getTime())) {
-    return false;
+    return true;
   }
   return parsed.getTime() <= clock().getTime() + 60_000;
 }
@@ -518,6 +518,85 @@ async function readResourceChallenge(resourceUrl: URL, response: Response | unde
     resourceMetadataUrl: resourceMetadataUrl.value,
     scopes: scopeList(stringValue(bearerChallenge.parameters.scope)),
   });
+}
+
+async function readScopeChallenge(response: Response | undefined) {
+  if (!response || response.status !== 403 || !response.headers.get("www-authenticate")) {
+    return ok<{
+      resourceMetadataUrl?: URL;
+      scopes: string[];
+    } | null>(null);
+  }
+
+  const wwwAuthenticate = response.headers.get("www-authenticate")!;
+  const bearerMatch = wwwAuthenticate.match(/Bearer\s+/i);
+  if (!bearerMatch) {
+    return ok(null);
+  }
+
+  const errorMatch = wwwAuthenticate.match(/error="([^"]+)"/);
+  if (!errorMatch || errorMatch[1] !== "insufficient_scope") {
+    return ok(null);
+  }
+
+  const scopeMatch = wwwAuthenticate.match(/scope="([^"]+)"/);
+  const scopes = scopeMatch ? scopeMatch[1]!.split(/\s+/).filter(Boolean) : [];
+
+  const metadataMatch = wwwAuthenticate.match(/resource_metadata="([^"]+)"/);
+  const resourceMetadataUrl = metadataMatch
+    ? assertUrl(metadataMatch[1]!, "resource metadata")
+    : ok<URL | undefined>(undefined);
+  if (!resourceMetadataUrl.ok) {
+    return err(
+      oauthError("resource-discovery", "Failed to parse scope challenge resource_metadata", {
+        cause: resourceMetadataUrl.error,
+      }),
+    );
+  }
+
+  return ok({
+    resourceMetadataUrl: resourceMetadataUrl.value,
+    scopes,
+  });
+}
+
+async function discoverScopesFromMetadata(
+  resource: string,
+  resourceMetadataUrl: URL | undefined,
+  customFetch: typeof fetch | undefined,
+) {
+  const normalizedResource = normalizeResource(resource);
+  if (!normalizedResource.ok) {
+    return normalizedResource;
+  }
+  const resourceUrl = new URL(normalizedResource.value);
+
+  const metadataResponse = resourceMetadataUrl
+    ? await result((customFetch ?? fetch)(resourceMetadataUrl))
+    : await result(
+        oauth.resourceDiscoveryRequest(
+          resourceUrl,
+          customFetch ? { [oauth.customFetch]: customFetch } : undefined,
+        ),
+      );
+  if (!metadataResponse.ok) {
+    return ok<string[]>([]);
+  }
+
+  const resourceServer = await result(
+    oauth.processResourceDiscoveryResponse(resourceUrl, metadataResponse.value),
+  );
+  if (!resourceServer.ok) {
+    return ok<string[]>([]);
+  }
+
+  return ok(
+    Array.isArray(resourceServer.value.scopes_supported)
+      ? resourceServer.value.scopes_supported.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [],
+  );
 }
 
 function tokenRequestOptions(resource: string, customFetch: typeof fetch | undefined) {
@@ -1052,6 +1131,32 @@ export function createOAuthService(options: {
 
     async discoverResource(input: { resource: string; response?: Response }) {
       return discoverResource(input.resource, options.customFetch, input.response);
+    },
+
+    async parseScopeChallenge(response: Response | undefined, resource?: string) {
+      const challenge = await readScopeChallenge(response);
+      if (!challenge.ok || !challenge.value) {
+        return challenge;
+      }
+      if (challenge.value.scopes.length > 0) {
+        return challenge;
+      }
+      // Scope Selection Strategy fallback: use scopes_supported from resource metadata
+      if (!resource) {
+        return challenge;
+      }
+      const discovered = await discoverScopesFromMetadata(
+        resource,
+        challenge.value.resourceMetadataUrl,
+        options.customFetch,
+      );
+      if (!discovered.ok) {
+        return challenge;
+      }
+      return ok({
+        resourceMetadataUrl: challenge.value.resourceMetadataUrl,
+        scopes: discovered.value,
+      });
     },
 
     async startAuthorization(input: ConnectStartOAuthInput) {

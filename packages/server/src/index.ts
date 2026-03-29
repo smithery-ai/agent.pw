@@ -23,6 +23,7 @@ import type {
   ConnectResolutionResult,
   CredentialAuth,
   CredentialProfileAuth,
+  CredentialProfileOAuthAuth,
   CredentialProfilePutInput,
   CredentialProfileRecord,
   CredentialRecord,
@@ -186,6 +187,10 @@ function toJsonRecord(value: unknown) {
     return err(inputError("Expected JSON object"));
   }
   return ok(normalized);
+}
+
+function scopeList(value: string | undefined) {
+  return value?.split(/\s+/).filter(Boolean) ?? [];
 }
 
 function toProfileRecord(row: {
@@ -472,20 +477,28 @@ export async function createAgentPw(options: AgentPwOptions) {
     return decryptCredentialRecord(encryptionKey, persisted.value);
   };
 
+  function oauthOptionFromProfile(
+    profile: CredentialProfileRecord,
+    oauthAuth: CredentialProfileOAuthAuth,
+    resource: string,
+  ): ConnectOAuthOption {
+    return {
+      kind: "oauth",
+      source: "profile",
+      resource,
+      profilePath: profile.path,
+      label: profile.displayName ?? oauthAuth.label ?? credentialName(profile.path),
+      scopes: Array.isArray(oauthAuth.scopes)
+        ? oauthAuth.scopes
+        : typeof oauthAuth.scopes === "string"
+          ? oauthAuth.scopes.split(/\s+/).filter(Boolean)
+          : undefined,
+    };
+  }
+
   function optionFromProfile(profile: CredentialProfileRecord, resource: string): ConnectOption {
     if (profile.auth.kind === "oauth") {
-      return {
-        kind: "oauth",
-        source: "profile",
-        resource,
-        profilePath: profile.path,
-        label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
-        scopes: Array.isArray(profile.auth.scopes)
-          ? profile.auth.scopes
-          : typeof profile.auth.scopes === "string"
-            ? profile.auth.scopes.split(/\s+/).filter(Boolean)
-            : undefined,
-      };
+      return oauthOptionFromProfile(profile, profile.auth, resource);
     }
 
     return {
@@ -707,6 +720,59 @@ export async function createAgentPw(options: AgentPwOptions) {
         return resolved;
       }
       if (resolved.value.existing) {
+        // Check for 403 insufficient_scope step-up challenge
+        if (resolved.value.existing.auth.kind === "oauth") {
+          const scopeChallenge = await oauth.parseScopeChallenge(
+            input.response,
+            resolved.value.resource,
+          );
+          if (scopeChallenge.ok && scopeChallenge.value) {
+            const existingScopes = scopeList(resolved.value.existing.secret.oauth?.scopes);
+            const challengedScopes = scopeChallenge.value.scopes;
+            const merged = [...new Set([...existingScopes, ...challengedScopes])];
+            // Per spec: omit scope entirely when neither the challenge nor metadata provide scopes
+            const mergedScopes = merged.length > 0 ? merged : undefined;
+
+            const profile = resolved.value.existing.auth.profilePath
+              ? await profiles.get(resolved.value.existing.auth.profilePath)
+              : ok(null);
+            if (!profile.ok) {
+              return profile;
+            }
+
+            const stepUpOption: ConnectOAuthOption =
+              profile.value?.auth.kind === "oauth"
+                ? {
+                    ...oauthOptionFromProfile(
+                      profile.value,
+                      profile.value.auth,
+                      resolved.value.resource,
+                    ),
+                    scopes: mergedScopes,
+                  }
+                : {
+                    kind: "oauth",
+                    source: "discovery",
+                    resource: resolved.value.resource,
+                    label: credentialName(resolved.value.path),
+                    scopes: mergedScopes,
+                    authorizationServer: resolved.value.existing.secret.oauth?.issuer,
+                  };
+
+            return ok({
+              kind: "options",
+              options: [stepUpOption],
+              resolution: {
+                canonicalResource: resolved.value.resource,
+                source: stepUpOption.source,
+                reason: "step-up",
+                profilePath: resolved.value.existing.auth.profilePath ?? null,
+                option: stepUpOption,
+              } satisfies ConnectResolutionResult,
+            });
+          }
+        }
+
         const credential =
           resolved.value.existing.auth.kind === "oauth"
             ? await oauth.refreshCredential(resolved.value.path, false, resolved.value.existing)
@@ -889,7 +955,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       const credential =
         input.refresh === false
           ? await getCredential(path.value)
-          : await oauth.refreshCredential(path.value);
+          : await oauth.refreshCredential(path.value, input.refresh === "force");
 
       if (!credential.ok) {
         return credential;

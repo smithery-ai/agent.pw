@@ -289,7 +289,19 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("org.no-expiry")).toEqual(noExpiryCredential);
+    expect(await service.refreshCredential("org.no-expiry")).toEqual(
+      expect.objectContaining({
+        path: "org.no-expiry",
+        secret: expect.objectContaining({
+          headers: { Authorization: "Bearer forced-access" },
+          oauth: expect.objectContaining({
+            refreshToken: "refresh",
+            clientId: "issuer-client",
+            issuer: "https://issuer.example.com",
+          }),
+        }),
+      }),
+    );
 
     const legacyCredential = {
       path: "org.legacy-resource",
@@ -345,7 +357,19 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("org.invalid-expiry")).toEqual(invalidExpiryCredential);
+    expect(await service.refreshCredential("org.invalid-expiry")).toEqual(
+      expect.objectContaining({
+        path: "org.invalid-expiry",
+        secret: expect.objectContaining({
+          headers: { Authorization: "Bearer forced-access" },
+          oauth: expect.objectContaining({
+            refreshToken: "refresh",
+            clientId: "issuer-client",
+            issuer: "https://issuer.example.com",
+          }),
+        }),
+      }),
+    );
 
     const noResourceCredential = await state.credentials.set("org.no-resource", {
       path: "org.no-resource",
@@ -1554,5 +1578,160 @@ describe("oauth service coverage", () => {
     ).rejects.toThrow(
       "Resource 'https://docs.example.com/mcp' requires oauth client configuration",
     );
+  });
+
+  it("covers parseScopeChallenge edge cases", async () => {
+    const state = await createState();
+    const service = state.service({ flowStore: createInMemoryFlowStore() });
+
+    // Non-Bearer www-authenticate
+    expect(
+      await service.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Basic realm="test"' },
+        }),
+      ),
+    ).toEqual({ ok: true, value: null });
+
+    // insufficient_scope with no scope param and no resource — returns empty scopes
+    expect(
+      await service.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope"' },
+        }),
+      ),
+    ).toEqual({ ok: true, value: { resourceMetadataUrl: undefined, scopes: [] } });
+
+    // insufficient_scope with no scope — falls back to well-known discovery via global fetch
+    expect(
+      await service.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope"' },
+        }),
+        "https://localhost:1/api",
+      ),
+    ).toEqual({ ok: true, value: { resourceMetadataUrl: undefined, scopes: [] } });
+
+    // insufficient_scope with no scope and invalid resource (normalizeResource fails)
+    expect(
+      await service.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope"' },
+        }),
+        "not-a-url",
+      ),
+    ).toEqual({ ok: true, value: { resourceMetadataUrl: undefined, scopes: [] } });
+
+    // insufficient_scope with no scope — metadata fetch fails
+    const failingFetchService = state.service({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: async () => {
+        throw new Error("fetch failed");
+      },
+    });
+    expect(
+      await failingFetchService.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope"' },
+        }),
+        "https://resource.example.com/api",
+      ),
+    ).toEqual({ ok: true, value: { resourceMetadataUrl: undefined, scopes: [] } });
+
+    // insufficient_scope with no scope — metadata has no scopes_supported
+    const noScopesFetchService = state.service({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/.well-known/oauth-protected-resource")) {
+          return Response.json({
+            resource: "https://resource.example.com/api",
+            authorization_servers: ["https://auth.example.com"],
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    });
+    expect(
+      await noScopesFetchService.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope"' },
+        }),
+        "https://resource.example.com/api",
+      ),
+    ).toEqual({ ok: true, value: { resourceMetadataUrl: undefined, scopes: [] } });
+
+    // insufficient_scope with no scope but resource_metadata URL provided
+    const metadataUrlFetchService = state.service({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url === "https://meta.example.com/resource") {
+          return Response.json({
+            resource: "https://resource.example.com/api",
+            authorization_servers: ["https://auth.example.com"],
+            scopes_supported: ["discovered.scope"],
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    });
+    expect(
+      await metadataUrlFetchService.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: {
+            "WWW-Authenticate":
+              'Bearer error="insufficient_scope", resource_metadata="https://meta.example.com/resource"',
+          },
+        }),
+        "https://resource.example.com/api",
+      ),
+    ).toEqual({
+      ok: true,
+      value: {
+        resourceMetadataUrl: new URL("https://meta.example.com/resource"),
+        scopes: ["discovered.scope"],
+      },
+    });
+
+    // insufficient_scope with resource_metadata URL and no customFetch
+    // (uses global fetch which will fail, falling back to empty scopes)
+    const noFetchService = state.service({ flowStore: createInMemoryFlowStore() });
+    expect(
+      await noFetchService.raw.parseScopeChallenge(
+        new Response(null, {
+          status: 403,
+          headers: {
+            "WWW-Authenticate":
+              'Bearer error="insufficient_scope", resource_metadata="https://localhost:1/nonexistent"',
+          },
+        }),
+        "https://localhost:1/api",
+      ),
+    ).toEqual({
+      ok: true,
+      value: { resourceMetadataUrl: new URL("https://localhost:1/nonexistent"), scopes: [] },
+    });
+
+    // Invalid resource_metadata URL
+    const invalidMetadata = await service.raw.parseScopeChallenge(
+      new Response(null, {
+        status: 403,
+        headers: {
+          "WWW-Authenticate":
+            'Bearer error="insufficient_scope", scope="admin", resource_metadata="not-a-url"',
+        },
+      }),
+    );
+    expect(invalidMetadata.ok).toBe(false);
   });
 });

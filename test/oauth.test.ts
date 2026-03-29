@@ -165,6 +165,30 @@ async function createOAuthAgent() {
   return { agentPw, calls, db };
 }
 
+async function completeProfileOAuth() {
+  const { agentPw, calls } = await createOAuthAgent();
+
+  const prepared = await agentPw.connect.prepare({
+    path: "org_alpha.connections.linear_1",
+    resource: "https://api.linear.app/projects",
+  });
+  if (prepared.kind !== "options") {
+    throw new Error("Expected oauth options");
+  }
+
+  const session = await agentPw.connect.startOAuth({
+    path: "org_alpha.connections.linear_1",
+    option: prepared.options[0]!,
+    redirectUri: "https://app.example.com/oauth/callback",
+  });
+
+  const completed = await agentPw.connect.completeOAuth({
+    callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
+  });
+
+  return { agentPw, calls, completed };
+}
+
 describe("oauth runtime", () => {
   it("runs profile-backed oauth end to end and refreshes stale credentials", async () => {
     const { agentPw, calls } = await createOAuthAgent();
@@ -668,5 +692,313 @@ describe("oauth runtime", () => {
     expect(completed.credential.secret.oauth.tokenUrl).toBeUndefined();
     expect(completed.credential.secret.oauth.revocationUrl).toBeUndefined();
     expect(await agentPw.profiles.get("org_alpha.connections.docs_legacy.oauth")).toBe(null);
+  });
+
+  it("force-refreshes via resolveHeaders even when token is not expired", async () => {
+    const { agentPw, calls, completed } = await completeProfileOAuth();
+
+    // Set expiresAt far in the future — normal refresh would skip this
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        headers: { Authorization: "Bearer still-valid" },
+        oauth: {
+          ...completed.credential.secret.oauth,
+          accessToken: "still-valid",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    // Normal resolve should return the existing token (not expired)
+    expect(await agentPw.connect.resolveHeaders({ path: completed.path })).toEqual({
+      Authorization: "Bearer still-valid",
+    });
+
+    const callsBefore = calls.length;
+
+    // Force resolve should trigger a refresh despite valid expiresAt
+    expect(
+      await agentPw.connect.resolveHeaders({ path: completed.path, refresh: "force" }),
+    ).toEqual({
+      Authorization: "Bearer profile-access-2",
+    });
+
+    // Verify a token request was actually made
+    const refreshCalls = calls.slice(callsBefore);
+    expect(refreshCalls.some((c) => c.body.get("grant_type") === "refresh_token")).toBe(true);
+  });
+
+  it("refreshes tokens with missing expiresAt on normal resolveHeaders", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    // Remove expiresAt — simulates old/migrated credential
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        headers: { Authorization: "Bearer unknown-expiry" },
+        oauth: {
+          ...completed.credential.secret.oauth,
+          accessToken: "unknown-expiry",
+          expiresAt: undefined,
+        },
+      },
+    });
+
+    // Normal resolve should attempt refresh since expiresAt is unknown
+    expect(await agentPw.connect.resolveHeaders({ path: completed.path })).toEqual({
+      Authorization: "Bearer profile-access-2",
+    });
+  });
+
+  it("returns step-up options with merged scopes on 403 insufficient_scope", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", scope="read write admin", resource_metadata="https://api.linear.app/.well-known/oauth-protected-resource"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("Expected options");
+
+    expect(prepared.resolution.reason).toBe("step-up");
+    expect(prepared.options).toHaveLength(1);
+
+    const option = prepared.options[0]!;
+    expect(option.kind).toBe("oauth");
+    if (option.kind !== "oauth") throw new Error("Expected oauth option");
+
+    // Existing scopes ("read write") merged with challenged scopes ("read write admin")
+    expect(option.scopes).toEqual(expect.arrayContaining(["read", "write", "admin"]));
+    expect(option.scopes).toHaveLength(3);
+
+    // Should preserve profile source
+    expect(option.source).toBe("profile");
+    expect(option.profilePath).toBe("linear");
+  });
+
+  it("returns ready for non-insufficient_scope 403 responses", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    // 403 without insufficient_scope error
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="invalid_token"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+
+    // Should still return ready since it's not insufficient_scope
+    expect(prepared.kind).toBe("ready");
+  });
+
+  it("returns ready for headers credentials even with 403 insufficient_scope", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.api_key",
+      resource: "https://api.headers-only.com",
+      headers: { Authorization: "Bearer static-key" },
+    });
+
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.api_key",
+      resource: "https://api.headers-only.com",
+      response: response403,
+    });
+
+    // Headers credentials don't support step-up — return ready
+    expect(prepared.kind).toBe("ready");
+  });
+
+  it("returns step-up options for discovery-backed credentials without profile", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    // Create a discovery-backed credential (no profile)
+    const prepared = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_mcp",
+      resource: "https://docs.example.com/mcp",
+    });
+    if (prepared.kind !== "options") throw new Error("Expected options");
+    const option = prepared.options.find((o) => o.kind === "oauth")!;
+
+    const session = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.docs_mcp",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+    await agentPw.connect.completeOAuth({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
+    });
+
+    // Now send a 403 insufficient_scope
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", scope="mcp.tools.read mcp.tools.write"',
+      },
+    });
+
+    const stepUp = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_mcp",
+      resource: "https://docs.example.com/mcp",
+      response: response403,
+    });
+
+    expect(stepUp.kind).toBe("options");
+    if (stepUp.kind !== "options") throw new Error("Expected options");
+    expect(stepUp.resolution.reason).toBe("step-up");
+
+    const stepUpOption = stepUp.options[0]!;
+    expect(stepUpOption.kind).toBe("oauth");
+    if (stepUpOption.kind !== "oauth") throw new Error("Expected oauth");
+    // Discovery-backed: source should be "discovery"
+    expect(stepUpOption.source).toBe("discovery");
+    // Merged scopes: existing "mcp.tools.read" + challenged "mcp.tools.read mcp.tools.write"
+    expect(stepUpOption.scopes).toEqual(
+      expect.arrayContaining(["mcp.tools.read", "mcp.tools.write"]),
+    );
+  });
+
+  it("falls back to existing scopes when 403 omits scope parameter", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="insufficient_scope"',
+      },
+    });
+
+    // Per spec Scope Selection Strategy: when scope is absent from challenge,
+    // fall back to resource metadata scopes_supported (which fails here),
+    // then merge with existing credential scopes
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("Expected options");
+    expect(prepared.resolution.reason).toBe("step-up");
+
+    const option = prepared.options[0]!;
+    if (option.kind !== "oauth") throw new Error("Expected oauth option");
+    // Existing scopes preserved even when challenge has no scope param
+    expect(option.scopes).toEqual(expect.arrayContaining(["read", "write"]));
+  });
+
+  it("discovers scopes from resource metadata when 403 omits scope", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    // Create a discovery-backed credential for docs.example.com/mcp
+    const prepared = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_stepup",
+      resource: "https://docs.example.com/mcp",
+    });
+    if (prepared.kind !== "options") throw new Error("Expected options");
+    const option = prepared.options.find((o) => o.kind === "oauth")!;
+    const session = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.docs_stepup",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+    await agentPw.connect.completeOAuth({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
+    });
+
+    // 403 without scope but with resource_metadata pointing to metadata endpoint
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", resource_metadata="https://docs.example.com/.well-known/oauth-protected-resource"',
+      },
+    });
+
+    const stepUp = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_stepup",
+      resource: "https://docs.example.com/mcp",
+      response: response403,
+    });
+
+    expect(stepUp.kind).toBe("options");
+    if (stepUp.kind !== "options") throw new Error("Expected options");
+    expect(stepUp.resolution.reason).toBe("step-up");
+
+    const stepUpOption = stepUp.options[0]!;
+    if (stepUpOption.kind !== "oauth") throw new Error("Expected oauth");
+    // Should include scopes_supported from metadata merged with existing
+    expect(stepUpOption.scopes).toEqual(expect.arrayContaining(["mcp.tools.read"]));
+  });
+
+  it("omits scopes when neither challenge nor metadata provide them", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    // Clear the stored scopes on the credential
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        oauth: {
+          ...completed.credential.secret.oauth,
+          scopes: undefined,
+        },
+      },
+    });
+
+    // 403 with no scope param — metadata discovery fails for api.linear.app
+    // so both challenged and discovered scopes are empty
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="insufficient_scope"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("Expected options");
+
+    const option = prepared.options[0]!;
+    if (option.kind !== "oauth") throw new Error("Expected oauth");
+    // Per spec: omit scope entirely when no scopes are available
+    expect(option.scopes).toBeUndefined();
   });
 });
