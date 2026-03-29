@@ -9,4 +9,11 @@ describe("package surface", () => {
     expect(packageJson.exports).not.toHaveProperty(exportKey);
     expect(packageJson.dependencies).not.toHaveProperty(dependencyKey);
   });
+
+  it("declares the GitHub repository for release provenance", () => {
+    expect(packageJson.repository).toEqual({
+      type: "git",
+      url: "git+https://github.com/smithery-ai/agent.pw.git",
+    });
+  });
 });
