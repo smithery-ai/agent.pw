@@ -7,7 +7,7 @@ import {
   encryptSecret,
   importAesKey,
 } from "../packages/server/src/lib/credentials-crypto";
-import { BISCUIT_PRIVATE_KEY } from "./setup";
+import { TEST_KEY_MATERIAL } from "./setup";
 import { mustAsync } from "./support/results";
 
 afterEach(() => {
@@ -24,8 +24,8 @@ async function decryptSecretBuffer(encryptionKey: string, encrypted: Buffer) {
 
 describe("credentials crypto", () => {
   it("derives deterministic AES keys from an application secret", async () => {
-    const first = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
-    const second = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const first = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
+    const second = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const other = await mustAsync(deriveEncryptionKey("ed25519-private/another-secret"));
 
     expect(first).toBe(second);
@@ -34,7 +34,7 @@ describe("credentials crypto", () => {
   });
 
   it("encrypts and decrypts structured credentials", async () => {
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const encrypted = await mustAsync(
       encryptCredentials(encryptionKey, {
         headers: { Authorization: "Bearer secret" },
@@ -67,7 +67,7 @@ describe("credentials crypto", () => {
       expect(invalidKey.error.message).toBe("Encryption key must be 32 bytes");
     }
 
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const invalidCiphertext = await decryptCredentials(encryptionKey, Buffer.alloc(8));
     expect(invalidCiphertext.ok).toBe(false);
     if (!invalidCiphertext.ok) {
@@ -79,7 +79,7 @@ describe("credentials crypto", () => {
   });
 
   it("rejects decrypted payloads that do not match stored credential shapes", async () => {
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const encrypted = await mustAsync(
       encryptSecret(
         encryptionKey,
@@ -99,13 +99,13 @@ describe("credentials crypto", () => {
 
   it("surfaces crypto API failures", async () => {
     vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(new Error("digest failed"));
-    const digestFailure = await deriveEncryptionKey(BISCUIT_PRIVATE_KEY);
+    const digestFailure = await deriveEncryptionKey(TEST_KEY_MATERIAL);
     expect(digestFailure.ok).toBe(false);
     if (!digestFailure.ok) {
       expect(digestFailure.error.message).toBe("Failed to derive encryption key");
     }
 
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     vi.spyOn(crypto.subtle, "importKey").mockRejectedValueOnce(new Error("import failed"));
     const importFailure = await importAesKey(encryptionKey);
     expect(importFailure.ok).toBe(false);
@@ -152,7 +152,7 @@ describe("credentials crypto", () => {
       expect(encryptedSecretWithShortKey.error.message).toBe("Encryption key must be 32 bytes");
     }
 
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const invalidJson = await mustAsync(encryptSecret(encryptionKey, "{"));
     const parsed = await decryptCredentials(encryptionKey, invalidJson);
     expect(parsed.ok).toBe(false);

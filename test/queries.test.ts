@@ -4,14 +4,14 @@ import {
   deriveEncryptionKey,
   encryptCredentials,
 } from "../packages/server/src/lib/credentials-crypto";
-import { BISCUIT_PRIVATE_KEY, createTestDb, type TestDb } from "./setup";
+import { TEST_KEY_MATERIAL, createTestDb, type TestDb } from "./setup";
 import { must, mustAsync, wrapObjectMethods } from "./support/results";
 
 let db: TestDb;
 const queries = wrapObjectMethods(must(createQueryHelpers()));
 
 async function encryptedHeaders(token: string) {
-  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+  const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
   return mustAsync(
     encryptCredentials(encryptionKey, {
       headers: {

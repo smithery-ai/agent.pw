@@ -6,7 +6,6 @@
   "exports": {
     ".": "./packages/server/src/index.ts",
     "./paths": "./packages/server/src/paths.ts",
-    "./biscuit": "./packages/server/src/biscuit.ts",
     "./oauth": "./packages/server/src/oauth.ts",
     "./rules": "./packages/server/src/rules.ts",
     "./sql": "./packages/server/src/sql/index.ts",
@@ -25,7 +24,6 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",
-    "@smithery/biscuit": "^1.0.1",
     "drizzle-orm": "^0.44.1",
     "oauth4webapi": "^3.8.5",
     "okay-error": "^1.0.4",

@@ -2,7 +2,7 @@ import { createAgentPw } from "agent.pw";
 import { createInMemoryFlowStore } from "agent.pw/oauth";
 import { describe, expect, it } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
-import { BISCUIT_PRIVATE_KEY, createTestDb } from "./setup";
+import { TEST_KEY_MATERIAL, createTestDb } from "./setup";
 import { must, mustAsync, wrapAgentPw } from "./support/results";
 
 function createOAuthFetch() {
@@ -128,7 +128,7 @@ function createOAuthFetch() {
 async function createOAuthAgent() {
   const db = await createTestDb();
   const flowStore = createInMemoryFlowStore();
-  const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+  const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
   const { fetchImpl, calls } = createOAuthFetch();
   const agentPw = wrapAgentPw(
     must(
@@ -607,7 +607,7 @@ describe("oauth runtime", () => {
 
   it("reauthorizes legacy discovery credentials without storing discovered endpoints", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(BISCUIT_PRIVATE_KEY));
+    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
     const { fetchImpl } = createOAuthFetch();
     const agentPw = wrapAgentPw(
       must(
