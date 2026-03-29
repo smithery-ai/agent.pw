@@ -720,15 +720,17 @@ export async function createAgentPw(options: AgentPwOptions) {
         return resolved;
       }
       if (resolved.value.existing) {
-        // Check for 403 insufficient_scope step-up challenge
-        if (resolved.value.existing.auth.kind === "oauth") {
-          const scopeChallenge = await oauth.parseScopeChallenge(
-            input.response,
-            resolved.value.resource,
-          );
-          if (scopeChallenge.ok && scopeChallenge.value) {
+        if (resolved.value.existing.auth.kind === "oauth" && input.response?.status === 403) {
+          const classified = await oauth.classifyResponse({
+            response: input.response,
+            resource: resolved.value.resource,
+          });
+          if (!classified.ok) {
+            return classified;
+          }
+          if (classified.value.kind === "step-up") {
             const existingScopes = scopeList(resolved.value.existing.secret.oauth?.scopes);
-            const challengedScopes = scopeChallenge.value.scopes;
+            const challengedScopes = classified.value.scopes;
             const merged = [...new Set([...existingScopes, ...challengedScopes])];
             // Per spec: omit scope entirely when neither the challenge nor metadata provide scopes
             const mergedScopes = merged.length > 0 ? merged : undefined;
@@ -800,6 +802,10 @@ export async function createAgentPw(options: AgentPwOptions) {
         options: resolved.value.options,
         resolution: resolved.value.resolution,
       });
+    },
+
+    classifyResponse(input) {
+      return oauth.classifyResponse(input);
     },
 
     async getFlow(flowId) {
@@ -1018,6 +1024,10 @@ export async function createAgentPw(options: AgentPwOptions) {
             }
           }
           return result;
+        },
+
+        classifyResponse(input) {
+          return connect.classifyResponse(input);
         },
 
         async getFlow(flowId) {

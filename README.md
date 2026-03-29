@@ -145,6 +145,29 @@ Each `prepare(...)` result includes `resolution`, which exposes the library deci
 - `profilePath`
 - `option`
 
+When an app is handling an upstream HTTP response and only needs to know whether it hit a Bearer auth challenge, use `connect.classifyResponse(...)` first:
+
+```ts
+const challenge = await unwrap(
+  agentPw.connect.classifyResponse({
+    resource: "https://docs.example.com/mcp",
+    response: upstreamResponse,
+  }),
+);
+
+if (challenge.kind === "auth-required") {
+  console.log("Prompt for auth", challenge.scopes);
+}
+
+if (challenge.kind === "step-up") {
+  console.log("Prompt for broader scopes", challenge.scopes);
+}
+```
+
+The `response` input can be a Fetch `Response` or a plain `{ status, headers }` object from another server framework.
+
+Use `connect.prepare({ path, resource, response })` when you want `agent.pw` to turn that response into the next auth option for a specific connection path.
+
 ## Auth Kinds
 
 At the vault level there are two credential kinds:

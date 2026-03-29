@@ -227,13 +227,13 @@ describe("oauth edge cases", () => {
     const prepared = await agentPw.connect.prepare({
       path: "org.connections.docs",
       resource: "https://docs.example.com/mcp",
-      response: new Response(null, {
+      response: {
         status: 401,
         headers: {
           "www-authenticate":
             'Bearer realm="docs", resource_metadata="https://docs.example.com/oauth-resource-metadata", scope="mcp.tools.read mcp.tools.write"',
         },
-      }),
+      },
     });
 
     expect(prepared.kind).toBe("options");
@@ -248,6 +248,82 @@ describe("oauth edge cases", () => {
 
     expect(option.scopes).toEqual(["mcp.tools.read", "mcp.tools.write"]);
     expect(calls).toEqual(["https://docs.example.com/oauth-resource-metadata"]);
+  });
+
+  it("classifies bearer challenges through public connect helpers", async () => {
+    const agentPw = await createAgent({
+      oauthFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url === "https://docs.example.com/oauth-resource-metadata") {
+          return Response.json({
+            resource: "https://docs.example.com/mcp",
+            authorization_servers: ["https://auth.example.com"],
+            scopes_supported: ["mcp.tools.write"],
+          });
+        }
+
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+
+    await expect(
+      agentPw.connect.classifyResponse({
+        response: {
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer realm="docs", scope="mcp.tools.read", resource_metadata="https://docs.example.com/oauth-resource-metadata"',
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      kind: "auth-required",
+      scheme: "bearer",
+      scopes: ["mcp.tools.read"],
+      resourceMetadataUrl: new URL("https://docs.example.com/oauth-resource-metadata"),
+    });
+
+    await expect(
+      agentPw.scope({ rights: [] }).connect.classifyResponse({
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 403,
+          headers: {
+            "www-authenticate":
+              'Bearer error="insufficient_scope", resource_metadata="https://docs.example.com/oauth-resource-metadata"',
+          },
+        }),
+      }),
+    ).resolves.toEqual({
+      kind: "step-up",
+      scheme: "bearer",
+      scopes: ["mcp.tools.write"],
+      resourceMetadataUrl: new URL("https://docs.example.com/oauth-resource-metadata"),
+    });
+  });
+
+  it("does not consume the original response body while classifying challenges", async () => {
+    const agentPw = await createAgent();
+    const response = new Response("authorization required", {
+      status: 401,
+      headers: {
+        "www-authenticate": 'Bearer scope="mcp.tools.read"',
+      },
+    });
+
+    await expect(
+      agentPw.connect.classifyResponse({
+        response,
+      }),
+    ).resolves.toEqual({
+      kind: "auth-required",
+      scheme: "bearer",
+      scopes: ["mcp.tools.read"],
+      resourceMetadataUrl: undefined,
+    });
+
+    await expect(response.text()).resolves.toBe("authorization required");
   });
 
   it("falls back from non-bearer and missing resource metadata challenges", async () => {
