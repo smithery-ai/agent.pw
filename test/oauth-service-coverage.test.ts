@@ -289,7 +289,19 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("org.no-expiry")).toEqual(noExpiryCredential);
+    expect(await service.refreshCredential("org.no-expiry")).toEqual(
+      expect.objectContaining({
+        path: "org.no-expiry",
+        secret: expect.objectContaining({
+          headers: { Authorization: "Bearer forced-access" },
+          oauth: expect.objectContaining({
+            refreshToken: "refresh",
+            clientId: "issuer-client",
+            issuer: "https://issuer.example.com",
+          }),
+        }),
+      }),
+    );
 
     const legacyCredential = {
       path: "org.legacy-resource",
@@ -345,7 +357,19 @@ describe("oauth service coverage", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    expect(await service.refreshCredential("org.invalid-expiry")).toEqual(invalidExpiryCredential);
+    expect(await service.refreshCredential("org.invalid-expiry")).toEqual(
+      expect.objectContaining({
+        path: "org.invalid-expiry",
+        secret: expect.objectContaining({
+          headers: { Authorization: "Bearer forced-access" },
+          oauth: expect.objectContaining({
+            refreshToken: "refresh",
+            clientId: "issuer-client",
+            issuer: "https://issuer.example.com",
+          }),
+        }),
+      }),
+    );
 
     const noResourceCredential = await state.credentials.set("org.no-resource", {
       path: "org.no-resource",

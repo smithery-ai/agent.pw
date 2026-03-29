@@ -165,6 +165,30 @@ async function createOAuthAgent() {
   return { agentPw, calls, db };
 }
 
+async function completeProfileOAuth() {
+  const { agentPw, calls } = await createOAuthAgent();
+
+  const prepared = await agentPw.connect.prepare({
+    path: "org_alpha.connections.linear_1",
+    resource: "https://api.linear.app/projects",
+  });
+  if (prepared.kind !== "options") {
+    throw new Error("Expected oauth options");
+  }
+
+  const session = await agentPw.connect.startOAuth({
+    path: "org_alpha.connections.linear_1",
+    option: prepared.options[0]!,
+    redirectUri: "https://app.example.com/oauth/callback",
+  });
+
+  const completed = await agentPw.connect.completeOAuth({
+    callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
+  });
+
+  return { agentPw, calls, completed };
+}
+
 describe("oauth runtime", () => {
   it("runs profile-backed oauth end to end and refreshes stale credentials", async () => {
     const { agentPw, calls } = await createOAuthAgent();
@@ -668,5 +692,68 @@ describe("oauth runtime", () => {
     expect(completed.credential.secret.oauth.tokenUrl).toBeUndefined();
     expect(completed.credential.secret.oauth.revocationUrl).toBeUndefined();
     expect(await agentPw.profiles.get("org_alpha.connections.docs_legacy.oauth")).toBe(null);
+  });
+
+  it("force-refreshes via resolveHeaders even when token is not expired", async () => {
+    const { agentPw, calls, completed } = await completeProfileOAuth();
+
+    // Set expiresAt far in the future — normal refresh would skip this
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        headers: { Authorization: "Bearer still-valid" },
+        oauth: {
+          ...completed.credential.secret.oauth,
+          accessToken: "still-valid",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    // Normal resolve should return the existing token (not expired)
+    expect(await agentPw.connect.resolveHeaders({ path: completed.path })).toEqual({
+      Authorization: "Bearer still-valid",
+    });
+
+    const callsBefore = calls.length;
+
+    // Force resolve should trigger a refresh despite valid expiresAt
+    expect(
+      await agentPw.connect.resolveHeaders({ path: completed.path, refresh: "force" }),
+    ).toEqual({
+      Authorization: "Bearer profile-access-2",
+    });
+
+    // Verify a token request was actually made
+    const refreshCalls = calls.slice(callsBefore);
+    expect(refreshCalls.some((c) => c.body.get("grant_type") === "refresh_token")).toBe(true);
+  });
+
+  it("refreshes tokens with missing expiresAt on normal resolveHeaders", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    // Remove expiresAt — simulates old/migrated credential
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        headers: { Authorization: "Bearer unknown-expiry" },
+        oauth: {
+          ...completed.credential.secret.oauth,
+          accessToken: "unknown-expiry",
+          expiresAt: undefined,
+        },
+      },
+    });
+
+    // Normal resolve should attempt refresh since expiresAt is unknown
+    expect(await agentPw.connect.resolveHeaders({ path: completed.path })).toEqual({
+      Authorization: "Bearer profile-access-2",
+    });
   });
 });

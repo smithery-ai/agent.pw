@@ -889,7 +889,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       const credential =
         input.refresh === false
           ? await getCredential(path.value)
-          : await oauth.refreshCredential(path.value);
+          : await oauth.refreshCredential(path.value, input.refresh === "force");
 
       if (!credential.ok) {
         return credential;

@@ -251,11 +251,11 @@ function shouldRefresh(secret: StoredCredentials | undefined, clock: () => Date,
   }
   const expiresAt = secret?.oauth?.expiresAt;
   if (!expiresAt) {
-    return false;
+    return true;
   }
   const parsed = new Date(expiresAt);
   if (Number.isNaN(parsed.getTime())) {
-    return false;
+    return true;
   }
   return parsed.getTime() <= clock().getTime() + 60_000;
 }

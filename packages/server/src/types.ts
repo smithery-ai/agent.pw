@@ -312,7 +312,7 @@ export interface ConnectSetHeadersInput {
 
 export interface ConnectResolveHeadersInput {
   path: string;
-  refresh?: boolean;
+  refresh?: boolean | "force";
 }
 
 export interface ConnectDisconnectInput {
