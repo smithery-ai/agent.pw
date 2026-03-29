@@ -1199,3 +1199,27 @@ export {
   PendingFlowSchema,
 } from "./types.js";
 export type * from "./types.js";
+export {
+  isAgentPwError,
+  isAuthorizationError,
+  isConflictError,
+  isCryptoError,
+  isExpiredError,
+  isInputError,
+  isInternalError,
+  isNotFoundError,
+  isOAuthError,
+  isPersistenceError,
+} from "./errors.js";
+export type {
+  AgentPwError,
+  AuthorizationError,
+  ConflictError,
+  CryptoError,
+  ExpiredError,
+  InputError,
+  InternalError,
+  NotFoundError,
+  OAuthError,
+  PersistenceError,
+} from "./errors.js";
