@@ -469,7 +469,7 @@ describe("index mock coverage", () => {
         async completeAuthorization() {
           return err(inputError("mock completion failure"));
         },
-        async parseScopeChallenge(response: Response | undefined) {
+        async parseScopeChallenge(response: Response | undefined, _resource?: string) {
           if (response?.status === 403) {
             return ok({ scopes: ["admin"] });
           }

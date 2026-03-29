@@ -890,7 +890,7 @@ describe("oauth runtime", () => {
     );
   });
 
-  it("returns null for 403 insufficient_scope with no scope parameter", async () => {
+  it("falls back to existing scopes when 403 omits scope parameter", async () => {
     const { agentPw, completed } = await completeProfileOAuth();
 
     const response403 = new Response(null, {
@@ -900,12 +900,105 @@ describe("oauth runtime", () => {
       },
     });
 
-    // Should still return ready since there are no scopes to step up to
+    // Per spec Scope Selection Strategy: when scope is absent from challenge,
+    // fall back to resource metadata scopes_supported (which fails here),
+    // then merge with existing credential scopes
     const prepared = await agentPw.connect.prepare({
       path: completed.path,
       resource: "https://api.linear.app/projects",
       response: response403,
     });
-    expect(prepared.kind).toBe("ready");
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("Expected options");
+    expect(prepared.resolution.reason).toBe("step-up");
+
+    const option = prepared.options[0]!;
+    if (option.kind !== "oauth") throw new Error("Expected oauth option");
+    // Existing scopes preserved even when challenge has no scope param
+    expect(option.scopes).toEqual(expect.arrayContaining(["read", "write"]));
+  });
+
+  it("discovers scopes from resource metadata when 403 omits scope", async () => {
+    const { agentPw } = await createOAuthAgent();
+
+    // Create a discovery-backed credential for docs.example.com/mcp
+    const prepared = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_stepup",
+      resource: "https://docs.example.com/mcp",
+    });
+    if (prepared.kind !== "options") throw new Error("Expected options");
+    const option = prepared.options.find((o) => o.kind === "oauth")!;
+    const session = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.docs_stepup",
+      option,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+    await agentPw.connect.completeOAuth({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-456&state=${session.flowId}`,
+    });
+
+    // 403 without scope but with resource_metadata pointing to metadata endpoint
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate":
+          'Bearer error="insufficient_scope", resource_metadata="https://docs.example.com/.well-known/oauth-protected-resource"',
+      },
+    });
+
+    const stepUp = await agentPw.connect.prepare({
+      path: "org_alpha.connections.docs_stepup",
+      resource: "https://docs.example.com/mcp",
+      response: response403,
+    });
+
+    expect(stepUp.kind).toBe("options");
+    if (stepUp.kind !== "options") throw new Error("Expected options");
+    expect(stepUp.resolution.reason).toBe("step-up");
+
+    const stepUpOption = stepUp.options[0]!;
+    if (stepUpOption.kind !== "oauth") throw new Error("Expected oauth");
+    // Should include scopes_supported from metadata merged with existing
+    expect(stepUpOption.scopes).toEqual(expect.arrayContaining(["mcp.tools.read"]));
+  });
+
+  it("omits scopes when neither challenge nor metadata provide them", async () => {
+    const { agentPw, completed } = await completeProfileOAuth();
+
+    // Clear the stored scopes on the credential
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        oauth: {
+          ...completed.credential.secret.oauth,
+          scopes: undefined,
+        },
+      },
+    });
+
+    // 403 with no scope param — metadata discovery fails for api.linear.app
+    // so both challenged and discovered scopes are empty
+    const response403 = new Response(null, {
+      status: 403,
+      headers: {
+        "WWW-Authenticate": 'Bearer error="insufficient_scope"',
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: completed.path,
+      resource: "https://api.linear.app/projects",
+      response: response403,
+    });
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("Expected options");
+
+    const option = prepared.options[0]!;
+    if (option.kind !== "oauth") throw new Error("Expected oauth");
+    // Per spec: omit scope entirely when no scopes are available
+    expect(option.scopes).toBeUndefined();
   });
 });

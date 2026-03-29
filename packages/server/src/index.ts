@@ -722,10 +722,16 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (resolved.value.existing) {
         // Check for 403 insufficient_scope step-up challenge
         if (resolved.value.existing.auth.kind === "oauth") {
-          const scopeChallenge = await oauth.parseScopeChallenge(input.response);
+          const scopeChallenge = await oauth.parseScopeChallenge(
+            input.response,
+            resolved.value.resource,
+          );
           if (scopeChallenge.ok && scopeChallenge.value) {
             const existingScopes = scopeList(resolved.value.existing.secret.oauth?.scopes);
-            const mergedScopes = [...new Set([...existingScopes, ...scopeChallenge.value.scopes])];
+            const challengedScopes = scopeChallenge.value.scopes;
+            const merged = [...new Set([...existingScopes, ...challengedScopes])];
+            // Per spec: omit scope entirely when neither the challenge nor metadata provide scopes
+            const mergedScopes = merged.length > 0 ? merged : undefined;
 
             const profile = resolved.value.existing.auth.profilePath
               ? await profiles.get(resolved.value.existing.auth.profilePath)
