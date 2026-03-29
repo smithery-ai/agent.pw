@@ -1734,4 +1734,176 @@ describe("oauth service coverage", () => {
     );
     expect(invalidMetadata.ok).toBe(false);
   });
+
+  it("covers classifyResponse edge cases", async () => {
+    const state = await createState();
+    const service = state.service({ flowStore: createInMemoryFlowStore() });
+
+    expect(await service.raw.classifyResponse({})).toEqual({
+      ok: true,
+      value: { kind: "none" },
+    });
+
+    expect(
+      await service.raw.classifyResponse({
+        response: new Response(null, { status: 200 }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: { kind: "none" },
+    });
+
+    expect(
+      await service.raw.classifyResponse({
+        response: new Response(null, {
+          status: 401,
+          headers: { "WWW-Authenticate": 'Basic realm="test"' },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: { kind: "none" },
+    });
+
+    expect(
+      await service.raw.classifyResponse({
+        response: new Response(null, {
+          status: 403,
+          headers: { "WWW-Authenticate": 'Bearer error="invalid_token"' },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: { kind: "none" },
+    });
+
+    expect(
+      await service.raw.classifyResponse({
+        response: new Response(null, {
+          status: 401,
+          headers: { "WWW-Authenticate": 'Bearer scope="read write"' },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        kind: "auth-required",
+        scheme: "bearer",
+        scopes: ["read", "write"],
+        resourceMetadataUrl: undefined,
+      },
+    });
+
+    expect(
+      await service.raw.classifyResponse({
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "WWW-Authenticate":
+              'Bearer resource_metadata="https://meta.example.com/resource", scope="admin"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        kind: "auth-required",
+        scheme: "bearer",
+        scopes: ["admin"],
+        resourceMetadataUrl: new URL("https://meta.example.com/resource"),
+      },
+    });
+
+    expect(
+      await service.raw.classifyResponse({
+        response: new Response(null, {
+          status: 403,
+          headers: {
+            "WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        kind: "step-up",
+        scheme: "bearer",
+        scopes: ["admin"],
+        resourceMetadataUrl: undefined,
+      },
+    });
+
+    const metadataUrlFetchService = state.service({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url === "https://meta.example.com/resource") {
+          return Response.json({
+            resource: "https://resource.example.com/api",
+            authorization_servers: ["https://auth.example.com"],
+            scopes_supported: ["discovered.scope"],
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    });
+    expect(
+      await metadataUrlFetchService.raw.classifyResponse({
+        resource: "https://resource.example.com/api",
+        response: new Response(null, {
+          status: 403,
+          headers: {
+            "WWW-Authenticate":
+              'Bearer error="insufficient_scope", resource_metadata="https://meta.example.com/resource"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        kind: "step-up",
+        scheme: "bearer",
+        scopes: ["discovered.scope"],
+        resourceMetadataUrl: new URL("https://meta.example.com/resource"),
+      },
+    });
+
+    const failingFetchService = state.service({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: async () => {
+        throw new Error("fetch failed");
+      },
+    });
+    expect(
+      await failingFetchService.raw.classifyResponse({
+        resource: "https://resource.example.com/api",
+        response: new Response(null, {
+          status: 403,
+          headers: {
+            "WWW-Authenticate": 'Bearer error="insufficient_scope"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        kind: "step-up",
+        scheme: "bearer",
+        scopes: [],
+        resourceMetadataUrl: undefined,
+      },
+    });
+
+    const invalidMetadata = await service.raw.classifyResponse({
+      response: new Response(null, {
+        status: 403,
+        headers: {
+          "WWW-Authenticate":
+            'Bearer error="insufficient_scope", scope="admin", resource_metadata="not-a-url"',
+        },
+      }),
+    });
+    expect(invalidMetadata.ok).toBe(false);
+  });
 });

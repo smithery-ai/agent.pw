@@ -19,12 +19,14 @@ import { assertPath } from "./paths.js";
 import { normalizeResource } from "./resource-patterns.js";
 import type {
   CimdDocumentInput,
+  ConnectClassifyResponseInput,
+  ConnectClassifyResponseResult,
   ConnectCompleteOAuthInput,
   ConnectDisconnectInput,
-  ConnectStartOAuthInput,
-  ConnectWebHandlerOptions,
   ConnectOAuthOption,
+  ConnectStartOAuthInput,
   ConnectWebHandlers,
+  ConnectWebHandlerOptions,
   CrudOptions,
   CredentialProfileRecord,
   CredentialPutInput,
@@ -34,6 +36,7 @@ import type {
   OAuthClientInput,
   OAuthResolvedConfig,
   PendingFlow,
+  ResponseLike,
 } from "./types.js";
 
 function assertUrl(value: string, label: string) {
@@ -81,6 +84,35 @@ function toScopeString(value: string | string[] | undefined) {
 
 function scopeList(value: string | undefined) {
   return value?.split(/\s+/).filter(Boolean);
+}
+
+const DEFAULT_CHALLENGE_RESOURCE_URL = new URL("https://agent.pw.invalid");
+
+function normalizeResponseHeaders(headers: ResponseLike["headers"]) {
+  return headers instanceof Headers
+    ? new Headers(headers)
+    : new Headers(
+        Object.entries(headers).flatMap(([name, value]) => {
+          if (typeof value === "undefined") {
+            return [];
+          }
+          return [[name, Array.isArray(value) ? value.join(", ") : value]];
+        }),
+      );
+}
+
+function getResponseHeader(response: ResponseLike | undefined, name: string) {
+  if (!response) {
+    return null;
+  }
+  return normalizeResponseHeaders(response.headers).get(name);
+}
+
+function toChallengeResponse(response: ResponseLike) {
+  return new Response(null, {
+    status: response.status,
+    headers: normalizeResponseHeaders(response.headers),
+  });
 }
 
 function defaultExpiry(clock: () => Date) {
@@ -458,8 +490,12 @@ async function discoverAuthorizationServerMetadata(
   return ok(null);
 }
 
-async function readResourceChallenge(resourceUrl: URL, response: Response | undefined) {
-  if (!response || response.status !== 401 || !response.headers.get("www-authenticate")) {
+async function readResourceChallenge(
+  resourceUrl: URL,
+  response: ResponseLike | undefined,
+  resourceLabel = resourceUrl.toString(),
+) {
+  if (!response || response.status !== 401 || !getResponseHeader(response, "www-authenticate")) {
     return ok<{
       resourceMetadataUrl?: URL;
       scopes?: string[];
@@ -469,12 +505,7 @@ async function readResourceChallenge(resourceUrl: URL, response: Response | unde
   type ChallengeFetch = NonNullable<
     NonNullable<Parameters<typeof oauth.protectedResourceRequest>[5]>[typeof oauth.customFetch]
   >;
-  const challengeFetch: ChallengeFetch = async (_url, _options) =>
-    new Response(await response.clone().text(), {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
+  const challengeFetch: ChallengeFetch = async (_url, _options) => toChallengeResponse(response);
 
   const challenged = await result(
     oauth.protectedResourceRequest("challenge-probe", "GET", resourceUrl, undefined, undefined, {
@@ -489,7 +520,7 @@ async function readResourceChallenge(resourceUrl: URL, response: Response | unde
     return err(
       oauthError(
         "resource-discovery",
-        `Failed to parse resource challenge for '${resourceUrl.toString()}'`,
+        `Failed to parse resource challenge for '${resourceLabel}'`,
         { cause: challenged.error },
       ),
     );
@@ -508,7 +539,7 @@ async function readResourceChallenge(resourceUrl: URL, response: Response | unde
     return err(
       oauthError(
         "resource-discovery",
-        `Failed to parse resource challenge for '${resourceUrl.toString()}'`,
+        `Failed to parse resource challenge for '${resourceLabel}'`,
         { cause: resourceMetadataUrl.error },
       ),
     );
@@ -520,15 +551,15 @@ async function readResourceChallenge(resourceUrl: URL, response: Response | unde
   });
 }
 
-async function readScopeChallenge(response: Response | undefined) {
-  if (!response || response.status !== 403 || !response.headers.get("www-authenticate")) {
+async function readScopeChallenge(response: ResponseLike | undefined) {
+  if (!response || response.status !== 403 || !getResponseHeader(response, "www-authenticate")) {
     return ok<{
       resourceMetadataUrl?: URL;
       scopes: string[];
     } | null>(null);
   }
 
-  const wwwAuthenticate = response.headers.get("www-authenticate")!;
+  const wwwAuthenticate = getResponseHeader(response, "www-authenticate")!;
   const bearerMatch = wwwAuthenticate.match(/Bearer\s+/i);
   if (!bearerMatch) {
     return ok(null);
@@ -606,10 +637,32 @@ function tokenRequestOptions(resource: string, customFetch: typeof fetch | undef
   };
 }
 
+function responseChallengeResource(resource: string | undefined) {
+  if (!resource) {
+    return {
+      url: DEFAULT_CHALLENGE_RESOURCE_URL,
+      label: "response challenge",
+    };
+  }
+
+  const normalized = normalizeResource(resource);
+  if (!normalized.ok) {
+    return {
+      url: DEFAULT_CHALLENGE_RESOURCE_URL,
+      label: resource,
+    };
+  }
+
+  return {
+    url: new URL(normalized.value),
+    label: normalized.value,
+  };
+}
+
 async function discoverResource(
   resource: string,
   customFetch: typeof fetch | undefined,
-  response?: Response,
+  response?: ResponseLike,
 ) {
   const normalizedResource = normalizeResource(resource);
   if (!normalizedResource.ok) {
@@ -1116,6 +1169,32 @@ export function createOAuthService(options: {
     });
   }
 
+  async function parseScopeChallenge(response: ResponseLike | undefined, resource?: string) {
+    const challenge = await readScopeChallenge(response);
+    if (!challenge.ok || !challenge.value) {
+      return challenge;
+    }
+    if (challenge.value.scopes.length > 0) {
+      return challenge;
+    }
+    if (!resource) {
+      return challenge;
+    }
+
+    const discovered = await discoverScopesFromMetadata(
+      resource,
+      challenge.value.resourceMetadataUrl,
+      options.customFetch,
+    );
+    if (!discovered.ok) {
+      return challenge;
+    }
+    return ok({
+      resourceMetadataUrl: challenge.value.resourceMetadataUrl,
+      scopes: discovered.value,
+    });
+  }
+
   return {
     async getFlow(id: string) {
       const flowStore = await requireFlowStore();
@@ -1129,34 +1208,47 @@ export function createOAuthService(options: {
       return ok(flow);
     },
 
-    async discoverResource(input: { resource: string; response?: Response }) {
+    async discoverResource(input: { resource: string; response?: ResponseLike }) {
       return discoverResource(input.resource, options.customFetch, input.response);
     },
 
-    async parseScopeChallenge(response: Response | undefined, resource?: string) {
-      const challenge = await readScopeChallenge(response);
-      if (!challenge.ok || !challenge.value) {
-        return challenge;
+    async classifyResponse(input: ConnectClassifyResponseInput) {
+      const scopeChallenge = await parseScopeChallenge(input.response, input.resource);
+      if (!scopeChallenge.ok) {
+        return scopeChallenge;
       }
-      if (challenge.value.scopes.length > 0) {
-        return challenge;
+      if (scopeChallenge.value) {
+        return ok<ConnectClassifyResponseResult>({
+          kind: "step-up",
+          scheme: "bearer",
+          scopes: scopeChallenge.value.scopes,
+          resourceMetadataUrl: scopeChallenge.value.resourceMetadataUrl,
+        });
       }
-      // Scope Selection Strategy fallback: use scopes_supported from resource metadata
-      if (!resource) {
-        return challenge;
-      }
-      const discovered = await discoverScopesFromMetadata(
-        resource,
-        challenge.value.resourceMetadataUrl,
-        options.customFetch,
+
+      const challengeResource = responseChallengeResource(input.resource);
+      const resourceChallenge = await readResourceChallenge(
+        challengeResource.url,
+        input.response,
+        challengeResource.label,
       );
-      if (!discovered.ok) {
-        return challenge;
+      if (!resourceChallenge.ok) {
+        return resourceChallenge;
       }
-      return ok({
-        resourceMetadataUrl: challenge.value.resourceMetadataUrl,
-        scopes: discovered.value,
+      if (!resourceChallenge.value) {
+        return ok<ConnectClassifyResponseResult>({ kind: "none" });
+      }
+
+      return ok<ConnectClassifyResponseResult>({
+        kind: "auth-required",
+        scheme: "bearer",
+        scopes: resourceChallenge.value.scopes ?? [],
+        resourceMetadataUrl: resourceChallenge.value.resourceMetadataUrl,
       });
+    },
+
+    async parseScopeChallenge(response: ResponseLike | undefined, resource?: string) {
+      return parseScopeChallenge(response, resource);
     },
 
     async startAuthorization(input: ConnectStartOAuthInput) {

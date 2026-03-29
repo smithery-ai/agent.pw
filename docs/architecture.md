@@ -135,6 +135,29 @@ It returns:
   - options are `oauth` or `headers`
   - an empty list means unconfigured
 
+### `connect.classifyResponse({ response, resource? })`
+
+This is the route-level helper for Bearer `WWW-Authenticate` handling.
+
+It answers:
+
+What did this upstream HTTP response mean for auth?
+
+It returns:
+
+- `none`
+  - the response is not a Bearer auth challenge `agent.pw` understands
+- `auth-required`
+  - the upstream returned a 401 Bearer challenge
+- `step-up`
+  - the upstream returned a 403 Bearer `insufficient_scope` challenge
+
+Use `classifyResponse(...)` when you are handling an upstream response directly and only need to branch on the auth challenge.
+
+The `response` input can be either a Fetch `Response` or a plain `{ status, headers }` object.
+
+Use `prepare({ path, resource, response })` when you want `agent.pw` to resolve the next connection option for a concrete credential path.
+
 ### `connect.startOAuth({ path, option, redirectUri, headers?, client? })`
 
 Starts an OAuth flow from one returned OAuth option.
