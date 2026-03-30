@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.0...agent.pw-v0.5.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* respect OAuth resource paths ([#126](https://github.com/smithery-ai/agent.pw/issues/126)) ([cbeba95](https://github.com/smithery-ai/agent.pw/commit/cbeba95626071bdf7fa47776fb82e712928e0a09))
+
 ## [0.5.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.4.0...agent.pw-v0.5.0) (2026-03-29)
 
 
