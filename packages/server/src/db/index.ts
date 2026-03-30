@@ -17,6 +17,11 @@ export type Transaction = PgTransaction<PgQueryResultHKT, DrizzleSchema, TablesR
 
 type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace;
 
+/**
+ * Create a Drizzle/Postgres client configured for agent.pw tables.
+ *
+ * Pass `options.sql` to target a custom schema or table prefix.
+ */
 export function createDb(
   connectionString: string,
   options: {
@@ -98,6 +103,11 @@ async function loadBundledPGliteAssets() {
   return bundledPGliteAssetsPromise;
 }
 
+/**
+ * Create a local PGlite-backed Drizzle client for agent.pw.
+ *
+ * This is useful for local apps and tests that want an embedded database instead of Postgres.
+ */
 export async function createLocalDb(
   dataDir: string,
   options: {

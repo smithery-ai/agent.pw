@@ -15,10 +15,12 @@ function matchesPathPrefix(prefix: string, path: string) {
   return prefix === path || path.startsWith(`${prefix}.`);
 }
 
+/** Deduplicate roots and sort them deepest-first so the most specific grant comes first. */
 export function uniqueRoots(roots: string[]) {
   return [...new Set(roots)].sort(compareRoots);
 }
 
+/** Return rooted grants for `action`, sorted deepest-first. */
 export function rootsForAction(rights: RuleGrant[], action: string) {
   return uniqueRoots(
     rights
@@ -27,6 +29,7 @@ export function rootsForAction(rights: RuleGrant[], action: string) {
   );
 }
 
+/** Return rooted grants for any of `actions`, sorted deepest-first. */
 export function rootsForActions(rights: RuleGrant[], actions: string[]) {
   return uniqueRoots(
     rights
@@ -35,18 +38,22 @@ export function rootsForActions(rights: RuleGrant[], actions: string[]) {
   );
 }
 
+/** Return `true` when any grant exists for `action`, rooted or global. */
 export function hasActionRight(rights: RuleGrant[], action: string) {
   return rights.some((right) => right.action === action);
 }
 
+/** Return `true` when `action` is granted globally without a root restriction. */
 export function hasGlobalRight(rights: RuleGrant[], action: string) {
   return rights.some((right) => right.action === action && !right.root);
 }
 
+/** Return the roots that cover `path`, ordered deepest-first. */
 export function coveringRootsForPath(roots: string[], path: string) {
   return roots.filter((root) => isAncestorOrEqual(root, path)).sort(compareRoots);
 }
 
+/** Return `true` when `rights` authorize `action` at `path`. */
 export function hasRuleForPath(rights: RuleGrant[], action: string, path: string) {
   return (
     hasGlobalRight(rights, action) ||
@@ -54,10 +61,12 @@ export function hasRuleForPath(rights: RuleGrant[], action: string, path: string
   );
 }
 
+/** Convenience wrapper around `rootsForAction()` for scoped APIs. */
 export function rootsForActionFromScope(scope: RuleScope, action: string) {
   return rootsForAction(scope.rights, action);
 }
 
+/** Evaluate a rule check and return a structured authorization result. */
 export function authorizeRules(input: RuleAuthorizationInput): RuleAuthorizationResult {
   if (!hasRuleForPath(input.rights, input.action, input.path)) {
     return {
@@ -69,10 +78,12 @@ export function authorizeRules(input: RuleAuthorizationInput): RuleAuthorization
   return { authorized: true };
 }
 
+/** Boolean shortcut for `authorizeRules(input).authorized`. */
 export function can(input: RuleAuthorizationInput) {
   return authorizeRules(input).authorized;
 }
 
+/** Normalize a scalar-or-array constraint field into an array. */
 export function normalizeConstraintValues(value: string | string[] | undefined) {
   if (value === undefined) {
     return [];
@@ -80,6 +91,7 @@ export function normalizeConstraintValues(value: string | string[] | undefined) 
   return Array.isArray(value) ? value : [value];
 }
 
+/** Return `true` when a `RuleConstraint` matches the supplied request details. */
 export function constraintAppliesToPath(
   constraint: RuleConstraint,
   input: {
