@@ -1,4 +1,4 @@
-import type { PgDatabase, PgTransaction } from "drizzle-orm/pg-core";
+import type { PgDatabase, PgQueryResultHKT, PgTransaction } from "drizzle-orm/pg-core";
 import { pgTable, text } from "drizzle-orm/pg-core";
 import type { TablesRelationalConfig } from "drizzle-orm/relations";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
@@ -20,8 +20,8 @@ type ConsumerSchema = typeof consumerDb._.fullSchema;
 
 const _database: Database = consumerDb;
 const _client: DbClient = consumerDb;
-declare const genericDb: PgDatabase<any, ConsumerSchema, TablesRelationalConfig>;
-declare const genericTx: PgTransaction<any, ConsumerSchema, TablesRelationalConfig>;
+declare const genericDb: PgDatabase<PgQueryResultHKT, ConsumerSchema, TablesRelationalConfig>;
+declare const genericTx: PgTransaction<PgQueryResultHKT, ConsumerSchema, TablesRelationalConfig>;
 
 const _genericDatabase: Database = genericDb;
 const _genericClient: DbClient = genericTx;

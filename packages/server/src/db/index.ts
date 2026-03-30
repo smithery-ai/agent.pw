@@ -1,5 +1,5 @@
 import { err, ok, result, type Result } from "okay-error";
-import { PgDatabase, type PgTransaction } from "drizzle-orm/pg-core";
+import { PgDatabase, type PgQueryResultHKT, type PgTransaction } from "drizzle-orm/pg-core";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import type { TablesRelationalConfig } from "drizzle-orm/relations";
@@ -11,9 +11,9 @@ import { coerceSqlNamespace, type AgentPwSqlNamespace } from "./schema/index.js"
 
 type DrizzleSchema = Record<string, unknown>;
 
-export type DbClient = PgDatabase<any, DrizzleSchema, TablesRelationalConfig>;
+export type DbClient = PgDatabase<PgQueryResultHKT, DrizzleSchema, TablesRelationalConfig>;
 export type Database = DbClient;
-export type Transaction = PgTransaction<any, DrizzleSchema, TablesRelationalConfig>;
+export type Transaction = PgTransaction<PgQueryResultHKT, DrizzleSchema, TablesRelationalConfig>;
 
 type SqlNamespaceInput = SqlNamespaceOptions | AgentPwSqlNamespace;
 
