@@ -183,12 +183,12 @@ describe("db edge coverage", () => {
     }
   });
 
-  it("supports the postgres-js style column lookup shape during bootstrap", async () => {
+  it("supports array and fallback column lookup shapes during bootstrap", async () => {
     const execute = vi
       .fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ udt_name: "ltree" }])
+      .mockResolvedValueOnce({})
       .mockResolvedValueOnce([{ udt_name: "ltree" }])
       .mockResolvedValue([]);
 

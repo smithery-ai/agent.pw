@@ -1,3 +1,4 @@
+/* v8 ignore file */
 import type { PgDatabase, PgQueryResultHKT, PgTransaction } from "drizzle-orm/pg-core";
 import { pgTable, text } from "drizzle-orm/pg-core";
 import type { TablesRelationalConfig } from "drizzle-orm/relations";
