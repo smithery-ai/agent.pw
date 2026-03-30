@@ -375,10 +375,17 @@ export const ConnectFlowSchema = z
   .meta({ id: "ConnectFlow" });
 export type ConnectFlow = z.infer<typeof ConnectFlowSchema>;
 
+/**
+ * Persistence contract for pending OAuth authorization flows.
+ */
 export interface FlowStore {
+  /** Persist a pending OAuth authorization flow until the callback completes or expires. */
   create(flow: PendingFlow): Promise<void>;
+  /** Load a pending OAuth authorization flow by its `state` / flow id. */
   get(id: string): Promise<PendingFlow | null>;
+  /** Mark a flow as successfully completed and remove it from storage. */
   complete(id: string): Promise<void>;
+  /** Remove a flow without completing it, for example after cancellation or expiry. */
   delete(id: string): Promise<void>;
 }
 
@@ -406,79 +413,129 @@ export interface CimdDocumentInput {
   tokenEndpointAuthSigningAlg?: string;
 }
 
+/**
+ * Web-friendly OAuth handlers returned by `agentPw.connect.createWebHandlers()`.
+ */
 export interface ConnectWebHandlers {
+  /** Start an OAuth authorization request and redirect the browser to the authorization server. */
   start(
     request: Request,
     input: Omit<ConnectStartOAuthInput, "redirectUri"> & {
       redirectUri?: string;
     },
   ): Promise<Response>;
+  /** Finish an OAuth callback request and return the configured success or error response. */
   callback(request: Request): Promise<Response>;
 }
 
+/**
+ * Customize the browser-oriented helpers returned by `agentPw.connect.createWebHandlers()`.
+ */
 export interface ConnectWebHandlerOptions {
+  /** Relative callback path used when `start()` derives a redirect URI from the incoming request. */
   callbackPath?: string;
+  /** Override the default success page returned after a callback completes. */
   success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
+  /** Override the default JSON error response returned for callback failures. */
   error?(error: AgentPwError, request: Request): Response | Promise<Response>;
 }
 
+/**
+ * Path-scoped agent.pw API. Instances created with `agentPw.scope(...)` enforce the rights
+ * used to construct them and expose the same credential, profile, and connect operations.
+ */
 export interface ScopedAgentPw {
   connect: {
+    /**
+     * Resolve an existing credential for `path`, or return the ordered auth options needed to
+     * connect `path` to `resource`.
+     */
     prepare(input: ConnectPrepareInput): Promise<Result<ConnectPrepareResult>>;
+    /** Inspect an HTTP response and classify whether it requests bearer auth or step-up auth. */
     classifyResponse(
       input: ConnectClassifyResponseInput,
     ): Promise<Result<ConnectClassifyResponseResult>>;
+    /** Load a pending OAuth flow so a UI can resume or inspect it. */
     getFlow(flowId: string): Promise<Result<ConnectFlow>>;
+    /** Begin an OAuth authorization code flow from a previously returned OAuth option. */
     startOAuth(input: ConnectStartOAuthInput): Promise<Result<ConnectAuthorizationSession>>;
+    /** Complete an OAuth callback and persist the resulting credential. */
     completeOAuth(
       input: ConnectCompleteOAuthInput,
       options?: CrudOptions,
     ): Promise<Result<ConnectCompleteResult>>;
+    /** Persist user-provided header credentials for a path. */
     setHeaders(
       input: ConnectSetHeadersInput,
       options?: CrudOptions,
     ): Promise<Result<CredentialRecord>>;
+    /** Resolve ready-to-send headers, refreshing OAuth credentials when needed. */
     resolveHeaders(input: ConnectResolveHeadersInput): Promise<Result<Record<string, string>>>;
+    /** Delete a credential and optionally revoke its remote OAuth token(s). */
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
   credentials: {
+    /** Load a stored credential by its canonical path. */
     get(path: string, options?: CrudOptions): Promise<Result<CredentialRecord | null>>;
+    /** List credentials under an optional path prefix. */
     list(
       options?: { path?: string; recursive?: boolean } & CrudOptions,
     ): Promise<Result<CredentialSummary[]>>;
+    /** Insert or update a credential record. */
     put(input: CredentialPutInput, options?: CrudOptions): Promise<Result<CredentialRecord>>;
+    /** Move a credential from one canonical path to another. */
     move(fromPath: string, toPath: string, options?: CrudOptions): Promise<Result<boolean>>;
+    /** Delete a credential, optionally including descendants. */
     delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
   };
   profiles: {
+    /** Load a credential profile by path. */
     get(path: string, options?: CrudOptions): Promise<Result<CredentialProfileRecord | null>>;
+    /** List credential profiles under an optional path prefix. */
     list(
       options?: { path?: string; recursive?: boolean } & CrudOptions,
     ): Promise<Result<CredentialProfileRecord[]>>;
+    /** Insert or update a credential profile. */
     put(
       path: string,
       data: CredentialProfilePutInput,
       options?: CrudOptions,
     ): Promise<Result<CredentialProfileRecord>>;
+    /** Delete a credential profile, optionally including descendants. */
     delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
   };
 }
 
 export type AuthorizedAgentPw = ScopedAgentPw;
 
+/**
+ * Configuration for `createAgentPw()`.
+ */
 export interface AgentPwOptions {
+  /** Drizzle database or transaction used to read and write agent.pw tables. */
   db: Database;
+  /** Secret used to encrypt credentials before they are stored. */
   encryptionKey: string;
+  /** Override the clock used for flow expiry and token refresh timing. */
   clock?: () => Date;
+  /** Logger implementation for debug and operational messages. */
   logger?: Logger;
+  /** Storage backend for pending OAuth browser flows. Required for OAuth redirects. */
   flowStore?: FlowStore;
+  /** Custom fetch implementation for OAuth discovery, token, and revocation requests. */
   oauthFetch?: typeof fetch;
+  /** Custom SQL schema or table prefix for agent.pw tables. */
   sql?: SqlNamespaceOptions;
+  /** Default OAuth client configuration used when profiles or discovery do not provide one. */
   oauthClient?: OAuthClientInput;
 }
 
+/**
+ * Full agent.pw API returned by `createAgentPw()`.
+ */
 export interface AgentPw extends ScopedAgentPw {
   profiles: ScopedAgentPw["profiles"] & {
+    /** Resolve the most specific credential profile that matches a path and resource. */
     resolve(
       input: {
         path: string;
@@ -488,9 +545,13 @@ export interface AgentPw extends ScopedAgentPw {
     ): Promise<Result<CredentialProfileRecord | null>>;
   };
   connect: ScopedAgentPw["connect"] & {
+    /** Create browser-style OAuth start and callback handlers for web frameworks. */
     createWebHandlers(options?: ConnectWebHandlerOptions): ConnectWebHandlers;
+    /** Build an RFC 7591 client metadata document from friendly input. */
     createClientMetadataDocument(input: CimdDocumentInput): Result<CimdDocument>;
+    /** Return the client metadata document as a JSON `Response`. */
     createClientMetadataResponse(input: CimdDocumentInput): Result<Response>;
   };
+  /** Derive a restricted API view that enforces the supplied rights on every operation. */
   scope(input: RuleScope): ScopedAgentPw;
 }

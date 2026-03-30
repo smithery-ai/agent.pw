@@ -18,6 +18,7 @@ function normalizeSqlIdentifier(value: string, label: string, allowEmpty = false
   return ok(value);
 }
 
+/** Resolved schema and table names used by the agent.pw SQL helpers. */
 export interface AgentPwSqlNamespace {
   schema: string;
   tablePrefix: string;
@@ -57,6 +58,11 @@ export const agentpwSchema = pgSchema(DEFAULT_SQL_SCHEMA);
 
 export const defaultSqlNamespace = buildAgentPwNamespace(agentpwSchema, DEFAULT_SQL_SCHEMA, "");
 
+/**
+ * Create a validated SQL namespace description for agent.pw tables.
+ *
+ * Use this when you want to install agent.pw into a non-default schema or with a table prefix.
+ */
 export function createAgentPwSchema(options: SqlNamespaceOptions = {}) {
   const schema = normalizeSqlIdentifier(options.schema ?? DEFAULT_SQL_SCHEMA, "SQL schema");
   if (!schema.ok) {
@@ -75,6 +81,7 @@ export function createAgentPwSchema(options: SqlNamespaceOptions = {}) {
   return ok(buildAgentPwNamespace(pgSchema(schema.value), schema.value, tablePrefix.value));
 }
 
+/** Normalize namespace options or an existing namespace into a resolved `AgentPwSqlNamespace`. */
 export function coerceSqlNamespace(input?: SqlNamespaceOptions | AgentPwSqlNamespace) {
   if (!input) {
     return ok(defaultSqlNamespace);
