@@ -111,6 +111,47 @@ afterEach(async () => {
 });
 
 describe("oauth service coverage", () => {
+  it("tries path-inserted protected resource metadata before root fallback", async () => {
+    const state = await createState();
+    const calls: string[] = [];
+
+    const service = state.service({
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        calls.push(url);
+
+        if (url === "https://docs.example.com/.well-known/oauth-protected-resource/mcp") {
+          return new Response("not found", { status: 404 });
+        }
+
+        if (url === "https://docs.example.com/.well-known/oauth-protected-resource") {
+          return Response.json({
+            resource: "https://docs.example.com/mcp",
+            authorization_servers: ["https://auth.example.com"],
+          });
+        }
+
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+
+    await expect(
+      service.discoverResource({
+        resource: "https://docs.example.com/mcp",
+      }),
+    ).resolves.toEqual({
+      resource: "https://docs.example.com/mcp",
+      authorizationServers: ["https://auth.example.com"],
+      resourceName: undefined,
+      scopes: [],
+    });
+    expect(calls).toEqual([
+      "https://docs.example.com/.well-known/oauth-protected-resource/mcp",
+      "https://docs.example.com/.well-known/oauth-protected-resource",
+    ]);
+  });
+
   it("covers low-level validation, refresh, and default callback errors", async () => {
     const state = await createState();
     const flowStore = createInMemoryFlowStore();
@@ -1002,6 +1043,33 @@ describe("oauth service coverage", () => {
     expect(challengeParseFailure.error).toEqual(
       expect.objectContaining({
         message: "Failed to parse resource challenge for 'https://docs.example.com/mcp'",
+      }),
+    );
+
+    const challengeMetadataFetchFailure = await state
+      .service({
+        flowStore,
+        customFetch: async () => {
+          throw new Error("challenge metadata fetch failed");
+        },
+      })
+      .raw.discoverResource({
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer realm="docs", resource_metadata="https://docs.example.com/oauth-resource-metadata"',
+          },
+        }),
+      });
+    expect(challengeMetadataFetchFailure.ok).toBe(false);
+    if (challengeMetadataFetchFailure.ok) {
+      throw new Error("Expected challenge metadata fetch failure");
+    }
+    expect(challengeMetadataFetchFailure.error).toEqual(
+      expect.objectContaining({
+        message: "Failed to discover resource 'https://docs.example.com/mcp'",
       }),
     );
 
