@@ -72,9 +72,7 @@ if (option?.kind === "headers") {
 ### Resolve headers later
 
 ```ts
-const headers = await unwrap(
-  agentPw.connect.resolveHeaders({ path: "acme.connections.docs" }),
-);
+const headers = await unwrap(agentPw.connect.resolveHeaders({ path: "acme.connections.docs" }));
 // OAuth tokens are refreshed automatically
 ```
 
