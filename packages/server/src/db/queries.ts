@@ -15,7 +15,7 @@ import {
   normalizeResourcePattern,
 } from "../resource-patterns.js";
 import type { SqlNamespaceOptions } from "../types.js";
-import type { Database } from "./index.js";
+import type { DbClient } from "./index.js";
 import {
   coerceSqlNamespace,
   type AgentPwSqlNamespace,
@@ -31,21 +31,21 @@ export type CredProfileRow = DefaultCredProfileModel;
 export type CredentialRow = DefaultCredentialModel;
 
 interface QueryHelpers {
-  getCredProfile(db: Database, path: string): Promise<Result<CredProfileRow | null>>;
+  getCredProfile(db: DbClient, path: string): Promise<Result<CredProfileRow | null>>;
   listCredProfiles(
-    db: Database,
+    db: DbClient,
     options?: {
       path?: string;
       recursive?: boolean;
     },
   ): Promise<Result<CredProfileRow[]>>;
   getMatchingCredProfiles(
-    db: Database,
+    db: DbClient,
     path: string,
     resource: string,
   ): Promise<Result<CredProfileRow[]>>;
   upsertCredProfile(
-    db: Database,
+    db: DbClient,
     path: string,
     data: {
       resourcePatterns: string[];
@@ -55,29 +55,29 @@ interface QueryHelpers {
     },
   ): Promise<Result<CredProfileRow>>;
   deleteCredProfile(
-    db: Database,
+    db: DbClient,
     path: string,
     options?: { recursive?: boolean },
   ): Promise<Result<boolean>>;
-  getCredential(db: Database, path: string): Promise<Result<CredentialRow | null>>;
+  getCredential(db: DbClient, path: string): Promise<Result<CredentialRow | null>>;
   listCredentials(
-    db: Database,
+    db: DbClient,
     options?: {
       path?: string;
       recursive?: boolean;
     },
   ): Promise<Result<CredentialRow[]>>;
   upsertCredential(
-    db: Database,
+    db: DbClient,
     data: {
       path: string;
       auth: Record<string, unknown>;
       secret: Buffer;
     },
   ): Promise<Result<CredentialRow>>;
-  moveCredential(db: Database, fromPath: string, toPath: string): Promise<Result<boolean>>;
+  moveCredential(db: DbClient, fromPath: string, toPath: string): Promise<Result<boolean>>;
   deleteCredential(
-    db: Database,
+    db: DbClient,
     path: string,
     options?: { recursive?: boolean },
   ): Promise<Result<boolean>>;
