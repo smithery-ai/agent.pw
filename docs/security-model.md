@@ -6,7 +6,7 @@ Its security model is built around five ideas:
 
 - exact-path connections
 - encrypted credential storage
-- discovery-first OAuth with framework-owned refresh
+- profile-aware setup with framework-owned refresh
 - admin-configured profiles as setup guidance
 - path-based authorization facts
 
@@ -95,7 +95,7 @@ From an implementer perspective, the main obligations are:
 
 This matters because:
 
-- discovery-first OAuth starts from the protected resource
+- resource-based setup starts from the protected resource
 - manual and profile-guided setup still needs a stable target
 - profile matching still needs a precise target
 
@@ -137,8 +137,8 @@ The framework's setup model is:
 1. the app chooses a connection `path`
 2. the app identifies the target `resource`
 3. `connect.prepare(...)` checks for an existing credential
-4. if none exists, the framework tries discovery-first OAuth
-5. if discovery is unavailable or incomplete, the framework resolves matching profiles
+4. if none exists, the framework resolves matching profiles
+5. if no profile matches, the framework tries discovery
 6. the framework returns explicit next steps as `oauth` or `headers` options
 
 This matters because implementers do not need to re-implement auth decision logic inconsistently across products or runtimes.

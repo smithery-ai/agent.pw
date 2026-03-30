@@ -6,7 +6,7 @@ import type { RuleScope } from "../packages/server/src/types";
 import { TEST_KEY_MATERIAL, createTestDb } from "./setup";
 import { must, mustAsync, wrapAgentPw } from "./support/results";
 
-async function createTestAgent() {
+async function createTestAgent(oauthFetch?: typeof fetch) {
   const db = await createTestDb();
   const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
   return wrapAgentPw(
@@ -14,6 +14,7 @@ async function createTestAgent() {
       await createAgentPw({
         db,
         encryptionKey,
+        oauthFetch,
       }),
     ),
   );
@@ -245,6 +246,82 @@ describe("createAgentPw", () => {
     expect(await agentPw.connect.resolveHeaders({ path: "acme.connections.resend" })).toEqual({
       Authorization: "Bearer rs_123",
     });
+  });
+
+  it("prefers matching profiles over discovery and exposes the default option first", async () => {
+    let discoveryCalls = 0;
+    const agentPw = await createTestAgent(async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        discoveryCalls += 1;
+        return Response.json({
+          authorization_servers: [
+            "https://accounts.example.com",
+            "https://backup.example.com",
+          ],
+          resource: "https://guides.example.com/mcp",
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+
+    await agentPw.profiles.put("docs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "API key" }],
+      },
+      displayName: "Docs",
+    });
+
+    const profiled = await agentPw.connect.prepare({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(profiled.kind).toBe("options");
+    if (profiled.kind !== "options") {
+      throw new Error("Expected connection options");
+    }
+
+    expect(profiled.options).toHaveLength(1);
+    expect(profiled.options[0]).toEqual(profiled.resolution.option);
+    expect(profiled.options[0]).toEqual(
+      expect.objectContaining({
+        kind: "headers",
+        source: "profile",
+      }),
+    );
+    expect(discoveryCalls).toBe(0);
+
+    const discovered = await agentPw.connect.prepare({
+      path: "acme.connections.guides",
+      resource: "https://guides.example.com/mcp",
+    });
+
+    expect(discovered.kind).toBe("options");
+    if (discovered.kind !== "options") {
+      throw new Error("Expected discovery options");
+    }
+
+    expect(discovered.options).toHaveLength(2);
+    expect(discovered.options[0]).toEqual(discovered.resolution.option);
+    expect(discovered.options).toEqual([
+      expect.objectContaining({
+        kind: "oauth",
+        source: "discovery",
+        authorizationServer: "https://accounts.example.com",
+      }),
+      expect.objectContaining({
+        kind: "oauth",
+        source: "discovery",
+        authorizationServer: "https://backup.example.com",
+      }),
+    ]);
+    expect(discoveryCalls).toBe(1);
   });
 
   it("creates and overwrites app headers for managed connections", async () => {

@@ -356,7 +356,7 @@ That includes:
 - callback completion
 - token refresh
 - token revocation on disconnect
-- discovery-first resource handling
+- resource discovery when no profile matches
 - hosted callback helpers
 - client metadata document helpers for CIMD-style clients
 
