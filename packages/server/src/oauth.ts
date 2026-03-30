@@ -601,12 +601,7 @@ async function discoverScopesFromMetadata(
 
   const metadataResponse = resourceMetadataUrl
     ? await result((customFetch ?? fetch)(resourceMetadataUrl))
-    : await result(
-        oauth.resourceDiscoveryRequest(
-          resourceUrl,
-          customFetch ? { [oauth.customFetch]: customFetch } : undefined,
-        ),
-      );
+    : await requestResourceMetadata(resource, resourceUrl, customFetch);
   if (!metadataResponse.ok) {
     return ok<string[]>([]);
   }
@@ -656,6 +651,60 @@ function responseChallengeResource(resource: string | undefined) {
   };
 }
 
+function buildResourceMetadataUrl(resource: URL, includePath: boolean) {
+  const url = new URL("/.well-known/oauth-protected-resource", resource.origin);
+  if (includePath) {
+    url.pathname = `${url.pathname}${resource.pathname === "/" ? "" : resource.pathname}`;
+    url.search = resource.search;
+  }
+  return url;
+}
+
+function buildResourceMetadataAttempts(resource: URL) {
+  const insertedUrl = buildResourceMetadataUrl(resource, true);
+  const rootUrl = buildResourceMetadataUrl(resource, false);
+  return insertedUrl.toString() === rootUrl.toString() ? [insertedUrl] : [insertedUrl, rootUrl];
+}
+
+async function requestResourceMetadata(
+  resource: string,
+  resourceUrl: URL,
+  customFetch: typeof fetch | undefined,
+) {
+  const fetchImpl = customFetch ?? fetch;
+  const attempts = buildResourceMetadataAttempts(resourceUrl);
+
+  for (const [index, attempt] of attempts.entries()) {
+    const response = await result(
+      fetchImpl(attempt, {
+        headers: {
+          Accept: "application/json",
+        },
+      }),
+    );
+    if (!response.ok) {
+      return err(
+        oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
+          cause: response.error,
+        }),
+      );
+    }
+
+    if (
+      index < attempts.length - 1 &&
+      response.value.status >= 400 &&
+      response.value.status < 500
+    ) {
+      await response.value.body?.cancel();
+      continue;
+    }
+
+    return ok(response.value);
+  }
+
+  return err(oauthError("resource-discovery", `Failed to discover resource '${resource}'`));
+}
+
 async function discoverResource(
   resource: string,
   customFetch: typeof fetch | undefined,
@@ -674,18 +723,15 @@ async function discoverResource(
 
   const metadataResponse = challenged.value?.resourceMetadataUrl
     ? await result((customFetch ?? fetch)(challenged.value.resourceMetadataUrl))
-    : await result(
-        oauth.resourceDiscoveryRequest(
-          resourceUrl,
-          customFetch ? { [oauth.customFetch]: customFetch } : undefined,
-        ),
-      );
+    : await requestResourceMetadata(resource, resourceUrl, customFetch);
   if (!metadataResponse.ok) {
-    return err(
-      oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
-        cause: metadataResponse.error,
-      }),
-    );
+    return challenged.value?.resourceMetadataUrl
+      ? err(
+          oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
+            cause: metadataResponse.error,
+          }),
+        )
+      : metadataResponse;
   }
 
   const resourceServer = await result(
