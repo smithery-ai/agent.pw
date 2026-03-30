@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/assets/illustration.png" alt="agent.pw connects agents to services" width="600" />
+</p>
+
 # agent.pw
 
 [![npm version](https://img.shields.io/npm/v/agent.pw)](https://www.npmjs.com/package/agent.pw)
