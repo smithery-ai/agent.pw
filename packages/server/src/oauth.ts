@@ -883,6 +883,13 @@ function defaultErrorResponse(error: { message: string }) {
   });
 }
 
+/**
+ * Create an ephemeral in-memory `FlowStore`.
+ *
+ * This is suitable for local development, tests, or single-process apps where OAuth callbacks are
+ * guaranteed to land on the same process. Use a persistent implementation for multi-instance
+ * deployments.
+ */
 export function createInMemoryFlowStore(): FlowStore {
   const store = new Map<string, PendingFlow>();
 
@@ -1036,6 +1043,13 @@ async function resolveOAuthConfigForResourceOption(
   } satisfies OAuthResolvedConfig);
 }
 
+/**
+ * Create the low-level OAuth service used by `createAgentPw()`.
+ *
+ * Most applications should prefer `agentPw.connect.*`. This helper is useful when you want the
+ * OAuth lifecycle without the full agent.pw facade and can supply your own profile and credential
+ * persistence callbacks.
+ */
 export function createOAuthService(options: {
   flowStore?: FlowStore;
   clock: () => Date;

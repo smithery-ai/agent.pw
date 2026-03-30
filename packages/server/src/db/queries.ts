@@ -166,6 +166,12 @@ function descendantsWhere(pathColumn: { getSQL(): unknown }, path: string) {
   return sql<boolean>`${pathColumn} <@ ${path}::ltree`;
 }
 
+/**
+ * Create the low-level query helpers used by agent.pw.
+ *
+ * Most applications should prefer `createAgentPw()` and use its higher-level APIs. These helpers
+ * are useful when you need direct access to the underlying credential and profile tables.
+ */
 export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
   const sqlNamespace = coerceSqlNamespace(namespaceInput);
   if (!sqlNamespace.ok) {

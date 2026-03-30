@@ -282,6 +282,13 @@ function requireRule(scope: RuleScope, action: string, path: string) {
   return ok();
 }
 
+/**
+ * Create the top-level agent.pw API on top of an existing database.
+ *
+ * Every library operation returns a `Result` / `Promise<Result>` so callers can unwrap or inspect
+ * errors without catching thrown exceptions. Supply `flowStore` and `oauthClient` when you want
+ * to support browser-based OAuth connection flows.
+ */
 export async function createAgentPw(options: AgentPwOptions) {
   const logger = options.logger ?? createLogger("agentpw").logger;
   const encryptionKey = options.encryptionKey;
