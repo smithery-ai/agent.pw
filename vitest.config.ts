@@ -9,7 +9,11 @@ export default defineConfig({
       provider: "v8",
       all: true,
       include: ["packages/server/src/**/*.ts"],
-      exclude: ["packages/server/src/db/schema/**", "packages/server/src/types.ts"],
+      exclude: [
+        "packages/server/src/db/schema/**",
+        "packages/server/src/**/*.typecheck.ts",
+        "packages/server/src/types.ts",
+      ],
       thresholds: {
         statements: 100,
         branches: 100,

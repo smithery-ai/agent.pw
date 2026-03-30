@@ -2,12 +2,12 @@ import { z } from "zod";
 import type { JWKS } from "oauth4webapi";
 import type { Result } from "okay-error";
 import type { AgentPwError } from "./errors.js";
-import type { Database } from "./db/index.js";
+import type { Database, DbClient } from "./db/index.js";
 
-export type { Database } from "./db/index.js";
+export type { Database, DbClient, Transaction } from "./db/index.js";
 
 export interface CrudOptions {
-  db?: Database;
+  db?: DbClient;
 }
 
 export interface RecursiveCrudOptions extends CrudOptions {

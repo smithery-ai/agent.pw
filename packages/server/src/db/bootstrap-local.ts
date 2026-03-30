@@ -1,6 +1,7 @@
 import { err, ok } from "okay-error";
 import { sql } from "drizzle-orm";
 import { inputError } from "../errors.js";
+import { isRecord } from "../lib/utils.js";
 import type { SqlNamespaceOptions } from "../types.js";
 import type { Database } from "./index";
 import { coerceSqlNamespace, type AgentPwSqlNamespace } from "./schema/index.js";
@@ -13,6 +14,26 @@ function quoteIdentifier(identifier: string) {
 
 function qualifyTable(schema: string, tableName: string) {
   return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`;
+}
+
+function resultRows(result: unknown) {
+  if (Array.isArray(result)) {
+    return result;
+  }
+
+  if (isRecord(result) && Array.isArray(result.rows)) {
+    return result.rows;
+  }
+
+  return [];
+}
+
+function rowUdtName(row: unknown) {
+  if (!isRecord(row) || typeof row.udt_name !== "string") {
+    return undefined;
+  }
+
+  return row.udt_name;
 }
 
 async function ensureLtreePathColumn(
@@ -28,9 +49,8 @@ async function ensureLtreePathColumn(
       AND table_name = ${tableName}
       AND column_name = 'path'
   `);
-  const rows = "rows" in result ? result.rows : (result as unknown as Record<string, unknown>[]);
-  const row = rows[0] as { udt_name?: string } | undefined;
-  if (!row?.udt_name || row.udt_name === "ltree") {
+  const udtName = rowUdtName(resultRows(result)[0]);
+  if (!udtName || udtName === "ltree") {
     return ok();
   }
 
