@@ -10,6 +10,20 @@ npm install agent.pw
 
 ## Quick start
 
+### Using Agent Skills
+
+```sh
+npx skills add https://github.com/smithery-ai/agent.pw
+```
+
+Then run:
+
+```
+/setup-agentpw
+```
+
+### Manual
+
 ```ts
 import { createAgentPw } from "agent.pw";
 import { createInMemoryFlowStore } from "agent.pw/oauth";
