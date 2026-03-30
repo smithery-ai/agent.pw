@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.1...agent.pw-v0.5.2) (2026-03-30)
+
+
+### Bug Fixes
+
+* accept broader Drizzle DB clients ([#128](https://github.com/smithery-ai/agent.pw/issues/128)) ([47a8a5e](https://github.com/smithery-ai/agent.pw/commit/47a8a5e14b26446f26b25e1ac5efb3cb33a5c1d5))
+* simplify docs and document option ordering ([#130](https://github.com/smithery-ai/agent.pw/issues/130)) ([882bbc7](https://github.com/smithery-ai/agent.pw/commit/882bbc76425e2c0879ee3946c723c1243cc8f069))
+
 ## [0.5.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.0...agent.pw-v0.5.1) (2026-03-30)
 
 
