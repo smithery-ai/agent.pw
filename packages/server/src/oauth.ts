@@ -672,37 +672,31 @@ async function requestResourceMetadata(
   customFetch: typeof fetch | undefined,
 ) {
   const fetchImpl = customFetch ?? fetch;
-  const attempts = buildResourceMetadataAttempts(resourceUrl);
-
-  for (const [index, attempt] of attempts.entries()) {
-    const response = await result(
-      fetchImpl(attempt, {
+  const [attempt, fallbackAttempt] = buildResourceMetadataAttempts(resourceUrl);
+  const request = (url: URL) =>
+    result(
+      fetchImpl(url, {
         headers: {
           Accept: "application/json",
         },
       }),
     );
-    if (!response.ok) {
-      return err(
-        oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
-          cause: response.error,
-        }),
-      );
-    }
 
-    if (
-      index < attempts.length - 1 &&
-      response.value.status >= 400 &&
-      response.value.status < 500
-    ) {
-      await response.value.body?.cancel();
-      continue;
-    }
-
-    return ok(response.value);
+  const response = await request(attempt);
+  if (!response.ok) {
+    return err(
+      oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
+        cause: response.error,
+      }),
+    );
   }
 
-  return err(oauthError("resource-discovery", `Failed to discover resource '${resource}'`));
+  if (fallbackAttempt && response.value.status >= 400 && response.value.status < 500) {
+    await response.value.body?.cancel();
+    return request(fallbackAttempt);
+  }
+
+  return ok(response.value);
 }
 
 async function discoverResource(

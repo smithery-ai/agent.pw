@@ -122,7 +122,7 @@ describe("oauth service coverage", () => {
         calls.push(url);
 
         if (url === "https://docs.example.com/.well-known/oauth-protected-resource/mcp") {
-          return new Response(null, { status: 404 });
+          return new Response("not found", { status: 404 });
         }
 
         if (url === "https://docs.example.com/.well-known/oauth-protected-resource") {
@@ -1043,6 +1043,33 @@ describe("oauth service coverage", () => {
     expect(challengeParseFailure.error).toEqual(
       expect.objectContaining({
         message: "Failed to parse resource challenge for 'https://docs.example.com/mcp'",
+      }),
+    );
+
+    const challengeMetadataFetchFailure = await state
+      .service({
+        flowStore,
+        customFetch: async () => {
+          throw new Error("challenge metadata fetch failed");
+        },
+      })
+      .raw.discoverResource({
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer realm="docs", resource_metadata="https://docs.example.com/oauth-resource-metadata"',
+          },
+        }),
+      });
+    expect(challengeMetadataFetchFailure.ok).toBe(false);
+    if (challengeMetadataFetchFailure.ok) {
+      throw new Error("Expected challenge metadata fetch failure");
+    }
+    expect(challengeMetadataFetchFailure.error).toEqual(
+      expect.objectContaining({
+        message: "Failed to discover resource 'https://docs.example.com/mcp'",
       }),
     );
 
