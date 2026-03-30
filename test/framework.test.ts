@@ -257,10 +257,7 @@ describe("createAgentPw", () => {
       if (url.includes("/.well-known/oauth-protected-resource")) {
         discoveryCalls += 1;
         return Response.json({
-          authorization_servers: [
-            "https://accounts.example.com",
-            "https://backup.example.com",
-          ],
+          authorization_servers: ["https://accounts.example.com", "https://backup.example.com"],
           resource: "https://guides.example.com/mcp",
         });
       }
