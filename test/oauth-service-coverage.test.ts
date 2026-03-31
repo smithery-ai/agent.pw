@@ -1739,10 +1739,14 @@ describe("oauth service coverage", () => {
     // insufficient_scope with no scope but resource_metadata URL provided
     const metadataUrlFetchService = state.service({
       flowStore: createInMemoryFlowStore(),
-      customFetch: async (input) => {
+      customFetch: async (input, init) => {
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
         if (url === "https://meta.example.com/resource") {
+          const headers = new Headers(init?.headers);
+          if (headers.get("accept") !== "application/json") {
+            return new Response("not acceptable", { status: 406 });
+          }
           return Response.json({
             resource: "https://resource.example.com/api",
             authorization_servers: ["https://auth.example.com"],

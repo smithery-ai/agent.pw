@@ -593,7 +593,11 @@ export async function createAgentPw(options: AgentPwOptions) {
       resource: resource.value,
       response: input.response,
     });
-    if (discovered.ok) {
+    if (!discovered.ok) {
+      if (input.response) {
+        return discovered;
+      }
+    } else {
       const options = discovered.value.authorizationServers.map(
         (authorizationServer): ConnectOAuthOption => {
           const issuerHost = new URL(authorizationServer).host;
