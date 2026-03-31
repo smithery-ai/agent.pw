@@ -600,7 +600,7 @@ async function discoverScopesFromMetadata(
   const resourceUrl = new URL(normalizedResource.value);
 
   const metadataResponse = resourceMetadataUrl
-    ? await result((customFetch ?? fetch)(resourceMetadataUrl))
+    ? await requestMetadataUrl(resourceMetadataUrl, customFetch)
     : await requestResourceMetadata(resource, resourceUrl, customFetch);
   if (!metadataResponse.ok) {
     return ok<string[]>([]);
@@ -699,20 +699,23 @@ async function requestResourceMetadata(
   return ok(response.value);
 }
 
+function requestMetadataUrl(resourceMetadataUrl: URL, customFetch: typeof fetch | undefined) {
+  return result(
+    (customFetch ?? fetch)(resourceMetadataUrl, {
+      headers: {
+        Accept: "application/json",
+      },
+    }),
+  );
+}
+
 async function requestChallengeResourceMetadata(
   resource: string,
   resourceUrl: URL,
   resourceMetadataUrl: URL,
   customFetch: typeof fetch | undefined,
 ) {
-  const fetchImpl = customFetch ?? fetch;
-  const response = await result(
-    fetchImpl(resourceMetadataUrl, {
-      headers: {
-        Accept: "application/json",
-      },
-    }),
-  );
+  const response = await requestMetadataUrl(resourceMetadataUrl, customFetch);
   if (!response.ok) {
     return requestResourceMetadata(resource, resourceUrl, customFetch);
   }

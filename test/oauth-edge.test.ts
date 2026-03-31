@@ -206,12 +206,16 @@ describe("oauth edge cases", () => {
   it("uses WWW-Authenticate resource metadata and challenged scope during prepare", async () => {
     const calls: string[] = [];
     const agentPw = await createAgent({
-      oauthFetch: async (input) => {
+      oauthFetch: async (input, init) => {
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
         calls.push(url);
 
         if (url === "https://docs.example.com/oauth-resource-metadata") {
+          const headers = new Headers(init?.headers);
+          if (headers.get("accept") !== "application/json") {
+            return new Response("not acceptable", { status: 406 });
+          }
           return Response.json({
             resource: "https://docs.example.com/mcp",
             authorization_servers: ["https://auth.example.com"],
