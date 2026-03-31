@@ -468,12 +468,36 @@ describe("oauth edge cases", () => {
       },
     });
 
-    await expect(
-      failingDiscovery.connect.prepare({
+    expect(
+      await failingDiscovery.connect.prepare({
         path: "org.connections.unconfigured",
         resource: "https://unknown.example.com",
       }),
-    ).rejects.toThrow("Failed to discover resource 'https://unknown.example.com/'");
+    ).toEqual({
+      kind: "options",
+      options: [],
+      resolution: {
+        canonicalResource: "https://unknown.example.com/",
+        source: null,
+        reason: "unconfigured",
+        profilePath: null,
+        option: null,
+      },
+    });
+
+    await expect(
+      failingDiscovery.connect.prepare({
+        path: "org.connections.docs",
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer resource_metadata="https://docs.example.com/oauth-resource-metadata"',
+          },
+        }),
+      }),
+    ).rejects.toThrow("Failed to discover resource 'https://docs.example.com/mcp'");
 
     const { fetchImpl } = createDiscoveryFetch();
     const agentPw = await createAgent({
