@@ -593,38 +593,40 @@ export async function createAgentPw(options: AgentPwOptions) {
       resource: resource.value,
       response: input.response,
     });
-    if (discovered.ok) {
-      const options = discovered.value.authorizationServers.map(
-        (authorizationServer): ConnectOAuthOption => {
-          const issuerHost = new URL(authorizationServer).host;
-          return {
-            kind: "oauth",
-            source: "discovery",
-            resource: resource.value,
-            authorizationServer,
-            label: discovered.value.resourceName
-              ? `${discovered.value.resourceName} via ${issuerHost}`
-              : `OAuth via ${issuerHost}`,
-            scopes: discovered.value.scopes,
-          };
-        },
-      );
+    if (!discovered.ok) {
+      return discovered;
+    }
 
-      if (options.length > 0) {
-        return ok({
-          path: path.value,
+    const options = discovered.value.authorizationServers.map(
+      (authorizationServer): ConnectOAuthOption => {
+        const issuerHost = new URL(authorizationServer).host;
+        return {
+          kind: "oauth",
+          source: "discovery",
           resource: resource.value,
-          existing: null,
-          resolution: {
-            canonicalResource: resource.value,
-            source: "discovery",
-            reason: "discovered-oauth",
-            profilePath: null,
-            option: options[0],
-          } satisfies ConnectResolutionResult,
-          options,
-        });
-      }
+          authorizationServer,
+          label: discovered.value.resourceName
+            ? `${discovered.value.resourceName} via ${issuerHost}`
+            : `OAuth via ${issuerHost}`,
+          scopes: discovered.value.scopes,
+        };
+      },
+    );
+
+    if (options.length > 0) {
+      return ok({
+        path: path.value,
+        resource: resource.value,
+        existing: null,
+        resolution: {
+          canonicalResource: resource.value,
+          source: "discovery",
+          reason: "discovered-oauth",
+          profilePath: null,
+          option: options[0],
+        } satisfies ConnectResolutionResult,
+        options,
+      });
     }
 
     return ok({

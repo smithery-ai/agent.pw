@@ -668,8 +668,9 @@ describe("index mock coverage", () => {
       ).message,
     ).toBe("mock match failure");
     expect(
-      (await agentPw.connect.prepare({ path: "plain.unconfigured", resource: "https://ok" })).ok,
-    ).toBe(true);
+      errorOf(await agentPw.connect.prepare({ path: "plain.unconfigured", resource: "https://ok" }))
+        .message,
+    ).toBe("mock discovery failure");
     expect(
       await agentPw.connect.prepare({
         path: "oauth.refresh.fallback",
