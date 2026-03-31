@@ -312,7 +312,7 @@ describe("oauth edge cases", () => {
         calls.push(url);
 
         if (url === "https://server.smithery.ai/notion/.well-known/oauth-protected-resource") {
-          return new Response(null, { status: 404 });
+          return new Response("not found", { status: 404 });
         }
 
         if (url === "https://server.smithery.ai/.well-known/oauth-protected-resource/notion") {
