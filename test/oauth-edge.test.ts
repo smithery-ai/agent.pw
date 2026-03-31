@@ -307,58 +307,6 @@ describe("oauth edge cases", () => {
     });
   });
 
-  it("falls back when challenge resource metadata uses a legacy path shape", async () => {
-    const calls: string[] = [];
-    const agentPw = await createAgent({
-      oauthFetch: async (input) => {
-        const url =
-          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-        calls.push(url);
-
-        if (url === "https://server.smithery.ai/notion/.well-known/oauth-protected-resource") {
-          return new Response("not found", { status: 404 });
-        }
-
-        if (url === "https://server.smithery.ai/.well-known/oauth-protected-resource/notion") {
-          return Response.json({
-            resource: "https://server.smithery.ai/notion",
-            authorization_servers: ["https://auth.smithery.ai/notion"],
-          });
-        }
-
-        throw new Error(`Unexpected fetch ${url}`);
-      },
-    });
-
-    const prepared = await agentPw.connect.prepare({
-      path: "calclavia.notion",
-      resource: "https://server.smithery.ai/notion",
-      response: new Response(null, {
-        status: 401,
-        headers: {
-          "www-authenticate":
-            'Bearer resource_metadata="https://server.smithery.ai/notion/.well-known/oauth-protected-resource"',
-        },
-      }),
-    });
-
-    expect(prepared.kind).toBe("options");
-    if (prepared.kind !== "options") {
-      throw new Error("Expected oauth options");
-    }
-
-    const option = prepared.options.find((candidate) => candidate.kind === "oauth");
-    if (!option || option.kind !== "oauth") {
-      throw new Error("Expected oauth option");
-    }
-
-    expect(option.authorizationServer).toBe("https://auth.smithery.ai/notion");
-    expect(calls).toEqual([
-      "https://server.smithery.ai/notion/.well-known/oauth-protected-resource",
-      "https://server.smithery.ai/.well-known/oauth-protected-resource/notion",
-    ]);
-  });
-
   it("does not consume the original response body while classifying challenges", async () => {
     const agentPw = await createAgent();
     const response = new Response("authorization required", {

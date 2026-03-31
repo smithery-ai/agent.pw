@@ -709,25 +709,6 @@ function requestMetadataUrl(resourceMetadataUrl: URL, customFetch: typeof fetch 
   );
 }
 
-async function requestChallengeResourceMetadata(
-  resource: string,
-  resourceUrl: URL,
-  resourceMetadataUrl: URL,
-  customFetch: typeof fetch | undefined,
-) {
-  const response = await requestMetadataUrl(resourceMetadataUrl, customFetch);
-  if (!response.ok) {
-    return requestResourceMetadata(resource, resourceUrl, customFetch);
-  }
-
-  if (response.value.status >= 400) {
-    await response.value.body?.cancel();
-    return requestResourceMetadata(resource, resourceUrl, customFetch);
-  }
-
-  return ok(response.value);
-}
-
 async function discoverResource(
   resource: string,
   customFetch: typeof fetch | undefined,
@@ -745,12 +726,7 @@ async function discoverResource(
   }
 
   const metadataResponse = challenged.value?.resourceMetadataUrl
-    ? await requestChallengeResourceMetadata(
-        resource,
-        resourceUrl,
-        challenged.value.resourceMetadataUrl,
-        customFetch,
-      )
+    ? await requestMetadataUrl(challenged.value.resourceMetadataUrl, customFetch)
     : await requestResourceMetadata(resource, resourceUrl, customFetch);
   if (!metadataResponse.ok) {
     return challenged.value?.resourceMetadataUrl
