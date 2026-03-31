@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.2...agent.pw-v0.5.3) (2026-03-31)
+
+
+### Bug Fixes
+
+* challenged OAuth discovery handling ([#137](https://github.com/smithery-ai/agent.pw/issues/137)) ([b2a5e00](https://github.com/smithery-ai/agent.pw/commit/b2a5e00f7ba5287cbc9e17ca00199c26c6d6f23a))
+
 ## [0.5.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.1...agent.pw-v0.5.2) (2026-03-30)
 
 
