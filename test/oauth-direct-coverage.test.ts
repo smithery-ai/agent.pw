@@ -2,6 +2,7 @@ import { err, ok } from "okay-error";
 import { afterEach, describe, expect, it } from "vitest";
 import { createInMemoryFlowStore, createOAuthService } from "agent.pw/oauth";
 import { inputError } from "../packages/server/src/errors";
+import { describeTokenResponseError } from "../packages/server/src/oauth";
 import type {
   ConnectOAuthOption,
   CredentialProfileRecord,
@@ -926,5 +927,41 @@ describe("oauth direct coverage", () => {
         }),
       ).message,
     ).toBe("Invalid redirect uri 'http://app.example.com/oauth/callback'");
+  });
+});
+
+describe("describeTokenResponseError", () => {
+  const as = { issuer: "https://proxy.example.com" } as Parameters<
+    typeof describeTokenResponseError
+  >[1];
+
+  it("returns actionable message for id_token issuer mismatch", () => {
+    const error = Object.assign(new Error('unexpected JWT "iss" (issuer) claim value'), {
+      code: "OAUTH_JWT_CLAIM_COMPARISON_FAILED",
+      claim: "iss",
+      claims: { iss: "https://upstream-idp.example.com" },
+    });
+    const message = describeTokenResponseError(error, as);
+    expect(message).toContain("ID token issuer mismatch");
+    expect(message).toContain("https://proxy.example.com");
+    expect(message).toContain("https://upstream-idp.example.com");
+    expect(message).toContain("OpenID Connect Core");
+  });
+
+  it("returns null for non-issuer errors", () => {
+    expect(describeTokenResponseError(new Error("something else"), as)).toBeNull();
+  });
+
+  it("returns null for non-Error values", () => {
+    expect(describeTokenResponseError("string error", as)).toBeNull();
+  });
+
+  it("returns actionable message with unknown actual issuer when claims missing", () => {
+    const error = Object.assign(new Error("iss mismatch"), {
+      code: "OAUTH_JWT_CLAIM_COMPARISON_FAILED",
+      claim: "iss",
+    });
+    const message = describeTokenResponseError(error, as);
+    expect(message).toContain("unknown");
   });
 });
