@@ -86,37 +86,6 @@ function scopeList(value: string | undefined) {
   return value?.split(/\s+/).filter(Boolean);
 }
 
-// OIDC scopes that trigger id_token issuance. agent.pw is an OAuth resource
-// client — it needs access_tokens for API calls, not id_tokens for identity.
-// Requesting openid causes oauth4webapi to validate the id_token's issuer claim
-// against the authorization server metadata, which fails for OAuth proxies that
-// front a different OIDC provider (e.g. SlideForge → Auth0, Arcjet → WorkOS).
-const OIDC_SCOPES = new Set(["openid"]);
-
-function filterOidcScopes(scopes: string[]): string[] {
-  return scopes.filter((s) => !OIDC_SCOPES.has(s));
-}
-
-// Some OAuth providers (WorkOS AuthKit) return id_tokens even when openid
-// isn't requested. Strip the id_token from the response before passing to
-// oauth4webapi, which would otherwise validate it and reject responses from
-// OAuth proxies with issuer mismatches.
-async function stripIdToken(response: Response): Promise<Response> {
-  try {
-    const body = await response.clone().json();
-    if (body && typeof body === "object" && "id_token" in body) {
-      const { id_token: _, ...rest } = body as Record<string, unknown>;
-      return new Response(JSON.stringify(rest), {
-        status: response.status,
-        headers: response.headers,
-      });
-    }
-  } catch {
-    // Non-JSON response — return as-is, let oauth4webapi handle the error
-  }
-  return response;
-}
-
 const DEFAULT_CHALLENGE_RESOURCE_URL = new URL("https://agent.pw.invalid");
 
 function normalizeResponseHeaders(headers: ResponseLike["headers"]) {
@@ -784,14 +753,13 @@ async function discoverResource(
     resource: normalizedResource.value,
     authorizationServers: resourceServer.value.authorization_servers ?? [],
     resourceName: stringValue(resourceServer.value.resource_name),
-    scopes: filterOidcScopes(
+    scopes:
       challenged.value?.scopes ??
-        (Array.isArray(resourceServer.value.scopes_supported)
-          ? resourceServer.value.scopes_supported.filter(
-              (entry): entry is string => typeof entry === "string",
-            )
-          : []),
-    ),
+      (Array.isArray(resourceServer.value.scopes_supported)
+        ? resourceServer.value.scopes_supported.filter(
+            (entry): entry is string => typeof entry === "string",
+          )
+        : []),
   });
 }
 
@@ -1230,11 +1198,7 @@ export function createOAuthService(options: {
       );
     }
     const processed = await result(
-      oauth.processRefreshTokenResponse(
-        authorizationServer.value,
-        client,
-        await stripIdToken(tokenResponse.value),
-      ),
+      oauth.processRefreshTokenResponse(authorizationServer.value, client, tokenResponse.value),
     );
     if (!processed.ok) {
       return err(
@@ -1524,7 +1488,7 @@ export function createOAuthService(options: {
         oauth.processAuthorizationCodeResponse(
           authorizationServer.value,
           client,
-          await stripIdToken(tokenResponse.value),
+          tokenResponse.value,
         ),
       );
       if (!processed.ok) {
