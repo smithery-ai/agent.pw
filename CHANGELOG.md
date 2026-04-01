@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.4](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.3...agent.pw-v0.5.4) (2026-04-01)
+
+
+### Bug Fixes
+
+* filter openid from requested scopes ([#141](https://github.com/smithery-ai/agent.pw/issues/141)) ([01e2769](https://github.com/smithery-ai/agent.pw/commit/01e2769ae3cf7f829605019e32928a85941ff77d))
+* surface actionable error for id_token issuer mismatch ([#139](https://github.com/smithery-ai/agent.pw/issues/139)) ([47cffac](https://github.com/smithery-ai/agent.pw/commit/47cffac5fad9aaa76302f4d90895ad63f3b7dafe))
+
 ## [0.5.3](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.2...agent.pw-v0.5.3) (2026-03-31)
 
 
