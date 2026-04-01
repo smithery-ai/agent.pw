@@ -244,7 +244,10 @@ function handlerError(error: unknown, message: string, source: string) {
  * Detect this specific mismatch and surface both values so the server operator can fix it.
  * @internal Exported for testing only.
  */
-export function describeTokenResponseError(error: unknown, as: oauth.AuthorizationServer): string | null {
+export function describeTokenResponseError(
+  error: unknown,
+  as: oauth.AuthorizationServer,
+): string | null {
   if (
     error instanceof Error &&
     "code" in error &&
@@ -1234,10 +1237,15 @@ export function createOAuthService(options: {
     );
     if (!processed.ok) {
       return err(
-        oauthError("refresh", describeTokenResponseError(processed.error, authorizationServer.value) ?? `Failed to process refresh response for '${path}'`, {
-          cause: processed.error,
-          path,
-        }),
+        oauthError(
+          "refresh",
+          describeTokenResponseError(processed.error, authorizationServer.value) ??
+            `Failed to process refresh response for '${path}'`,
+          {
+            cause: processed.error,
+            path,
+          },
+        ),
       );
     }
     const secret = oauthSecretFromTokenResponse(
@@ -1525,10 +1533,15 @@ export function createOAuthService(options: {
       );
       if (!processed.ok) {
         return err(
-          oauthError("authorization-code", describeTokenResponseError(processed.error, authorizationServer.value) ?? "Failed to process authorization code response", {
-            cause: processed.error,
-            path: flow.path,
-          }),
+          oauthError(
+            "authorization-code",
+            describeTokenResponseError(processed.error, authorizationServer.value) ??
+              "Failed to process authorization code response",
+            {
+              cause: processed.error,
+              path: flow.path,
+            },
+          ),
         );
       }
 

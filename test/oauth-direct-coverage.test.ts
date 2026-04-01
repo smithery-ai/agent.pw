@@ -931,10 +931,12 @@ describe("oauth direct coverage", () => {
 });
 
 describe("describeTokenResponseError", () => {
-  const as = { issuer: "https://proxy.example.com" } as Parameters<typeof describeTokenResponseError>[1];
+  const as = { issuer: "https://proxy.example.com" } as Parameters<
+    typeof describeTokenResponseError
+  >[1];
 
   it("returns actionable message for id_token issuer mismatch", () => {
-    const error = Object.assign(new Error("unexpected JWT \"iss\" (issuer) claim value"), {
+    const error = Object.assign(new Error('unexpected JWT "iss" (issuer) claim value'), {
       code: "OAUTH_JWT_CLAIM_COMPARISON_FAILED",
       claim: "iss",
       claims: { iss: "https://upstream-idp.example.com" },
