@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.5](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.4...agent.pw-v0.5.5) (2026-04-01)
+
+
+### Bug Fixes
+
+* strip id_token from token responses before validation ([#142](https://github.com/smithery-ai/agent.pw/issues/142)) ([15ff929](https://github.com/smithery-ai/agent.pw/commit/15ff929221232b194b0dc91057c0ec5097a6618e))
+
 ## [0.5.4](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.3...agent.pw-v0.5.4) (2026-04-01)
 
 
