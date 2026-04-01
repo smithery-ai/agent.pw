@@ -1346,6 +1346,29 @@ describe("oauth service coverage", () => {
     });
   });
 
+  it("filters openid from discovered scopes", async () => {
+    const state = await createState();
+    const service = state.service({
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/.well-known/oauth-protected-resource")) {
+          return Response.json({
+            resource: "https://resource.example.com/",
+            authorization_servers: ["https://issuer.example.com"],
+            scopes_supported: ["openid", "profile", "email", "mcp.tools.read"],
+          });
+        }
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+    const discovered = await service.discoverResource({
+      resource: "https://resource.example.com",
+    });
+    expect(discovered.scopes).toEqual(["profile", "email", "mcp.tools.read"]);
+    expect(discovered.scopes).not.toContain("openid");
+  });
+
   it("covers client authentication errors and global revocation fetches", async () => {
     const fetchImpl: typeof fetch = async (input) => {
       const url =
