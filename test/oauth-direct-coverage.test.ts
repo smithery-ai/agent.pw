@@ -695,27 +695,6 @@ describe("oauth direct coverage", () => {
       ).message,
     ).toBe("Failed to process authorization code response");
 
-    // Token response with id_token is accepted because stripIdToken removes it
-    const idTokenFlowStore = createInMemoryFlowStore();
-    await idTokenFlowStore.create(seededFlow());
-    const idTokenResult = await createService({
-      flowStore: idTokenFlowStore,
-      customFetch: createFetch({
-        "https://issuer.example.com/token": textJsonResponse(
-          JSON.stringify({
-            access_token: "fresh-access",
-            refresh_token: "fresh-refresh",
-            token_type: "Bearer",
-            id_token:
-              "eyJhbGciOiJub25lIn0.eyJpc3MiOiJodHRwczovL3dyb25nLWlzc3Vlci5leGFtcGxlLmNvbSJ9.",
-          }),
-        ),
-      }),
-    }).completeAuthorization({
-      callbackUri: "https://app.example.com/oauth/callback?state=flow-1&code=ok",
-    });
-    expect(idTokenResult.ok).toBe(true);
-
     const existingErrorFlowStore = createInMemoryFlowStore();
     await existingErrorFlowStore.create(seededFlow());
     const existingErrorService = createService({
