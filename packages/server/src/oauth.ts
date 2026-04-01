@@ -238,6 +238,38 @@ function handlerError(error: unknown, message: string, source: string) {
   return isAgentPwError(error) ? error : internalError(message, { cause: error, source });
 }
 
+/**
+ * OAuth proxies (e.g. servers fronting WorkOS or Auth0) often declare their own issuer
+ * in metadata but return id_tokens signed by the upstream IdP with a different iss claim.
+ * Detect this specific mismatch and surface both values so the server operator can fix it.
+ * @internal Exported for testing only.
+ */
+export function describeTokenResponseError(error: unknown, as: oauth.AuthorizationServer): string | null {
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "OAUTH_JWT_CLAIM_COMPARISON_FAILED" &&
+    "claim" in error &&
+    error.claim === "iss"
+  ) {
+    const expected = as.issuer;
+    const actual =
+      "claims" in error &&
+      typeof error.claims === "object" &&
+      error.claims !== null &&
+      "iss" in error.claims
+        ? String(error.claims.iss)
+        : "unknown";
+    return (
+      `ID token issuer mismatch: metadata declares issuer "${expected}" ` +
+      `but the id_token contains iss "${actual}". ` +
+      `The upstream OAuth server must ensure these values match ` +
+      `(see OpenID Connect Core §3.1.3.7).`
+    );
+  }
+  return null;
+}
+
 function oauthConfigFromStoredCredentials(
   secret: StoredCredentials | undefined,
   resource: string | null | undefined,
@@ -1202,7 +1234,7 @@ export function createOAuthService(options: {
     );
     if (!processed.ok) {
       return err(
-        oauthError("refresh", `Failed to process refresh response for '${path}'`, {
+        oauthError("refresh", describeTokenResponseError(processed.error, authorizationServer.value) ?? `Failed to process refresh response for '${path}'`, {
           cause: processed.error,
           path,
         }),
@@ -1493,7 +1525,7 @@ export function createOAuthService(options: {
       );
       if (!processed.ok) {
         return err(
-          oauthError("authorization-code", "Failed to process authorization code response", {
+          oauthError("authorization-code", describeTokenResponseError(processed.error, authorizationServer.value) ?? "Failed to process authorization code response", {
             cause: processed.error,
             path: flow.path,
           }),
