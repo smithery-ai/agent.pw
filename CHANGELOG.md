@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.5...agent.pw-v0.5.6) (2026-04-01)
+
+
+### Reverts
+
+* remove openid filter and id_token strip ([#144](https://github.com/smithery-ai/agent.pw/issues/144)) ([35df09f](https://github.com/smithery-ai/agent.pw/commit/35df09f9904c8c4626d11f34f72934645ff62bb9))
+
 ## [0.5.5](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.4...agent.pw-v0.5.5) (2026-04-01)
 
 
