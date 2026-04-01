@@ -86,6 +86,17 @@ function scopeList(value: string | undefined) {
   return value?.split(/\s+/).filter(Boolean);
 }
 
+// OIDC scopes that trigger id_token issuance. agent.pw is an OAuth resource
+// client — it needs access_tokens for API calls, not id_tokens for identity.
+// Requesting openid causes oauth4webapi to validate the id_token's issuer claim
+// against the authorization server metadata, which fails for OAuth proxies that
+// front a different OIDC provider (e.g. SlideForge → Auth0, Arcjet → WorkOS).
+const OIDC_SCOPES = new Set(["openid"]);
+
+function filterOidcScopes(scopes: string[]): string[] {
+  return scopes.filter((s) => !OIDC_SCOPES.has(s));
+}
+
 const DEFAULT_CHALLENGE_RESOURCE_URL = new URL("https://agent.pw.invalid");
 
 function normalizeResponseHeaders(headers: ResponseLike["headers"]) {
@@ -788,13 +799,14 @@ async function discoverResource(
     resource: normalizedResource.value,
     authorizationServers: resourceServer.value.authorization_servers ?? [],
     resourceName: stringValue(resourceServer.value.resource_name),
-    scopes:
+    scopes: filterOidcScopes(
       challenged.value?.scopes ??
-      (Array.isArray(resourceServer.value.scopes_supported)
-        ? resourceServer.value.scopes_supported.filter(
-            (entry): entry is string => typeof entry === "string",
-          )
-        : []),
+        (Array.isArray(resourceServer.value.scopes_supported)
+          ? resourceServer.value.scopes_supported.filter(
+              (entry): entry is string => typeof entry === "string",
+            )
+          : []),
+    ),
   });
 }
 
