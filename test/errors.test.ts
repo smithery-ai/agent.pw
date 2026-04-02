@@ -76,7 +76,7 @@ describe("agent.pw errors", () => {
     expect(isPersistenceError(persistenceError("write", "fail", { path: "x" }))).toBe(true);
     expect(isPersistenceError(inputError("no"))).toBe(false);
 
-    expect(isOAuthError(oauthError("token", "fail"))).toBe(true);
+    expect(isOAuthError(oauthError("fail"))).toBe(true);
     expect(isOAuthError(inputError("no"))).toBe(false);
 
     expect(isCryptoError(cryptoError("encrypt", "fail"))).toBe(true);
