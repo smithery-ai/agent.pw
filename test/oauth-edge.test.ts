@@ -497,7 +497,7 @@ describe("oauth edge cases", () => {
           },
         }),
       }),
-    ).rejects.toThrow("Failed to discover resource 'https://docs.example.com/mcp'");
+    ).rejects.toThrow("Failed to fetch resource metadata at");
 
     const { fetchImpl } = createDiscoveryFetch();
     const agentPw = await createAgent({

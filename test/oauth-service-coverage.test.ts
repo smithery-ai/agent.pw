@@ -1069,7 +1069,7 @@ describe("oauth service coverage", () => {
     }
     expect(challengeMetadataFetchFailure.error).toEqual(
       expect.objectContaining({
-        message: "Failed to discover resource 'https://docs.example.com/mcp'",
+        message: expect.stringContaining("Failed to fetch resource metadata at"),
       }),
     );
 
@@ -1205,7 +1205,7 @@ describe("oauth service coverage", () => {
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow("Failed to process resource metadata for 'https://broken.example.com/api'");
+    ).rejects.toThrow(/Failed to process resource metadata for 'https:\/\/broken\.example\.com\/api':/);
 
     await state.profiles.set("client-override", {
       path: "client-override",

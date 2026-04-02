@@ -69,6 +69,11 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function errorMessage(error: unknown): string {
+  /* v8 ignore next */
+  return error instanceof Error ? error.message : String(error);
+}
+
 function isClientMetadataDocumentUrl(value: string) {
   const parsed = result(() => new URL(value));
   if (!parsed.ok) {
@@ -729,13 +734,16 @@ async function discoverResource(
     ? await requestMetadataUrl(challenged.value.resourceMetadataUrl, customFetch)
     : await requestResourceMetadata(resource, resourceUrl, customFetch);
   if (!metadataResponse.ok) {
-    return challenged.value?.resourceMetadataUrl
-      ? err(
-          oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
-            cause: metadataResponse.error,
-          }),
-        )
-      : metadataResponse;
+    if (challenged.value?.resourceMetadataUrl) {
+      return err(
+        oauthError(
+          "resource-discovery",
+          `Failed to fetch resource metadata at ${challenged.value.resourceMetadataUrl}: ${errorMessage(metadataResponse.error)}`,
+          { cause: metadataResponse.error },
+        ),
+      );
+    }
+    return metadataResponse;
   }
 
   const resourceServer = await result(
@@ -743,7 +751,7 @@ async function discoverResource(
   );
   if (!resourceServer.ok) {
     return err(
-      oauthError("resource-discovery", `Failed to process resource metadata for '${resource}'`, {
+      oauthError("resource-discovery", `Failed to process resource metadata for '${resource}': ${errorMessage(resourceServer.error)}`, {
         cause: resourceServer.error,
       }),
     );

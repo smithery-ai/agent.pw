@@ -228,7 +228,7 @@ describe("oauth direct coverage", () => {
     );
     expect(
       errorOf(await service.discoverResource({ resource: "https://docs.example.com/mcp" })).message,
-    ).toBe("Failed to process resource metadata for 'https://docs.example.com/mcp'");
+    ).toContain("Failed to process resource metadata for 'https://docs.example.com/mcp':");
 
     expect(
       errorOf(
