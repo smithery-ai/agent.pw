@@ -24,113 +24,204 @@ export function errorMessage(error: unknown): string {
 
 // OAuth error catalog — named constructors for each failure mode
 
+const RFC_8414 = "https://datatracker.ietf.org/doc/html/rfc8414";
+const RFC_9728 = "https://datatracker.ietf.org/doc/html/rfc9728";
+const RFC_9728_S3_3 = "https://datatracker.ietf.org/doc/html/rfc9728#section-3.3";
+const RFC_7591 = "https://datatracker.ietf.org/doc/html/rfc7591";
+
 export const authServerDiscoveryFetchFailed = (issuer: string, url: string, cause: unknown) =>
   oauthError(
     "authorization-server-discovery",
     `Authorization server discovery failed for '${issuer}' at '${url}': ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/auth_server_discovery_fetch_failed",
+      retryable: false,
+      cause,
+      details: { issuer, url },
+      docUrl: RFC_8414,
+    },
   );
 
 export const authServerDiscoveryHttpError = (issuer: string, url: string, status: number) =>
   oauthError(
     "authorization-server-discovery",
     `Authorization server discovery failed for '${issuer}' at '${url}' with HTTP ${status}`,
+    {
+      code: "oauth/auth_server_discovery_http_error",
+      retryable: status >= 500,
+      details: { issuer, url, status },
+      docUrl: RFC_8414,
+    },
   );
 
 export const authServerDiscoveryProcessFailed = (cause: unknown) =>
   oauthError(
     "authorization-server-discovery",
     `Failed to process discovery response: ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/auth_server_discovery_process_failed",
+      retryable: false,
+      cause,
+      docUrl: RFC_8414,
+    },
   );
 
 export const resourceChallengeParseFailed = (resource: string, cause: unknown) =>
   oauthError(
     "resource-discovery",
     `Failed to parse resource challenge for '${resource}': ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/resource_challenge_parse_failed",
+      retryable: false,
+      cause,
+      details: { resource },
+      docUrl: RFC_9728,
+    },
   );
 
 export const scopeChallengeParseFailed = (cause: unknown) =>
   oauthError(
     "resource-discovery",
     `Failed to parse scope challenge resource_metadata: ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/scope_challenge_parse_failed",
+      retryable: false,
+      cause,
+      docUrl: RFC_9728,
+    },
   );
 
 export const resourceFetchFailed = (resource: string, cause: unknown) =>
   oauthError(
     "resource-discovery",
     `Failed to discover resource '${resource}': ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/resource_fetch_failed",
+      retryable: false,
+      cause,
+      details: { resource },
+      docUrl: RFC_9728,
+    },
   );
 
 export const resourceMetadataFetchFailed = (url: string, cause: unknown) =>
   oauthError(
     "resource-discovery",
     `Failed to fetch resource metadata at ${url}: ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/resource_metadata_fetch_failed",
+      retryable: false,
+      cause,
+      details: { url },
+      docUrl: RFC_9728,
+    },
   );
 
 export const resourceMetadataProcessFailed = (resource: string, cause: unknown) =>
   oauthError(
     "resource-discovery",
-    `Failed to process resource metadata for '${resource}': ${errorMessage(cause)} (https://datatracker.ietf.org/doc/html/rfc9728#section-3.3)`,
-    { cause },
+    `Failed to process resource metadata for '${resource}': ${errorMessage(cause)}`,
+    {
+      code: "oauth/resource_metadata_process_failed",
+      retryable: false,
+      cause,
+      details: { resource },
+      docUrl: RFC_9728_S3_3,
+    },
   );
 
 export const dcrRequestFailed = (cause: unknown) =>
   oauthError(
     "dynamic-client-registration",
     `Dynamic client registration failed: ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/dcr_request_failed",
+      retryable: false,
+      cause,
+      docUrl: RFC_7591,
+    },
   );
 
 export const dcrResponseProcessFailed = (cause: unknown) =>
   oauthError(
     "dynamic-client-registration",
     `Failed to process dynamic client registration response: ${errorMessage(cause)}`,
-    { cause },
+    {
+      code: "oauth/dcr_response_process_failed",
+      retryable: false,
+      cause,
+      docUrl: RFC_7591,
+    },
   );
 
 export const refreshTokenRequestFailed = (path: string, cause: unknown) =>
   oauthError("refresh", `Failed to refresh credential for '${path}': ${errorMessage(cause)}`, {
+    code: "oauth/refresh_token_request_failed",
+    retryable: true,
     cause,
     path,
+    details: { path },
   });
 
 export const refreshTokenResponseFailed = (path: string, cause: unknown) =>
   oauthError(
     "refresh",
     `Failed to process refresh response for '${path}': ${errorMessage(cause)}`,
-    { cause, path },
+    {
+      code: "oauth/refresh_token_response_failed",
+      retryable: false,
+      cause,
+      path,
+      details: { path },
+    },
   );
 
 export const authCallbackValidationFailed = (path: string, cause: unknown) =>
   oauthError(
     "authorization-callback",
     `Failed to validate OAuth callback: ${errorMessage(cause)}`,
-    { cause, path },
+    {
+      code: "oauth/auth_callback_validation_failed",
+      retryable: false,
+      cause,
+      path,
+      details: { path },
+    },
   );
 
 export const authCodeExchangeFailed = (path: string, cause: unknown) =>
   oauthError(
     "authorization-code",
     `Failed to exchange authorization code: ${errorMessage(cause)}`,
-    { cause, path },
+    {
+      code: "oauth/auth_code_exchange_failed",
+      retryable: false,
+      cause,
+      path,
+      details: { path },
+    },
   );
 
 export const authCodeResponseFailed = (path: string, cause: unknown) =>
   oauthError(
     "authorization-code",
     `Failed to process authorization code response: ${errorMessage(cause)}`,
-    { cause, path },
+    {
+      code: "oauth/auth_code_response_failed",
+      retryable: false,
+      cause,
+      path,
+      details: { path },
+    },
   );
 
 export const revokeTokenFailed = (tokenType: "refresh" | "access", path: string, cause: unknown) =>
   oauthError("revoke", `Failed to revoke ${tokenType} token: ${errorMessage(cause)}`, {
+    code: `oauth/revoke_${tokenType}_token_failed`,
+    retryable: true,
     cause,
     path,
+    details: { tokenType, path },
   });
 
 export const revokeTokenProcessFailed = (
@@ -139,8 +230,11 @@ export const revokeTokenProcessFailed = (
   cause: unknown,
 ) =>
   oauthError("revoke", `Failed to process ${tokenType} token revocation: ${errorMessage(cause)}`, {
+    code: `oauth/revoke_${tokenType}_token_process_failed`,
+    retryable: false,
     cause,
     path,
+    details: { tokenType, path },
   });
 
 /** Create a typed validation error for caller-provided input. */
@@ -188,7 +282,14 @@ export function persistenceError(operation: string, message: string, data: { pat
 export function oauthError(
   stage: string,
   message: string,
-  data?: { cause: unknown } | { cause: unknown; path: string },
+  data?: {
+    code?: string;
+    retryable?: boolean;
+    cause?: unknown;
+    path?: string;
+    details?: Record<string, unknown>;
+    docUrl?: string;
+  },
 ) {
   return { type: "OAuth" as const, stage, message, ...data };
 }
