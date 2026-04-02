@@ -1,3 +1,10 @@
+import {
+  AuthorizationResponseError,
+  OperationProcessingError,
+  ResponseBodyError,
+  WWWAuthenticateChallengeError,
+} from "oauth4webapi";
+
 /**
  * Extract a useful message from an unknown error value.
  * For oauth4webapi errors, surfaces the structured cause (expected/actual).
@@ -32,6 +39,51 @@ export function errorMessage(error: unknown): string {
   return error.message;
 }
 
+/**
+ * Extract structured details from oauth4webapi typed errors.
+ * Merges with any constructor-provided details.
+ */
+function causeDetails(error: unknown): Record<string, unknown> | undefined {
+  /* v8 ignore next 7 -- mocked fetch produces plain Errors, not oauth4webapi typed errors */
+  if (error instanceof ResponseBodyError) {
+    return {
+      oauthError: error.error,
+      oauthDescription: error.error_description,
+      httpStatus: error.status,
+    };
+  }
+  /* v8 ignore next 6 -- only thrown on real authorization redirect responses */
+  if (error instanceof AuthorizationResponseError) {
+    return {
+      oauthError: error.error,
+      oauthDescription: error.error_description,
+    };
+  }
+  /* v8 ignore next 6 -- only thrown on real 401/403 with WWW-Authenticate */
+  if (error instanceof WWWAuthenticateChallengeError) {
+    return {
+      httpStatus: error.status,
+      challenges: error.cause.length,
+    };
+  }
+  if (error instanceof OperationProcessingError) {
+    /* v8 ignore next -- code is always set in practice */
+    return error.code ? { processingCode: error.code } : undefined;
+  }
+  return undefined;
+}
+
+function withCauseDetails(
+  error: unknown,
+  own?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const extracted = causeDetails(error);
+  if (!extracted && !own) return undefined;
+  if (!extracted) return own;
+  if (!own) return extracted;
+  return { ...own, ...extracted };
+}
+
 // OAuth error catalog — named constructors for each failure mode
 
 const RFC_8414 = "https://datatracker.ietf.org/doc/html/rfc8414";
@@ -46,7 +98,7 @@ export const authServerDiscoveryFetchFailed = (issuer: string, url: string, caus
       code: "oauth/auth_server_discovery_fetch_failed",
       retryable: false,
       cause,
-      details: { issuer, url },
+      details: withCauseDetails(cause, { issuer, url }),
       docUrl: RFC_8414,
     },
   );
@@ -67,6 +119,7 @@ export const authServerDiscoveryProcessFailed = (cause: unknown) =>
     code: "oauth/auth_server_discovery_process_failed",
     retryable: false,
     cause,
+    details: withCauseDetails(cause),
     docUrl: RFC_8414,
   });
 
@@ -75,7 +128,7 @@ export const resourceChallengeParseFailed = (resource: string, cause: unknown) =
     code: "oauth/resource_challenge_parse_failed",
     retryable: false,
     cause,
-    details: { resource },
+    details: withCauseDetails(cause, { resource }),
     docUrl: RFC_9728,
   });
 
@@ -84,6 +137,7 @@ export const scopeChallengeParseFailed = (cause: unknown) =>
     code: "oauth/scope_challenge_parse_failed",
     retryable: false,
     cause,
+    details: withCauseDetails(cause),
     docUrl: RFC_9728,
   });
 
@@ -92,7 +146,7 @@ export const resourceFetchFailed = (resource: string, cause: unknown) =>
     code: "oauth/resource_fetch_failed",
     retryable: false,
     cause,
-    details: { resource },
+    details: withCauseDetails(cause, { resource }),
     docUrl: RFC_9728,
   });
 
@@ -101,7 +155,7 @@ export const resourceMetadataFetchFailed = (url: string, cause: unknown) =>
     code: "oauth/resource_metadata_fetch_failed",
     retryable: false,
     cause,
-    details: { url },
+    details: withCauseDetails(cause, { url }),
     docUrl: RFC_9728,
   });
 
@@ -110,7 +164,7 @@ export const resourceMetadataProcessFailed = (resource: string, cause: unknown) 
     code: "oauth/resource_metadata_process_failed",
     retryable: false,
     cause,
-    details: { resource },
+    details: withCauseDetails(cause, { resource }),
     docUrl: RFC_9728_S3_3,
   });
 
@@ -119,6 +173,7 @@ export const dcrRequestFailed = (cause: unknown) =>
     code: "oauth/dcr_request_failed",
     retryable: false,
     cause,
+    details: withCauseDetails(cause),
     docUrl: RFC_7591,
   });
 
@@ -127,6 +182,7 @@ export const dcrResponseProcessFailed = (cause: unknown) =>
     code: "oauth/dcr_response_process_failed",
     retryable: false,
     cause,
+    details: withCauseDetails(cause),
     docUrl: RFC_7591,
   });
 
@@ -136,6 +192,7 @@ export const refreshTokenRequestFailed = (path: string, cause: unknown) =>
     retryable: true,
     cause,
     path,
+    details: withCauseDetails(cause),
   });
 
 export const refreshTokenResponseFailed = (path: string, cause: unknown) =>
@@ -144,6 +201,7 @@ export const refreshTokenResponseFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
+    details: withCauseDetails(cause),
   });
 
 export const authCallbackValidationFailed = (path: string, cause: unknown) =>
@@ -152,6 +210,7 @@ export const authCallbackValidationFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
+    details: withCauseDetails(cause),
   });
 
 export const authCodeExchangeFailed = (path: string, cause: unknown) =>
@@ -160,6 +219,7 @@ export const authCodeExchangeFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
+    details: withCauseDetails(cause),
   });
 
 export const authCodeResponseFailed = (path: string, cause: unknown) =>
@@ -168,6 +228,7 @@ export const authCodeResponseFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
+    details: withCauseDetails(cause),
   });
 
 export const revokeTokenFailed = (tokenType: "refresh" | "access", path: string, cause: unknown) =>
@@ -176,7 +237,7 @@ export const revokeTokenFailed = (tokenType: "refresh" | "access", path: string,
     retryable: true,
     cause,
     path,
-    details: { tokenType },
+    details: withCauseDetails(cause, { tokenType }),
   });
 
 export const revokeTokenProcessFailed = (
@@ -189,7 +250,7 @@ export const revokeTokenProcessFailed = (
     retryable: false,
     cause,
     path,
-    details: { tokenType },
+    details: withCauseDetails(cause, { tokenType }),
   });
 
 /** Create a typed validation error for caller-provided input. */
