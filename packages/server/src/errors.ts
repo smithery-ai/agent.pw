@@ -1,3 +1,170 @@
+/**
+ * Extract a useful message from an unknown error value.
+ * For oauth4webapi errors, surfaces the structured cause (expected/actual).
+ */
+export function errorMessage(error: unknown): string {
+  /* v8 ignore start - defensive branches for non-standard error shapes */
+  if (!(error instanceof Error)) {
+    if (typeof error === "object" && error !== null && "message" in error) {
+      return String((error as { message: unknown }).message);
+    }
+    return String(error);
+  }
+  // oauth4webapi errors include { expected, body, attribute } in cause
+  const cause = (
+    error as { cause?: { expected?: string; body?: Record<string, unknown>; attribute?: string } }
+  ).cause;
+  if (cause?.attribute && cause?.expected && cause?.body) {
+    const actual = String(cause.body[cause.attribute] ?? "undefined");
+    return `"${cause.attribute}" is "${actual}" but expected "${cause.expected}"`;
+  }
+  /* v8 ignore stop */
+  return error.message;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth error catalog — named constructors for each failure mode
+// ---------------------------------------------------------------------------
+
+// --- Authorization server discovery ---
+
+export const authServerDiscoveryFetchFailed = (issuer: string, url: string, cause: unknown) =>
+  oauthError(
+    "authorization-server-discovery",
+    `Authorization server discovery failed for '${issuer}' at '${url}': ${errorMessage(cause)}`,
+    { cause },
+  );
+
+export const authServerDiscoveryHttpError = (issuer: string, url: string, status: number) =>
+  oauthError(
+    "authorization-server-discovery",
+    `Authorization server discovery failed for '${issuer}' at '${url}' with HTTP ${status}`,
+  );
+
+export const authServerDiscoveryProcessFailed = (cause: unknown) =>
+  oauthError(
+    "authorization-server-discovery",
+    `Failed to process discovery response: ${errorMessage(cause)}`,
+    { cause },
+  );
+
+// --- Resource discovery ---
+
+export const resourceChallengeParseFailed = (resource: string, cause: unknown) =>
+  oauthError(
+    "resource-discovery",
+    `Failed to parse resource challenge for '${resource}': ${errorMessage(cause)}`,
+    { cause },
+  );
+
+export const scopeChallengeParseFailed = (cause: unknown) =>
+  oauthError(
+    "resource-discovery",
+    `Failed to parse scope challenge resource_metadata: ${errorMessage(cause)}`,
+    { cause },
+  );
+
+export const resourceFetchFailed = (resource: string, cause: unknown) =>
+  oauthError(
+    "resource-discovery",
+    `Failed to discover resource '${resource}': ${errorMessage(cause)}`,
+    { cause },
+  );
+
+export const resourceMetadataFetchFailed = (url: string, cause: unknown) =>
+  oauthError(
+    "resource-discovery",
+    `Failed to fetch resource metadata at ${url}: ${errorMessage(cause)}`,
+    { cause },
+  );
+
+export const resourceMetadataProcessFailed = (resource: string, cause: unknown) =>
+  oauthError(
+    "resource-discovery",
+    `Failed to process resource metadata for '${resource}': ${errorMessage(cause)} (https://datatracker.ietf.org/doc/html/rfc9728#section-3.3)`,
+    { cause },
+  );
+
+// --- Dynamic client registration ---
+
+export const dcrRequestFailed = (cause: unknown) =>
+  oauthError(
+    "dynamic-client-registration",
+    `Dynamic client registration failed: ${errorMessage(cause)}`,
+    { cause },
+  );
+
+export const dcrResponseProcessFailed = (cause: unknown) =>
+  oauthError(
+    "dynamic-client-registration",
+    `Failed to process dynamic client registration response: ${errorMessage(cause)}`,
+    { cause },
+  );
+
+// --- Token refresh ---
+
+export const refreshTokenRequestFailed = (path: string, cause: unknown) =>
+  oauthError("refresh", `Failed to refresh credential for '${path}': ${errorMessage(cause)}`, {
+    cause,
+    path,
+  });
+
+export const refreshTokenResponseFailed = (path: string, cause: unknown) =>
+  oauthError(
+    "refresh",
+    `Failed to process refresh response for '${path}': ${errorMessage(cause)}`,
+    { cause, path },
+  );
+
+// --- Authorization callback ---
+
+export const authCallbackValidationFailed = (path: string, cause: unknown) =>
+  oauthError(
+    "authorization-callback",
+    `Failed to validate OAuth callback: ${errorMessage(cause)}`,
+    { cause, path },
+  );
+
+// --- Authorization code exchange ---
+
+export const authCodeExchangeFailed = (path: string, cause: unknown) =>
+  oauthError(
+    "authorization-code",
+    `Failed to exchange authorization code: ${errorMessage(cause)}`,
+    { cause, path },
+  );
+
+export const authCodeResponseFailed = (path: string, cause: unknown) =>
+  oauthError(
+    "authorization-code",
+    `Failed to process authorization code response: ${errorMessage(cause)}`,
+    { cause, path },
+  );
+
+// --- Token revocation ---
+
+export const revokeRefreshTokenFailed = (path: string, cause: unknown) =>
+  oauthError("revoke", `Failed to revoke refresh token: ${errorMessage(cause)}`, { cause, path });
+
+export const revokeRefreshTokenProcessFailed = (path: string, cause: unknown) =>
+  oauthError("revoke", `Failed to process refresh token revocation: ${errorMessage(cause)}`, {
+    cause,
+    path,
+  });
+
+export const revokeAccessTokenFailed = (path: string, cause: unknown) =>
+  oauthError("revoke", `Failed to revoke access token: ${errorMessage(cause)}`, { cause, path });
+
+export const revokeAccessTokenProcessFailed = (path: string, cause: unknown) =>
+  oauthError("revoke", `Failed to process access token revocation: ${errorMessage(cause)}`, {
+    cause,
+    path,
+  });
+
+// ---------------------------------------------------------------------------
+// Base error factories
+// ---------------------------------------------------------------------------
+
 /** Create a typed validation error for caller-provided input. */
 export function inputError(
   message: string,
