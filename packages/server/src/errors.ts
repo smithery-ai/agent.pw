@@ -126,7 +126,6 @@ export const refreshTokenRequestFailed = (path: string, cause: unknown) =>
     retryable: true,
     cause,
     path,
-    details: { path },
   });
 
 export const refreshTokenResponseFailed = (path: string, cause: unknown) =>
@@ -135,7 +134,6 @@ export const refreshTokenResponseFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
-    details: { path },
   });
 
 export const authCallbackValidationFailed = (path: string, cause: unknown) =>
@@ -144,7 +142,6 @@ export const authCallbackValidationFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
-    details: { path },
   });
 
 export const authCodeExchangeFailed = (path: string, cause: unknown) =>
@@ -153,7 +150,6 @@ export const authCodeExchangeFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
-    details: { path },
   });
 
 export const authCodeResponseFailed = (path: string, cause: unknown) =>
@@ -162,7 +158,6 @@ export const authCodeResponseFailed = (path: string, cause: unknown) =>
     retryable: false,
     cause,
     path,
-    details: { path },
   });
 
 export const revokeTokenFailed = (tokenType: "refresh" | "access", path: string, cause: unknown) =>
@@ -171,7 +166,7 @@ export const revokeTokenFailed = (tokenType: "refresh" | "access", path: string,
     retryable: true,
     cause,
     path,
-    details: { tokenType, path },
+    details: { tokenType },
   });
 
 export const revokeTokenProcessFailed = (
@@ -184,7 +179,7 @@ export const revokeTokenProcessFailed = (
     retryable: false,
     cause,
     path,
-    details: { tokenType, path },
+    details: { tokenType },
   });
 
 /** Create a typed validation error for caller-provided input. */
@@ -231,9 +226,9 @@ export function persistenceError(operation: string, message: string, data: { pat
 /** Create a typed OAuth lifecycle error for discovery, token, or revocation failures. */
 export function oauthError(
   message: string,
-  data?: {
-    code?: string;
-    retryable?: boolean;
+  data: {
+    code: string;
+    retryable: boolean;
     cause?: unknown;
     path?: string;
     details?: Record<string, unknown>;
