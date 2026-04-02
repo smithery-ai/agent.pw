@@ -1042,7 +1042,8 @@ describe("oauth service coverage", () => {
     }
     expect(challengeParseFailure.error).toEqual(
       expect.objectContaining({
-        message: "Failed to parse resource challenge for 'https://docs.example.com/mcp'",
+        message:
+          "Failed to parse resource challenge for 'https://docs.example.com/mcp': Invalid resource metadata 'not-a-url'",
       }),
     );
 
@@ -1069,7 +1070,7 @@ describe("oauth service coverage", () => {
     }
     expect(challengeMetadataFetchFailure.error).toEqual(
       expect.objectContaining({
-        message: "Failed to discover resource 'https://docs.example.com/mcp'",
+        message: expect.stringContaining("Failed to fetch resource metadata at"),
       }),
     );
 
@@ -1205,7 +1206,9 @@ describe("oauth service coverage", () => {
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow("Failed to process resource metadata for 'https://broken.example.com/api'");
+    ).rejects.toThrow(
+      /Failed to process resource metadata for 'https:\/\/broken\.example\.com\/api':/,
+    );
 
     await state.profiles.set("client-override", {
       path: "client-override",
@@ -2015,7 +2018,8 @@ describe("oauth service coverage", () => {
     }
     expect(invalidResourceLabel.error).toEqual(
       expect.objectContaining({
-        message: "Failed to parse resource challenge for 'not-a-url'",
+        message:
+          "Failed to parse resource challenge for 'not-a-url': Invalid resource metadata 'not-a-url'",
       }),
     );
   });
