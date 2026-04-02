@@ -70,8 +70,23 @@ function stringValue(value: unknown) {
 }
 
 function errorMessage(error: unknown): string {
-  /* v8 ignore next */
-  return error instanceof Error ? error.message : String(error);
+  /* v8 ignore start - defensive branches for non-standard error shapes */
+  if (!(error instanceof Error)) {
+    if (typeof error === "object" && error !== null && "message" in error) {
+      return String((error as { message: unknown }).message);
+    }
+    return String(error);
+  }
+  // oauth4webapi errors include { expected, body, attribute } in cause
+  const cause = (
+    error as { cause?: { expected?: string; body?: Record<string, unknown>; attribute?: string } }
+  ).cause;
+  if (cause?.attribute && cause?.expected && cause?.body) {
+    const actual = String(cause.body[cause.attribute] ?? "undefined");
+    return `"${cause.attribute}" is "${actual}" but expected "${cause.expected}"`;
+  }
+  /* v8 ignore stop */
+  return error.message;
 }
 
 function isClientMetadataDocumentUrl(value: string) {
@@ -459,7 +474,7 @@ async function discoverAuthorizationServerMetadata(
       return err(
         oauthError(
           "authorization-server-discovery",
-          `Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}'`,
+          `Authorization server discovery failed for '${issuer.toString()}' at '${attempt.url.toString()}': ${errorMessage(response.error)}`,
           { cause: response.error },
         ),
       );
@@ -481,9 +496,13 @@ async function discoverAuthorizationServerMetadata(
     const processed = await result(oauth.processDiscoveryResponse(issuer, response.value));
     if (!processed.ok) {
       return err(
-        oauthError("authorization-server-discovery", "Failed to process discovery response", {
-          cause: processed.error,
-        }),
+        oauthError(
+          "authorization-server-discovery",
+          `Failed to process discovery response: ${errorMessage(processed.error)}`,
+          {
+            cause: processed.error,
+          },
+        ),
       );
     }
     return processed;
@@ -522,7 +541,7 @@ async function readResourceChallenge(
     return err(
       oauthError(
         "resource-discovery",
-        `Failed to parse resource challenge for '${resourceLabel}'`,
+        `Failed to parse resource challenge for '${resourceLabel}': ${errorMessage(challenged.error)}`,
         { cause: challenged.error },
       ),
     );
@@ -541,7 +560,7 @@ async function readResourceChallenge(
     return err(
       oauthError(
         "resource-discovery",
-        `Failed to parse resource challenge for '${resourceLabel}'`,
+        `Failed to parse resource challenge for '${resourceLabel}': ${errorMessage(resourceMetadataUrl.error)}`,
         { cause: resourceMetadataUrl.error },
       ),
     );
@@ -581,9 +600,13 @@ async function readScopeChallenge(response: ResponseLike | undefined) {
     : ok<URL | undefined>(undefined);
   if (!resourceMetadataUrl.ok) {
     return err(
-      oauthError("resource-discovery", "Failed to parse scope challenge resource_metadata", {
-        cause: resourceMetadataUrl.error,
-      }),
+      oauthError(
+        "resource-discovery",
+        `Failed to parse scope challenge resource_metadata: ${errorMessage(resourceMetadataUrl.error)}`,
+        {
+          cause: resourceMetadataUrl.error,
+        },
+      ),
     );
   }
 
@@ -690,9 +713,13 @@ async function requestResourceMetadata(
   const response = await request(attempt);
   if (!response.ok) {
     return err(
-      oauthError("resource-discovery", `Failed to discover resource '${resource}'`, {
-        cause: response.error,
-      }),
+      oauthError(
+        "resource-discovery",
+        `Failed to discover resource '${resource}': ${errorMessage(response.error)}`,
+        {
+          cause: response.error,
+        },
+      ),
     );
   }
 
@@ -753,7 +780,7 @@ async function discoverResource(
     return err(
       oauthError(
         "resource-discovery",
-        `Failed to process resource metadata for '${resource}': ${errorMessage(resourceServer.error)}`,
+        `Failed to process resource metadata for '${resource}': ${errorMessage(resourceServer.error)} (https://datatracker.ietf.org/doc/html/rfc9728#section-3.3)`,
         {
           cause: resourceServer.error,
         },
@@ -846,9 +873,13 @@ async function maybeRegisterDynamicClient(
   );
   if (!registrationResponse.ok) {
     return err(
-      oauthError("dynamic-client-registration", "Dynamic client registration failed", {
-        cause: registrationResponse.error,
-      }),
+      oauthError(
+        "dynamic-client-registration",
+        `Dynamic client registration failed: ${errorMessage(registrationResponse.error)}`,
+        {
+          cause: registrationResponse.error,
+        },
+      ),
     );
   }
 
@@ -859,7 +890,7 @@ async function maybeRegisterDynamicClient(
     return err(
       oauthError(
         "dynamic-client-registration",
-        "Failed to process dynamic client registration response",
+        `Failed to process dynamic client registration response: ${errorMessage(registered.error)}`,
         { cause: registered.error },
       ),
     );
@@ -1203,10 +1234,14 @@ export function createOAuthService(options: {
     );
     if (!tokenResponse.ok) {
       return err(
-        oauthError("refresh", `Failed to refresh credential for '${path}'`, {
-          cause: tokenResponse.error,
-          path,
-        }),
+        oauthError(
+          "refresh",
+          `Failed to refresh credential for '${path}': ${errorMessage(tokenResponse.error)}`,
+          {
+            cause: tokenResponse.error,
+            path,
+          },
+        ),
       );
     }
     const processed = await result(
@@ -1214,10 +1249,14 @@ export function createOAuthService(options: {
     );
     if (!processed.ok) {
       return err(
-        oauthError("refresh", `Failed to process refresh response for '${path}'`, {
-          cause: processed.error,
-          path,
-        }),
+        oauthError(
+          "refresh",
+          `Failed to process refresh response for '${path}': ${errorMessage(processed.error)}`,
+          {
+            cause: processed.error,
+            path,
+          },
+        ),
       );
     }
     const secret = oauthSecretFromTokenResponse(
@@ -1469,10 +1508,14 @@ export function createOAuthService(options: {
       );
       if (!validated.ok) {
         return err(
-          oauthError("authorization-callback", "Failed to validate OAuth callback", {
-            cause: validated.error,
-            path: flow.path,
-          }),
+          oauthError(
+            "authorization-callback",
+            `Failed to validate OAuth callback: ${errorMessage(validated.error)}`,
+            {
+              cause: validated.error,
+              path: flow.path,
+            },
+          ),
         );
       }
 
@@ -1489,10 +1532,14 @@ export function createOAuthService(options: {
       );
       if (!tokenResponse.ok) {
         return err(
-          oauthError("authorization-code", "Failed to exchange authorization code", {
-            cause: tokenResponse.error,
-            path: flow.path,
-          }),
+          oauthError(
+            "authorization-code",
+            `Failed to exchange authorization code: ${errorMessage(tokenResponse.error)}`,
+            {
+              cause: tokenResponse.error,
+              path: flow.path,
+            },
+          ),
         );
       }
 
@@ -1505,10 +1552,14 @@ export function createOAuthService(options: {
       );
       if (!processed.ok) {
         return err(
-          oauthError("authorization-code", "Failed to process authorization code response", {
-            cause: processed.error,
-            path: flow.path,
-          }),
+          oauthError(
+            "authorization-code",
+            `Failed to process authorization code response: ${errorMessage(processed.error)}`,
+            {
+              cause: processed.error,
+              path: flow.path,
+            },
+          ),
         );
       }
 
@@ -1618,19 +1669,27 @@ export function createOAuthService(options: {
               );
               if (!response.ok) {
                 return err(
-                  oauthError("revoke", "Failed to revoke refresh token", {
-                    cause: response.error,
-                    path: path.value,
-                  }),
+                  oauthError(
+                    "revoke",
+                    `Failed to revoke refresh token: ${errorMessage(response.error)}`,
+                    {
+                      cause: response.error,
+                      path: path.value,
+                    },
+                  ),
                 );
               }
               const processed = await result(oauth.processRevocationResponse(response.value));
               if (!processed.ok) {
                 return err(
-                  oauthError("revoke", "Failed to process refresh token revocation", {
-                    cause: processed.error,
-                    path: path.value,
-                  }),
+                  oauthError(
+                    "revoke",
+                    `Failed to process refresh token revocation: ${errorMessage(processed.error)}`,
+                    {
+                      cause: processed.error,
+                      path: path.value,
+                    },
+                  ),
                 );
               }
             }
@@ -1657,19 +1716,27 @@ export function createOAuthService(options: {
               );
               if (!response.ok) {
                 return err(
-                  oauthError("revoke", "Failed to revoke access token", {
-                    cause: response.error,
-                    path: path.value,
-                  }),
+                  oauthError(
+                    "revoke",
+                    `Failed to revoke access token: ${errorMessage(response.error)}`,
+                    {
+                      cause: response.error,
+                      path: path.value,
+                    },
+                  ),
                 );
               }
               const processed = await result(oauth.processRevocationResponse(response.value));
               if (!processed.ok) {
                 return err(
-                  oauthError("revoke", "Failed to process access token revocation", {
-                    cause: processed.error,
-                    path: path.value,
-                  }),
+                  oauthError(
+                    "revoke",
+                    `Failed to process access token revocation: ${errorMessage(processed.error)}`,
+                    {
+                      cause: processed.error,
+                      path: path.value,
+                    },
+                  ),
                 );
               }
             }

@@ -1042,7 +1042,8 @@ describe("oauth service coverage", () => {
     }
     expect(challengeParseFailure.error).toEqual(
       expect.objectContaining({
-        message: "Failed to parse resource challenge for 'https://docs.example.com/mcp'",
+        message:
+          "Failed to parse resource challenge for 'https://docs.example.com/mcp': Invalid resource metadata 'not-a-url'",
       }),
     );
 
@@ -2017,7 +2018,8 @@ describe("oauth service coverage", () => {
     }
     expect(invalidResourceLabel.error).toEqual(
       expect.objectContaining({
-        message: "Failed to parse resource challenge for 'not-a-url'",
+        message:
+          "Failed to parse resource challenge for 'not-a-url': Invalid resource metadata 'not-a-url'",
       }),
     );
   });

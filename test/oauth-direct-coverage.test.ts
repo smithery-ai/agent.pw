@@ -436,7 +436,7 @@ describe("oauth direct coverage", () => {
           redirectUri: "https://app.example.com/oauth/callback",
         }),
       ).message,
-    ).toBe("Failed to process discovery response");
+    ).toContain("Failed to process discovery response:");
 
     expect(
       errorOf(
@@ -471,7 +471,7 @@ describe("oauth direct coverage", () => {
           redirectUri: "https://app.example.com/oauth/callback",
         }),
       ).message,
-    ).toBe("Dynamic client registration failed");
+    ).toBe("Dynamic client registration failed: registration request failed");
 
     expect(
       errorOf(
@@ -487,7 +487,7 @@ describe("oauth direct coverage", () => {
           redirectUri: "https://app.example.com/oauth/callback",
         }),
       ).message,
-    ).toBe("Failed to process dynamic client registration response");
+    ).toContain("Failed to process dynamic client registration response:");
   });
 
   it("covers refreshCredential and completeAuthorization failure branches", async () => {
@@ -584,7 +584,7 @@ describe("oauth direct coverage", () => {
           }),
         }).refreshCredential("org.oauth", true, oauthCredential("org.oauth")),
       ).message,
-    ).toBe("Failed to refresh credential for 'org.oauth'");
+    ).toContain("Failed to refresh credential for 'org.oauth':");
 
     expect(
       errorOf(
@@ -594,7 +594,7 @@ describe("oauth direct coverage", () => {
           }),
         }).refreshCredential("org.oauth", true, oauthCredential("org.oauth")),
       ).message,
-    ).toBe("Failed to process refresh response for 'org.oauth'");
+    ).toContain("Failed to process refresh response for 'org.oauth':");
     expect(
       (
         await createService({
@@ -667,7 +667,7 @@ describe("oauth direct coverage", () => {
           callbackUri: "https://app.example.com/oauth/callback?state=flow-1&error=access_denied",
         }),
       ).message,
-    ).toBe("Failed to validate OAuth callback");
+    ).toContain("Failed to validate OAuth callback:");
 
     expect(
       errorOf(
@@ -680,7 +680,7 @@ describe("oauth direct coverage", () => {
           callbackUri: "https://app.example.com/oauth/callback?state=flow-1&code=ok",
         }),
       ).message,
-    ).toBe("Failed to exchange authorization code");
+    ).toContain("Failed to exchange authorization code:");
 
     expect(
       errorOf(
@@ -693,7 +693,7 @@ describe("oauth direct coverage", () => {
           callbackUri: "https://app.example.com/oauth/callback?state=flow-1&code=ok",
         }),
       ).message,
-    ).toBe("Failed to process authorization code response");
+    ).toContain("Failed to process authorization code response:");
 
     const existingErrorFlowStore = createInMemoryFlowStore();
     await existingErrorFlowStore.create(seededFlow());
@@ -753,7 +753,7 @@ describe("oauth direct coverage", () => {
           }),
         }).disconnect({ path: "org.oauth", revoke: "refresh_token" }),
       ).message,
-    ).toBe("Failed to revoke refresh token");
+    ).toContain("Failed to revoke refresh token:");
 
     expect(
       errorOf(
@@ -764,7 +764,7 @@ describe("oauth direct coverage", () => {
           }),
         }).disconnect({ path: "org.oauth", revoke: "refresh_token" }),
       ).message,
-    ).toBe("Failed to process refresh token revocation");
+    ).toContain("Failed to process refresh token revocation:");
 
     expect(
       errorOf(
@@ -775,7 +775,7 @@ describe("oauth direct coverage", () => {
           }),
         }).disconnect({ path: "org.oauth", revoke: "access_token" }),
       ).message,
-    ).toBe("Failed to revoke access token");
+    ).toContain("Failed to revoke access token:");
 
     expect(
       errorOf(
@@ -786,7 +786,7 @@ describe("oauth direct coverage", () => {
           }),
         }).disconnect({ path: "org.oauth", revoke: "access_token" }),
       ).message,
-    ).toBe("Failed to process access token revocation");
+    ).toContain("Failed to process access token revocation:");
   });
 
   it("covers web handler and client metadata helper errors", async () => {
