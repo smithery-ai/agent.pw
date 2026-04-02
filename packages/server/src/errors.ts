@@ -6,17 +6,27 @@ export function errorMessage(error: unknown): string {
   /* v8 ignore start - defensive branches for non-standard error shapes */
   if (!(error instanceof Error)) {
     if (typeof error === "object" && error !== null && "message" in error) {
-      return String((error as { message: unknown }).message);
+      const withMessage: { message: unknown } = error;
+      return String(withMessage.message);
     }
     return String(error);
   }
   // oauth4webapi errors include { expected, body, attribute } in cause
-  const cause = (
-    error as { cause?: { expected?: string; body?: Record<string, unknown>; attribute?: string } }
-  ).cause;
-  if (cause?.attribute && cause?.expected && cause?.body) {
-    const actual = String(cause.body[cause.attribute] ?? "undefined");
-    return `"${cause.attribute}" is "${actual}" but expected "${cause.expected}"`;
+  const cause: unknown = "cause" in error ? error.cause : undefined;
+  if (typeof cause === "object" && cause !== null) {
+    const attribute = "attribute" in cause ? cause.attribute : undefined;
+    const expected = "expected" in cause ? cause.expected : undefined;
+    const body = "body" in cause ? cause.body : undefined;
+    if (
+      typeof attribute === "string" &&
+      typeof expected === "string" &&
+      typeof body === "object" &&
+      body !== null &&
+      attribute in body
+    ) {
+      const actual = String(Object.getOwnPropertyDescriptor(body, attribute)?.value ?? "undefined");
+      return `"${attribute}" is "${actual}" but expected "${expected}"`;
+    }
   }
   /* v8 ignore stop */
   return error.message;
