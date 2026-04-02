@@ -1205,7 +1205,9 @@ describe("oauth service coverage", () => {
         },
         redirectUri: "https://app.example.com/oauth/callback",
       }),
-    ).rejects.toThrow(/Failed to process resource metadata for 'https:\/\/broken\.example\.com\/api':/);
+    ).rejects.toThrow(
+      /Failed to process resource metadata for 'https:\/\/broken\.example\.com\/api':/,
+    );
 
     await state.profiles.set("client-override", {
       path: "client-override",

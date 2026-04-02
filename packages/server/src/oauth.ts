@@ -751,9 +751,13 @@ async function discoverResource(
   );
   if (!resourceServer.ok) {
     return err(
-      oauthError("resource-discovery", `Failed to process resource metadata for '${resource}': ${errorMessage(resourceServer.error)}`, {
-        cause: resourceServer.error,
-      }),
+      oauthError(
+        "resource-discovery",
+        `Failed to process resource metadata for '${resource}': ${errorMessage(resourceServer.error)}`,
+        {
+          cause: resourceServer.error,
+        },
+      ),
     );
   }
 
