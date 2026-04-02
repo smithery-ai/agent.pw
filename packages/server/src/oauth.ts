@@ -20,10 +20,8 @@ import {
   resourceFetchFailed,
   resourceMetadataFetchFailed,
   resourceMetadataProcessFailed,
-  revokeAccessTokenFailed,
-  revokeAccessTokenProcessFailed,
-  revokeRefreshTokenFailed,
-  revokeRefreshTokenProcessFailed,
+  revokeTokenFailed,
+  revokeTokenProcessFailed,
   scopeChallengeParseFailed,
 } from "./errors.js";
 import {
@@ -1559,11 +1557,11 @@ export function createOAuthService(options: {
                 ),
               );
               if (!response.ok) {
-                return err(revokeRefreshTokenFailed(path.value, response.error));
+                return err(revokeTokenFailed("refresh", path.value, response.error));
               }
               const processed = await result(oauth.processRevocationResponse(response.value));
               if (!processed.ok) {
-                return err(revokeRefreshTokenProcessFailed(path.value, processed.error));
+                return err(revokeTokenProcessFailed("refresh", path.value, processed.error));
               }
             }
 
@@ -1588,11 +1586,11 @@ export function createOAuthService(options: {
                 ),
               );
               if (!response.ok) {
-                return err(revokeAccessTokenFailed(path.value, response.error));
+                return err(revokeTokenFailed("access", path.value, response.error));
               }
               const processed = await result(oauth.processRevocationResponse(response.value));
               if (!processed.ok) {
-                return err(revokeAccessTokenProcessFailed(path.value, processed.error));
+                return err(revokeTokenProcessFailed("access", path.value, processed.error));
               }
             }
           }

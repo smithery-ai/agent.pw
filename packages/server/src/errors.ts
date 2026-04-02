@@ -22,11 +22,7 @@ export function errorMessage(error: unknown): string {
   return error.message;
 }
 
-// ---------------------------------------------------------------------------
 // OAuth error catalog — named constructors for each failure mode
-// ---------------------------------------------------------------------------
-
-// --- Authorization server discovery ---
 
 export const authServerDiscoveryFetchFailed = (issuer: string, url: string, cause: unknown) =>
   oauthError(
@@ -47,8 +43,6 @@ export const authServerDiscoveryProcessFailed = (cause: unknown) =>
     `Failed to process discovery response: ${errorMessage(cause)}`,
     { cause },
   );
-
-// --- Resource discovery ---
 
 export const resourceChallengeParseFailed = (resource: string, cause: unknown) =>
   oauthError(
@@ -85,8 +79,6 @@ export const resourceMetadataProcessFailed = (resource: string, cause: unknown) 
     { cause },
   );
 
-// --- Dynamic client registration ---
-
 export const dcrRequestFailed = (cause: unknown) =>
   oauthError(
     "dynamic-client-registration",
@@ -101,8 +93,6 @@ export const dcrResponseProcessFailed = (cause: unknown) =>
     { cause },
   );
 
-// --- Token refresh ---
-
 export const refreshTokenRequestFailed = (path: string, cause: unknown) =>
   oauthError("refresh", `Failed to refresh credential for '${path}': ${errorMessage(cause)}`, {
     cause,
@@ -116,16 +106,12 @@ export const refreshTokenResponseFailed = (path: string, cause: unknown) =>
     { cause, path },
   );
 
-// --- Authorization callback ---
-
 export const authCallbackValidationFailed = (path: string, cause: unknown) =>
   oauthError(
     "authorization-callback",
     `Failed to validate OAuth callback: ${errorMessage(cause)}`,
     { cause, path },
   );
-
-// --- Authorization code exchange ---
 
 export const authCodeExchangeFailed = (path: string, cause: unknown) =>
   oauthError(
@@ -141,29 +127,21 @@ export const authCodeResponseFailed = (path: string, cause: unknown) =>
     { cause, path },
   );
 
-// --- Token revocation ---
-
-export const revokeRefreshTokenFailed = (path: string, cause: unknown) =>
-  oauthError("revoke", `Failed to revoke refresh token: ${errorMessage(cause)}`, { cause, path });
-
-export const revokeRefreshTokenProcessFailed = (path: string, cause: unknown) =>
-  oauthError("revoke", `Failed to process refresh token revocation: ${errorMessage(cause)}`, {
+export const revokeTokenFailed = (tokenType: "refresh" | "access", path: string, cause: unknown) =>
+  oauthError("revoke", `Failed to revoke ${tokenType} token: ${errorMessage(cause)}`, {
     cause,
     path,
   });
 
-export const revokeAccessTokenFailed = (path: string, cause: unknown) =>
-  oauthError("revoke", `Failed to revoke access token: ${errorMessage(cause)}`, { cause, path });
-
-export const revokeAccessTokenProcessFailed = (path: string, cause: unknown) =>
-  oauthError("revoke", `Failed to process access token revocation: ${errorMessage(cause)}`, {
+export const revokeTokenProcessFailed = (
+  tokenType: "refresh" | "access",
+  path: string,
+  cause: unknown,
+) =>
+  oauthError("revoke", `Failed to process ${tokenType} token revocation: ${errorMessage(cause)}`, {
     cause,
     path,
   });
-
-// ---------------------------------------------------------------------------
-// Base error factories
-// ---------------------------------------------------------------------------
 
 /** Create a typed validation error for caller-provided input. */
 export function inputError(
