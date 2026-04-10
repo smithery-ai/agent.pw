@@ -599,7 +599,10 @@ async function discoverScopesFromMetadata(
     return ok<string[]>([]);
   }
 
-  const resourceServer = await processResourceDiscoveryWithPrefixFallback(resourceUrl, metadataResponse.value);
+  const resourceServer = await processResourceDiscoveryWithPrefixFallback(
+    resourceUrl,
+    metadataResponse.value,
+  );
   if (!resourceServer.ok) {
     return ok<string[]>([]);
   }
@@ -660,10 +663,7 @@ function isResourcePrefixMatch(metadataResource: URL, requestedResource: URL) {
  * prefix-match fallback. If exact match fails but the metadata resource is
  * a valid prefix of the requested resource, accept the response.
  */
-async function processResourceDiscoveryWithPrefixFallback(
-  resourceUrl: URL,
-  response: Response,
-) {
+async function processResourceDiscoveryWithPrefixFallback(resourceUrl: URL, response: Response) {
   const resourceServer = await result(
     oauth.processResourceDiscoveryResponse(resourceUrl, response),
   );
@@ -676,7 +676,9 @@ async function processResourceDiscoveryWithPrefixFallback(
     return resourceServer;
   }
 
-  const cause = resourceServer.error.cause as { body?: { resource?: string }; attribute?: string } | undefined;
+  const cause = resourceServer.error.cause as
+    | { body?: { resource?: string }; attribute?: string }
+    | undefined;
   if (cause?.attribute !== "resource" || typeof cause.body?.resource !== "string") {
     return resourceServer;
   }
@@ -774,7 +776,10 @@ async function discoverResource(
     return metadataResponse;
   }
 
-  const resourceServer = await processResourceDiscoveryWithPrefixFallback(resourceUrl, metadataResponse.value);
+  const resourceServer = await processResourceDiscoveryWithPrefixFallback(
+    resourceUrl,
+    metadataResponse.value,
+  );
   if (!resourceServer.ok) {
     return err(resourceMetadataProcessFailed(resource, resourceServer.error));
   }
