@@ -1,5 +1,5 @@
 import { err, ok } from "okay-error";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryFlowStore, createOAuthService } from "agent.pw/oauth";
 import { inputError } from "../packages/server/src/errors";
 import type {
@@ -941,6 +941,7 @@ describe("oauth direct coverage", () => {
       }),
     });
 
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const discovered = await service.discoverResource({
       resource: "https://prefix.example.com/mcp",
     });
@@ -948,6 +949,32 @@ describe("oauth direct coverage", () => {
     if (discovered.ok) {
       expect(discovered.value.authorizationServers).toContain("https://issuer.example.com");
     }
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("accepting as prefix of"));
+    warnSpy.mockRestore();
+  });
+
+  it("falls back to root metadata when subpath returns non-JSON content-type", async () => {
+    const service = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch({
+        "https://htmlmeta.example.com/.well-known/oauth-protected-resource/mcp": new Response(
+          "<html>Not Found</html>",
+          { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+        ),
+        "https://htmlmeta.example.com/.well-known/oauth-protected-resource": Response.json({
+          resource: "https://htmlmeta.example.com",
+          authorization_servers: ["https://issuer.example.com"],
+        }),
+      }),
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const discovered = await service.discoverResource({
+      resource: "https://htmlmeta.example.com/mcp",
+    });
+    expect(discovered.ok).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("non-JSON content-type"));
+    warnSpy.mockRestore();
   });
 
   it("rejects resource metadata with non-prefix resource mismatch", async () => {

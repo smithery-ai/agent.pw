@@ -689,6 +689,9 @@ async function processResourceDiscoveryWithPrefixFallback(resourceUrl: URL, resp
     return resourceServer;
   }
 
+  console.warn(
+    `Resource metadata declares resource as ${cause.body!.resource}, accepting as prefix of ${resourceUrl}`,
+  );
   return ok(cause.body as oauth.ResourceServer);
 }
 
@@ -728,9 +731,18 @@ async function requestResourceMetadata(
     return err(resourceFetchFailed(resource, response.error));
   }
 
-  if (fallbackAttempt && response.value.status >= 400 && response.value.status < 500) {
-    await response.value.body?.cancel();
-    return request(fallbackAttempt);
+  if (fallbackAttempt) {
+    const isClientError = response.value.status >= 400 && response.value.status < 500;
+    const isNonJson = !response.value.headers.get("content-type")?.includes("application/json");
+    if (isClientError || isNonJson) {
+      if (isNonJson && !isClientError) {
+        console.warn(
+          `Resource metadata at ${attempt} returned non-JSON content-type, falling back to ${fallbackAttempt}`,
+        );
+      }
+      await response.value.body?.cancel();
+      return request(fallbackAttempt);
+    }
   }
 
   return ok(response.value);
