@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.6.0...agent.pw-v0.6.1) (2026-04-10)
+
+
+### Bug Fixes
+
+* RFC 9728bis resource prefix matching ([#149](https://github.com/smithery-ai/agent.pw/issues/149)) ([fea8f30](https://github.com/smithery-ai/agent.pw/commit/fea8f300f52af282c98d8390cd3e4e331d18228c))
+
 ## [0.6.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.5.6...agent.pw-v0.6.0) (2026-04-02)
 
 
