@@ -599,9 +599,7 @@ async function discoverScopesFromMetadata(
     return ok<string[]>([]);
   }
 
-  const resourceServer = await result(
-    oauth.processResourceDiscoveryResponse(resourceUrl, metadataResponse.value),
-  );
+  const resourceServer = await processResourceDiscoveryWithPrefixFallback(resourceUrl, metadataResponse.value);
   if (!resourceServer.ok) {
     return ok<string[]>([]);
   }
@@ -642,6 +640,53 @@ function responseChallengeResource(resource: string | undefined) {
     url: new URL(normalized.value),
     label: normalized.value,
   };
+}
+
+/**
+ * RFC 9728bis prefix matching: the metadata's resource is valid if it shares
+ * the same origin and its path is a prefix of the requested URL's path on
+ * segment boundaries.
+ */
+function isResourcePrefixMatch(metadataResource: URL, requestedResource: URL) {
+  if (metadataResource.origin !== requestedResource.origin) return false;
+  const metaPath = metadataResource.pathname.replace(/\/+$/, "");
+  const reqPath = requestedResource.pathname.replace(/\/+$/, "");
+  if (metaPath === "") return true;
+  return reqPath === metaPath || reqPath.startsWith(`${metaPath}/`);
+}
+
+/**
+ * Wraps oauth4webapi's processResourceDiscoveryResponse with RFC 9728bis
+ * prefix-match fallback. If exact match fails but the metadata resource is
+ * a valid prefix of the requested resource, accept the response.
+ */
+async function processResourceDiscoveryWithPrefixFallback(
+  resourceUrl: URL,
+  response: Response,
+) {
+  const resourceServer = await result(
+    oauth.processResourceDiscoveryResponse(resourceUrl, response),
+  );
+  if (resourceServer.ok) return resourceServer;
+
+  if (
+    !(resourceServer.error instanceof oauth.OperationProcessingError) ||
+    resourceServer.error.code !== oauth.JSON_ATTRIBUTE_COMPARISON
+  ) {
+    return resourceServer;
+  }
+
+  const cause = resourceServer.error.cause as { body?: { resource?: string }; attribute?: string } | undefined;
+  if (cause?.attribute !== "resource" || typeof cause.body?.resource !== "string") {
+    return resourceServer;
+  }
+
+  const metadataUrl = result(() => new URL(cause.body!.resource!));
+  if (!metadataUrl.ok || !isResourcePrefixMatch(metadataUrl.value, resourceUrl)) {
+    return resourceServer;
+  }
+
+  return ok(cause.body as oauth.ResourceServer);
 }
 
 function buildResourceMetadataUrl(resource: URL, includePath: boolean) {
@@ -729,9 +774,7 @@ async function discoverResource(
     return metadataResponse;
   }
 
-  const resourceServer = await result(
-    oauth.processResourceDiscoveryResponse(resourceUrl, metadataResponse.value),
-  );
+  const resourceServer = await processResourceDiscoveryWithPrefixFallback(resourceUrl, metadataResponse.value);
   if (!resourceServer.ok) {
     return err(resourceMetadataProcessFailed(resource, resourceServer.error));
   }
