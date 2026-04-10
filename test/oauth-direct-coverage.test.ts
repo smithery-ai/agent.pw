@@ -927,4 +927,48 @@ describe("oauth direct coverage", () => {
       ).message,
     ).toBe("Invalid redirect uri 'http://app.example.com/oauth/callback'");
   });
+
+  it("accepts resource metadata with prefix-matching resource (RFC 9728bis)", async () => {
+    // Metadata returns origin as resource, MCP endpoint is at /mcp subpath
+    const service = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch({
+        "https://prefix.example.com/.well-known/oauth-protected-resource/mcp": Response.json({
+          resource: "https://prefix.example.com",
+          authorization_servers: ["https://issuer.example.com"],
+          scopes_supported: ["read", "write"],
+        }),
+      }),
+    });
+
+    const discovered = await service.discoverResource({
+      resource: "https://prefix.example.com/mcp",
+    });
+    expect(discovered.ok).toBe(true);
+    if (discovered.ok) {
+      expect(discovered.value.authorizationServers).toContain("https://issuer.example.com");
+    }
+  });
+
+  it("rejects resource metadata with non-prefix resource mismatch", async () => {
+    const service = createService({
+      flowStore: createInMemoryFlowStore(),
+      customFetch: createFetch({
+        "https://other.example.com/.well-known/oauth-protected-resource/mcp": Response.json({
+          resource: "https://other.example.com/different",
+          authorization_servers: ["https://issuer.example.com"],
+        }),
+        // Fallback URL also returns mismatched resource
+        "https://other.example.com/.well-known/oauth-protected-resource": Response.json({
+          resource: "https://other.example.com/different",
+          authorization_servers: ["https://issuer.example.com"],
+        }),
+      }),
+    });
+
+    const discovered = await service.discoverResource({
+      resource: "https://other.example.com/mcp",
+    });
+    expect(discovered.ok).toBe(false);
+  });
 });

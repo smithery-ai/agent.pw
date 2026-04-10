@@ -679,6 +679,7 @@ async function processResourceDiscoveryWithPrefixFallback(resourceUrl: URL, resp
   const cause = resourceServer.error.cause as
     | { body?: { resource?: string }; attribute?: string }
     | undefined;
+  /* v8 ignore next 3 -- defensive: processResourceDiscoveryResponse only emits attribute:"resource" */
   if (cause?.attribute !== "resource" || typeof cause.body?.resource !== "string") {
     return resourceServer;
   }
