@@ -1,6 +1,6 @@
 {
   "name": "agent.pw",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Credential vault and auth framework for agents",
   "repository": {
     "type": "git",
