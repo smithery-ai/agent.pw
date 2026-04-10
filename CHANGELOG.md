@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.6.1...agent.pw-v0.6.2) (2026-04-10)
+
+
+### Bug Fixes
+
+* fall back on non-JSON metadata ([#151](https://github.com/smithery-ai/agent.pw/issues/151)) ([9dafb03](https://github.com/smithery-ai/agent.pw/commit/9dafb03e7757ab1dc596e46b6e8ba0bcff333791))
+
 ## [0.6.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.6.0...agent.pw-v0.6.1) (2026-04-10)
 
 
