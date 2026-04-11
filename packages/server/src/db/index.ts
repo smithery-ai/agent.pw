@@ -88,7 +88,7 @@ async function loadBundledPGliteAssets() {
         );
       }
 
-      const wasmModule = await compileWasmModule(bytes.value[0]);
+      const wasmModule = await compileWasmModule(Uint8Array.from(bytes.value[0]));
       if (!wasmModule.ok) {
         return wasmModule;
       }
