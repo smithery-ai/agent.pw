@@ -248,6 +248,175 @@ describe("createAgentPw", () => {
     });
   });
 
+  it("returns config_required for missing literal config fields", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("browserbase", {
+      resourcePatterns: ["https://browserbase.run.tools*"],
+      config: {
+        fields: [
+          {
+            transport: "header",
+            key: "apiKey",
+            name: "x-api-key",
+            label: "API Key",
+            description: "Browserbase API key",
+            secret: true,
+          },
+          {
+            transport: "query",
+            key: "projectId",
+            name: "projectId",
+            label: "Project ID",
+            description: "Browserbase project",
+          },
+        ],
+      },
+      displayName: "Browserbase",
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.browserbase",
+      resource: "https://browserbase.run.tools/mcp",
+    });
+
+    expect(prepared).toEqual({
+      kind: "config_required",
+      config: {
+        fields: [
+          {
+            transport: "header",
+            key: "apiKey",
+            name: "x-api-key",
+            label: "API Key",
+            description: "Browserbase API key",
+            secret: true,
+          },
+          {
+            transport: "query",
+            key: "projectId",
+            name: "projectId",
+            label: "Project ID",
+            description: "Browserbase project",
+          },
+        ],
+        missingKeys: ["apiKey", "projectId"],
+      },
+      resolution: {
+        canonicalResource: "https://browserbase.run.tools/mcp",
+        source: "profile",
+        reason: "matched-profile",
+        profilePath: "browserbase",
+        option: null,
+      },
+    });
+  });
+
+  it("keeps pending headers while query config is completed and then offers oauth", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("docs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      config: {
+        fields: [
+          {
+            transport: "header",
+            key: "apiKey",
+            name: "x-api-key",
+            label: "API Key",
+            secret: true,
+          },
+          {
+            transport: "query",
+            key: "workspaceId",
+            name: "workspaceId",
+            label: "Workspace ID",
+          },
+        ],
+      },
+      auth: {
+        kind: "oauth",
+        authorizationUrl: "https://accounts.example.com/authorize",
+        tokenUrl: "https://accounts.example.com/token",
+        clientId: "docs-client",
+      },
+      displayName: "Docs",
+    });
+
+    const stored = await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp",
+      headers: {
+        "x-api-key": "secret",
+      },
+    });
+
+    expect(stored.auth).toEqual({
+      kind: "headers",
+      profilePath: "docs",
+      pending: true,
+    });
+
+    const missingQuery = await agentPw.connect.prepare({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(missingQuery).toEqual({
+      kind: "config_required",
+      config: {
+        fields: [
+          {
+            transport: "header",
+            key: "apiKey",
+            name: "x-api-key",
+            label: "API Key",
+            secret: true,
+          },
+          {
+            transport: "query",
+            key: "workspaceId",
+            name: "workspaceId",
+            label: "Workspace ID",
+          },
+        ],
+        missingKeys: ["workspaceId"],
+      },
+      resolution: {
+        canonicalResource: "https://docs.example.com/mcp",
+        source: "profile",
+        reason: "matched-profile",
+        profilePath: "docs",
+        option: {
+          kind: "oauth",
+          source: "profile",
+          resource: "https://docs.example.com/mcp",
+          profilePath: "docs",
+          label: "Docs",
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-1",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+    expect(prepared.options).toEqual([
+      {
+        kind: "oauth",
+        source: "profile",
+        resource: "https://docs.example.com/mcp?workspaceId=team-1",
+        profilePath: "docs",
+        label: "Docs",
+      },
+    ]);
+  });
+
   it("prefers matching profiles over discovery and exposes the default option first", async () => {
     let discoveryCalls = 0;
     const agentPw = await createTestAgent(async (input) => {

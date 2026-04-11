@@ -73,6 +73,31 @@ export interface HeaderFieldDefinition {
   secret?: boolean;
 }
 
+export interface ConfigFieldDefinitionBase {
+  key: string;
+  name: string;
+  label: string;
+  description?: string;
+}
+
+export interface HeaderConfigFieldDefinition extends ConfigFieldDefinitionBase {
+  transport: "header";
+  prefix?: string;
+  secret?: boolean;
+}
+
+export interface QueryConfigFieldDefinition extends ConfigFieldDefinitionBase {
+  transport: "query";
+}
+
+export type ConfigFieldDefinition =
+  | HeaderConfigFieldDefinition
+  | QueryConfigFieldDefinition;
+
+export interface CredentialProfileConfig {
+  fields: ConfigFieldDefinition[];
+}
+
 export interface CredentialProfileOAuthAuth {
   kind: "oauth";
   label?: string;
@@ -97,7 +122,8 @@ export type CredentialProfileAuth = CredentialProfileOAuthAuth | CredentialProfi
 export interface CredentialProfileRecord {
   path: string;
   resourcePatterns: string[];
-  auth: CredentialProfileAuth;
+  auth: CredentialProfileAuth | null;
+  config: CredentialProfileConfig | null;
   displayName: string | null;
   description: string | null;
   createdAt: Date;
@@ -106,7 +132,8 @@ export interface CredentialProfileRecord {
 
 export interface CredentialProfilePutInput {
   resourcePatterns: string[];
-  auth: CredentialProfileAuth;
+  auth?: CredentialProfileAuth;
+  config?: CredentialProfileConfig;
   displayName?: string;
   description?: string;
 }
@@ -118,6 +145,7 @@ interface CredentialAuthBase {
 
 export interface HeadersCredentialAuth extends CredentialAuthBase {
   kind: "headers";
+  pending?: boolean;
 }
 
 export interface OAuthCredentialAuth extends CredentialAuthBase {
@@ -134,6 +162,7 @@ interface CredentialAuthInputBase {
 
 export interface HeadersCredentialAuthInput extends CredentialAuthInputBase {
   kind: "headers";
+  pending?: boolean;
 }
 
 export interface OAuthCredentialAuthInput extends CredentialAuthInputBase {
@@ -303,7 +332,19 @@ export interface ConnectOptionsResult {
   resolution: ConnectResolutionResult;
 }
 
-export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult;
+export interface ConnectConfigRequiredResult {
+  kind: "config_required";
+  config: {
+    fields: readonly ConfigFieldDefinition[];
+    missingKeys: readonly string[];
+  };
+  resolution: ConnectResolutionResult;
+}
+
+export type ConnectPrepareResult =
+  | ConnectReadyResult
+  | ConnectOptionsResult
+  | ConnectConfigRequiredResult;
 
 export interface ConnectStartOAuthInput {
   path: string;
