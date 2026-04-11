@@ -160,21 +160,16 @@ function parseProfileConfig(value: unknown) {
 
 function parseProfilePayload(value: unknown) {
   if (!isRecord(value)) {
-    return err(inputError("Invalid profile payload"));
+    return err(inputError("Invalid profile auth payload"));
   }
 
-  if (
-    value.kind === "oauth" ||
-    value.kind === "headers" ||
-    "auth" in value ||
-    "config" in value
-  ) {
+  if ("kind" in value || "auth" in value || "config" in value) {
     const parsedAuth =
       "auth" in value
         ? value.auth == null
           ? ok<CredentialProfileAuth | null>(null)
           : parseProfileAuth(value.auth)
-        : value.kind === "oauth" || value.kind === "headers"
+        : "kind" in value
           ? parseProfileAuth(value)
           : ok<CredentialProfileAuth | null>(null);
     if (!parsedAuth.ok) {
@@ -564,23 +559,38 @@ export async function createAgentPw(options: AgentPwOptions) {
         return err(inputError("Credential Profile must define auth or config"));
       }
 
-      const payload = toJsonRecord({
-        ...(data.auth ? { auth: data.auth } : {}),
-        ...(data.config ? { config: data.config } : {}),
-      });
-      if (!payload.ok) {
-        return payload;
+      const parsedAuth =
+        data.auth === undefined
+          ? ok<CredentialProfileAuth | null>(null)
+          : (() => {
+              const auth = toJsonRecord(data.auth);
+              if (!auth.ok) {
+                return auth;
+              }
+              return parseProfileAuth(auth.value);
+            })();
+      if (!parsedAuth.ok) {
+        return parsedAuth;
       }
-      const parsedPayload = parseProfilePayload(payload.value);
-      if (!parsedPayload.ok) {
-        return parsedPayload;
+      const parsedConfig =
+        data.config === undefined
+          ? ok<CredentialProfileConfig | null>(null)
+          : (() => {
+              const config = toJsonRecord(data.config);
+              if (!config.ok) {
+                return config;
+              }
+              return parseProfileConfig(config.value);
+            })();
+      if (!parsedConfig.ok) {
+        return parsedConfig;
       }
 
       const persisted = await queryHelpers.upsertCredProfile(db, profilePath.value, {
         resourcePatterns: data.resourcePatterns,
         auth: {
-          ...(parsedPayload.value.auth ? { auth: parsedPayload.value.auth } : {}),
-          ...(parsedPayload.value.config ? { config: parsedPayload.value.config } : {}),
+          ...(parsedAuth.value ? { auth: parsedAuth.value } : {}),
+          ...(parsedConfig.value ? { config: parsedConfig.value } : {}),
         },
         displayName: data.displayName,
         description: data.description,
@@ -1155,12 +1165,24 @@ export async function createAgentPw(options: AgentPwOptions) {
           return profile;
         }
 
+        const selectedOption = profile.value ? optionFromProfile(profile.value, resource.value) : null;
+        if (
+          selectedOption?.kind === "oauth" &&
+          profile.value?.config == null &&
+          profile.value?.auth?.kind !== "headers"
+        ) {
+          return err(
+            inputError(
+              `Resource '${resource.value}' requires OAuth; use connect.startOAuth(...)`,
+            ),
+          );
+        }
+
         const headerValidation = validateProfileHeaders(headers.value, profile.value);
         if (!headerValidation.ok) {
           return headerValidation;
         }
 
-        const selectedOption = profile.value ? optionFromProfile(profile.value, resource.value) : null;
         const missingKeys = configFieldsMissing(profile.value, resource.value, headers.value);
         const shouldCreatePendingCredential =
           !!profile.value &&
@@ -1186,16 +1208,6 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
 
       if (existing.value.auth.kind === "oauth") {
-        const profile = existing.value.auth.profilePath
-          ? await profiles.get(existing.value.auth.profilePath, opts)
-          : ok(null);
-        if (!profile.ok) {
-          return profile;
-        }
-        const headerValidation = validateProfileHeaders(headers.value, profile.value);
-        if (!headerValidation.ok) {
-          return headerValidation;
-        }
         const secret = requireOAuthSecret(existing.value.secret, existing.value.path);
         if (!secret.ok) {
           return secret;

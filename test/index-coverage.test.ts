@@ -127,6 +127,23 @@ describe("index coverage helpers", () => {
         }),
       }),
     );
+    await agentPw.profiles.put("oauth-array-scopes", {
+      resourcePatterns: ["https://oauth-array.example.com/*"],
+      auth: {
+        kind: "oauth",
+        authorizationUrl: "https://oauth-array.example.com/authorize",
+        tokenUrl: "https://oauth-array.example.com/token",
+        clientId: "oauth-array-client",
+        scopes: ["read", "write"],
+      },
+    });
+    expect(await agentPw.profiles.get("oauth-array-scopes")).toEqual(
+      expect.objectContaining({
+        auth: expect.objectContaining({
+          scopes: ["read", "write"],
+        }),
+      }),
+    );
     expect(await agentPw.profiles.delete("valid")).toBe(true);
 
     await expect(
@@ -138,6 +155,35 @@ describe("index coverage helpers", () => {
         },
       ]),
     ).rejects.toThrow("Expected JSON object");
+    await expect(
+      Reflect.apply(agentPw.profiles.put, agentPw.profiles, [
+        "invalid-config-json",
+        {
+          resourcePatterns: ["https://invalid-config.example.com/*"],
+          config: "bad",
+        },
+      ]),
+    ).rejects.toThrow("Expected JSON object");
+    await expect(
+      agentPw.profiles.put("invalid-config-fields", {
+        resourcePatterns: ["https://invalid-config-fields.example.com/*"],
+        config: { fields: [] },
+      }),
+    ).rejects.toThrow("Profile config fields cannot be empty");
+    await expect(
+      Reflect.apply(agentPw.profiles.put, agentPw.profiles, [
+        "invalid-config-fields-shape",
+        {
+          resourcePatterns: ["https://invalid-config-fields-shape.example.com/*"],
+          config: { fields: "bad" },
+        },
+      ]),
+    ).rejects.toThrow("Profile config fields cannot be empty");
+    await expect(
+      agentPw.profiles.put("missing-profile-sections", {
+        resourcePatterns: ["https://missing-profile-sections.example.com/*"],
+      }),
+    ).rejects.toThrow("Credential Profile must define auth or config");
 
     await expect(
       Reflect.apply(agentPw.credentials.put, agentPw.credentials, [
@@ -167,6 +213,193 @@ describe("index coverage helpers", () => {
     );
     await expect(agentPw.profiles.get("broken-profile")).rejects.toThrow(
       "Invalid profile auth payload",
+    );
+
+    await agentPw.profiles.put("broken-profile-auth-wrapper", {
+      resourcePatterns: ["https://broken-profile-auth-wrapper.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"auth":"broken"}'::jsonb
+      WHERE path = 'broken-profile-auth-wrapper'
+    `),
+    );
+    await expect(agentPw.profiles.get("broken-profile-auth-wrapper")).rejects.toThrow(
+      "Invalid profile auth payload",
+    );
+
+    await agentPw.profiles.put("broken-profile-sections", {
+      resourcePatterns: ["https://broken-profile-sections.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"auth":null,"config":null}'::jsonb
+      WHERE path = 'broken-profile-sections'
+    `),
+    );
+    await expect(agentPw.profiles.get("broken-profile-sections")).rejects.toThrow(
+      "Profile must define auth or config",
+    );
+
+    await agentPw.profiles.put("broken-profile-payload", {
+      resourcePatterns: ["https://broken-profile-payload.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"label":"broken"}'::jsonb
+      WHERE path = 'broken-profile-payload'
+    `),
+    );
+    await expect(agentPw.profiles.get("broken-profile-payload")).rejects.toThrow(
+      "Invalid profile payload",
+    );
+
+    await agentPw.profiles.put("broken-profile-config", {
+      resourcePatterns: ["https://broken-profile-config.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"config":{"fields":[{"transport":"cookie","key":"apiKey","name":"x-api-key","label":"API Key"}]}}'::jsonb
+      WHERE path = 'broken-profile-config'
+    `),
+    );
+    await expect(agentPw.profiles.get("broken-profile-config")).rejects.toThrow(
+      "Profile config fields cannot be empty",
+    );
+
+    await agentPw.profiles.put("broken-profile-config-payload", {
+      resourcePatterns: ["https://broken-profile-config-payload.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"config":"bad"}'::jsonb
+      WHERE path = 'broken-profile-config-payload'
+    `),
+    );
+    await expect(agentPw.profiles.get("broken-profile-config-payload")).rejects.toThrow(
+      "Invalid profile config payload",
+    );
+
+    await agentPw.profiles.put("config-field-fallback", {
+      resourcePatterns: ["https://config-field-fallback.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"config":{"fields":[{"transport":"header","key":"","name":"x-api-key","label":"API Key"},{"transport":"query","key":"workspaceId","name":"workspaceId","label":"Workspace ID"}]}}'::jsonb
+      WHERE path = 'config-field-fallback'
+    `),
+    );
+    expect(await agentPw.profiles.get("config-field-fallback")).toEqual(
+      expect.objectContaining({
+        auth: null,
+        config: {
+          fields: [
+            {
+              transport: "query",
+              key: "workspaceId",
+              name: "workspaceId",
+              label: "Workspace ID",
+              description: undefined,
+            },
+          ],
+        },
+      }),
+    );
+
+    await agentPw.profiles.put("config-field-mix", {
+      resourcePatterns: ["https://config-field-mix.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"config":{"fields":[{"transport":"header","key":"apiKey","name":"x-api-key","label":"API Key","prefix":"Bearer ","secret":true},{"transport":"query","key":"","name":"workspaceId","label":"Workspace ID"},{"transport":"cookie","key":"cookieKey","name":"x-cookie","label":"Cookie Key"}]}}'::jsonb
+      WHERE path = 'config-field-mix'
+    `),
+    );
+    expect(await agentPw.profiles.get("config-field-mix")).toEqual(
+      expect.objectContaining({
+        auth: null,
+        config: {
+          fields: [
+            {
+              transport: "header",
+              key: "apiKey",
+              name: "x-api-key",
+              label: "API Key",
+              description: undefined,
+              prefix: "Bearer ",
+              secret: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    await agentPw.profiles.put("config-field-shapes", {
+      resourcePatterns: ["https://config-field-shapes.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+    await db.execute(
+      sql.raw(`
+      UPDATE agentpw.cred_profiles
+      SET auth = '{"config":{"fields":[{"transport":"header","key":1,"name":"x-one","label":"One"},{"transport":"header","key":"apiKeyTwo","name":2,"label":"Two"},{"transport":"header","key":"apiKeyThree","name":"x-three","label":3},{"transport":"header","key":"apiKey","name":"x-api-key","label":"API Key"}]}}'::jsonb
+      WHERE path = 'config-field-shapes'
+    `),
+    );
+    expect(await agentPw.profiles.get("config-field-shapes")).toEqual(
+      expect.objectContaining({
+        auth: null,
+        config: {
+          fields: [
+            {
+              transport: "header",
+              key: "apiKey",
+              name: "x-api-key",
+              label: "API Key",
+              description: undefined,
+              prefix: undefined,
+              secret: undefined,
+            },
+          ],
+        },
+      }),
     );
 
     await agentPw.profiles.put("broken-kind", {

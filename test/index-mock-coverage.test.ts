@@ -209,18 +209,50 @@ describe("index mock coverage", () => {
 
   it("covers wrapper propagation, unconfigured resolution, and scoped denials", async () => {
     vi.doMock("../packages/server/src/db/queries.js", () => ({
-      createQueryHelpers: () =>
-        ok({
+      createQueryHelpers: () => {
+        const profileGetCalls = new Map<string, number>();
+
+        return ok({
           async getMatchingCredProfiles(_db: unknown, path: string) {
             if (path === "profile.err" || path === "setheaders.profile.err") {
               return err(inputError("mock match failure"));
             }
+            if (path === "setheaders.profile.invalid" || path === "headers.resolve.invalid") {
+              return ok([
+                profileRow("profile.headers.literal", {
+                  kind: "headers",
+                  fields: [{ name: "Authorization", label: "Token" }],
+                }),
+              ]);
+            }
             return ok([]);
           },
           async getCredProfile(_db: unknown, path: string) {
-            return path === "profile.get.err"
-              ? err(inputError("mock profile get failure"))
-              : ok(null);
+            profileGetCalls.set(path, (profileGetCalls.get(path) ?? 0) + 1);
+            if (path === "profile.get.err") {
+              return err(inputError("mock profile get failure"));
+            }
+            if (path === "profile.oauth.second.err") {
+              return profileGetCalls.get(path) === 1
+                ? ok(
+                    profileRow("profile.oauth.second.err", {
+                      kind: "oauth",
+                      authorizationUrl: "https://accounts.example.com/authorize",
+                      tokenUrl: "https://accounts.example.com/token",
+                      clientId: "client-id",
+                    }),
+                  )
+                : err(inputError("mock profile get second failure"));
+            }
+            if (path === "profile.headers.literal") {
+              return ok(
+                profileRow("profile.headers.literal", {
+                  kind: "headers",
+                  fields: [{ name: "Authorization", label: "Token" }],
+                }),
+              );
+            }
+            return ok(null);
           },
           async listCredProfiles(_db: unknown, options?: { path?: string }) {
             if (options?.path === "profile.list.err") {
@@ -303,6 +335,19 @@ describe("index mock coverage", () => {
                 ),
               );
             }
+            if (path === "oauth.stepup.second.err") {
+              return ok(
+                credentialRow(
+                  "oauth.stepup.second.err",
+                  {
+                    kind: "oauth",
+                    profilePath: "profile.oauth.second.err",
+                    resource: "https://resource.example.com",
+                  },
+                  "oauth-secret",
+                ),
+              );
+            }
             if (path === "oauth.stepup.classify.err") {
               return ok(
                 credentialRow(
@@ -344,6 +389,40 @@ describe("index mock coverage", () => {
                   kind: "headers",
                   profilePath: "profiles.headers",
                   resource: "https://resource.example.com",
+                }),
+              );
+            }
+            if (path === "headers.profile.err") {
+              return ok(
+                credentialRow("headers.profile.err", {
+                  kind: "headers",
+                  profilePath: "profile.get.err",
+                  resource: "https://resource.example.com",
+                }),
+              );
+            }
+            if (path === "headers.profile.invalid") {
+              return ok(
+                credentialRow("headers.profile.invalid", {
+                  kind: "headers",
+                  profilePath: "profile.headers.literal",
+                  resource: "https://resource.example.com",
+                }),
+              );
+            }
+            if (path === "headers.resolve.invalid") {
+              return ok(
+                credentialRow("headers.resolve.invalid", {
+                  kind: "headers",
+                  resource: "https://resource.example.com",
+                }),
+              );
+            }
+            if (path === "pending.headers.ready") {
+              return ok(
+                credentialRow("pending.headers.ready", {
+                  kind: "headers",
+                  pending: true,
                 }),
               );
             }
@@ -396,7 +475,8 @@ describe("index mock coverage", () => {
               ? err(inputError("mock credential delete failure"))
               : ok(true);
           },
-        }),
+        });
+      },
     }));
     vi.doMock("../packages/server/src/lib/credentials-crypto.js", async () => {
       const actual = await vi.importActual<
@@ -730,6 +810,23 @@ describe("index mock coverage", () => {
     ).toBe("mock classify failure");
     expect(
       errorOf(
+        await agentPw.connect.prepare({
+          path: "oauth.stepup.second.err",
+          resource: "https://resource.example.com",
+          response: new Response(null, { status: 403 }),
+        }),
+      ).message,
+    ).toBe("mock profile get second failure");
+    expect(
+      (
+        await agentPw.connect.prepare({
+          path: "pending.headers.ready",
+          resource: "https://resource.example.com",
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      errorOf(
         await agentPw.connect.startOAuth({
           path: "good.path",
           option: oauthOption,
@@ -764,6 +861,15 @@ describe("index mock coverage", () => {
         }),
       ).message,
     ).toBe("mock match failure");
+    expect(
+      errorOf(
+        await agentPw.connect.setHeaders({
+          path: "setheaders.profile.invalid",
+          resource: "https://resource.example.com",
+          headers: { "X-Test": "1" },
+        }),
+      ).message,
+    ).toBe("Profile 'profile.headers.literal' does not accept header(s): X-Test");
     expect(
       errorOf(
         await agentPw.connect.setHeaders({
@@ -804,6 +910,31 @@ describe("index mock coverage", () => {
         })
       ).ok,
     ).toBe(true);
+    expect(
+      errorOf(
+        await agentPw.connect.setHeaders({
+          path: "headers.profile.err",
+          headers: { "X-Test": "1" },
+        }),
+      ).message,
+    ).toBe("mock profile get failure");
+    expect(
+      errorOf(
+        await agentPw.connect.setHeaders({
+          path: "headers.profile.invalid",
+          headers: { "X-Test": "1" },
+        }),
+      ).message,
+    ).toBe("Profile 'profile.headers.literal' does not accept header(s): X-Test");
+    expect(
+      errorOf(
+        await agentPw.connect.setHeaders({
+          path: "headers.resolve.invalid",
+          resource: "https://resource.example.com",
+          headers: { "X-Test": "1" },
+        }),
+      ).message,
+    ).toBe("Profile 'profile.headers.literal' does not accept header(s): X-Test");
     expect(
       (
         await agentPw.connect.setHeaders({

@@ -415,6 +415,53 @@ describe("createAgentPw", () => {
         label: "Docs",
       },
     ]);
+
+    const updated = await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      headers: {
+        "x-api-key": "secret-2",
+      },
+    });
+
+    expect(updated.auth).toEqual({
+      kind: "headers",
+      profilePath: "docs",
+      pending: true,
+    });
+  });
+
+  it("rejects manual headers when a profile only accepts query config", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("query-only", {
+      resourcePatterns: ["https://query-only.example.com/*"],
+      config: {
+        fields: [
+          {
+            transport: "query",
+            key: "workspaceId",
+            name: "workspaceId",
+            label: "Workspace ID",
+          },
+        ],
+      },
+    });
+
+    await expect(
+      agentPw.connect.setHeaders({
+        path: "acme.connections.query-only",
+        resource: "https://query-only.example.com/mcp",
+        headers: { Authorization: "Bearer token" },
+      }),
+    ).rejects.toThrow("Profile 'query-only' does not accept manual headers for this resource");
+
+    await expect(
+      agentPw.connect.setHeaders({
+        path: "acme.connections.query-only-empty",
+        resource: "https://query-only.example.com/mcp",
+        headers: {},
+      }),
+    ).rejects.toThrow("Credential 'acme.connections.query-only-empty' does not have header-based auth");
   });
 
   it("prefers matching profiles over discovery and exposes the default option first", async () => {
@@ -488,6 +535,72 @@ describe("createAgentPw", () => {
       }),
     ]);
     expect(discoveryCalls).toBe(1);
+  });
+
+  it("preserves an orphaned pending profile path when discovery offers oauth", async () => {
+    const agentPw = await createTestAgent(createDiscoveryFetch());
+
+    await agentPw.credentials.put({
+      path: "acme.connections.orphaned",
+      auth: {
+        kind: "headers",
+        profilePath: "missing.profile",
+        pending: true,
+      },
+      secret: {
+        headers: {
+          Authorization: "Bearer token",
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.orphaned",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected discovery options");
+    }
+    expect(prepared.resolution.profilePath).toBe("missing.profile");
+  });
+
+  it("prefers the matched pending profile path when discovery offers oauth", async () => {
+    const agentPw = await createTestAgent(createDiscoveryFetch());
+
+    await agentPw.profiles.put("docs-headers", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      auth: {
+        kind: "headers",
+        fields: [{ name: "Authorization", label: "Token" }],
+      },
+    });
+
+    await agentPw.credentials.put({
+      path: "acme.connections.docs-pending",
+      auth: {
+        kind: "headers",
+        profilePath: "docs-headers",
+        pending: true,
+      },
+      secret: {
+        headers: {
+          Authorization: "Bearer token",
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs-pending",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected discovery options");
+    }
+    expect(prepared.resolution.profilePath).toBe("docs-headers");
   });
 
   it("creates and overwrites app headers for managed connections", async () => {
