@@ -1,6 +1,11 @@
 import { err, ok } from "okay-error";
 import { createQueryHelpers } from "./db/queries.js";
-import { authorizationError, conflictError, inputError, notFoundError } from "./errors.js";
+import {
+  authorizationError,
+  conflictError,
+  inputError,
+  notFoundError,
+} from "./errors.js";
 import {
   decryptCredentials,
   encryptCredentials,
@@ -10,7 +15,12 @@ import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
 import { createOAuthService } from "./oauth.js";
-import { assertOptionalPath, assertPath, credentialName, pathDepth } from "./paths.js";
+import {
+  assertOptionalPath,
+  assertPath,
+  credentialName,
+  pathDepth,
+} from "./paths.js";
 import { normalizeResource } from "./resource-patterns.js";
 import { authorizeRules, can as canRule } from "./rules.js";
 import type {
@@ -37,7 +47,10 @@ import type {
   ScopedAgentPw,
 } from "./types.js";
 
-function resolveSingleMatch<T extends { path: string }>(matches: T[], description: string) {
+function resolveSingleMatch<T extends { path: string }>(
+  matches: T[],
+  description: string,
+) {
   if (matches.length === 0) {
     return ok(undefined);
   }
@@ -45,7 +58,9 @@ function resolveSingleMatch<T extends { path: string }>(matches: T[], descriptio
   const topDepth = matches
     .map((match) => pathDepth(match.path))
     .reduce((max, depth) => Math.max(max, depth), 0);
-  const conflicts = matches.filter((match) => pathDepth(match.path) === topDepth);
+  const conflicts = matches.filter(
+    (match) => pathDepth(match.path) === topDepth,
+  );
   if (conflicts.length > 1) {
     return err(
       conflictError(
@@ -67,11 +82,17 @@ function parseProfileAuth(value: unknown) {
       label: typeof value.label === "string" ? value.label : undefined,
       issuer: typeof value.issuer === "string" ? value.issuer : undefined,
       authorizationUrl:
-        typeof value.authorizationUrl === "string" ? value.authorizationUrl : undefined,
+        typeof value.authorizationUrl === "string"
+          ? value.authorizationUrl
+          : undefined,
       tokenUrl: typeof value.tokenUrl === "string" ? value.tokenUrl : undefined,
-      revocationUrl: typeof value.revocationUrl === "string" ? value.revocationUrl : undefined,
+      revocationUrl:
+        typeof value.revocationUrl === "string"
+          ? value.revocationUrl
+          : undefined,
       clientId: typeof value.clientId === "string" ? value.clientId : undefined,
-      clientSecret: typeof value.clientSecret === "string" ? value.clientSecret : undefined,
+      clientSecret:
+        typeof value.clientSecret === "string" ? value.clientSecret : undefined,
       clientAuthentication:
         value.clientAuthentication === "client_secret_basic" ||
         value.clientAuthentication === "client_secret_post" ||
@@ -79,7 +100,9 @@ function parseProfileAuth(value: unknown) {
           ? value.clientAuthentication
           : undefined,
       scopes: Array.isArray(value.scopes)
-        ? value.scopes.filter((entry): entry is string => typeof entry === "string")
+        ? value.scopes.filter(
+            (entry): entry is string => typeof entry === "string",
+          )
         : typeof value.scopes === "string"
           ? value.scopes
           : undefined,
@@ -92,9 +115,13 @@ function parseProfileAuth(value: unknown) {
           .map((field) => ({
             name: typeof field.name === "string" ? field.name : "",
             label: typeof field.label === "string" ? field.label : "",
-            description: typeof field.description === "string" ? field.description : undefined,
+            description:
+              typeof field.description === "string"
+                ? field.description
+                : undefined,
             prefix: typeof field.prefix === "string" ? field.prefix : undefined,
-            secret: typeof field.secret === "boolean" ? field.secret : undefined,
+            secret:
+              typeof field.secret === "boolean" ? field.secret : undefined,
           }))
           .filter((field) => field.name.length > 0 && field.label.length > 0)
       : [];
@@ -121,7 +148,9 @@ function parseProfileConfig(value: unknown) {
           const name = typeof field.name === "string" ? field.name : "";
           const label = typeof field.label === "string" ? field.label : "";
           const description =
-            typeof field.description === "string" ? field.description : undefined;
+            typeof field.description === "string"
+              ? field.description
+              : undefined;
           if (field.transport === "header") {
             return key.length > 0 && name.length > 0 && label.length > 0
               ? {
@@ -130,8 +159,12 @@ function parseProfileConfig(value: unknown) {
                   name,
                   label,
                   description,
-                  prefix: typeof field.prefix === "string" ? field.prefix : undefined,
-                  secret: typeof field.secret === "boolean" ? field.secret : undefined,
+                  prefix:
+                    typeof field.prefix === "string" ? field.prefix : undefined,
+                  secret:
+                    typeof field.secret === "boolean"
+                      ? field.secret
+                      : undefined,
                 }
               : null;
           }
@@ -200,7 +233,10 @@ function parseProfilePayload(value: unknown) {
 }
 
 function parseCredentialAuth(value: unknown) {
-  if (!isRecord(value) || (value.kind !== "oauth" && value.kind !== "headers")) {
+  if (
+    !isRecord(value) ||
+    (value.kind !== "oauth" && value.kind !== "headers")
+  ) {
     return err(inputError("Invalid credential auth payload"));
   }
 
@@ -213,7 +249,8 @@ function parseCredentialAuth(value: unknown) {
   }
 
   const authBase = {
-    profilePath: typeof value.profilePath === "string" ? value.profilePath : null,
+    profilePath:
+      typeof value.profilePath === "string" ? value.profilePath : null,
     ...(resource.value ? { resource: resource.value } : {}),
   };
   if (value.kind === "oauth") {
@@ -233,7 +270,10 @@ function credentialResource(auth: CredentialAuth) {
   return typeof auth.resource === "string" ? auth.resource : null;
 }
 
-function normalizeCredentialAuth(auth: CredentialAuth, fallbackResource?: string) {
+function normalizeCredentialAuth(
+  auth: CredentialAuth,
+  fallbackResource?: string,
+) {
   const resource =
     typeof auth.resource === "string"
       ? auth.resource
@@ -251,25 +291,41 @@ function serializeCredentialAuth(auth: CredentialAuth) {
     kind: auth.kind,
     ...(auth.profilePath ? { profilePath: auth.profilePath } : {}),
     ...(auth.resource ? { resource: auth.resource } : {}),
-    ...(auth.kind === "headers" && auth.pending === true ? { pending: true } : {}),
+    ...(auth.kind === "headers" && auth.pending === true
+      ? { pending: true }
+      : {}),
   };
 }
 
 function requireHeadersSecret(secret: StoredCredentials, path: string) {
   if (!secret.headers || Object.keys(secret.headers).length === 0) {
-    return err(inputError(`Credential '${path}' does not have header-based auth`, { path }));
+    return err(
+      inputError(`Credential '${path}' does not have header-based auth`, {
+        path,
+      }),
+    );
   }
   return ok(secret.headers);
 }
 
 function requireOAuthSecret(secret: StoredCredentials, path: string) {
-  if (!secret.headers || Object.keys(secret.headers).length === 0 || !secret.oauth) {
-    return err(inputError(`Credential '${path}' does not have oauth auth`, { path }));
+  if (
+    !secret.headers ||
+    Object.keys(secret.headers).length === 0 ||
+    !secret.oauth
+  ) {
+    return err(
+      inputError(`Credential '${path}' does not have oauth auth`, { path }),
+    );
   }
   return ok(secret);
 }
 
-function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, path: string) {
+function validateSecretForAuth(
+  auth: CredentialAuth,
+  secret: StoredCredentials,
+  path: string,
+) {
   if (auth.kind === "oauth") {
     const oauth = requireOAuthSecret(secret, path);
     return oauth.ok ? ok() : oauth;
@@ -316,7 +372,9 @@ function toProfileRecord(row: {
   });
 }
 
-function isPendingHeadersCredential(auth: CredentialAuth): auth is HeadersCredentialAuth {
+function isPendingHeadersCredential(
+  auth: CredentialAuth,
+): auth is HeadersCredentialAuth {
   return auth.kind === "headers" && auth.pending === true;
 }
 
@@ -355,7 +413,9 @@ function validateProfileHeaders(
     return ok(undefined);
   }
 
-  const invalid = Object.keys(headers).filter((name) => !allowed.has(name.toLowerCase()));
+  const invalid = Object.keys(headers).filter(
+    (name) => !allowed.has(name.toLowerCase()),
+  );
   if (invalid.length > 0) {
     return err(
       inputError(
@@ -437,7 +497,9 @@ function parseHeaders(value: unknown) {
   const headers: Record<string, string> = {};
   for (const [name, entry] of Object.entries(value)) {
     if (typeof entry !== "string") {
-      return err(inputError(`Invalid header value for '${name}'`, { field: name }));
+      return err(
+        inputError(`Invalid header value for '${name}'`, { field: name }),
+      );
     }
     headers[name] = entry;
   }
@@ -552,7 +614,9 @@ export async function createAgentPw(options: AgentPwOptions) {
         return err(profilePath.error);
       }
       if (data.resourcePatterns.length === 0) {
-        return err(inputError("Credential Profile resourcePatterns cannot be empty"));
+        return err(
+          inputError("Credential Profile resourcePatterns cannot be empty"),
+        );
       }
 
       if (!(data.auth || data.config)) {
@@ -586,15 +650,19 @@ export async function createAgentPw(options: AgentPwOptions) {
         return parsedConfig;
       }
 
-      const persisted = await queryHelpers.upsertCredProfile(db, profilePath.value, {
-        resourcePatterns: data.resourcePatterns,
-        auth: {
-          ...(parsedAuth.value ? { auth: parsedAuth.value } : {}),
-          ...(parsedConfig.value ? { config: parsedConfig.value } : {}),
+      const persisted = await queryHelpers.upsertCredProfile(
+        db,
+        profilePath.value,
+        {
+          resourcePatterns: data.resourcePatterns,
+          auth: {
+            ...(parsedAuth.value ? { auth: parsedAuth.value } : {}),
+            ...(parsedConfig.value ? { config: parsedConfig.value } : {}),
+          },
+          displayName: data.displayName,
+          description: data.description,
         },
-        displayName: data.displayName,
-        description: data.description,
-      });
+      );
       if (!persisted.ok) {
         return persisted;
       }
@@ -606,9 +674,13 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!normalizedPath.ok) {
         return Promise.resolve(err(normalizedPath.error));
       }
-      return queryHelpers.deleteCredProfile(opts?.db ?? options.db, normalizedPath.value, {
-        recursive: opts?.recursive,
-      });
+      return queryHelpers.deleteCredProfile(
+        opts?.db ?? options.db,
+        normalizedPath.value,
+        {
+          recursive: opts?.recursive,
+        },
+      );
     },
   };
 
@@ -618,7 +690,10 @@ export async function createAgentPw(options: AgentPwOptions) {
       return err(normalizedPath.error);
     }
 
-    const selected = await queryHelpers.getCredential(opts?.db ?? options.db, normalizedPath.value);
+    const selected = await queryHelpers.getCredential(
+      opts?.db ?? options.db,
+      normalizedPath.value,
+    );
     if (!selected.ok) {
       return selected;
     }
@@ -656,11 +731,19 @@ export async function createAgentPw(options: AgentPwOptions) {
     const existingResource = credentialResource(parsedAuth.value);
     const auth = normalizeCredentialAuth(
       parsedAuth.value,
-      parsedResource.value && !existingResource ? parsedResource.value : undefined,
+      parsedResource.value && !existingResource
+        ? parsedResource.value
+        : undefined,
     );
-    const plaintextSecret = Buffer.isBuffer(input.secret) ? undefined : input.secret;
+    const plaintextSecret = Buffer.isBuffer(input.secret)
+      ? undefined
+      : input.secret;
     if (plaintextSecret) {
-      const validSecret = validateSecretForAuth(auth, plaintextSecret, path.value);
+      const validSecret = validateSecretForAuth(
+        auth,
+        plaintextSecret,
+        path.value,
+      );
       if (!validSecret.ok) {
         return validSecret;
       }
@@ -694,7 +777,8 @@ export async function createAgentPw(options: AgentPwOptions) {
       source: "profile",
       resource,
       profilePath: profile.path,
-      label: profile.displayName ?? oauthAuth.label ?? credentialName(profile.path),
+      label:
+        profile.displayName ?? oauthAuth.label ?? credentialName(profile.path),
       scopes: Array.isArray(oauthAuth.scopes)
         ? oauthAuth.scopes
         : typeof oauthAuth.scopes === "string"
@@ -719,7 +803,10 @@ export async function createAgentPw(options: AgentPwOptions) {
       source: "profile",
       resource,
       profilePath: profile.path,
-      label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
+      label:
+        profile.displayName ??
+        profile.auth.label ??
+        credentialName(profile.path),
       fields: profile.auth.fields,
     };
   }
@@ -729,7 +816,9 @@ export async function createAgentPw(options: AgentPwOptions) {
       flowId: flow.id,
       path: flow.path,
       resource: flow.oauthConfig.resource,
-      ...(flow.credential.profilePath ? { profilePath: flow.credential.profilePath } : {}),
+      ...(flow.credential.profilePath
+        ? { profilePath: flow.credential.profilePath }
+        : {}),
       expiresAt: flow.expiresAt,
     };
   }
@@ -758,7 +847,6 @@ export async function createAgentPw(options: AgentPwOptions) {
           ),
         );
       }
-
     }
 
     const profile = existing.value?.auth.profilePath
@@ -768,7 +856,9 @@ export async function createAgentPw(options: AgentPwOptions) {
       return profile;
     }
 
-    const option = profile.value ? optionFromProfile(profile.value, resource.value) : null;
+    const option = profile.value
+      ? optionFromProfile(profile.value, resource.value)
+      : null;
     const missingKeys = configFieldsMissing(
       profile.value,
       resource.value,
@@ -872,7 +962,8 @@ export async function createAgentPw(options: AgentPwOptions) {
             canonicalResource: resource.value,
             source: "discovery",
             reason: "discovered-oauth",
-            profilePath: profile.value?.path ?? existing.value?.auth.profilePath ?? null,
+            profilePath:
+              profile.value?.path ?? existing.value?.auth.profilePath ?? null,
             option: options[0],
           } satisfies ConnectResolutionResult,
           options,
@@ -975,9 +1066,13 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!normalizedPath.ok) {
         return Promise.resolve(err(normalizedPath.error));
       }
-      return queryHelpers.deleteCredential(opts?.db ?? options.db, normalizedPath.value, {
-        recursive: opts?.recursive,
-      });
+      return queryHelpers.deleteCredential(
+        opts?.db ?? options.db,
+        normalizedPath.value,
+        {
+          recursive: opts?.recursive,
+        },
+      );
     },
   };
 
@@ -1006,7 +1101,10 @@ export async function createAgentPw(options: AgentPwOptions) {
         });
       }
       if (resolved.value.existing) {
-        if (resolved.value.existing.auth.kind === "oauth" && input.response?.status === 403) {
+        if (
+          resolved.value.existing.auth.kind === "oauth" &&
+          input.response?.status === 403
+        ) {
           const classified = await oauth.classifyResponse({
             response: input.response,
             resource: resolved.value.resource,
@@ -1015,9 +1113,13 @@ export async function createAgentPw(options: AgentPwOptions) {
             return classified;
           }
           if (classified.value.kind === "step-up") {
-            const existingScopes = scopeList(resolved.value.existing.secret.oauth?.scopes);
+            const existingScopes = scopeList(
+              resolved.value.existing.secret.oauth?.scopes,
+            );
             const challengedScopes = classified.value.scopes;
-            const merged = [...new Set([...existingScopes, ...challengedScopes])];
+            const merged = [
+              ...new Set([...existingScopes, ...challengedScopes]),
+            ];
             // Per spec: omit scope entirely when neither the challenge nor metadata provide scopes
             const mergedScopes = merged.length > 0 ? merged : undefined;
 
@@ -1044,7 +1146,8 @@ export async function createAgentPw(options: AgentPwOptions) {
                     resource: resolved.value.resource,
                     label: credentialName(resolved.value.path),
                     scopes: mergedScopes,
-                    authorizationServer: resolved.value.existing.secret.oauth?.issuer,
+                    authorizationServer:
+                      resolved.value.existing.secret.oauth?.issuer,
                   };
 
             return ok({
@@ -1063,7 +1166,11 @@ export async function createAgentPw(options: AgentPwOptions) {
 
         const credential =
           resolved.value.existing.auth.kind === "oauth"
-            ? await oauth.refreshCredential(resolved.value.path, false, resolved.value.existing)
+            ? await oauth.refreshCredential(
+                resolved.value.path,
+                false,
+                resolved.value.existing,
+              )
             : ok(resolved.value.existing);
         if (!credential.ok) {
           return credential;
@@ -1104,7 +1211,9 @@ export async function createAgentPw(options: AgentPwOptions) {
 
     startOAuth(input) {
       if (input.option.kind !== "oauth") {
-        return Promise.resolve(err(inputError("connect.startOAuth requires an oauth option")));
+        return Promise.resolve(
+          err(inputError("connect.startOAuth requires an oauth option")),
+        );
       }
       const path = assertPath(input.path, "path");
       if (!path.ok) {
@@ -1146,7 +1255,11 @@ export async function createAgentPw(options: AgentPwOptions) {
 
       if (!existing.value) {
         if (typeof input.resource !== "string") {
-          return err(inputError("connect.setHeaders requires resource when creating a credential"));
+          return err(
+            inputError(
+              "connect.setHeaders requires resource when creating a credential",
+            ),
+          );
         }
 
         const resource = normalizeResource(input.resource);
@@ -1165,7 +1278,9 @@ export async function createAgentPw(options: AgentPwOptions) {
           return profile;
         }
 
-        const selectedOption = profile.value ? optionFromProfile(profile.value, resource.value) : null;
+        const selectedOption = profile.value
+          ? optionFromProfile(profile.value, resource.value)
+          : null;
         if (
           selectedOption?.kind === "oauth" &&
           profile.value?.config == null &&
@@ -1178,12 +1293,19 @@ export async function createAgentPw(options: AgentPwOptions) {
           );
         }
 
-        const headerValidation = validateProfileHeaders(headers.value, profile.value);
+        const headerValidation = validateProfileHeaders(
+          headers.value,
+          profile.value,
+        );
         if (!headerValidation.ok) {
           return headerValidation;
         }
 
-        const missingKeys = configFieldsMissing(profile.value, resource.value, headers.value);
+        const missingKeys = configFieldsMissing(
+          profile.value,
+          resource.value,
+          headers.value,
+        );
         const shouldCreatePendingCredential =
           !!profile.value &&
           (profile.value.config !== null ||
@@ -1195,9 +1317,13 @@ export async function createAgentPw(options: AgentPwOptions) {
             path: path.value,
             auth: {
               kind: "headers",
-              ...(profile.value?.path ? { profilePath: profile.value.path } : {}),
+              ...(profile.value?.path
+                ? { profilePath: profile.value.path }
+                : {}),
               ...(shouldCreatePendingCredential ? { pending: true } : {}),
-              ...(shouldCreatePendingCredential ? {} : { resource: resource.value }),
+              ...(shouldCreatePendingCredential
+                ? {}
+                : { resource: resource.value }),
             },
             secret: {
               headers: headers.value,
@@ -1208,7 +1334,10 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
 
       if (existing.value.auth.kind === "oauth") {
-        const secret = requireOAuthSecret(existing.value.secret, existing.value.path);
+        const secret = requireOAuthSecret(
+          existing.value.secret,
+          existing.value.path,
+        );
         if (!secret.ok) {
           return secret;
         }
@@ -1233,7 +1362,10 @@ export async function createAgentPw(options: AgentPwOptions) {
         );
       }
 
-      const secret = requireHeadersSecret(existing.value.secret, existing.value.path);
+      const secret = requireHeadersSecret(
+        existing.value.secret,
+        existing.value.path,
+      );
       if (!secret.ok) {
         return secret;
       }
@@ -1241,12 +1373,18 @@ export async function createAgentPw(options: AgentPwOptions) {
       const profile = existing.value.auth.profilePath
         ? await profiles.get(existing.value.auth.profilePath, opts)
         : typeof input.resource === "string"
-          ? await profiles.resolve({ path: path.value, resource: input.resource }, opts)
+          ? await profiles.resolve(
+              { path: path.value, resource: input.resource },
+              opts,
+            )
           : ok(null);
       if (!profile.ok) {
         return profile;
       }
-      const headerValidation = validateProfileHeaders(headers.value, profile.value);
+      const headerValidation = validateProfileHeaders(
+        headers.value,
+        profile.value,
+      );
       if (!headerValidation.ok) {
         return headerValidation;
       }
@@ -1276,20 +1414,30 @@ export async function createAgentPw(options: AgentPwOptions) {
       const credential =
         input.refresh === false
           ? await getCredential(path.value)
-          : await oauth.refreshCredential(path.value, input.refresh === "force");
+          : await oauth.refreshCredential(
+              path.value,
+              input.refresh === "force",
+            );
 
       if (!credential.ok) {
         return credential;
       }
       if (!credential.value) {
         return err(
-          notFoundError("credential", `No credential exists at '${path.value}'`, {
-            path: path.value,
-          }),
+          notFoundError(
+            "credential",
+            `No credential exists at '${path.value}'`,
+            {
+              path: path.value,
+            },
+          ),
         );
       }
 
-      return requireHeadersSecret(credential.value.secret, credential.value.path);
+      return requireHeadersSecret(
+        credential.value.secret,
+        credential.value.path,
+      );
     },
 
     disconnect(input) {
@@ -1350,7 +1498,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!flow.ok) {
             return flow;
           }
-          const allowed = requireRule(scope, "credential.connect", flow.value.path);
+          const allowed = requireRule(
+            scope,
+            "credential.connect",
+            flow.value.path,
+          );
           if (!allowed.ok) {
             return allowed;
           }
@@ -1378,7 +1530,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!flow.ok) {
             return flow;
           }
-          const allowed = requireRule(scope, "credential.connect", flow.value.path);
+          const allowed = requireRule(
+            scope,
+            "credential.connect",
+            flow.value.path,
+          );
           if (!allowed.ok) {
             return allowed;
           }
@@ -1428,7 +1584,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
           }
-          const allowed = requireRule(scope, "credential.read", normalizedPath.value);
+          const allowed = requireRule(
+            scope,
+            "credential.read",
+            normalizedPath.value,
+          );
           if (!allowed.ok) {
             return allowed;
           }
@@ -1480,15 +1640,27 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!normalizedTo.ok) {
             return err(normalizedTo.error);
           }
-          const fromAllowed = requireRule(scope, "credential.manage", normalizedFrom.value);
+          const fromAllowed = requireRule(
+            scope,
+            "credential.manage",
+            normalizedFrom.value,
+          );
           if (!fromAllowed.ok) {
             return fromAllowed;
           }
-          const toAllowed = requireRule(scope, "credential.manage", normalizedTo.value);
+          const toAllowed = requireRule(
+            scope,
+            "credential.manage",
+            normalizedTo.value,
+          );
           if (!toAllowed.ok) {
             return toAllowed;
           }
-          return credentials.move(normalizedFrom.value, normalizedTo.value, opts);
+          return credentials.move(
+            normalizedFrom.value,
+            normalizedTo.value,
+            opts,
+          );
         },
 
         async delete(path, opts) {
@@ -1496,7 +1668,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
           }
-          const allowed = requireRule(scope, "credential.manage", normalizedPath.value);
+          const allowed = requireRule(
+            scope,
+            "credential.manage",
+            normalizedPath.value,
+          );
           if (!allowed.ok) {
             return allowed;
           }
@@ -1510,7 +1686,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
           }
-          const allowed = requireRule(scope, "profile.read", normalizedPath.value);
+          const allowed = requireRule(
+            scope,
+            "profile.read",
+            normalizedPath.value,
+          );
           if (!allowed.ok) {
             return allowed;
           }
@@ -1546,7 +1726,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
           }
-          const allowed = requireRule(scope, "profile.manage", normalizedPath.value);
+          const allowed = requireRule(
+            scope,
+            "profile.manage",
+            normalizedPath.value,
+          );
           if (!allowed.ok) {
             return allowed;
           }
@@ -1558,7 +1742,11 @@ export async function createAgentPw(options: AgentPwOptions) {
           if (!normalizedPath.ok) {
             return err(normalizedPath.error);
           }
-          const allowed = requireRule(scope, "profile.manage", normalizedPath.value);
+          const allowed = requireRule(
+            scope,
+            "profile.manage",
+            normalizedPath.value,
+          );
           if (!allowed.ok) {
             return allowed;
           }

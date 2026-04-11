@@ -26,7 +26,14 @@ import type {
 import type { Logger } from "./lib/logger.js";
 import { LTREE_LABEL_PATTERN } from "./paths.js";
 
-export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
+export type HttpMethod =
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "DELETE"
+  | "PATCH"
+  | "HEAD"
+  | "OPTIONS";
 
 export interface RuleGrant {
   action: string;
@@ -63,7 +70,10 @@ export interface SqlNamespaceOptions {
   tablePrefix?: string;
 }
 
-export type OAuthClientAuthenticationMethod = "none" | "client_secret_basic" | "client_secret_post";
+export type OAuthClientAuthenticationMethod =
+  | "none"
+  | "client_secret_basic"
+  | "client_secret_post";
 
 export interface HeaderFieldDefinition {
   name: string;
@@ -117,7 +127,9 @@ export interface CredentialProfileHeadersAuth {
   fields: HeaderFieldDefinition[];
 }
 
-export type CredentialProfileAuth = CredentialProfileOAuthAuth | CredentialProfileHeadersAuth;
+export type CredentialProfileAuth =
+  | CredentialProfileOAuthAuth
+  | CredentialProfileHeadersAuth;
 
 export interface CredentialProfileRecord {
   path: string;
@@ -169,7 +181,9 @@ export interface OAuthCredentialAuthInput extends CredentialAuthInputBase {
   kind: "oauth";
 }
 
-export type CredentialAuthInput = HeadersCredentialAuthInput | OAuthCredentialAuthInput;
+export type CredentialAuthInput =
+  | HeadersCredentialAuthInput
+  | OAuthCredentialAuthInput;
 
 export interface CredentialSummary {
   path: string;
@@ -435,7 +449,9 @@ export interface CimdDocument {
   redirect_uris: string[];
   response_types: string[];
   grant_types: string[];
-  token_endpoint_auth_method: OAuthClientAuthenticationMethod | "private_key_jwt";
+  token_endpoint_auth_method:
+    | OAuthClientAuthenticationMethod
+    | "private_key_jwt";
   scope?: string;
   client_name: string;
   jwks_uri?: string;
@@ -476,7 +492,10 @@ export interface ConnectWebHandlerOptions {
   /** Relative callback path used when `start()` derives a redirect URI from the incoming request. */
   callbackPath?: string;
   /** Override the default success page returned after a callback completes. */
-  success?(result: ConnectCompleteResult, request: Request): Response | Promise<Response>;
+  success?(
+    result: ConnectCompleteResult,
+    request: Request,
+  ): Response | Promise<Response>;
   /** Override the default JSON error response returned for callback failures. */
   error?(error: AgentPwError, request: Request): Response | Promise<Response>;
 }
@@ -499,7 +518,9 @@ export interface ScopedAgentPw {
     /** Load a pending OAuth flow so a UI can resume or inspect it. */
     getFlow(flowId: string): Promise<Result<ConnectFlow>>;
     /** Begin an OAuth authorization code flow from a previously returned OAuth option. */
-    startOAuth(input: ConnectStartOAuthInput): Promise<Result<ConnectAuthorizationSession>>;
+    startOAuth(
+      input: ConnectStartOAuthInput,
+    ): Promise<Result<ConnectAuthorizationSession>>;
     /** Complete an OAuth callback and persist the resulting credential. */
     completeOAuth(
       input: ConnectCompleteOAuthInput,
@@ -511,27 +532,45 @@ export interface ScopedAgentPw {
       options?: CrudOptions,
     ): Promise<Result<CredentialRecord>>;
     /** Resolve ready-to-send headers, refreshing OAuth credentials when needed. */
-    resolveHeaders(input: ConnectResolveHeadersInput): Promise<Result<Record<string, string>>>;
+    resolveHeaders(
+      input: ConnectResolveHeadersInput,
+    ): Promise<Result<Record<string, string>>>;
     /** Delete a credential and optionally revoke its remote OAuth token(s). */
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
   credentials: {
     /** Load a stored credential by its canonical path. */
-    get(path: string, options?: CrudOptions): Promise<Result<CredentialRecord | null>>;
+    get(
+      path: string,
+      options?: CrudOptions,
+    ): Promise<Result<CredentialRecord | null>>;
     /** List credentials under an optional path prefix. */
     list(
       options?: { path?: string; recursive?: boolean } & CrudOptions,
     ): Promise<Result<CredentialSummary[]>>;
     /** Insert or update a credential record. */
-    put(input: CredentialPutInput, options?: CrudOptions): Promise<Result<CredentialRecord>>;
+    put(
+      input: CredentialPutInput,
+      options?: CrudOptions,
+    ): Promise<Result<CredentialRecord>>;
     /** Move a credential from one canonical path to another. */
-    move(fromPath: string, toPath: string, options?: CrudOptions): Promise<Result<boolean>>;
+    move(
+      fromPath: string,
+      toPath: string,
+      options?: CrudOptions,
+    ): Promise<Result<boolean>>;
     /** Delete a credential, optionally including descendants. */
-    delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
+    delete(
+      path: string,
+      options?: RecursiveCrudOptions,
+    ): Promise<Result<boolean>>;
   };
   profiles: {
     /** Load a credential profile by path. */
-    get(path: string, options?: CrudOptions): Promise<Result<CredentialProfileRecord | null>>;
+    get(
+      path: string,
+      options?: CrudOptions,
+    ): Promise<Result<CredentialProfileRecord | null>>;
     /** List credential profiles under an optional path prefix. */
     list(
       options?: { path?: string; recursive?: boolean } & CrudOptions,
@@ -543,7 +582,10 @@ export interface ScopedAgentPw {
       options?: CrudOptions,
     ): Promise<Result<CredentialProfileRecord>>;
     /** Delete a credential profile, optionally including descendants. */
-    delete(path: string, options?: RecursiveCrudOptions): Promise<Result<boolean>>;
+    delete(
+      path: string,
+      options?: RecursiveCrudOptions,
+    ): Promise<Result<boolean>>;
   };
 }
 
@@ -589,7 +631,9 @@ export interface AgentPw extends ScopedAgentPw {
     /** Create browser-style OAuth start and callback handlers for web frameworks. */
     createWebHandlers(options?: ConnectWebHandlerOptions): ConnectWebHandlers;
     /** Build an RFC 7591 client metadata document from friendly input. */
-    createClientMetadataDocument(input: CimdDocumentInput): Result<CimdDocument>;
+    createClientMetadataDocument(
+      input: CimdDocumentInput,
+    ): Result<CimdDocument>;
     /** Return the client metadata document as a JSON `Response`. */
     createClientMetadataResponse(input: CimdDocumentInput): Result<Response>;
   };

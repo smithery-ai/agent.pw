@@ -29,7 +29,11 @@ function rights(rightsList: RuleScope["rights"]): RuleScope {
 function createDiscoveryFetch() {
   const fetchImpl: typeof fetch = async (input) => {
     const url =
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
 
     if (url.includes("/.well-known/oauth-protected-resource")) {
       return Response.json({
@@ -39,7 +43,8 @@ function createDiscoveryFetch() {
     }
 
     if (
-      url === "https://accounts.example.com/.well-known/oauth-authorization-server" ||
+      url ===
+        "https://accounts.example.com/.well-known/oauth-authorization-server" ||
       url === "https://accounts.example.com/.well-known/openid-configuration"
     ) {
       return Response.json({
@@ -74,7 +79,9 @@ describe("createAgentPw", () => {
       resourcePatterns: ["https://api.github.com/*"],
       auth: {
         kind: "headers",
-        fields: [{ name: "Authorization", label: "Access token", prefix: "Bearer " }],
+        fields: [
+          { name: "Authorization", label: "Access token", prefix: "Bearer " },
+        ],
       },
       displayName: "Acme GitHub",
     });
@@ -90,9 +97,11 @@ describe("createAgentPw", () => {
         displayName: "Acme GitHub",
       }),
     );
-    expect((await agentPw.profiles.list({ path: "acme" })).map((profile) => profile.path)).toEqual([
-      "acme.github",
-    ]);
+    expect(
+      (await agentPw.profiles.list({ path: "acme" })).map(
+        (profile) => profile.path,
+      ),
+    ).toEqual(["acme.github"]);
 
     const stored = await agentPw.credentials.put({
       path: "acme.connections.github_primary",
@@ -126,7 +135,9 @@ describe("createAgentPw", () => {
       }),
     );
 
-    expect(await agentPw.credentials.get("acme.connections.github_primary")).toEqual(
+    expect(
+      await agentPw.credentials.get("acme.connections.github_primary"),
+    ).toEqual(
       expect.objectContaining({
         path: "acme.connections.github_primary",
       }),
@@ -243,7 +254,9 @@ describe("createAgentPw", () => {
     expect(saved.secret.headers).toEqual({
       Authorization: "Bearer rs_123",
     });
-    expect(await agentPw.connect.resolveHeaders({ path: "acme.connections.resend" })).toEqual({
+    expect(
+      await agentPw.connect.resolveHeaders({ path: "acme.connections.resend" }),
+    ).toEqual({
       Authorization: "Bearer rs_123",
     });
   });
@@ -453,7 +466,9 @@ describe("createAgentPw", () => {
         resource: "https://query-only.example.com/mcp",
         headers: { Authorization: "Bearer token" },
       }),
-    ).rejects.toThrow("Profile 'query-only' does not accept manual headers for this resource");
+    ).rejects.toThrow(
+      "Profile 'query-only' does not accept manual headers for this resource",
+    );
 
     await expect(
       agentPw.connect.setHeaders({
@@ -461,19 +476,28 @@ describe("createAgentPw", () => {
         resource: "https://query-only.example.com/mcp",
         headers: {},
       }),
-    ).rejects.toThrow("Credential 'acme.connections.query-only-empty' does not have header-based auth");
+    ).rejects.toThrow(
+      "Credential 'acme.connections.query-only-empty' does not have header-based auth",
+    );
   });
 
   it("prefers matching profiles over discovery and exposes the default option first", async () => {
     let discoveryCalls = 0;
     const agentPw = await createTestAgent(async (input) => {
       const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
 
       if (url.includes("/.well-known/oauth-protected-resource")) {
         discoveryCalls += 1;
         return Response.json({
-          authorization_servers: ["https://accounts.example.com", "https://backup.example.com"],
+          authorization_servers: [
+            "https://accounts.example.com",
+            "https://backup.example.com",
+          ],
           resource: "https://guides.example.com/mcp",
         });
       }
@@ -641,7 +665,9 @@ describe("createAgentPw", () => {
 
   it("uses the caller db for connect.setHeaders", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(TEST_KEY_MATERIAL),
+    );
     const agentPw = wrapAgentPw(
       must(
         await createAgentPw({
@@ -687,7 +713,9 @@ describe("createAgentPw", () => {
     ).rejects.toThrow("rollback setHeaders tx");
 
     expect(await agentPw.profiles.get("resendtx")).toBe(null);
-    expect(await agentPw.credentials.get("acme.connections.resend_tx")).toBe(null);
+    expect(await agentPw.credentials.get("acme.connections.resend_tx")).toBe(
+      null,
+    );
   });
 
   it("returns resolution metadata and ready/unconfigured prepare results", async () => {
@@ -812,7 +840,9 @@ describe("createAgentPw", () => {
 
   it("guides existing oauth connections, discovery-first oauth, and profile oauth without scopes", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(TEST_KEY_MATERIAL),
+    );
     const agentPw = wrapAgentPw(
       must(
         await createAgentPw({
@@ -931,7 +961,9 @@ describe("createAgentPw", () => {
       resourcePatterns: ["https://api.resend.com*"],
       auth: {
         kind: "headers",
-        fields: [{ name: "Authorization", label: "API key", prefix: "Bearer " }],
+        fields: [
+          { name: "Authorization", label: "API key", prefix: "Bearer " },
+        ],
       },
     });
     await agentPw.credentials.put({
@@ -959,7 +991,9 @@ describe("createAgentPw", () => {
     );
 
     const allowed = {
-      headers: await api.connect.resolveHeaders({ path: "acme.connections.resend" }),
+      headers: await api.connect.resolveHeaders({
+        path: "acme.connections.resend",
+      }),
       credentials: await api.credentials.list({ path: "acme.connections" }),
       profiles: await api.profiles.list({ path: "profiles" }),
     };
@@ -968,9 +1002,13 @@ describe("createAgentPw", () => {
     expect(allowed.credentials.map((credential) => credential.path)).toEqual([
       "acme.connections.resend",
     ]);
-    expect(allowed.profiles.map((profile) => profile.path)).toEqual(["profiles.resend"]);
+    expect(allowed.profiles.map((profile) => profile.path)).toEqual([
+      "profiles.resend",
+    ]);
 
-    const socket = agentPw.scope(rights([{ action: "credential.use", root: "acme" }]));
+    const socket = agentPw.scope(
+      rights([{ action: "credential.use", root: "acme" }]),
+    );
     await expect(
       socket.connect.resolveHeaders({ path: "acme.connections.resend" }),
     ).resolves.toEqual({
@@ -978,16 +1016,20 @@ describe("createAgentPw", () => {
     });
 
     await expect(
-      agentPw.scope(rights([{ action: "credential.connect", root: "acme" }])).connect.prepare({
-        path: "acme.connections.resend",
-        resource: "https://api.resend.com",
-      }),
+      agentPw
+        .scope(rights([{ action: "credential.connect", root: "acme" }]))
+        .connect.prepare({
+          path: "acme.connections.resend",
+          resource: "https://api.resend.com",
+        }),
     ).rejects.toThrow("Missing 'credential.use' for 'acme.connections.resend'");
   });
 
   it("does not leak oauth flow secrets through scoped getFlow", async () => {
     const db = await createTestDb();
-    const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
+    const encryptionKey = await mustAsync(
+      deriveEncryptionKey(TEST_KEY_MATERIAL),
+    );
     const agentPw = wrapAgentPw(
       must(
         await createAgentPw({
@@ -1002,7 +1044,9 @@ describe("createAgentPw", () => {
       ),
     );
 
-    const scoped = agentPw.scope(rights([{ action: "credential.connect", root: "acme" }]));
+    const scoped = agentPw.scope(
+      rights([{ action: "credential.connect", root: "acme" }]),
+    );
     const prepared = await scoped.connect.prepare({
       path: "acme.connections.docs_fresh",
       resource: "https://docs.example.com/mcp",
