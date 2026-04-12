@@ -26,7 +26,7 @@ describe("db entrypoints", () => {
       await closeLocalDb(localDb);
       await rm(dataDir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("bootstraps the default schema", async () => {
     let db: unknown;

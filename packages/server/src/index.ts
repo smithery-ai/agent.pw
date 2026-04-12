@@ -128,75 +128,6 @@ function parseProfileOAuth(value: unknown) {
   return ok<CredentialProfileOAuth>(parsed.data);
 }
 
-function parseLegacyProfilePayload(value: Record<string, unknown>) {
-  const http: CredentialProfileHttp = {};
-  let oauth: CredentialProfileOAuth | null = null;
-
-  const authValue = "auth" in value ? value.auth : value;
-  if (isRecord(authValue)) {
-    if (authValue.kind === "oauth") {
-      const { kind: _kind, ...legacyOAuth } = authValue;
-      const parsedOAuth = parseProfileOAuth(legacyOAuth);
-      if (!parsedOAuth.ok) {
-        return parsedOAuth;
-      }
-      oauth = parsedOAuth.value;
-    } else if (authValue.kind === "headers") {
-      const headers: CredentialProfileHttp["headers"] = {};
-      if (Array.isArray(authValue.fields)) {
-        for (const field of authValue.fields.filter(isRecord)) {
-          if (typeof field.name === "string" && typeof field.label === "string") {
-            headers[field.name] = {
-              label: field.label,
-              ...(typeof field.description === "string" ? { description: field.description } : {}),
-              required: true,
-            };
-          }
-        }
-      }
-      if (Object.keys(headers).length > 0) {
-        http.headers = headers;
-      }
-    } else if ("kind" in authValue) {
-      return err(inputError("Invalid profile auth kind"));
-    } else if ("auth" in value && authValue != null) {
-      return err(inputError("Invalid profile auth payload"));
-    }
-  } else if ("auth" in value && authValue != null) {
-    return err(inputError("Invalid profile auth payload"));
-  }
-
-  if ("config" in value && value.config != null) {
-    if (!isRecord(value.config) || !Array.isArray(value.config.fields)) {
-      return err(inputError("Invalid profile config payload"));
-    }
-    for (const field of value.config.fields.filter(isRecord)) {
-      if (typeof field.name !== "string" || typeof field.label !== "string") {
-        continue;
-      }
-      const entry = {
-        label: field.label,
-        ...(typeof field.description === "string" ? { description: field.description } : {}),
-        required: true,
-      };
-      if (field.transport === "header") {
-        http.headers = { ...http.headers, [field.name]: entry };
-      } else if (field.transport === "query") {
-        http.query = { ...http.query, [field.name]: entry };
-      }
-    }
-  }
-
-  const parsedHttp = parseProfileHttp(http);
-  if (!parsedHttp.ok) {
-    return parsedHttp;
-  }
-  if (!parsedHttp.value && !oauth) {
-    return err(inputError("Profile must define http or oauth"));
-  }
-  return ok({ http: parsedHttp.value, oauth });
-}
-
 function parseProfilePayload(value: unknown) {
   if (!isRecord(value)) {
     return err(inputError("Invalid profile payload"));
@@ -223,10 +154,6 @@ function parseProfilePayload(value: unknown) {
       http: parsedHttp.value,
       oauth: parsedOAuth.value,
     });
-  }
-
-  if ("kind" in value || "auth" in value || "config" in value) {
-    return parseLegacyProfilePayload(value);
   }
 
   return err(inputError("Invalid profile payload"));
@@ -590,13 +517,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!payloadRecord.ok) {
         return payloadRecord;
       }
-      if (
-        !("http" in payloadRecord.value) &&
-        !("oauth" in payloadRecord.value) &&
-        !("auth" in payloadRecord.value) &&
-        !("config" in payloadRecord.value) &&
-        !("kind" in payloadRecord.value)
-      ) {
+      if (!("http" in payloadRecord.value) && !("oauth" in payloadRecord.value)) {
         return err(inputError("Credential Profile must define http or oauth"));
       }
       const parsedPayload = parseProfilePayload(payloadRecord.value);

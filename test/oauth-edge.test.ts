@@ -178,8 +178,7 @@ describe("oauth edge cases", () => {
 
     await agentPw.profiles.put("linear", {
       resourcePatterns: ["https://api.linear.app/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://accounts.example.com/authorize",
         tokenUrl: "https://accounts.example.com/token",
       },
@@ -424,8 +423,7 @@ describe("oauth edge cases", () => {
 
     await agentPw.profiles.put("broken", {
       resourcePatterns: ["https://api.linear.app/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://accounts.example.com/authorize",
         tokenUrl: "https://accounts.example.com/token",
       },

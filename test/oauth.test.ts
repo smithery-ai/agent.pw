@@ -151,8 +151,7 @@ async function createOAuthAgent() {
 
   await agentPw.profiles.put("linear", {
     resourcePatterns: ["https://api.linear.app/*"],
-    auth: {
-      kind: "oauth",
+    oauth: {
       issuer: "https://accounts.example.com",
       clientId: "client-linear",
       clientSecret: "secret-linear",
@@ -398,8 +397,7 @@ describe("oauth runtime", () => {
 
     await agentPw.profiles.put("docs", {
       resourcePatterns: ["https://docs.example.com/mcp"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         issuer: "https://accounts.example.com",
         clientId: "client-docs",
         clientSecret: "secret-docs",

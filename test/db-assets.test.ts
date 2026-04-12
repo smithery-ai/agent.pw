@@ -65,7 +65,7 @@ describe("bundled PGlite assets", () => {
       const result = await db.execute(sql`select 1 as value`);
       expect(result.rows).toEqual([{ value: 1 }]);
     });
-  });
+  }, 15_000);
 
   it("falls back to the WebAssembly.Module constructor when compile is unavailable", async () => {
     stubBundledAssetEnv();

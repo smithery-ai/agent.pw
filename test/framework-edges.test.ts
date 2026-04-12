@@ -229,9 +229,9 @@ describe("createAgentPw edge cases", () => {
     await expect(
       agentPw.profiles.put("org.connections.invalid_profile", {
         resourcePatterns: ["https://invalid.example.com/*"],
-        auth: { kind: "unsupported" } as never,
+        http: {} as never,
       }),
-    ).rejects.toThrow("Invalid profile auth kind");
+    ).rejects.toThrow("Profile must define http or oauth");
 
     await expect(
       agentPw.credentials.put({

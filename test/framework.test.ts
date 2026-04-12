@@ -62,8 +62,7 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("github", {
       resourcePatterns: ["https://api.github.com/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://github.com/login/oauth/authorize",
         tokenUrl: "https://github.com/login/oauth/access_token",
         clientId: "github-client",
@@ -72,9 +71,13 @@ describe("createAgentPw", () => {
     });
     await agentPw.profiles.put("acme.github", {
       resourcePatterns: ["https://api.github.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "Access token", prefix: "Bearer " }],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Access token",
+            required: true,
+          },
+        },
       },
       displayName: "Acme GitHub",
     });
@@ -546,9 +549,13 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("docs-headers", {
       resourcePatterns: ["https://docs.example.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "Token" }],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Token",
+            required: true,
+          },
+        },
       },
     });
 
@@ -841,8 +848,7 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("no-scopes", {
       resourcePatterns: ["https://oauth-noscopes.example.com/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://oauth-noscopes.example.com/authorize",
         tokenUrl: "https://oauth-noscopes.example.com/token",
         clientId: "oauth-noscope-client",
@@ -887,9 +893,13 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("profiles.resend", {
       resourcePatterns: ["https://api.resend.com*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "API key", prefix: "Bearer " }],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
       },
     });
     await agentPw.credentials.put({

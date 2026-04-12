@@ -92,7 +92,14 @@ describe("index mock coverage", () => {
       errorOf(
         await agentPw.profiles.put("bad.profile", {
           resourcePatterns: ["https://ok/*"],
-          auth: { kind: "headers", fields: [] },
+          http: {
+            headers: {
+              Authorization: {
+                label: "Token",
+                required: true,
+              },
+            },
+          },
         }),
       ).message,
     ).toBe("mock profile path");
@@ -200,7 +207,14 @@ describe("index mock coverage", () => {
       errorOf(
         await scoped.profiles.put("bad.profile", {
           resourcePatterns: ["https://ok/*"],
-          auth: { kind: "headers", fields: [] },
+          http: {
+            headers: {
+              Authorization: {
+                label: "Token",
+                required: true,
+              },
+            },
+          },
         }),
       ).message,
     ).toBe("mock profile path");
@@ -220,8 +234,14 @@ describe("index mock coverage", () => {
             if (path === "setheaders.profile.invalid" || path === "headers.resolve.invalid") {
               return ok([
                 profileRow("profile.headers.literal", {
-                  kind: "headers",
-                  fields: [{ name: "Authorization", label: "Token" }],
+                  http: {
+                    headers: {
+                      Authorization: {
+                        label: "Token",
+                        required: true,
+                      },
+                    },
+                  },
                 }),
               ]);
             }
@@ -236,10 +256,11 @@ describe("index mock coverage", () => {
               return profileGetCalls.get(path) === 1
                 ? ok(
                     profileRow("profile.oauth.second.err", {
-                      kind: "oauth",
-                      authorizationUrl: "https://accounts.example.com/authorize",
-                      tokenUrl: "https://accounts.example.com/token",
-                      clientId: "client-id",
+                      oauth: {
+                        authorizationUrl: "https://accounts.example.com/authorize",
+                        tokenUrl: "https://accounts.example.com/token",
+                        clientId: "client-id",
+                      },
                     }),
                   )
                 : err(inputError("mock profile get second failure"));
@@ -247,8 +268,14 @@ describe("index mock coverage", () => {
             if (path === "profile.headers.literal") {
               return ok(
                 profileRow("profile.headers.literal", {
-                  kind: "headers",
-                  fields: [{ name: "Authorization", label: "Token" }],
+                  http: {
+                    headers: {
+                      Authorization: {
+                        label: "Token",
+                        required: true,
+                      },
+                    },
+                  },
                 }),
               );
             }
@@ -266,7 +293,18 @@ describe("index mock coverage", () => {
           async upsertCredProfile(_db: unknown, path: string) {
             return path === "profile.put.err"
               ? err(inputError("mock profile put failure"))
-              : ok(profileRow(path, { kind: "headers", fields: [] }));
+              : ok(
+                  profileRow(path, {
+                    http: {
+                      headers: {
+                        Authorization: {
+                          label: "Token",
+                          required: true,
+                        },
+                      },
+                    },
+                  }),
+                );
           },
           async deleteCredProfile(_db: unknown, path: string) {
             return path === "profile.delete.err"
@@ -1037,7 +1075,14 @@ describe("index mock coverage", () => {
       errorOf(
         await scoped.profiles.put("org.denied", {
           resourcePatterns: ["https://ok/*"],
-          auth: { kind: "headers", fields: [] },
+          http: {
+            headers: {
+              Authorization: {
+                label: "Token",
+                required: true,
+              },
+            },
+          },
         }),
       ).message,
     ).toBe("mock rule denial");

@@ -216,8 +216,8 @@ describe("index coverage helpers", () => {
     );
     await expect(agentPw.profiles.get("broken-profile")).rejects.toThrow("Invalid profile payload");
 
-    await agentPw.profiles.put("broken-profile-auth-wrapper", {
-      resourcePatterns: ["https://broken-profile-auth-wrapper.example.com/*"],
+    await agentPw.profiles.put("broken-profile-http", {
+      resourcePatterns: ["https://broken-profile-http.example.com/*"],
       http: {
         headers: {
           Authorization: { label: "Token", required: true },
@@ -227,31 +227,12 @@ describe("index coverage helpers", () => {
     await db.execute(
       sql.raw(`
       UPDATE agentpw.cred_profiles
-      SET auth = '{"auth":"broken"}'::jsonb
-      WHERE path = 'broken-profile-auth-wrapper'
+      SET auth = '{"http":"broken"}'::jsonb
+      WHERE path = 'broken-profile-http'
     `),
     );
-    await expect(agentPw.profiles.get("broken-profile-auth-wrapper")).rejects.toThrow(
-      "Invalid profile auth payload",
-    );
-
-    await agentPw.profiles.put("broken-profile-auth-object", {
-      resourcePatterns: ["https://broken-profile-auth-object.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"auth":{"label":"broken"}}'::jsonb
-      WHERE path = 'broken-profile-auth-object'
-    `),
-    );
-    await expect(agentPw.profiles.get("broken-profile-auth-object")).rejects.toThrow(
-      "Invalid profile auth payload",
+    await expect(agentPw.profiles.get("broken-profile-http")).rejects.toThrow(
+      "Invalid profile http payload",
     );
 
     await agentPw.profiles.put("broken-profile-oauth", {
@@ -263,7 +244,7 @@ describe("index coverage helpers", () => {
     await db.execute(
       sql.raw(`
       UPDATE agentpw.cred_profiles
-      SET auth = '{"kind":"oauth","clientAuthentication":"bad"}'::jsonb
+      SET auth = '{"oauth":{"clientAuthentication":"bad"}}'::jsonb
       WHERE path = 'broken-profile-oauth'
     `),
     );
@@ -282,7 +263,7 @@ describe("index coverage helpers", () => {
     await db.execute(
       sql.raw(`
       UPDATE agentpw.cred_profiles
-      SET auth = '{"auth":null,"config":null}'::jsonb
+      SET auth = '{"http":{}}'::jsonb
       WHERE path = 'broken-profile-sections'
     `),
     );
@@ -309,148 +290,6 @@ describe("index coverage helpers", () => {
       "Invalid profile payload",
     );
 
-    await agentPw.profiles.put("broken-profile-config", {
-      resourcePatterns: ["https://broken-profile-config.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"config":{"fields":[{"transport":"cookie","key":"apiKey","name":"x-api-key","label":"API Key"}]}}'::jsonb
-      WHERE path = 'broken-profile-config'
-    `),
-    );
-    await expect(agentPw.profiles.get("broken-profile-config")).rejects.toThrow(
-      "Profile must define http or oauth",
-    );
-
-    await agentPw.profiles.put("broken-profile-config-payload", {
-      resourcePatterns: ["https://broken-profile-config-payload.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"config":"bad"}'::jsonb
-      WHERE path = 'broken-profile-config-payload'
-    `),
-    );
-    await expect(agentPw.profiles.get("broken-profile-config-payload")).rejects.toThrow(
-      "Invalid profile config payload",
-    );
-
-    await agentPw.profiles.put("config-field-fallback", {
-      resourcePatterns: ["https://config-field-fallback.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"config":{"fields":[{"transport":"header","key":"","name":"x-api-key","label":"API Key"},{"transport":"query","key":"workspaceId","name":"workspaceId","label":"Workspace ID"}]}}'::jsonb
-      WHERE path = 'config-field-fallback'
-    `),
-    );
-    expect(await agentPw.profiles.get("config-field-fallback")).toEqual(
-      expect.objectContaining({
-        oauth: null,
-        http: {
-          headers: {
-            "x-api-key": {
-              label: "API Key",
-              required: true,
-            },
-          },
-          query: {
-            workspaceId: {
-              label: "Workspace ID",
-              required: true,
-            },
-          },
-        },
-      }),
-    );
-
-    await agentPw.profiles.put("config-field-mix", {
-      resourcePatterns: ["https://config-field-mix.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"config":{"fields":[{"transport":"header","key":"apiKey","name":"x-api-key","label":"API Key","description":"Legacy API key","prefix":"Bearer ","secret":true},{"transport":"query","key":"","name":"workspaceId","label":"Workspace ID"},{"transport":"cookie","key":"cookieKey","name":"x-cookie","label":"Cookie Key"}]}}'::jsonb
-      WHERE path = 'config-field-mix'
-    `),
-    );
-    expect(await agentPw.profiles.get("config-field-mix")).toEqual(
-      expect.objectContaining({
-        oauth: null,
-        http: {
-          headers: {
-            "x-api-key": {
-              label: "API Key",
-              description: "Legacy API key",
-              required: true,
-            },
-          },
-          query: {
-            workspaceId: {
-              label: "Workspace ID",
-              required: true,
-            },
-          },
-        },
-      }),
-    );
-
-    await agentPw.profiles.put("config-field-shapes", {
-      resourcePatterns: ["https://config-field-shapes.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"config":{"fields":[{"transport":"header","key":1,"name":"x-one","label":"One"},{"transport":"header","key":"apiKeyTwo","name":2,"label":"Two"},{"transport":"header","key":"apiKeyThree","name":"x-three","label":3},{"transport":"header","key":"apiKey","name":"x-api-key","label":"API Key"}]}}'::jsonb
-      WHERE path = 'config-field-shapes'
-    `),
-    );
-    expect(await agentPw.profiles.get("config-field-shapes")).toEqual(
-      expect.objectContaining({
-        oauth: null,
-        http: {
-          headers: {
-            "x-one": {
-              label: "One",
-              required: true,
-            },
-            "x-api-key": {
-              label: "API Key",
-              required: true,
-            },
-          },
-        },
-      }),
-    );
-
     await agentPw.profiles.put("broken-kind", {
       resourcePatterns: ["https://kind.example.com/*"],
       http: {
@@ -466,37 +305,7 @@ describe("index coverage helpers", () => {
       WHERE path = 'broken-kind'
     `),
     );
-    await expect(agentPw.profiles.get("broken-kind")).rejects.toThrow("Invalid profile auth kind");
-
-    await agentPw.profiles.put("field-fallback", {
-      resourcePatterns: ["https://fields.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"kind":"headers","fields":[{"name":1,"label":"Bad"},{"name":"X-Invalid","label":1},{"name":"Authorization","label":"Token","description":"Legacy token","prefix":1,"secret":"no"}]}'::jsonb
-      WHERE path = 'field-fallback'
-    `),
-    );
-    expect(await agentPw.profiles.get("field-fallback")).toEqual(
-      expect.objectContaining({
-        oauth: null,
-        http: {
-          headers: {
-            Authorization: {
-              label: "Token",
-              description: "Legacy token",
-              required: true,
-            },
-          },
-        },
-      }),
-    );
+    await expect(agentPw.profiles.get("broken-kind")).rejects.toThrow("Invalid profile payload");
 
     await agentPw.profiles.put("field-duplicate", {
       resourcePatterns: ["https://duplicate.example.com/*"],
@@ -509,7 +318,7 @@ describe("index coverage helpers", () => {
     await db.execute(
       sql.raw(`
       UPDATE agentpw.cred_profiles
-      SET auth = '{"kind":"headers","fields":[{"name":"X-API-Key","label":"One"},{"name":"x-api-key","label":"Two"}]}'::jsonb
+      SET auth = '{"http":{"headers":{"X-API-Key":{"label":"One"},"x-api-key":{"label":"Two"}}}}'::jsonb
       WHERE path = 'field-duplicate'
     `),
     );
@@ -527,6 +336,12 @@ describe("index coverage helpers", () => {
             required: true,
           },
         },
+        query: {
+          workspaceId: {
+            label: "Workspace",
+            description: "Workspace id",
+          },
+        },
       },
     });
     expect(await agentPw.profiles.get("headers-rich")).toEqual(
@@ -540,27 +355,15 @@ describe("index coverage helpers", () => {
               required: true,
             },
           },
+          query: {
+            workspaceId: {
+              label: "Workspace",
+              description: "Workspace id",
+              required: false,
+            },
+          },
         },
       }),
-    );
-
-    await agentPw.profiles.put("field-empty", {
-      resourcePatterns: ["https://empty.example.com/*"],
-      http: {
-        headers: {
-          Authorization: { label: "Token", required: true },
-        },
-      },
-    });
-    await db.execute(
-      sql.raw(`
-      UPDATE agentpw.cred_profiles
-      SET auth = '{"kind":"headers","fields":"nope"}'::jsonb
-      WHERE path = 'field-empty'
-    `),
-    );
-    await expect(agentPw.profiles.get("field-empty")).rejects.toThrow(
-      "Profile must define http or oauth",
     );
 
     const secret = await mustAsync(
