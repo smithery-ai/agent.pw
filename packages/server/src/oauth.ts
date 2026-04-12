@@ -1240,7 +1240,10 @@ export function createOAuthService(options: {
       ),
     );
     if (!tokenResponse.ok) {
-      console.error("[agent.pw] refresh request failed (network)", { path, error: String(tokenResponse.error) });
+      console.error("[agent.pw] refresh request failed (network)", {
+        path,
+        error: String(tokenResponse.error),
+      });
       return err(refreshTokenRequestFailed(path, tokenResponse.error));
     }
     const processed = await result(
