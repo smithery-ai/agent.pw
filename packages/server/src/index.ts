@@ -435,6 +435,13 @@ function parseHeaders(value: unknown) {
   return ok(headers);
 }
 
+function requireEncryptionKey(encryptionKey: string | undefined) {
+  if (typeof encryptionKey !== "string" || encryptionKey.length === 0) {
+    return err(inputError("Credential operations require AgentPwOptions.encryptionKey"));
+  }
+  return ok(encryptionKey);
+}
+
 function requireRule(scope: RuleScope, action: string, path: string) {
   const result = authorizeRules({
     rights: scope.rights,
@@ -590,6 +597,11 @@ export async function createAgentPw(options: AgentPwOptions) {
       return err(normalizedPath.error);
     }
 
+    const key = requireEncryptionKey(encryptionKey);
+    if (!key.ok) {
+      return key;
+    }
+
     const selected = await queryHelpers.getCredential(opts?.db ?? options.db, normalizedPath.value);
     if (!selected.ok) {
       return selected;
@@ -597,7 +609,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     if (!selected.value) {
       return ok(null);
     }
-    return decryptCredentialRecord(encryptionKey, selected.value);
+    return decryptCredentialRecord(key.value, selected.value);
   };
 
   const putCredential: AgentPw["credentials"]["put"] = async (input, opts) => {
@@ -637,9 +649,13 @@ export async function createAgentPw(options: AgentPwOptions) {
         return validSecret;
       }
     }
+    const key = requireEncryptionKey(encryptionKey);
+    if (!key.ok) {
+      return key;
+    }
     const encryptedSecret = Buffer.isBuffer(input.secret)
       ? ok(input.secret)
-      : await encryptCredentials(encryptionKey, input.secret);
+      : await encryptCredentials(key.value, input.secret);
     if (!encryptedSecret.ok) {
       return encryptedSecret;
     }
@@ -653,7 +669,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return persisted;
     }
 
-    return decryptCredentialRecord(encryptionKey, persisted.value);
+    return decryptCredentialRecord(key.value, persisted.value);
   };
 
   function oauthOptionFromProfile(
@@ -841,6 +857,9 @@ export async function createAgentPw(options: AgentPwOptions) {
     clock: options.clock ?? (() => new Date()),
     customFetch: options.oauthFetch,
     defaultClient: options.oauthClient,
+    requireCredentialAccess() {
+      return requireEncryptionKey(encryptionKey);
+    },
     getProfile(path, opts) {
       return profiles.get(path, opts);
     },
@@ -855,6 +874,11 @@ export async function createAgentPw(options: AgentPwOptions) {
     get: getCredential,
 
     async list(query = {}) {
+      const key = requireEncryptionKey(encryptionKey);
+      if (!key.ok) {
+        return key;
+      }
+
       const path = assertOptionalPath(query.path, "credential path");
       if (!path.ok) {
         return err(path.error);
@@ -888,6 +912,11 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
 
     move(fromPath, toPath, opts) {
+      const key = requireEncryptionKey(encryptionKey);
+      if (!key.ok) {
+        return Promise.resolve(key);
+      }
+
       const normalizedFrom = assertPath(fromPath, "source path");
       if (!normalizedFrom.ok) {
         return Promise.resolve(err(normalizedFrom.error));
@@ -904,6 +933,11 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
 
     delete(path, opts) {
+      const key = requireEncryptionKey(encryptionKey);
+      if (!key.ok) {
+        return Promise.resolve(key);
+      }
+
       const normalizedPath = assertPath(path, "credential path");
       if (!normalizedPath.ok) {
         return Promise.resolve(err(normalizedPath.error));

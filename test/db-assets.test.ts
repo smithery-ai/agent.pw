@@ -67,6 +67,28 @@ describe("bundled PGlite assets", () => {
     });
   }, 15_000);
 
+  it("accepts bundled wasm assets returned as ArrayBuffer", async () => {
+    stubBundledAssetEnv();
+    vi.doMock("node:fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      return {
+        ...actual,
+        readFile: vi.fn(async (path, options) => {
+          const bytes = await actual.readFile(path, options);
+          if (String(path) !== bundledWasmPath || !(bytes instanceof Uint8Array)) {
+            return bytes;
+          }
+          return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        }),
+      };
+    });
+
+    await withLocalDb(async (db) => {
+      const result = await db.execute(sql`select 1 as value`);
+      expect(result.rows).toEqual([{ value: 1 }]);
+    });
+  });
+
   it("falls back to the WebAssembly.Module constructor when compile is unavailable", async () => {
     stubBundledAssetEnv();
     stubWebAssembly({ compile: undefined });
