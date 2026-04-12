@@ -963,15 +963,15 @@ function parseProfileOAuthConfig(
   resource: string,
   clientInput: OAuthClientInput | undefined,
 ) {
-  if (profile.auth.kind !== "oauth") {
+  if (!profile.oauth) {
     return err(inputError(`Credential Profile '${profile.path}' is not an OAuth profile`));
   }
+  const auth = profile.oauth;
 
-  const clientId =
-    profile.auth.clientId ?? clientInput?.clientId ?? clientInput?.metadata?.clientId;
-  const clientSecret = profile.auth.clientSecret ?? clientInput?.clientSecret;
+  const clientId = auth.clientId ?? clientInput?.clientId ?? clientInput?.metadata?.clientId;
+  const clientSecret = auth.clientSecret ?? clientInput?.clientSecret;
   const clientAuthentication = normalizeClientAuthentication(
-    profile.auth.clientAuthentication ?? clientInput?.clientAuthentication,
+    auth.clientAuthentication ?? clientInput?.clientAuthentication,
     Boolean(clientSecret),
   );
 
@@ -989,14 +989,14 @@ function parseProfileOAuthConfig(
   }
 
   return ok({
-    issuer: profile.auth.issuer,
-    authorizationUrl: profile.auth.authorizationUrl,
-    tokenUrl: profile.auth.tokenUrl,
-    revocationUrl: profile.auth.revocationUrl,
+    issuer: auth.issuer,
+    authorizationUrl: auth.authorizationUrl,
+    tokenUrl: auth.tokenUrl,
+    revocationUrl: auth.revocationUrl,
     clientId,
     clientSecret,
     clientAuthentication,
-    scopes: profile.auth.scopes,
+    scopes: auth.scopes,
     resource: normalizedResource.value,
   });
 }

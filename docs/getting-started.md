@@ -11,7 +11,7 @@
 - `path`: one saved connection in your app, such as `acme.connections.github`
 - `resource`: the protected resource a connect flow is targeting, such as `https://api.github.com/` or `https://docs.example.com/mcp`
 - `credential`: the encrypted auth stored at that exact path
-- `profile`: optional admin-side setup guidance for known providers or manual header entry
+- `profile`: optional admin-side setup guidance for literal HTTP inputs and OAuth overrides
 
 Profiles are background configuration. End users usually do not need to know they exist.
 
@@ -54,6 +54,12 @@ if (prepared.kind === "ready") {
   return prepared.headers;
 }
 
+if (prepared.kind === "input_required") {
+  console.log(prepared.input.http);
+  console.log(prepared.input.missing);
+  return;
+}
+
 const option = prepared.options[0];
 if (!option) {
   console.error("This resource is not configured yet");
@@ -71,17 +77,13 @@ if (option.kind === "oauth") {
 
   return Response.redirect(session.authorizationUrl, 302);
 }
-
-await unwrap(
-  agentPw.connect.setHeaders({
-    path: "acme.connections.docs",
-    resource: "https://docs.example.com/mcp",
-    headers: {
-      Authorization: "Bearer api-key-value",
-    },
-  }),
-);
 ```
+
+When `prepared.kind === "input_required"`:
+
+- required query params stay in the `resource` URL
+- required headers are stored with `connect.setHeaders(...)`
+- after updating either one, call `connect.prepare(...)` again
 
 Later, resolve fresh headers for that same path:
 
@@ -102,19 +104,21 @@ What should the app do next for this connection path and resource?
 It returns one of:
 
 - `ready`: a credential already exists at `path`
-- `options`: a list of possible auth routes
+- `input_required`: a matching profile requires HTTP inputs before the connection can continue
+- `options`: a list of possible OAuth routes
 
-If it returns `options`, the resolution order is:
+The decision order is:
 
 1. exact-path stored credential
 2. matching profile
-3. discovery
-4. unconfigured
+3. if required profile HTTP inputs are missing, `input_required`
+4. profile-backed OAuth or discovery-backed OAuth
+5. unconfigured
 
 This has two important consequences:
 
-- if a matching profile exists, `options` contains exactly one profile-backed option
-- discovery only runs when no profile matches, so profile and discovery options are not mixed in one array
+- manual HTTP input is represented by `input_required`, not by a `headers` option
+- discovery only runs after profile HTTP requirements are satisfied or when no profile matches
 
 The library's default recommendation is exposed as both:
 
@@ -177,7 +181,7 @@ The `response` input can be a Fetch `Response` or a plain `{ status, headers }` 
 
 ## Profiles
 
-Profiles are optional admin-side configuration for known providers, broken discovery, or manual header entry.
+Profiles are optional admin-side configuration for known providers, broken discovery, or required HTTP inputs.
 
 When a known profile matches, `agent.pw` prefers that profile and skips generic discovery. Otherwise it falls back to resource discovery.
 

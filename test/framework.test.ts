@@ -62,8 +62,7 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("github", {
       resourcePatterns: ["https://api.github.com/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://github.com/login/oauth/authorize",
         tokenUrl: "https://github.com/login/oauth/access_token",
         clientId: "github-client",
@@ -72,9 +71,13 @@ describe("createAgentPw", () => {
     });
     await agentPw.profiles.put("acme.github", {
       resourcePatterns: ["https://api.github.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "Access token", prefix: "Bearer " }],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Access token",
+            required: true,
+          },
+        },
       },
       displayName: "Acme GitHub",
     });
@@ -161,17 +164,13 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("resend", {
       resourcePatterns: ["https://api.resend.com*"],
-      auth: {
-        kind: "headers",
-        label: "Resend API key",
-        fields: [
-          {
-            name: "Authorization",
+      http: {
+        headers: {
+          Authorization: {
             label: "API key",
-            prefix: "Bearer ",
-            secret: true,
+            required: true,
           },
-        ],
+        },
       },
       displayName: "Resend",
     });
@@ -182,50 +181,29 @@ describe("createAgentPw", () => {
     });
 
     expect(prepared).toEqual({
-      kind: "options",
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            Authorization: {
+              label: "API key",
+              required: true,
+            },
+          },
+        },
+        missing: {
+          headers: ["Authorization"],
+          query: [],
+        },
+      },
       resolution: {
         canonicalResource: "https://api.resend.com/",
         source: "profile",
         reason: "matched-profile",
         profilePath: "resend",
-        option: {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
-              label: "API key",
-              prefix: "Bearer ",
-              secret: true,
-            },
-          ],
-        },
+        option: null,
       },
-      options: [
-        {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
-              label: "API key",
-              prefix: "Bearer ",
-              secret: true,
-            },
-          ],
-        },
-      ],
     });
-
-    if (prepared.kind !== "options") {
-      throw new Error("Expected connection options");
-    }
 
     const saved = await agentPw.connect.setHeaders({
       path: "acme.connections.resend",
@@ -248,6 +226,331 @@ describe("createAgentPw", () => {
     });
   });
 
+  it("rejects resource changes for profile-backed header credentials", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("resend", {
+      resourcePatterns: ["https://api.resend.com*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
+      },
+      displayName: "Resend",
+    });
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.resend",
+      resource: "https://api.resend.com",
+      headers: {
+        Authorization: "Bearer rs_123",
+      },
+    });
+
+    await expect(
+      agentPw.connect.prepare({
+        path: "acme.connections.resend",
+        resource: "https://docs.example.com/mcp",
+      }),
+    ).rejects.toThrow(
+      "Credential 'acme.connections.resend' is already connected to 'https://api.resend.com/', not 'https://docs.example.com/mcp'",
+    );
+  });
+
+  it("allows declared query changes while preserving undeclared query params", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("docs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
+        query: {
+          workspaceId: {
+            label: "Workspace ID",
+            required: true,
+          },
+        },
+      },
+    });
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-1&region=us",
+      headers: {
+        Authorization: "Bearer docs-key",
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-2&region=us",
+    });
+
+    expect(prepared.kind).toBe("ready");
+  });
+
+  it("rejects host changes even when the profile declares query inputs", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("docs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
+        query: {
+          workspaceId: {
+            label: "Workspace ID",
+            required: true,
+          },
+        },
+      },
+    });
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-1",
+      headers: {
+        Authorization: "Bearer docs-key",
+      },
+    });
+
+    await expect(
+      agentPw.connect.prepare({
+        path: "acme.connections.docs",
+        resource: "https://api.example.com/mcp?workspaceId=team-2",
+      }),
+    ).rejects.toThrow(
+      "Credential 'acme.connections.docs' is already connected to 'https://docs.example.com/mcp?workspaceId=team-1', not 'https://api.example.com/mcp?workspaceId=team-2'",
+    );
+  });
+
+  it("returns input_required for missing literal HTTP inputs", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("browserbase", {
+      resourcePatterns: ["https://browserbase.run.tools*"],
+      http: {
+        headers: {
+          "x-api-key": {
+            label: "API Key",
+            description: "Browserbase API key",
+            required: true,
+          },
+        },
+        query: {
+          projectId: {
+            label: "Project ID",
+            description: "Browserbase project",
+            required: true,
+          },
+        },
+      },
+      displayName: "Browserbase",
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.browserbase",
+      resource: "https://browserbase.run.tools/mcp",
+    });
+
+    expect(prepared).toEqual({
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            "x-api-key": {
+              label: "API Key",
+              description: "Browserbase API key",
+              required: true,
+            },
+          },
+          query: {
+            projectId: {
+              label: "Project ID",
+              description: "Browserbase project",
+              required: true,
+            },
+          },
+        },
+        missing: {
+          headers: ["x-api-key"],
+          query: ["projectId"],
+        },
+      },
+      resolution: {
+        canonicalResource: "https://browserbase.run.tools/mcp",
+        source: "profile",
+        reason: "matched-profile",
+        profilePath: "browserbase",
+        option: null,
+      },
+    });
+  });
+
+  it("keeps profile-backed headers while query config is completed and then offers oauth", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("docs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          "x-api-key": {
+            label: "API Key",
+            required: true,
+          },
+        },
+        query: {
+          workspaceId: {
+            label: "Workspace ID",
+            required: true,
+          },
+        },
+      },
+      oauth: {
+        authorizationUrl: "https://accounts.example.com/authorize",
+        tokenUrl: "https://accounts.example.com/token",
+        clientId: "docs-client",
+      },
+      displayName: "Docs",
+    });
+
+    const stored = await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp",
+      headers: {
+        "x-api-key": "secret",
+      },
+    });
+
+    expect(stored.auth).toEqual({
+      kind: "headers",
+      profilePath: "docs",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    const missingQuery = await agentPw.connect.prepare({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(missingQuery).toEqual({
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            "x-api-key": {
+              label: "API Key",
+              required: true,
+            },
+          },
+          query: {
+            workspaceId: {
+              label: "Workspace ID",
+              required: true,
+            },
+          },
+        },
+        missing: {
+          headers: [],
+          query: ["workspaceId"],
+        },
+      },
+      resolution: {
+        canonicalResource: "https://docs.example.com/mcp",
+        source: "profile",
+        reason: "matched-profile",
+        profilePath: "docs",
+        option: {
+          kind: "oauth",
+          source: "profile",
+          resource: "https://docs.example.com/mcp",
+          profilePath: "docs",
+          label: "Docs",
+          scopes: undefined,
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-1",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+    expect(prepared.options).toEqual([
+      {
+        kind: "oauth",
+        source: "profile",
+        resource: "https://docs.example.com/mcp?workspaceId=team-1",
+        profilePath: "docs",
+        label: "Docs",
+        scopes: undefined,
+      },
+    ]);
+
+    const updated = await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      headers: {
+        "x-api-key": "secret-2",
+      },
+    });
+
+    expect(updated.auth).toEqual({
+      kind: "headers",
+      profilePath: "docs",
+      resource: "https://docs.example.com/mcp",
+    });
+  });
+
+  it("rejects manual headers when a profile only accepts query inputs", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("query-only", {
+      resourcePatterns: ["https://query-only.example.com/*"],
+      http: {
+        query: {
+          workspaceId: {
+            label: "Workspace ID",
+            required: true,
+          },
+        },
+      },
+    });
+
+    await expect(
+      agentPw.connect.setHeaders({
+        path: "acme.connections.query-only",
+        resource: "https://query-only.example.com/mcp",
+        headers: { Authorization: "Bearer token" },
+      }),
+    ).rejects.toThrow("Profile 'query-only' does not accept manual headers for this resource");
+
+    await expect(
+      agentPw.connect.setHeaders({
+        path: "acme.connections.query-only-empty",
+        resource: "https://query-only.example.com/mcp",
+        headers: {},
+      }),
+    ).rejects.toThrow(
+      "Credential 'acme.connections.query-only-empty' does not have header-based auth",
+    );
+  });
+
   it("prefers matching profiles over discovery and exposes the default option first", async () => {
     let discoveryCalls = 0;
     const agentPw = await createTestAgent(async (input) => {
@@ -267,9 +570,10 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("docs", {
       resourcePatterns: ["https://docs.example.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "API key" }],
+      oauth: {
+        authorizationUrl: "https://accounts.example.com/authorize",
+        tokenUrl: "https://accounts.example.com/token",
+        clientId: "docs-client",
       },
       displayName: "Docs",
     });
@@ -288,7 +592,7 @@ describe("createAgentPw", () => {
     expect(profiled.options[0]).toEqual(profiled.resolution.option);
     expect(profiled.options[0]).toEqual(
       expect.objectContaining({
-        kind: "headers",
+        kind: "oauth",
         source: "profile",
       }),
     );
@@ -319,6 +623,100 @@ describe("createAgentPw", () => {
       }),
     ]);
     expect(discoveryCalls).toBe(1);
+  });
+
+  it("retains the matched profile path when discovery follows optional http inputs", async () => {
+    const agentPw = await createTestAgent(createDiscoveryFetch());
+
+    await agentPw.profiles.put("docs-inputs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Token",
+          },
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs_optional",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected discovery options");
+    }
+    expect(prepared.resolution.profilePath).toBe("docs-inputs");
+  });
+
+  it("preserves an orphaned profile path on existing headers", async () => {
+    const agentPw = await createTestAgent(createDiscoveryFetch());
+
+    await agentPw.credentials.put({
+      path: "acme.connections.orphaned",
+      auth: {
+        kind: "headers",
+        profilePath: "missing.profile",
+      },
+      secret: {
+        headers: {
+          Authorization: "Bearer token",
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.orphaned",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") {
+      throw new Error("Expected ready");
+    }
+    expect(prepared.resolution.profilePath).toBe("missing.profile");
+  });
+
+  it("prefers the matched profile path on existing headers", async () => {
+    const agentPw = await createTestAgent(createDiscoveryFetch());
+
+    await agentPw.profiles.put("docs-headers", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Token",
+            required: true,
+          },
+        },
+      },
+    });
+
+    await agentPw.credentials.put({
+      path: "acme.connections.docs-pending",
+      auth: {
+        kind: "headers",
+        profilePath: "docs-headers",
+      },
+      secret: {
+        headers: {
+          Authorization: "Bearer token",
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs-pending",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") {
+      throw new Error("Expected ready");
+    }
+    expect(prepared.resolution.profilePath).toBe("docs-headers");
   });
 
   it("creates and overwrites app headers for managed connections", async () => {
@@ -375,9 +773,13 @@ describe("createAgentPw", () => {
           "resendtx",
           {
             resourcePatterns: ["https://api.resend.com*"],
-            auth: {
-              kind: "headers",
-              fields: [{ name: "Authorization", label: "API key" }],
+            http: {
+              headers: {
+                Authorization: {
+                  label: "API key",
+                  required: true,
+                },
+              },
             },
           },
           { db: tx },
@@ -413,17 +815,13 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("resend", {
       resourcePatterns: ["https://api.resend.com*"],
-      auth: {
-        kind: "headers",
-        label: "Resend API key",
-        fields: [
-          {
-            name: "Authorization",
+      http: {
+        headers: {
+          Authorization: {
             label: "API key",
-            prefix: "Bearer ",
-            secret: true,
+            required: true,
           },
-        ],
+        },
       },
       displayName: "Resend",
     });
@@ -434,44 +832,27 @@ describe("createAgentPw", () => {
         resource: "https://api.resend.com",
       }),
     ).toEqual({
-      kind: "options",
-      options: [
-        {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            Authorization: {
               label: "API key",
-              prefix: "Bearer ",
-              secret: true,
+              required: true,
             },
-          ],
+          },
         },
-      ],
+        missing: {
+          headers: ["Authorization"],
+          query: [],
+        },
+      },
       resolution: {
         canonicalResource: "https://api.resend.com/",
         source: "profile",
         reason: "matched-profile",
         profilePath: "resend",
-        option: {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
-              label: "API key",
-              prefix: "Bearer ",
-              secret: true,
-            },
-          ],
-        },
+        option: null,
       },
     });
 
@@ -519,8 +900,8 @@ describe("createAgentPw", () => {
         }),
         resolution: {
           canonicalResource: "https://api.resend.com/",
-          source: null,
-          reason: "existing-credential",
+          source: "profile",
+          reason: "matched-profile",
           profilePath: "resend",
           option: null,
         },
@@ -601,8 +982,7 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("no-scopes", {
       resourcePatterns: ["https://oauth-noscopes.example.com/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://oauth-noscopes.example.com/authorize",
         tokenUrl: "https://oauth-noscopes.example.com/token",
         clientId: "oauth-noscope-client",
@@ -647,9 +1027,13 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("profiles.resend", {
       resourcePatterns: ["https://api.resend.com*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "API key", prefix: "Bearer " }],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
       },
     });
     await agentPw.credentials.put({
@@ -677,7 +1061,9 @@ describe("createAgentPw", () => {
     );
 
     const allowed = {
-      headers: await api.connect.resolveHeaders({ path: "acme.connections.resend" }),
+      headers: await api.connect.resolveHeaders({
+        path: "acme.connections.resend",
+      }),
       credentials: await api.credentials.list({ path: "acme.connections" }),
       profiles: await api.profiles.list({ path: "profiles" }),
     };

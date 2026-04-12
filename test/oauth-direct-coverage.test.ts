@@ -4,6 +4,7 @@ import { createInMemoryFlowStore, createOAuthService } from "agent.pw/oauth";
 import { inputError } from "../packages/server/src/errors";
 import type {
   ConnectOAuthOption,
+  CredentialProfileOAuth,
   CredentialProfileRecord,
   CredentialRecord,
   OAuthClientInput,
@@ -14,14 +15,12 @@ import { errorOf } from "./support/results";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 
-function oauthProfile(
-  path: string,
-  auth: CredentialProfileRecord["auth"],
-): CredentialProfileRecord {
+function oauthProfile(path: string, oauth: CredentialProfileOAuth): CredentialProfileRecord {
   return {
     path,
     resourcePatterns: ["https://resource.example.com/*"],
-    auth,
+    http: null,
+    oauth,
     displayName: null,
     description: null,
     createdAt: NOW,
@@ -185,7 +184,6 @@ function createService(
       (async () =>
         ok(
           oauthProfile("profiles.oauth", {
-            kind: "oauth",
             issuer: "https://issuer.example.com",
             clientId: "profile-client",
           }),
