@@ -43,11 +43,17 @@ let bundledPGliteAssetsPromise: Promise<
   } | null>
 > | null = null;
 type WasmByteSource = ArrayBuffer | Uint8Array;
+type WasmCompileSource = ArrayBuffer | Uint8Array<ArrayBuffer>;
+
+function toBufferSource(bytes: WasmByteSource): WasmCompileSource {
+  return bytes instanceof Uint8Array ? Uint8Array.from(bytes) : bytes;
+}
 
 async function compileWasmModule(bytes: WasmByteSource) {
+  const bufferSource = toBufferSource(bytes);
   const compileFn = Reflect.get(WebAssembly, "compile");
   if (typeof compileFn === "function") {
-    const module = await compileFn.call(WebAssembly, bytes);
+    const module = await compileFn.call(WebAssembly, bufferSource);
     if (module instanceof WebAssembly.Module) {
       return ok(module);
     }
@@ -55,7 +61,7 @@ async function compileWasmModule(bytes: WasmByteSource) {
 
   const moduleCtor = Reflect.get(WebAssembly, "Module");
   if (typeof moduleCtor === "function") {
-    const module = Reflect.construct(moduleCtor, [bytes]);
+    const module = Reflect.construct(moduleCtor, [bufferSource]);
     if (module instanceof WebAssembly.Module) {
       return ok(module);
     }
