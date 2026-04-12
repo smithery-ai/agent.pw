@@ -20,7 +20,6 @@ import type {
   ConnectFlow,
   ConnectInputRequiredResult,
   ConnectOAuthOption,
-  ConnectOption,
   ConnectPrepareInput,
   ConnectResolutionResult,
   CredentialAuth,
@@ -676,13 +675,6 @@ export async function createAgentPw(options: AgentPwOptions) {
     };
   }
 
-  function optionFromProfile(
-    profile: CredentialProfileRecord,
-    resource: string,
-  ): ConnectOption | null {
-    return profile.oauth ? oauthOptionFromProfile(profile, profile.oauth, resource) : null;
-  }
-
   function toConnectFlow(flow: PendingFlow): ConnectFlow {
     return {
       flowId: flow.id,
@@ -731,8 +723,16 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
     }
 
-    const option = profile.value ? optionFromProfile(profile.value, resource.value) : null;
+    const option = profile.value?.oauth
+      ? oauthOptionFromProfile(profile.value, profile.value.oauth, resource.value)
+      : null;
     const missing = httpInputMissing(profile.value, resource.value, existing.value?.secret.headers);
+    const baseResult = {
+      path: path.value,
+      resource: resource.value,
+      existing: existing.value,
+      profile: profile.value,
+    };
 
     const resolution = {
       canonicalResource: resource.value,
@@ -744,10 +744,7 @@ export async function createAgentPw(options: AgentPwOptions) {
 
     if ((missing.headers.length > 0 || missing.query.length > 0) && profile.value?.http) {
       return ok({
-        path: path.value,
-        resource: resource.value,
-        existing: existing.value,
-        profile: profile.value,
+        ...baseResult,
         inputRequired: {
           http: profile.value.http,
           missing,
@@ -759,10 +756,7 @@ export async function createAgentPw(options: AgentPwOptions) {
 
     if (existing.value && existing.value.auth.kind !== "headers") {
       return ok({
-        path: path.value,
-        resource: resource.value,
-        existing: existing.value,
-        profile: profile.value,
+        ...baseResult,
         inputRequired: null,
         resolution: {
           canonicalResource: resource.value,
@@ -775,26 +769,18 @@ export async function createAgentPw(options: AgentPwOptions) {
       });
     }
 
-    if (profile.value) {
-      if (option) {
-        return ok({
-          path: path.value,
-          resource: resource.value,
-          existing: existing.value,
-          profile: profile.value,
-          inputRequired: null,
-          resolution,
-          options: [option],
-        });
-      }
+    if (option) {
+      return ok({
+        ...baseResult,
+        inputRequired: null,
+        resolution,
+        options: [option],
+      });
     }
 
     if (existing.value && existing.value.auth.kind === "headers") {
       return ok({
-        path: path.value,
-        resource: resource.value,
-        existing: existing.value,
-        profile: profile.value,
+        ...baseResult,
         inputRequired: null,
         resolution,
         options: [],
@@ -828,10 +814,7 @@ export async function createAgentPw(options: AgentPwOptions) {
 
       if (options.length > 0) {
         return ok({
-          path: path.value,
-          resource: resource.value,
-          existing: existing.value,
-          profile: profile.value,
+          ...baseResult,
           inputRequired: null,
           resolution: {
             canonicalResource: resource.value,
@@ -846,10 +829,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     }
 
     return ok({
-      path: path.value,
-      resource: resource.value,
-      existing: existing.value,
-      profile: profile.value,
+      ...baseResult,
       inputRequired: null,
       resolution,
       options: [],
@@ -1118,8 +1098,8 @@ export async function createAgentPw(options: AgentPwOptions) {
           return profile;
         }
 
-        const selectedOption = profile.value
-          ? optionFromProfile(profile.value, resource.value)
+        const selectedOption = profile.value?.oauth
+          ? oauthOptionFromProfile(profile.value, profile.value.oauth, resource.value)
           : null;
         if (selectedOption?.kind === "oauth" && profile.value?.http == null) {
           return err(
