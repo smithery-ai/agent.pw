@@ -35,6 +35,33 @@ Credentials always store the runtime material they need:
 
 ## `connect.*`
 
+### `connect.prepare({ path, resource, response? })`
+
+This is the entry point for guided connection setup.
+
+It returns one of:
+
+- `ready`
+- `input_required`
+- `options`
+
+`input_required` means a matching profile requires HTTP inputs before the flow can continue.
+
+The payload includes:
+
+- `input.http.headers`
+- `input.http.query`
+- `input.missing.headers`
+- `input.missing.query`
+
+The important model split is:
+
+- query params stay in the `resource` URL
+- headers are stored through `connect.setHeaders(...)`
+- `options` only contains OAuth routes
+
+After the app updates the URL query params and/or stores headers, it should call `connect.prepare(...)` again.
+
 ### `connect.classifyResponse({ response, resource? })`
 
 Use this when you are handling an upstream response directly and only need to know whether it is a Bearer auth challenge.
@@ -70,6 +97,10 @@ This is the write path for both:
 - header-based auth
 - app-supplied non-auth connection headers
 
+This method only stores headers. Query params remain in the `resource` URL and are never stored by `agent.pw`.
+
+When a matched profile defines `http.headers`, submitted headers must be a subset of those declared header names.
+
 When the stored credential is OAuth-backed, OAuth-owned auth headers remain authoritative and app-supplied non-auth headers are replaced.
 
 ### `connect.resolveHeaders({ path, refresh? })`
@@ -91,10 +122,9 @@ Apps can still store a credential directly:
 ```ts
 await agentPw.credentials.put({
   path: "acme.connections.manual_resend",
+  resource: "https://api.resend.com/",
   auth: {
     kind: "headers",
-    label: "Manual Resend key",
-    resource: "https://api.resend.com/",
   },
   secret: {
     headers: {
@@ -142,7 +172,7 @@ Use them when an embedder wants to:
 
 - override discovery for a known resource
 - work around broken or incomplete upstream metadata
-- define header-entry templates for admin UIs
+- define literal HTTP input templates for admin UIs
 - apply global defaults and narrower org or workspace overrides
 
 For matching rules and examples, see [Credential Profiles](./credential-profiles.md).
