@@ -65,16 +65,18 @@ export interface SqlNamespaceOptions {
 
 export type OAuthClientAuthenticationMethod = "none" | "client_secret_basic" | "client_secret_post";
 
-export interface HeaderFieldDefinition {
-  name: string;
+export interface HttpInputField {
   label: string;
   description?: string;
-  prefix?: string;
-  secret?: boolean;
+  required?: boolean;
 }
 
-export interface CredentialProfileOAuthAuth {
-  kind: "oauth";
+export interface CredentialProfileHttp {
+  headers?: Record<string, HttpInputField>;
+  query?: Record<string, HttpInputField>;
+}
+
+export interface CredentialProfileOAuth {
   label?: string;
   issuer?: string;
   authorizationUrl?: string;
@@ -86,18 +88,11 @@ export interface CredentialProfileOAuthAuth {
   scopes?: string | string[];
 }
 
-export interface CredentialProfileHeadersAuth {
-  kind: "headers";
-  label?: string;
-  fields: HeaderFieldDefinition[];
-}
-
-export type CredentialProfileAuth = CredentialProfileOAuthAuth | CredentialProfileHeadersAuth;
-
 export interface CredentialProfileRecord {
   path: string;
   resourcePatterns: string[];
-  auth: CredentialProfileAuth;
+  http: CredentialProfileHttp | null;
+  oauth: CredentialProfileOAuth | null;
   displayName: string | null;
   description: string | null;
   createdAt: Date;
@@ -106,7 +101,8 @@ export interface CredentialProfileRecord {
 
 export interface CredentialProfilePutInput {
   resourcePatterns: string[];
-  auth: CredentialProfileAuth;
+  http?: CredentialProfileHttp;
+  oauth?: CredentialProfileOAuth;
   displayName?: string;
   description?: string;
 }
@@ -199,14 +195,6 @@ const OAuthClientAuthenticationMethodSchema = z.enum([
   "client_secret_post",
 ]);
 
-interface ConnectOptionBase {
-  kind: "oauth" | "headers";
-  source: "discovery" | "profile";
-  resource: string;
-  label: string;
-  profilePath?: string;
-}
-
 const ConnectOptionBaseSchema = z.object({
   source: z.enum(["discovery", "profile"]),
   resource: z.string(),
@@ -243,13 +231,7 @@ export const PendingFlowCredentialSchema = z
   .meta({ id: "PendingFlowCredential" });
 export type PendingFlowCredential = z.infer<typeof PendingFlowCredentialSchema>;
 
-export interface ConnectHeadersOption extends ConnectOptionBase {
-  kind: "headers";
-  source: "profile";
-  fields: readonly HeaderFieldDefinition[];
-}
-
-export type ConnectOption = ConnectOAuthOption | ConnectHeadersOption;
+export type ConnectOption = ConnectOAuthOption;
 
 export interface ConnectResolutionResult {
   canonicalResource: string;
@@ -303,7 +285,22 @@ export interface ConnectOptionsResult {
   resolution: ConnectResolutionResult;
 }
 
-export type ConnectPrepareResult = ConnectReadyResult | ConnectOptionsResult;
+export interface ConnectInputRequiredResult {
+  kind: "input_required";
+  input: {
+    http: CredentialProfileHttp;
+    missing: {
+      headers: readonly string[];
+      query: readonly string[];
+    };
+  };
+  resolution: ConnectResolutionResult;
+}
+
+export type ConnectPrepareResult =
+  | ConnectReadyResult
+  | ConnectOptionsResult
+  | ConnectInputRequiredResult;
 
 export interface ConnectStartOAuthInput {
   path: string;

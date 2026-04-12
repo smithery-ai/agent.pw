@@ -26,7 +26,7 @@ describe("db entrypoints", () => {
       await closeLocalDb(localDb);
       await rm(dataDir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("bootstraps the default schema", async () => {
     let db: unknown;
@@ -84,9 +84,10 @@ describe("db entrypoints", () => {
 
       await queries.upsertCredProfile(db, "github", {
         resourcePatterns: ["https://api.github.com/*"],
-        auth: {
-          kind: "headers",
-          fields: [{ name: "Authorization", label: "Token", prefix: "Bearer " }],
+        http: {
+          headers: {
+            Authorization: { label: "Token", required: true },
+          },
         },
       });
       expect(await queries.getCredProfile(db, "github")).toEqual(

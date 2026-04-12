@@ -41,21 +41,21 @@ describe("createAgentPw edge cases", () => {
     await expect(
       agentPw.profiles.put("shared.github", {
         resourcePatterns: [],
-        auth: { kind: "headers", fields: [] },
+        http: { headers: {} },
       }),
     ).rejects.toThrow("Credential Profile resourcePatterns cannot be empty");
 
     await agentPw.profiles.put("shared.github", {
       resourcePatterns: ["https://shared.example.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "Token" }],
+      http: {
+        headers: {
+          Authorization: { label: "Token", required: true },
+        },
       },
     });
     await agentPw.profiles.put("shared.gitlab", {
       resourcePatterns: ["https://shared.example.com/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://auth.example.com/authorize",
         tokenUrl: "https://auth.example.com/token",
         clientId: "shared-client",
@@ -64,34 +64,28 @@ describe("createAgentPw edge cases", () => {
     await expect(
       agentPw.profiles.put("shared.filtered", {
         resourcePatterns: ["https://filtered.example.com/*"],
-        auth: {
-          kind: "headers",
-          label: "Filtered headers",
-          fields: [
-            {
-              name: "API_KEY",
+        http: {
+          headers: {
+            API_KEY: {
               label: "API key",
               description: "Stored as a header secret",
-              secret: true,
+              required: true,
             },
-            {} as never,
-          ],
+          },
         },
       }),
     ).resolves.toEqual(
       expect.objectContaining({
         path: "shared.filtered",
-        auth: {
-          kind: "headers",
-          label: "Filtered headers",
-          fields: [
-            {
-              name: "API_KEY",
+        oauth: null,
+        http: {
+          headers: {
+            API_KEY: {
               label: "API key",
               description: "Stored as a header secret",
-              secret: true,
+              required: true,
             },
-          ],
+          },
         },
       }),
     );
@@ -175,15 +169,15 @@ describe("createAgentPw edge cases", () => {
 
     await agentPw.profiles.put("resend", {
       resourcePatterns: ["https://api.resend.com*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "API key", prefix: "Bearer " }],
+      http: {
+        headers: {
+          Authorization: { label: "API key", required: true },
+        },
       },
     });
     await agentPw.profiles.put("linear", {
       resourcePatterns: ["https://api.linear.app/*"],
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://accounts.example.com/authorize",
         tokenUrl: "https://accounts.example.com/token",
         clientId: "client-linear",
@@ -194,10 +188,11 @@ describe("createAgentPw edge cases", () => {
       path: "org.connections.resend",
       resource: "https://api.resend.com",
     });
-    expect(prepared.kind).toBe("options");
-    if (prepared.kind !== "options") {
-      throw new Error("Expected options");
+    expect(prepared.kind).toBe("input_required");
+    if (prepared.kind !== "input_required") {
+      throw new Error("Expected input_required");
     }
+    expect(prepared.input.missing).toEqual({ headers: ["Authorization"], query: [] });
 
     await expect(
       agentPw.connect.setHeaders({
@@ -234,9 +229,9 @@ describe("createAgentPw edge cases", () => {
     await expect(
       agentPw.profiles.put("org.connections.invalid_profile", {
         resourcePatterns: ["https://invalid.example.com/*"],
-        auth: { kind: "unsupported" } as never,
+        http: {} as never,
       }),
-    ).rejects.toThrow("Invalid profile auth kind");
+    ).rejects.toThrow("Profile must define http or oauth");
 
     await expect(
       agentPw.credentials.put({

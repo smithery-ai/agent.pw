@@ -28,7 +28,8 @@ async function createState() {
         return mustAsync(
           agentPw.profiles.put(path, {
             resourcePatterns: profile.resourcePatterns,
-            auth: profile.auth,
+            ...(profile.http ? { http: profile.http } : {}),
+            ...(profile.oauth ? { oauth: profile.oauth } : {}),
             ...(profile.displayName ? { displayName: profile.displayName } : {}),
             ...(profile.description ? { description: profile.description } : {}),
           }),
@@ -231,10 +232,15 @@ describe("oauth service coverage", () => {
     await state.profiles.set("headers", {
       path: "headers",
       resourcePatterns: ["https://headers.example.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "Token" }],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Token",
+            required: true,
+          },
+        },
       },
+      oauth: null,
       displayName: null,
       description: null,
       createdAt: new Date(),
@@ -258,8 +264,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("issuer", {
       path: "issuer",
       resourcePatterns: ["https://issuer.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://issuer.example.com",
         clientId: "issuer-client",
         scopes: "read write",
@@ -473,8 +479,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("root-auth", {
       path: "root-auth",
       resourcePatterns: ["https://root-auth.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://root-auth.example.com",
       },
       displayName: null,
@@ -485,8 +491,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("path-auth", {
       path: "path-auth",
       resourcePatterns: ["https://path-auth.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://path-auth.example.com/tenant",
       },
       displayName: null,
@@ -561,8 +567,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("missing-issuer", {
       path: "missing-issuer",
       resourcePatterns: ["https://missing-issuer.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://missing-issuer.example.com",
       },
       displayName: null,
@@ -629,8 +635,8 @@ describe("oauth service coverage", () => {
       await state.profiles.set("global-path-auth", {
         path: "global-path-auth",
         resourcePatterns: ["https://global-path-auth.example.com/*"],
-        auth: {
-          kind: "oauth",
+        http: null,
+        oauth: {
           issuer: "https://global-path-auth.example.com/tenant",
         },
         displayName: null,
@@ -707,8 +713,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("meta-client", {
       path: "meta-client",
       resourcePatterns: ["https://issuer-meta.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://issuer-meta.example.com",
       },
       displayName: null,
@@ -801,8 +807,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("metadata-client", {
       path: "metadata-client",
       resourcePatterns: ["https://issuer-register.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://issuer-register.example.com",
       },
       displayName: null,
@@ -868,8 +874,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("metadata-client", {
       path: "metadata-client",
       resourcePatterns: ["https://issuer-register.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://issuer-register.example.com",
       },
       displayName: null,
@@ -1116,8 +1122,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("issuer-500", {
       path: "issuer-500",
       resourcePatterns: ["https://issuer-500.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://issuer-500.example.com",
         clientId: "issuer-500-client",
       },
@@ -1180,8 +1186,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("broken-config", {
       path: "broken-config",
       resourcePatterns: ["https://broken.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         clientId: "broken-client",
       },
       displayName: null,
@@ -1213,8 +1219,8 @@ describe("oauth service coverage", () => {
     await state.profiles.set("client-override", {
       path: "client-override",
       resourcePatterns: ["https://override.example.com/*"],
-      auth: {
-        kind: "oauth",
+      http: null,
+      oauth: {
         issuer: "https://override.example.com",
       },
       displayName: null,

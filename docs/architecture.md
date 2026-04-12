@@ -130,9 +130,12 @@ It returns:
 - `ready`
   - a credential already exists at `path`
   - includes fresh headers and the current credential record
+- `input_required`
+  - a matching profile requires HTTP inputs before the flow can continue
+  - includes the accepted `http.headers` / `http.query` maps plus the missing field names
 - `options`
   - includes a list of auth options the app can present
-  - options are `oauth` or `headers`
+  - options are OAuth only
   - an empty list means unconfigured
 
 ### `connect.classifyResponse({ response, resource? })`
@@ -178,6 +181,8 @@ Stores app-supplied headers at the exact path.
 
 This is the write path for both header-based auth and app-supplied non-auth connection headers.
 
+It only stores headers. Query params remain in the `resource` URL.
+
 When the stored credential is OAuth-backed, OAuth-owned auth headers remain authoritative and app-supplied non-auth headers are replaced.
 
 ### `connect.resolveHeaders({ path, refresh? })`
@@ -214,10 +219,10 @@ This keeps the stored model small while still covering the common real-world cas
 1. check whether a credential already exists at `path`
 2. if it does, return `ready`
 3. resolve path-scoped profiles that match the `resource`
-4. if a profile matches, use it as the authoritative route
-5. otherwise try discovery for the `resource`
-6. build `oauth` or `headers` options from the chosen route
-7. return those options
+4. if a matching profile requires HTTP inputs, return `input_required`
+5. if a matching profile defines OAuth, return a profile-backed OAuth option
+6. otherwise try discovery for the `resource`
+7. return discovered OAuth options or an empty list when unconfigured
 
 Each `prepare(...)` result also includes `resolution`, so apps can inspect the canonical resource, selected source, and chosen option without a second API call.
 
@@ -241,7 +246,30 @@ Flow state stays narrowly scoped to OAuth continuation data: path, resource, opt
 
 Profiles are intended for configuration phases, usually performed once by admins.
 
-Two profile shapes matter:
+The public profile model is:
+
+- `http.headers`
+- `http.query`
+- `oauth`
+
+Profiles can be HTTP-only, OAuth-only, or HTTP + OAuth.
+
+### HTTP input profile
+
+Used to guide literal connection inputs before the connection is ready.
+
+HTTP input metadata is intentionally small:
+
+- `label`
+- `description`
+- `required`
+
+The transport is expressed structurally:
+
+- `http.headers` are stored through `connect.setHeaders(...)`
+- `http.query` stays in the `resource` URL
+
+There is no profile-level `prefix`, `secret`, or formatting metadata.
 
 ### OAuth profile
 
@@ -257,20 +285,6 @@ Example fields:
 - `clientSecret`
 - `clientAuthentication`
 - `scopes`
-
-### Header profile
-
-Used to guide manual credential entry.
-
-Header profiles define field metadata such as:
-
-- `name`
-- `label`
-- `description`
-- `prefix`
-- `secret`
-
-That lets the framework return a manual setup option without hard-coding the form in the app.
 
 ## Minimal Stored Model
 

@@ -1,4 +1,5 @@
 import { err, ok } from "okay-error";
+import { z } from "zod";
 import { createQueryHelpers } from "./db/queries.js";
 import { authorizationError, conflictError, inputError, notFoundError } from "./errors.js";
 import {
@@ -17,13 +18,13 @@ import type {
   AgentPw,
   AgentPwOptions,
   ConnectFlow,
+  ConnectInputRequiredResult,
   ConnectOAuthOption,
-  ConnectOption,
   ConnectPrepareInput,
   ConnectResolutionResult,
   CredentialAuth,
-  CredentialProfileAuth,
-  CredentialProfileOAuthAuth,
+  CredentialProfileHttp,
+  CredentialProfileOAuth,
   CredentialProfilePutInput,
   CredentialProfileRecord,
   CredentialRecord,
@@ -53,55 +54,107 @@ function resolveSingleMatch<T extends { path: string }>(matches: T[], descriptio
   return ok(conflicts[0]);
 }
 
-function parseProfileAuth(value: unknown) {
-  if (!isRecord(value)) {
-    return err(inputError("Invalid profile auth payload"));
-  }
-  if (value.kind === "oauth") {
-    return ok<CredentialProfileAuth>({
-      kind: "oauth",
-      label: typeof value.label === "string" ? value.label : undefined,
-      issuer: typeof value.issuer === "string" ? value.issuer : undefined,
-      authorizationUrl:
-        typeof value.authorizationUrl === "string" ? value.authorizationUrl : undefined,
-      tokenUrl: typeof value.tokenUrl === "string" ? value.tokenUrl : undefined,
-      revocationUrl: typeof value.revocationUrl === "string" ? value.revocationUrl : undefined,
-      clientId: typeof value.clientId === "string" ? value.clientId : undefined,
-      clientSecret: typeof value.clientSecret === "string" ? value.clientSecret : undefined,
-      clientAuthentication:
-        value.clientAuthentication === "client_secret_basic" ||
-        value.clientAuthentication === "client_secret_post" ||
-        value.clientAuthentication === "none"
-          ? value.clientAuthentication
-          : undefined,
-      scopes: Array.isArray(value.scopes)
-        ? value.scopes.filter((entry): entry is string => typeof entry === "string")
-        : typeof value.scopes === "string"
-          ? value.scopes
-          : undefined,
-    });
-  }
-  if (value.kind === "headers") {
-    const fields = Array.isArray(value.fields)
-      ? value.fields
-          .filter(isRecord)
-          .map((field) => ({
-            name: typeof field.name === "string" ? field.name : "",
-            label: typeof field.label === "string" ? field.label : "",
-            description: typeof field.description === "string" ? field.description : undefined,
-            prefix: typeof field.prefix === "string" ? field.prefix : undefined,
-            secret: typeof field.secret === "boolean" ? field.secret : undefined,
-          }))
-          .filter((field) => field.name.length > 0 && field.label.length > 0)
-      : [];
+const HttpInputFieldSchema = z
+  .object({
+    label: z.string().min(1),
+    description: z.string().optional(),
+    required: z.boolean().optional().default(false),
+  })
+  .strict();
 
-    return ok<CredentialProfileAuth>({
-      kind: "headers",
-      label: typeof value.label === "string" ? value.label : undefined,
-      fields,
+const HttpInputMapSchema = z.record(z.string().min(1), HttpInputFieldSchema);
+
+const ProfileHttpSchema = z
+  .object({
+    headers: HttpInputMapSchema.optional(),
+    query: HttpInputMapSchema.optional(),
+  })
+  .strict();
+
+const ProfileOAuthSchema = z
+  .object({
+    label: z.string().optional(),
+    issuer: z.string().optional(),
+    authorizationUrl: z.string().optional(),
+    tokenUrl: z.string().optional(),
+    revocationUrl: z.string().optional(),
+    clientId: z.string().optional(),
+    clientSecret: z.string().optional(),
+    clientAuthentication: z.enum(["none", "client_secret_basic", "client_secret_post"]).optional(),
+    scopes: z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .strict();
+
+function omitEmptyHttpMaps(http: CredentialProfileHttp | null) {
+  const headers = http?.headers && Object.keys(http.headers).length > 0 ? http.headers : undefined;
+  const query = http?.query && Object.keys(http.query).length > 0 ? http.query : undefined;
+  return headers || query ? { ...(headers ? { headers } : {}), ...(query ? { query } : {}) } : null;
+}
+
+function duplicateCaseInsensitiveKey(keys: Iterable<string>) {
+  const seen = new Set<string>();
+  for (const key of keys) {
+    const normalized = key.toLowerCase();
+    if (seen.has(normalized)) {
+      return key;
+    }
+    seen.add(normalized);
+  }
+  return null;
+}
+
+function parseProfileHttp(value: unknown) {
+  const parsed = ProfileHttpSchema.safeParse(value);
+  if (!parsed.success) {
+    return err(inputError("Invalid profile http payload"));
+  }
+
+  const duplicateHeader = duplicateCaseInsensitiveKey(Object.keys(parsed.data.headers ?? {}));
+  if (duplicateHeader) {
+    return err(inputError(`Profile http.headers contains duplicate header '${duplicateHeader}'`));
+  }
+
+  const http = omitEmptyHttpMaps(parsed.data);
+  return ok(http);
+}
+
+function parseProfileOAuth(value: unknown) {
+  const parsed = ProfileOAuthSchema.safeParse(value);
+  if (!parsed.success) {
+    return err(inputError("Invalid profile oauth payload"));
+  }
+  return ok<CredentialProfileOAuth>(parsed.data);
+}
+
+function parseProfilePayload(value: unknown) {
+  if (!isRecord(value)) {
+    return err(inputError("Invalid profile payload"));
+  }
+
+  if ("http" in value || "oauth" in value) {
+    const parsedHttp =
+      "http" in value && value.http != null ? parseProfileHttp(value.http) : ok(null);
+    if (!parsedHttp.ok) {
+      return parsedHttp;
+    }
+
+    const parsedOAuth =
+      "oauth" in value && value.oauth != null ? parseProfileOAuth(value.oauth) : ok(null);
+    if (!parsedOAuth.ok) {
+      return parsedOAuth;
+    }
+
+    if (!parsedHttp.value && !parsedOAuth.value) {
+      return err(inputError("Profile must define http or oauth"));
+    }
+
+    return ok({
+      http: parsedHttp.value,
+      oauth: parsedOAuth.value,
     });
   }
-  return err(inputError("Invalid profile auth kind"));
+
+  return err(inputError("Invalid profile payload"));
 }
 
 function parseCredentialAuth(value: unknown) {
@@ -160,7 +213,11 @@ function serializeCredentialAuth(auth: CredentialAuth) {
 
 function requireHeadersSecret(secret: StoredCredentials, path: string) {
   if (!secret.headers || Object.keys(secret.headers).length === 0) {
-    return err(inputError(`Credential '${path}' does not have header-based auth`, { path }));
+    return err(
+      inputError(`Credential '${path}' does not have header-based auth`, {
+        path,
+      }),
+    );
   }
   return ok(secret.headers);
 }
@@ -202,20 +259,129 @@ function toProfileRecord(row: {
   createdAt: Date;
   updatedAt: Date;
 }) {
-  const auth = parseProfileAuth(row.auth);
-  if (!auth.ok) {
-    return auth;
+  const payload = parseProfilePayload(row.auth);
+  if (!payload.ok) {
+    return payload;
   }
 
   return ok<CredentialProfileRecord>({
     path: row.path,
     resourcePatterns: row.resourcePatterns,
-    auth: auth.value,
+    http: payload.value.http,
+    oauth: payload.value.oauth,
     displayName: row.displayName,
     description: row.description,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
+}
+
+function searchWithoutKeys(url: URL, keysToOmit: Set<string>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of url.searchParams) {
+    if (!keysToOmit.has(key)) {
+      params.append(key, value);
+    }
+  }
+  const query = params.toString();
+  return query.length > 0 ? `?${query}` : "";
+}
+
+function profileAllowsResource(
+  profile: CredentialProfileRecord | null,
+  storedResource: string,
+  requestedResource: string,
+) {
+  if (storedResource === requestedResource) {
+    return true;
+  }
+
+  const allowedQuery = Object.keys(profile?.http?.query ?? {});
+  if (allowedQuery.length === 0) {
+    return false;
+  }
+
+  const storedUrl = new URL(storedResource);
+  const requestedUrl = new URL(requestedResource);
+  if (
+    storedUrl.protocol !== requestedUrl.protocol ||
+    storedUrl.username !== requestedUrl.username ||
+    storedUrl.password !== requestedUrl.password ||
+    storedUrl.host !== requestedUrl.host ||
+    storedUrl.pathname !== requestedUrl.pathname
+  ) {
+    return false;
+  }
+
+  const allowed = new Set(allowedQuery);
+  return searchWithoutKeys(storedUrl, allowed) === searchWithoutKeys(requestedUrl, allowed);
+}
+
+function profileHeaderFieldNames(profile: CredentialProfileRecord | null) {
+  const names = new Set<string>();
+  for (const name of Object.keys(profile?.http?.headers ?? {})) {
+    names.add(name.toLowerCase());
+  }
+  return names;
+}
+
+function validateProfileHeaders(
+  headers: Record<string, string>,
+  profile: CredentialProfileRecord | null,
+) {
+  if (!profile) {
+    return ok(undefined);
+  }
+
+  const allowed = profileHeaderFieldNames(profile);
+  if (allowed.size === 0) {
+    if (Object.keys(headers).length > 0) {
+      return err(
+        inputError(`Profile '${profile.path}' does not accept manual headers for this resource`),
+      );
+    }
+    return ok(undefined);
+  }
+
+  const invalid = Object.keys(headers).filter((name) => !allowed.has(name.toLowerCase()));
+  if (invalid.length > 0) {
+    return err(
+      inputError(`Profile '${profile.path}' does not accept header(s): ${invalid.join(", ")}`),
+    );
+  }
+  return ok(undefined);
+}
+
+function httpInputMissing(
+  profile: CredentialProfileRecord | null,
+  resource: string,
+  headers: Record<string, string> | undefined,
+) {
+  const url = new URL(resource);
+  const lowerHeaders = new Map<string, string>();
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    lowerHeaders.set(name.toLowerCase(), value);
+  }
+
+  const missingHeaders = Object.entries(profile?.http?.headers ?? {})
+    .filter(([, field]) => field.required === true)
+    .filter(([name]) => {
+      const value = lowerHeaders.get(name.toLowerCase());
+      return typeof value !== "string" || value.length === 0;
+    })
+    .map(([name]) => name);
+  const missingQuery = Object.entries(profile?.http?.query ?? {})
+    .filter(([, field]) => field.required === true)
+    .filter(([name]) => {
+      const value = url.searchParams.get(name);
+      return value === null || value.length === 0;
+    })
+    .map(([name]) => name);
+
+  return {
+    headers: missingHeaders,
+    query: missingQuery,
+  };
 }
 
 async function decryptCredentialRecord(
@@ -380,18 +546,24 @@ export async function createAgentPw(options: AgentPwOptions) {
         return err(inputError("Credential Profile resourcePatterns cannot be empty"));
       }
 
-      const auth = toJsonRecord(data.auth);
-      if (!auth.ok) {
-        return auth;
+      const payloadRecord = toJsonRecord(data);
+      if (!payloadRecord.ok) {
+        return payloadRecord;
       }
-      const parsedAuth = parseProfileAuth(auth.value);
-      if (!parsedAuth.ok) {
-        return parsedAuth;
+      if (!("http" in payloadRecord.value) && !("oauth" in payloadRecord.value)) {
+        return err(inputError("Credential Profile must define http or oauth"));
+      }
+      const parsedPayload = parseProfilePayload(payloadRecord.value);
+      if (!parsedPayload.ok) {
+        return parsedPayload;
       }
 
       const persisted = await queryHelpers.upsertCredProfile(db, profilePath.value, {
         resourcePatterns: data.resourcePatterns,
-        auth: parsedAuth.value as unknown as Record<string, unknown>,
+        auth: {
+          ...(parsedPayload.value.http ? { http: parsedPayload.value.http } : {}),
+          ...(parsedPayload.value.oauth ? { oauth: parsedPayload.value.oauth } : {}),
+        },
         displayName: data.displayName,
         description: data.description,
       });
@@ -486,7 +658,7 @@ export async function createAgentPw(options: AgentPwOptions) {
 
   function oauthOptionFromProfile(
     profile: CredentialProfileRecord,
-    oauthAuth: CredentialProfileOAuthAuth,
+    oauthAuth: CredentialProfileOAuth,
     resource: string,
   ): ConnectOAuthOption {
     return {
@@ -500,21 +672,6 @@ export async function createAgentPw(options: AgentPwOptions) {
         : typeof oauthAuth.scopes === "string"
           ? oauthAuth.scopes.split(/\s+/).filter(Boolean)
           : undefined,
-    };
-  }
-
-  function optionFromProfile(profile: CredentialProfileRecord, resource: string): ConnectOption {
-    if (profile.auth.kind === "oauth") {
-      return oauthOptionFromProfile(profile, profile.auth, resource);
-    }
-
-    return {
-      kind: "headers",
-      source: "profile",
-      resource,
-      profilePath: profile.path,
-      label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
-      fields: profile.auth.fields,
     };
   }
 
@@ -542,9 +699,21 @@ export async function createAgentPw(options: AgentPwOptions) {
       return existing;
     }
 
+    const profile = existing.value?.auth.profilePath
+      ? await profiles.get(existing.value.auth.profilePath)
+      : await profiles.resolve({ path: path.value, resource: resource.value });
+    if (!profile.ok) {
+      return profile;
+    }
+
     if (existing.value) {
       const existingResource = credentialResource(existing.value.auth);
-      if (existingResource && existingResource !== resource.value) {
+      const matchesResource =
+        !existingResource ||
+        (existing.value.auth.kind === "headers"
+          ? profileAllowsResource(profile.value, existingResource, resource.value)
+          : existingResource === resource.value);
+      if (!matchesResource) {
         return err(
           conflictError(
             `Credential '${path.value}' is already connected to '${existingResource}', not '${resource.value}'`,
@@ -552,11 +721,43 @@ export async function createAgentPw(options: AgentPwOptions) {
           ),
         );
       }
+    }
 
+    const option = profile.value?.oauth
+      ? oauthOptionFromProfile(profile.value, profile.value.oauth, resource.value)
+      : null;
+    const missing = httpInputMissing(profile.value, resource.value, existing.value?.secret.headers);
+    const baseResult = {
+      path: path.value,
+      resource: resource.value,
+      existing: existing.value,
+      profile: profile.value,
+    };
+
+    const resolution = {
+      canonicalResource: resource.value,
+      source: profile.value ? "profile" : null,
+      reason: profile.value ? "matched-profile" : "unconfigured",
+      profilePath: existing.value?.auth.profilePath ?? profile.value?.path ?? null,
+      option,
+    } satisfies ConnectResolutionResult;
+
+    if ((missing.headers.length > 0 || missing.query.length > 0) && profile.value?.http) {
       return ok({
-        path: path.value,
-        resource: resource.value,
-        existing: existing.value,
+        ...baseResult,
+        inputRequired: {
+          http: profile.value.http,
+          missing,
+        },
+        resolution,
+        options: option ? [option] : [],
+      });
+    }
+
+    if (existing.value && existing.value.auth.kind !== "headers") {
+      return ok({
+        ...baseResult,
+        inputRequired: null,
         resolution: {
           canonicalResource: resource.value,
           source: null,
@@ -568,24 +769,21 @@ export async function createAgentPw(options: AgentPwOptions) {
       });
     }
 
-    const profile = await profiles.resolve({ path: path.value, resource: resource.value });
-    if (!profile.ok) {
-      return profile;
-    }
-    if (profile.value) {
-      const option = optionFromProfile(profile.value, resource.value);
+    if (option) {
       return ok({
-        path: path.value,
-        resource: resource.value,
-        existing: null,
-        resolution: {
-          canonicalResource: resource.value,
-          source: "profile",
-          reason: "matched-profile",
-          profilePath: profile.value.path,
-          option,
-        } satisfies ConnectResolutionResult,
+        ...baseResult,
+        inputRequired: null,
+        resolution,
         options: [option],
+      });
+    }
+
+    if (existing.value && existing.value.auth.kind === "headers") {
+      return ok({
+        ...baseResult,
+        inputRequired: null,
+        resolution,
+        options: [],
       });
     }
 
@@ -616,14 +814,13 @@ export async function createAgentPw(options: AgentPwOptions) {
 
       if (options.length > 0) {
         return ok({
-          path: path.value,
-          resource: resource.value,
-          existing: null,
+          ...baseResult,
+          inputRequired: null,
           resolution: {
             canonicalResource: resource.value,
             source: "discovery",
             reason: "discovered-oauth",
-            profilePath: null,
+            profilePath: profile.value?.path ?? null,
             option: options[0],
           } satisfies ConnectResolutionResult,
           options,
@@ -632,16 +829,9 @@ export async function createAgentPw(options: AgentPwOptions) {
     }
 
     return ok({
-      path: path.value,
-      resource: resource.value,
-      existing: null,
-      resolution: {
-        canonicalResource: resource.value,
-        source: null,
-        reason: "unconfigured",
-        profilePath: null,
-        option: null,
-      } satisfies ConnectResolutionResult,
+      ...baseResult,
+      inputRequired: null,
+      resolution,
       options: [],
     });
   }
@@ -730,6 +920,25 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!resolved.ok) {
         return resolved;
       }
+      if (resolved.value.inputRequired) {
+        return ok<ConnectInputRequiredResult>({
+          kind: "input_required",
+          input: resolved.value.inputRequired,
+          resolution: resolved.value.resolution,
+        });
+      }
+      if (
+        resolved.value.existing &&
+        resolved.value.existing.auth.kind === "headers" &&
+        resolved.value.existing.auth.profilePath !== null &&
+        resolved.value.options.length > 0
+      ) {
+        return ok({
+          kind: "options",
+          options: resolved.value.options,
+          resolution: resolved.value.resolution,
+        });
+      }
       if (resolved.value.existing) {
         if (resolved.value.existing.auth.kind === "oauth" && input.response?.status === 403) {
           const classified = await oauth.classifyResponse({
@@ -753,24 +962,23 @@ export async function createAgentPw(options: AgentPwOptions) {
               return profile;
             }
 
-            const stepUpOption: ConnectOAuthOption =
-              profile.value?.auth.kind === "oauth"
-                ? {
-                    ...oauthOptionFromProfile(
-                      profile.value,
-                      profile.value.auth,
-                      resolved.value.resource,
-                    ),
-                    scopes: mergedScopes,
-                  }
-                : {
-                    kind: "oauth",
-                    source: "discovery",
-                    resource: resolved.value.resource,
-                    label: credentialName(resolved.value.path),
-                    scopes: mergedScopes,
-                    authorizationServer: resolved.value.existing.secret.oauth?.issuer,
-                  };
+            const stepUpOption: ConnectOAuthOption = profile.value?.oauth
+              ? {
+                  ...oauthOptionFromProfile(
+                    profile.value,
+                    profile.value.oauth,
+                    resolved.value.resource,
+                  ),
+                  scopes: mergedScopes,
+                }
+              : {
+                  kind: "oauth",
+                  source: "discovery",
+                  resource: resolved.value.resource,
+                  label: credentialName(resolved.value.path),
+                  scopes: mergedScopes,
+                  authorizationServer: resolved.value.existing.secret.oauth?.issuer,
+                };
 
             return ok({
               kind: "options",
@@ -890,13 +1098,18 @@ export async function createAgentPw(options: AgentPwOptions) {
           return profile;
         }
 
-        const selectedOption = profile.value
-          ? optionFromProfile(profile.value, resource.value)
+        const selectedOption = profile.value?.oauth
+          ? oauthOptionFromProfile(profile.value, profile.value.oauth, resource.value)
           : null;
-        if (selectedOption?.kind === "oauth") {
+        if (selectedOption?.kind === "oauth" && profile.value?.http == null) {
           return err(
             inputError(`Resource '${resource.value}' requires OAuth; use connect.startOAuth(...)`),
           );
+        }
+
+        const headerValidation = validateProfileHeaders(headers.value, profile.value);
+        if (!headerValidation.ok) {
+          return headerValidation;
         }
 
         return putCredential(
@@ -904,9 +1117,7 @@ export async function createAgentPw(options: AgentPwOptions) {
             path: path.value,
             auth: {
               kind: "headers",
-              ...(selectedOption?.kind === "headers" && selectedOption.profilePath
-                ? { profilePath: selectedOption.profilePath }
-                : {}),
+              ...(profile.value?.path ? { profilePath: profile.value.path } : {}),
               resource: resource.value,
             },
             secret: {
@@ -946,6 +1157,19 @@ export async function createAgentPw(options: AgentPwOptions) {
       const secret = requireHeadersSecret(existing.value.secret, existing.value.path);
       if (!secret.ok) {
         return secret;
+      }
+
+      const profile = existing.value.auth.profilePath
+        ? await profiles.get(existing.value.auth.profilePath, opts)
+        : typeof input.resource === "string"
+          ? await profiles.resolve({ path: path.value, resource: input.resource }, opts)
+          : ok(null);
+      if (!profile.ok) {
+        return profile;
+      }
+      const headerValidation = validateProfileHeaders(headers.value, profile.value);
+      if (!headerValidation.ok) {
+        return headerValidation;
       }
 
       return putCredential(

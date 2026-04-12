@@ -140,7 +140,13 @@ describe("db edge coverage", () => {
       errorOf(
         await helpers.upsertCredProfile(db, "github", {
           resourcePatterns: ["/relative/*"],
-          auth: { kind: "headers", fields: [] },
+          auth: {
+            http: {
+              headers: {
+                Authorization: { label: "Token", required: true },
+              },
+            },
+          },
         }),
       ).message,
     ).toBe("Invalid resource pattern '/relative/*'");
@@ -148,7 +154,11 @@ describe("db edge coverage", () => {
     await db.execute(
       sql.raw(`
       INSERT INTO agentpw.cred_profiles (path, resource_patterns, auth)
-      VALUES ('org.broken'::ltree, '["/relative/*"]'::jsonb, '{"kind":"headers","fields":[]}'::jsonb)
+      VALUES (
+        'org.broken'::ltree,
+        '["/relative/*"]'::jsonb,
+        '{"http":{"headers":{"Authorization":{"label":"Token","required":true}}}}'::jsonb
+      )
     `),
     );
     expect(

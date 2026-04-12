@@ -109,10 +109,10 @@ They exist to help `agent.pw` guide setup when discovery is not enough.
 
 Profiles can:
 
-- define a manual header-entry template
+- define accepted HTTP headers and query params
 - provide a fixed OAuth configuration
 - override defaults within a path subtree
-- constrain how an app should collect or shape credentials
+- constrain how an app should collect connection inputs
 
 They do not define the full space of allowed credentials. Apps can still store one-off manual credentials directly.
 
@@ -138,8 +138,9 @@ The framework's setup model is:
 2. the app identifies the target `resource`
 3. `connect.prepare(...)` checks for an existing credential
 4. if none exists, the framework resolves matching profiles
-5. if no profile matches, the framework tries discovery
-6. the framework returns explicit next steps as `oauth` or `headers` options
+5. if required profile HTTP inputs are missing, the framework returns `input_required`
+6. otherwise the framework returns profile-backed OAuth or falls back to discovery
+7. if neither applies, the framework returns an unconfigured result
 
 This matters because implementers do not need to re-implement auth decision logic inconsistently across products or runtimes.
 
