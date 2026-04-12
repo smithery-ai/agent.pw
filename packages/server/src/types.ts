@@ -511,8 +511,8 @@ export type AuthorizedAgentPw = ScopedAgentPw;
 export interface AgentPwOptions {
   /** Drizzle database or transaction used to read and write agent.pw tables. */
   db: Database;
-  /** Secret used to encrypt credentials before they are stored. */
-  encryptionKey: string;
+  /** Secret used to encrypt credentials before they are stored. Required for credentials and connect APIs. */
+  encryptionKey?: string;
   /** Override the clock used for flow expiry and token refresh timing. */
   clock?: () => Date;
   /** Logger implementation for debug and operational messages. */

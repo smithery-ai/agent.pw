@@ -179,6 +179,7 @@ function createService(
     clock: () => NOW,
     customFetch: options.customFetch,
     defaultClient: options.defaultClient,
+    requireCredentialAccess: () => ok("test-encryption-key"),
     getProfile:
       (options.getProfile as never) ??
       (async () =>

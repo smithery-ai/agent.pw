@@ -1,4 +1,5 @@
 import { createAgentPw } from "agent.pw";
+import { ok } from "okay-error";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryFlowStore, createOAuthService } from "agent.pw/oauth";
 import type {
@@ -66,6 +67,7 @@ async function createState() {
         clock: options.clock ?? (() => new Date("2026-01-01T00:00:00.000Z")),
         customFetch: options.customFetch,
         defaultClient: options.defaultClient,
+        requireCredentialAccess: () => ok("test-encryption-key"),
         getProfile: agentPw.profiles.get,
         getCredential: agentPw.credentials.get,
         putCredential: agentPw.credentials.put,

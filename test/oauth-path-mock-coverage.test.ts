@@ -28,6 +28,7 @@ describe("oauth path guard coverage", () => {
     const service = createOAuthService({
       flowStore: createInMemoryFlowStore(),
       clock: () => new Date("2026-01-01T00:00:00.000Z"),
+      requireCredentialAccess: () => ok("test-encryption-key"),
       getProfile: async () => ok(null),
       getCredential: async () => ok(null),
       putCredential: async () => ok(null as never),

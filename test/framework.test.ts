@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-crypto";
 import type { RuleScope } from "../packages/server/src/types";
 import { TEST_KEY_MATERIAL, createTestDb } from "./setup";
-import { must, mustAsync, wrapAgentPw } from "./support/results";
+import { errorOf, must, mustAsync, wrapAgentPw } from "./support/results";
 
 async function createTestAgent(oauthFetch?: typeof fetch) {
   const db = await createTestDb();
@@ -15,6 +15,17 @@ async function createTestAgent(oauthFetch?: typeof fetch) {
         db,
         encryptionKey,
         oauthFetch,
+      }),
+    ),
+  );
+}
+
+async function createProfileOnlyAgent() {
+  const db = await createTestDb();
+  return wrapAgentPw(
+    must(
+      await createAgentPw({
+        db,
       }),
     ),
   );
@@ -57,6 +68,122 @@ function createDiscoveryFetch() {
 }
 
 describe("createAgentPw", () => {
+  it("supports profile-only usage without an encryption key", async () => {
+    const agentPw = await createProfileOnlyAgent();
+
+    await expect(
+      agentPw.profiles.put("resend", {
+        resourcePatterns: ["https://api.resend.com*"],
+        http: {
+          headers: {
+            Authorization: {
+              label: "API key",
+              required: true,
+            },
+          },
+        },
+        displayName: "Resend",
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        path: "resend",
+        displayName: "Resend",
+      }),
+    );
+
+    await expect(agentPw.profiles.get("resend")).resolves.toEqual(
+      expect.objectContaining({
+        path: "resend",
+        displayName: "Resend",
+      }),
+    );
+  });
+
+  it("rejects credential and connect operations without an encryption key", async () => {
+    const db = await createTestDb();
+    const agentPw = must(
+      await createAgentPw({
+        db,
+        flowStore: createInMemoryFlowStore(),
+      }),
+    );
+
+    await agentPw.profiles.put("resend", {
+      resourcePatterns: ["https://api.resend.com*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
+      },
+      oauth: {
+        authorizationUrl: "https://accounts.example.com/authorize",
+        tokenUrl: "https://accounts.example.com/token",
+        clientId: "resend-client",
+      },
+      displayName: "Resend",
+    });
+
+    const expected = "Credential operations require AgentPwOptions.encryptionKey";
+
+    expect(errorOf(await agentPw.credentials.get("acme.connections.resend")).message).toBe(
+      expected,
+    );
+    expect(errorOf(await agentPw.credentials.list()).message).toBe(expected);
+    expect(
+      errorOf(
+        await agentPw.credentials.put({
+          path: "acme.connections.resend",
+          auth: { kind: "headers" },
+          secret: {
+            headers: {
+              Authorization: "Bearer rs_123",
+            },
+          },
+        }),
+      ).message,
+    ).toBe(expected);
+    expect(
+      errorOf(await agentPw.credentials.move("acme.connections.resend", "acme.connections.next"))
+        .message,
+    ).toBe(expected);
+    expect(errorOf(await agentPw.credentials.delete("acme.connections.resend")).message).toBe(
+      expected,
+    );
+    expect(
+      errorOf(
+        await agentPw.connect.prepare({
+          path: "acme.connections.resend",
+          resource: "https://api.resend.com",
+        }),
+      ).message,
+    ).toBe(expected);
+    expect(
+      errorOf(
+        await agentPw.connect.startOAuth({
+          path: "acme.connections.resend",
+          redirectUri: "https://app.example.com/oauth/callback",
+          option: {
+            kind: "oauth",
+            source: "profile",
+            resource: "https://api.resend.com",
+            profilePath: "resend",
+            label: "Resend",
+          },
+        }),
+      ).message,
+    ).toBe(expected);
+    expect(
+      errorOf(
+        await agentPw.connect.completeOAuth({
+          callbackUri: "https://app.example.com/oauth/callback?state=flow-1",
+        }),
+      ).message,
+    ).toBe(expected);
+  });
+
   it("resolves profiles by path and stores exact-path credentials", async () => {
     const agentPw = await createTestAgent();
 

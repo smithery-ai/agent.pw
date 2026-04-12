@@ -1114,6 +1114,7 @@ export function createOAuthService(options: {
   clock: () => Date;
   customFetch?: typeof fetch;
   defaultClient?: OAuthClientInput;
+  requireCredentialAccess(): Result<string>;
   getProfile(path: string, options?: CrudOptions): Promise<Result<CredentialProfileRecord | null>>;
   getCredential(path: string, options?: CrudOptions): Promise<Result<CredentialRecord | null>>;
   putCredential(
@@ -1355,6 +1356,11 @@ export function createOAuthService(options: {
     },
 
     async startAuthorization(input: ConnectStartOAuthInput) {
+      const credentialAccess = options.requireCredentialAccess();
+      if (!credentialAccess.ok) {
+        return credentialAccess;
+      }
+
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
@@ -1455,6 +1461,11 @@ export function createOAuthService(options: {
     },
 
     async completeAuthorization(input: ConnectCompleteOAuthInput, optionsForCrud?: CrudOptions) {
+      const credentialAccess = options.requireCredentialAccess();
+      if (!credentialAccess.ok) {
+        return credentialAccess;
+      }
+
       const flowStore = await requireFlowStore();
       if (!flowStore.ok) {
         return flowStore;
