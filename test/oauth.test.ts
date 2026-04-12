@@ -5,7 +5,7 @@ import { deriveEncryptionKey } from "../packages/server/src/lib/credentials-cryp
 import { TEST_KEY_MATERIAL, createTestDb } from "./setup";
 import { must, mustAsync, wrapAgentPw } from "./support/results";
 
-function createOAuthFetch() {
+function createOAuthFetch(opts?: { onRefresh?: () => Response | undefined }) {
   const calls: Array<{
     url: string;
     body: URLSearchParams;
@@ -33,6 +33,8 @@ function createOAuthFetch() {
       }
 
       if (body.get("grant_type") === "refresh_token") {
+        const override = opts?.onRefresh?.();
+        if (override) return override;
         return Response.json({
           access_token: "profile-access-2",
           refresh_token: "profile-refresh-2",
@@ -125,29 +127,28 @@ function createOAuthFetch() {
   return { fetchImpl, calls };
 }
 
-async function createOAuthAgent() {
+async function createOAuthAgent(fetchOpts?: Parameters<typeof createOAuthFetch>[0]) {
   const db = await createTestDb();
   const flowStore = createInMemoryFlowStore();
   const encryptionKey = await mustAsync(deriveEncryptionKey(TEST_KEY_MATERIAL));
-  const { fetchImpl, calls } = createOAuthFetch();
-  const agentPw = wrapAgentPw(
-    must(
-      await createAgentPw({
-        db,
-        encryptionKey,
-        flowStore,
-        oauthFetch: fetchImpl,
-        oauthClient: {
-          useDynamicRegistration: true,
-          metadata: {
-            redirectUris: ["https://app.example.com/oauth/callback"],
-            clientName: "Connect Client",
-            tokenEndpointAuthMethod: "none",
-          },
+  const { fetchImpl, calls } = createOAuthFetch(fetchOpts);
+  const rawAgentPw = must(
+    await createAgentPw({
+      db,
+      encryptionKey,
+      flowStore,
+      oauthFetch: fetchImpl,
+      oauthClient: {
+        useDynamicRegistration: true,
+        metadata: {
+          redirectUris: ["https://app.example.com/oauth/callback"],
+          clientName: "Connect Client",
+          tokenEndpointAuthMethod: "none",
         },
-      }),
-    ),
+      },
+    }),
   );
+  const agentPw = wrapAgentPw(rawAgentPw);
 
   await agentPw.profiles.put("linear", {
     resourcePatterns: ["https://api.linear.app/*"],
@@ -162,7 +163,7 @@ async function createOAuthAgent() {
     displayName: "Linear",
   });
 
-  return { agentPw, calls, db };
+  return { agentPw, rawAgentPw, calls, db };
 }
 
 async function completeProfileOAuth() {
@@ -960,6 +961,73 @@ describe("oauth runtime", () => {
     if (stepUpOption.kind !== "oauth") throw new Error("Expected oauth");
     // Should include scopes_supported from metadata merged with existing
     expect(stepUpOption.scopes).toEqual(expect.arrayContaining(["mcp.tools.read"]));
+  });
+
+  it("clears stale credential when refresh token is rejected, breaking retry loop", async () => {
+    let refreshShouldFail = false;
+    const { agentPw, rawAgentPw, calls } = await createOAuthAgent({
+      onRefresh: () =>
+        refreshShouldFail ? Response.json({ error: "invalid_grant" }, { status: 400 }) : undefined,
+    });
+
+    // Complete OAuth flow to store a valid credential
+    const prepared = await agentPw.connect.prepare({
+      path: "org_alpha.connections.refresh_test",
+      resource: "https://api.linear.app/projects",
+    });
+    if (prepared.kind !== "options") throw new Error("Expected options");
+
+    const session = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.refresh_test",
+      option: prepared.options[0]!,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+
+    await agentPw.connect.completeOAuth({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
+    });
+
+    // Make the token expired so refresh is attempted
+    const cred = await agentPw.credentials.get("org_alpha.connections.refresh_test");
+    expect(cred).not.toBeNull();
+    await agentPw.credentials.put({
+      path: "org_alpha.connections.refresh_test",
+      resource: "https://api.linear.app/projects",
+      auth: cred!.auth,
+      secret: {
+        ...cred!.secret,
+        oauth: {
+          ...cred!.secret.oauth,
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    // Now make the token endpoint reject refresh requests
+    refreshShouldFail = true;
+
+    // First resolveHeaders should fail (refresh rejected)
+    const firstResult = await rawAgentPw.connect.resolveHeaders({
+      path: "org_alpha.connections.refresh_test",
+    });
+    expect(firstResult.ok).toBe(false);
+
+    // Credential should be gone from storage (deleted on refresh failure)
+    const deletedCred = await rawAgentPw.credentials.get("org_alpha.connections.refresh_test");
+    expect(deletedCred.ok).toBe(true);
+    expect(deletedCred.value).toBeNull();
+
+    // Second resolveHeaders fails with "not found" instead of retrying the broken refresh
+    const callsBefore = calls.length;
+    const secondResult = await rawAgentPw.connect.resolveHeaders({
+      path: "org_alpha.connections.refresh_test",
+    });
+    expect(secondResult.ok).toBe(false);
+    expect(secondResult.error).toMatchObject({ type: "NotFound" });
+
+    // No token request on the second call — the loop is broken
+    const callsAfter = calls.slice(callsBefore);
+    expect(callsAfter.filter((c) => c.url.includes("/token")).length).toBe(0);
   });
 
   it("omits scopes when neither challenge nor metadata provide them", async () => {

@@ -1,5 +1,6 @@
 import { err, ok, result, type Result } from "okay-error";
 import * as oauth from "oauth4webapi";
+import { ResponseBodyError } from "oauth4webapi";
 import {
   authCallbackValidationFailed,
   authCodeExchangeFailed,
@@ -1098,6 +1099,16 @@ async function resolveOAuthConfigForResourceOption(
  * OAuth lifecycle without the full agent.pw facade and can supply your own profile and credential
  * persistence callbacks.
  */
+
+const PERMANENT_TOKEN_ERRORS = new Set(["invalid_grant", "invalid_token", "unauthorized_client"]);
+
+function isTokenPermanentlyRejected(error: unknown): boolean {
+  if (error instanceof ResponseBodyError && error.error) {
+    return PERMANENT_TOKEN_ERRORS.has(error.error);
+  }
+  return false;
+}
+
 export function createOAuthService(options: {
   flowStore?: FlowStore;
   clock: () => Date;
@@ -1234,6 +1245,9 @@ export function createOAuthService(options: {
       oauth.processRefreshTokenResponse(authorizationServer.value, client, tokenResponse.value),
     );
     if (!processed.ok) {
+      if (isTokenPermanentlyRejected(processed.error)) {
+        await options.deleteCredential(path).catch(() => {});
+      }
       return err(refreshTokenResponseFailed(path, processed.error));
     }
     const secret = oauthSecretFromTokenResponse(
