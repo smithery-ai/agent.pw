@@ -1240,31 +1240,14 @@ export function createOAuthService(options: {
       ),
     );
     if (!tokenResponse.ok) {
-      console.error("[agent.pw] refresh request failed (network)", {
-        path,
-        error: String(tokenResponse.error),
-      });
       return err(refreshTokenRequestFailed(path, tokenResponse.error));
     }
     const processed = await result(
       oauth.processRefreshTokenResponse(authorizationServer.value, client, tokenResponse.value),
     );
     if (!processed.ok) {
-      const rejected = isTokenPermanentlyRejected(processed.error);
-      console.error("[agent.pw] refresh failed", {
-        path,
-        rejected,
-        errorType: processed.error?.constructor?.name,
-        errorCode: (processed.error as { error?: string })?.error,
-        isResponseBodyError: processed.error instanceof ResponseBodyError,
-      });
-      if (rejected) {
-        const deleted = await options.deleteCredential(path).catch((e: unknown) => {
-          /* v8 ignore next 2 -- defensive catch for production diagnostics */
-          console.error("[agent.pw] deleteCredential threw", { path, error: String(e) });
-          return { ok: false, error: e } as const;
-        });
-        console.error("[agent.pw] deleteCredential result", { path, ok: deleted?.ok });
+      if (isTokenPermanentlyRejected(processed.error)) {
+        await options.deleteCredential(path).catch(() => {});
       }
       return err(refreshTokenResponseFailed(path, processed.error));
     }
