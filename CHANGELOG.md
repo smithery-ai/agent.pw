@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.6.2...agent.pw-v0.7.0) (2026-04-12)
+
+
+### Features
+
+* **SMI-1688:** model profiles as HTTP inputs plus OAuth ([#153](https://github.com/smithery-ai/agent.pw/issues/153)) ([28b7394](https://github.com/smithery-ai/agent.pw/commit/28b73944095266ec7af7794b89c31e64f81be3fb))
+
+
+### Bug Fixes
+
+* clear stale credential on refresh token rejection ([#155](https://github.com/smithery-ai/agent.pw/issues/155)) ([c2aa4d7](https://github.com/smithery-ai/agent.pw/commit/c2aa4d789c9ac41aaefb9508084750c0fe25d5b1))
+
 ## [0.6.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.6.1...agent.pw-v0.6.2) (2026-04-10)
 
 
