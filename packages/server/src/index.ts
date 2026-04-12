@@ -1,4 +1,5 @@
 import { err, ok } from "okay-error";
+import { z } from "zod";
 import { createQueryHelpers } from "./db/queries.js";
 import { authorizationError, conflictError, inputError, notFoundError } from "./errors.js";
 import {
@@ -16,17 +17,15 @@ import { authorizeRules, can as canRule } from "./rules.js";
 import type {
   AgentPw,
   AgentPwOptions,
-  ConfigFieldDefinition,
   ConnectFlow,
-  ConnectConfigRequiredResult,
+  ConnectInputRequiredResult,
   ConnectOAuthOption,
   ConnectOption,
   ConnectPrepareInput,
   ConnectResolutionResult,
   CredentialAuth,
-  CredentialProfileAuth,
-  CredentialProfileConfig,
-  CredentialProfileOAuthAuth,
+  CredentialProfileHttp,
+  CredentialProfileOAuth,
   CredentialProfilePutInput,
   CredentialProfileRecord,
   CredentialRecord,
@@ -57,142 +56,177 @@ function resolveSingleMatch<T extends { path: string }>(matches: T[], descriptio
   return ok(conflicts[0]);
 }
 
-function parseProfileAuth(value: unknown) {
-  if (!isRecord(value)) {
-    return err(inputError("Invalid profile auth payload"));
-  }
-  if (value.kind === "oauth") {
-    return ok<CredentialProfileAuth>({
-      kind: "oauth",
-      label: typeof value.label === "string" ? value.label : undefined,
-      issuer: typeof value.issuer === "string" ? value.issuer : undefined,
-      authorizationUrl:
-        typeof value.authorizationUrl === "string" ? value.authorizationUrl : undefined,
-      tokenUrl: typeof value.tokenUrl === "string" ? value.tokenUrl : undefined,
-      revocationUrl: typeof value.revocationUrl === "string" ? value.revocationUrl : undefined,
-      clientId: typeof value.clientId === "string" ? value.clientId : undefined,
-      clientSecret: typeof value.clientSecret === "string" ? value.clientSecret : undefined,
-      clientAuthentication:
-        value.clientAuthentication === "client_secret_basic" ||
-        value.clientAuthentication === "client_secret_post" ||
-        value.clientAuthentication === "none"
-          ? value.clientAuthentication
-          : undefined,
-      scopes: Array.isArray(value.scopes)
-        ? value.scopes.filter((entry): entry is string => typeof entry === "string")
-        : typeof value.scopes === "string"
-          ? value.scopes
-          : undefined,
-    });
-  }
-  if (value.kind === "headers") {
-    const fields = Array.isArray(value.fields)
-      ? value.fields
-          .filter(isRecord)
-          .map((field) => ({
-            name: typeof field.name === "string" ? field.name : "",
-            label: typeof field.label === "string" ? field.label : "",
-            description: typeof field.description === "string" ? field.description : undefined,
-            prefix: typeof field.prefix === "string" ? field.prefix : undefined,
-            secret: typeof field.secret === "boolean" ? field.secret : undefined,
-          }))
-          .filter((field) => field.name.length > 0 && field.label.length > 0)
-      : [];
+const HttpInputFieldSchema = z
+  .object({
+    label: z.string().min(1),
+    description: z.string().optional(),
+    required: z.boolean().optional().default(false),
+  })
+  .strict();
 
-    return ok<CredentialProfileAuth>({
-      kind: "headers",
-      label: typeof value.label === "string" ? value.label : undefined,
-      fields,
-    });
-  }
-  return err(inputError("Invalid profile auth kind"));
+const HttpInputMapSchema = z.record(z.string().min(1), HttpInputFieldSchema);
+
+const ProfileHttpSchema = z
+  .object({
+    headers: HttpInputMapSchema.optional(),
+    query: HttpInputMapSchema.optional(),
+  })
+  .strict();
+
+const ProfileOAuthSchema = z
+  .object({
+    label: z.string().optional(),
+    issuer: z.string().optional(),
+    authorizationUrl: z.string().optional(),
+    tokenUrl: z.string().optional(),
+    revocationUrl: z.string().optional(),
+    clientId: z.string().optional(),
+    clientSecret: z.string().optional(),
+    clientAuthentication: z.enum(["none", "client_secret_basic", "client_secret_post"]).optional(),
+    scopes: z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .strict();
+
+function omitEmptyHttpMaps(http: CredentialProfileHttp | null) {
+  const headers = http?.headers && Object.keys(http.headers).length > 0 ? http.headers : undefined;
+  const query = http?.query && Object.keys(http.query).length > 0 ? http.query : undefined;
+  return headers || query ? { ...(headers ? { headers } : {}), ...(query ? { query } : {}) } : null;
 }
 
-function parseProfileConfig(value: unknown) {
-  if (!isRecord(value)) {
-    return err(inputError("Invalid profile config payload"));
+function duplicateCaseInsensitiveKey(keys: Iterable<string>) {
+  const seen = new Set<string>();
+  for (const key of keys) {
+    const normalized = key.toLowerCase();
+    if (seen.has(normalized)) {
+      return key;
+    }
+    seen.add(normalized);
+  }
+  return null;
+}
+
+function parseProfileHttp(value: unknown) {
+  const parsed = ProfileHttpSchema.safeParse(value);
+  if (!parsed.success) {
+    return err(inputError("Invalid profile http payload"));
   }
 
-  const fields = Array.isArray(value.fields)
-    ? value.fields
-        .filter(isRecord)
-        .map((field): ConfigFieldDefinition | null => {
-          const key = typeof field.key === "string" ? field.key : "";
-          const name = typeof field.name === "string" ? field.name : "";
-          const label = typeof field.label === "string" ? field.label : "";
-          const description = typeof field.description === "string" ? field.description : undefined;
-          if (field.transport === "header") {
-            return key.length > 0 && name.length > 0 && label.length > 0
-              ? {
-                  transport: "header",
-                  key,
-                  name,
-                  label,
-                  description,
-                  prefix: typeof field.prefix === "string" ? field.prefix : undefined,
-                  secret: typeof field.secret === "boolean" ? field.secret : undefined,
-                }
-              : null;
-          }
-          if (field.transport === "query") {
-            return key.length > 0 && name.length > 0 && label.length > 0
-              ? {
-                  transport: "query",
-                  key,
-                  name,
-                  label,
-                  description,
-                }
-              : null;
-          }
-          return null;
-        })
-        .filter((field): field is ConfigFieldDefinition => field !== null)
-    : [];
-
-  if (fields.length === 0) {
-    return err(inputError("Profile config fields cannot be empty"));
+  const duplicateHeader = duplicateCaseInsensitiveKey(Object.keys(parsed.data.headers ?? {}));
+  if (duplicateHeader) {
+    return err(inputError(`Profile http.headers contains duplicate header '${duplicateHeader}'`));
   }
 
-  return ok<CredentialProfileConfig>({ fields });
+  const http = omitEmptyHttpMaps(parsed.data);
+  return ok(http);
+}
+
+function parseProfileOAuth(value: unknown) {
+  const parsed = ProfileOAuthSchema.safeParse(value);
+  if (!parsed.success) {
+    return err(inputError("Invalid profile oauth payload"));
+  }
+  return ok<CredentialProfileOAuth>(parsed.data);
+}
+
+function parseLegacyProfilePayload(value: Record<string, unknown>) {
+  const http: CredentialProfileHttp = {};
+  let oauth: CredentialProfileOAuth | null = null;
+
+  const authValue = "auth" in value ? value.auth : value;
+  if (isRecord(authValue)) {
+    if (authValue.kind === "oauth") {
+      const { kind: _kind, ...legacyOAuth } = authValue;
+      const parsedOAuth = parseProfileOAuth(legacyOAuth);
+      if (!parsedOAuth.ok) {
+        return parsedOAuth;
+      }
+      oauth = parsedOAuth.value;
+    } else if (authValue.kind === "headers") {
+      const headers: CredentialProfileHttp["headers"] = {};
+      if (Array.isArray(authValue.fields)) {
+        for (const field of authValue.fields.filter(isRecord)) {
+          if (typeof field.name === "string" && typeof field.label === "string") {
+            headers[field.name] = {
+              label: field.label,
+              ...(typeof field.description === "string" ? { description: field.description } : {}),
+              required: true,
+            };
+          }
+        }
+      }
+      if (Object.keys(headers).length > 0) {
+        http.headers = headers;
+      }
+    } else if ("kind" in authValue) {
+      return err(inputError("Invalid profile auth kind"));
+    } else if ("auth" in value && authValue != null) {
+      return err(inputError("Invalid profile auth payload"));
+    }
+  } else if ("auth" in value && authValue != null) {
+    return err(inputError("Invalid profile auth payload"));
+  }
+
+  if ("config" in value && value.config != null) {
+    if (!isRecord(value.config) || !Array.isArray(value.config.fields)) {
+      return err(inputError("Invalid profile config payload"));
+    }
+    for (const field of value.config.fields.filter(isRecord)) {
+      if (typeof field.name !== "string" || typeof field.label !== "string") {
+        continue;
+      }
+      const entry = {
+        label: field.label,
+        ...(typeof field.description === "string" ? { description: field.description } : {}),
+        required: true,
+      };
+      if (field.transport === "header") {
+        http.headers = { ...http.headers, [field.name]: entry };
+      } else if (field.transport === "query") {
+        http.query = { ...http.query, [field.name]: entry };
+      }
+    }
+  }
+
+  const parsedHttp = parseProfileHttp(http);
+  if (!parsedHttp.ok) {
+    return parsedHttp;
+  }
+  if (!parsedHttp.value && !oauth) {
+    return err(inputError("Profile must define http or oauth"));
+  }
+  return ok({ http: parsedHttp.value, oauth });
 }
 
 function parseProfilePayload(value: unknown) {
   if (!isRecord(value)) {
-    return err(inputError("Invalid profile auth payload"));
+    return err(inputError("Invalid profile payload"));
   }
 
-  if ("kind" in value || "auth" in value || "config" in value) {
-    const parsedAuth =
-      "auth" in value
-        ? value.auth == null
-          ? ok<CredentialProfileAuth | null>(null)
-          : parseProfileAuth(value.auth)
-        : "kind" in value
-          ? parseProfileAuth(value)
-          : ok<CredentialProfileAuth | null>(null);
-    if (!parsedAuth.ok) {
-      return parsedAuth;
+  if ("http" in value || "oauth" in value) {
+    const parsedHttp =
+      "http" in value && value.http != null ? parseProfileHttp(value.http) : ok(null);
+    if (!parsedHttp.ok) {
+      return parsedHttp;
     }
 
-    const parsedConfig =
-      "config" in value
-        ? value.config == null
-          ? ok<CredentialProfileConfig | null>(null)
-          : parseProfileConfig(value.config)
-        : ok<CredentialProfileConfig | null>(null);
-    if (!parsedConfig.ok) {
-      return parsedConfig;
+    const parsedOAuth =
+      "oauth" in value && value.oauth != null ? parseProfileOAuth(value.oauth) : ok(null);
+    if (!parsedOAuth.ok) {
+      return parsedOAuth;
     }
 
-    if (!parsedAuth.value && !parsedConfig.value) {
-      return err(inputError("Profile must define auth or config"));
+    if (!parsedHttp.value && !parsedOAuth.value) {
+      return err(inputError("Profile must define http or oauth"));
     }
 
     return ok({
-      auth: parsedAuth.value,
-      config: parsedConfig.value,
+      http: parsedHttp.value,
+      oauth: parsedOAuth.value,
     });
+  }
+
+  if ("kind" in value || "auth" in value || "config" in value) {
+    return parseLegacyProfilePayload(value);
   }
 
   return err(inputError("Invalid profile payload"));
@@ -310,8 +344,8 @@ function toProfileRecord(row: {
   return ok<CredentialProfileRecord>({
     path: row.path,
     resourcePatterns: row.resourcePatterns,
-    auth: payload.value.auth,
-    config: payload.value.config,
+    http: payload.value.http,
+    oauth: payload.value.oauth,
     displayName: row.displayName,
     description: row.description,
     createdAt: row.createdAt,
@@ -325,15 +359,8 @@ function isPendingHeadersCredential(auth: CredentialAuth): auth is HeadersCreden
 
 function profileHeaderFieldNames(profile: CredentialProfileRecord | null) {
   const names = new Set<string>();
-  for (const field of profile?.config?.fields ?? []) {
-    if (field.transport === "header") {
-      names.add(field.name.toLowerCase());
-    }
-  }
-  if (profile?.auth?.kind === "headers") {
-    for (const field of profile.auth.fields) {
-      names.add(field.name.toLowerCase());
-    }
+  for (const name of Object.keys(profile?.http?.headers ?? {})) {
+    names.add(name.toLowerCase());
   }
   return names;
 }
@@ -365,31 +392,36 @@ function validateProfileHeaders(
   return ok(undefined);
 }
 
-function configFieldsMissing(
+function httpInputMissing(
   profile: CredentialProfileRecord | null,
   resource: string,
   headers: Record<string, string> | undefined,
 ) {
-  if (!profile?.config) {
-    return [] as string[];
-  }
-
   const url = new URL(resource);
   const lowerHeaders = new Map<string, string>();
   for (const [name, value] of Object.entries(headers ?? {})) {
     lowerHeaders.set(name.toLowerCase(), value);
   }
 
-  return profile.config.fields
-    .filter((field) => {
-      if (field.transport === "header") {
-        const value = lowerHeaders.get(field.name.toLowerCase());
-        return typeof value !== "string" || value.length === 0;
-      }
-      const value = url.searchParams.get(field.name);
+  const missingHeaders = Object.entries(profile?.http?.headers ?? {})
+    .filter(([, field]) => field.required === true)
+    .filter(([name]) => {
+      const value = lowerHeaders.get(name.toLowerCase());
+      return typeof value !== "string" || value.length === 0;
+    })
+    .map(([name]) => name);
+  const missingQuery = Object.entries(profile?.http?.query ?? {})
+    .filter(([, field]) => field.required === true)
+    .filter(([name]) => {
+      const value = url.searchParams.get(name);
       return value === null || value.length === 0;
     })
-    .map((field) => field.key);
+    .map(([name]) => name);
+
+  return {
+    headers: missingHeaders,
+    query: missingQuery,
+  };
 }
 
 async function decryptCredentialRecord(
@@ -554,42 +586,29 @@ export async function createAgentPw(options: AgentPwOptions) {
         return err(inputError("Credential Profile resourcePatterns cannot be empty"));
       }
 
-      if (!(data.auth || data.config)) {
-        return err(inputError("Credential Profile must define auth or config"));
+      const payloadRecord = toJsonRecord(data);
+      if (!payloadRecord.ok) {
+        return payloadRecord;
       }
-
-      const parsedAuth =
-        data.auth === undefined
-          ? ok<CredentialProfileAuth | null>(null)
-          : (() => {
-              const auth = toJsonRecord(data.auth);
-              if (!auth.ok) {
-                return auth;
-              }
-              return parseProfileAuth(auth.value);
-            })();
-      if (!parsedAuth.ok) {
-        return parsedAuth;
+      if (
+        !("http" in payloadRecord.value) &&
+        !("oauth" in payloadRecord.value) &&
+        !("auth" in payloadRecord.value) &&
+        !("config" in payloadRecord.value) &&
+        !("kind" in payloadRecord.value)
+      ) {
+        return err(inputError("Credential Profile must define http or oauth"));
       }
-      const parsedConfig =
-        data.config === undefined
-          ? ok<CredentialProfileConfig | null>(null)
-          : (() => {
-              const config = toJsonRecord(data.config);
-              if (!config.ok) {
-                return config;
-              }
-              return parseProfileConfig(config.value);
-            })();
-      if (!parsedConfig.ok) {
-        return parsedConfig;
+      const parsedPayload = parseProfilePayload(payloadRecord.value);
+      if (!parsedPayload.ok) {
+        return parsedPayload;
       }
 
       const persisted = await queryHelpers.upsertCredProfile(db, profilePath.value, {
         resourcePatterns: data.resourcePatterns,
         auth: {
-          ...(parsedAuth.value ? { auth: parsedAuth.value } : {}),
-          ...(parsedConfig.value ? { config: parsedConfig.value } : {}),
+          ...(parsedPayload.value.http ? { http: parsedPayload.value.http } : {}),
+          ...(parsedPayload.value.oauth ? { oauth: parsedPayload.value.oauth } : {}),
         },
         displayName: data.displayName,
         description: data.description,
@@ -685,7 +704,7 @@ export async function createAgentPw(options: AgentPwOptions) {
 
   function oauthOptionFromProfile(
     profile: CredentialProfileRecord,
-    oauthAuth: CredentialProfileOAuthAuth,
+    oauthAuth: CredentialProfileOAuth,
     resource: string,
   ): ConnectOAuthOption {
     return {
@@ -706,21 +725,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     profile: CredentialProfileRecord,
     resource: string,
   ): ConnectOption | null {
-    if (profile.auth?.kind === "oauth") {
-      return oauthOptionFromProfile(profile, profile.auth, resource);
-    }
-    if (profile.auth?.kind !== "headers") {
-      return null;
-    }
-
-    return {
-      kind: "headers",
-      source: "profile",
-      resource,
-      profilePath: profile.path,
-      label: profile.displayName ?? profile.auth.label ?? credentialName(profile.path),
-      fields: profile.auth.fields,
-    };
+    return profile.oauth ? oauthOptionFromProfile(profile, profile.oauth, resource) : null;
   }
 
   function toConnectFlow(flow: PendingFlow): ConnectFlow {
@@ -767,11 +772,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     }
 
     const option = profile.value ? optionFromProfile(profile.value, resource.value) : null;
-    const missingKeys = configFieldsMissing(
-      profile.value,
-      resource.value,
-      existing.value?.secret.headers,
-    );
+    const missing = httpInputMissing(profile.value, resource.value, existing.value?.secret.headers);
 
     const resolution = {
       canonicalResource: resource.value,
@@ -781,15 +782,15 @@ export async function createAgentPw(options: AgentPwOptions) {
       option,
     } satisfies ConnectResolutionResult;
 
-    if (missingKeys.length > 0 && profile.value?.config) {
+    if ((missing.headers.length > 0 || missing.query.length > 0) && profile.value?.http) {
       return ok({
         path: path.value,
         resource: resource.value,
         existing: existing.value,
         profile: profile.value,
-        configRequired: {
-          fields: profile.value.config.fields,
-          missingKeys,
+        inputRequired: {
+          http: profile.value.http,
+          missing,
         },
         resolution,
         options: option ? [option] : [],
@@ -802,7 +803,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         resource: resource.value,
         existing: existing.value,
         profile: profile.value,
-        configRequired: null,
+        inputRequired: null,
         resolution: {
           canonicalResource: resource.value,
           source: null,
@@ -815,18 +816,13 @@ export async function createAgentPw(options: AgentPwOptions) {
     }
 
     if (profile.value) {
-      const shouldOfferProfileOption = !(
-        existing.value &&
-        isPendingHeadersCredential(existing.value.auth) &&
-        option?.kind === "headers"
-      );
-      if (option && shouldOfferProfileOption) {
+      if (option) {
         return ok({
           path: path.value,
           resource: resource.value,
           existing: existing.value,
           profile: profile.value,
-          configRequired: null,
+          inputRequired: null,
           resolution,
           options: [option],
         });
@@ -864,7 +860,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           resource: resource.value,
           existing: existing.value,
           profile: profile.value,
-          configRequired: null,
+          inputRequired: null,
           resolution: {
             canonicalResource: resource.value,
             source: "discovery",
@@ -883,7 +879,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         resource: resource.value,
         existing: existing.value,
         profile: profile.value,
-        configRequired: null,
+        inputRequired: null,
         resolution,
         options: [],
       });
@@ -894,7 +890,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       resource: resource.value,
       existing: existing.value,
       profile: profile.value,
-      configRequired: null,
+      inputRequired: null,
       resolution,
       options: [],
     });
@@ -984,10 +980,10 @@ export async function createAgentPw(options: AgentPwOptions) {
       if (!resolved.ok) {
         return resolved;
       }
-      if (resolved.value.configRequired) {
-        return ok<ConnectConfigRequiredResult>({
-          kind: "config_required",
-          config: resolved.value.configRequired,
+      if (resolved.value.inputRequired) {
+        return ok<ConnectInputRequiredResult>({
+          kind: "input_required",
+          input: resolved.value.inputRequired,
           resolution: resolved.value.resolution,
         });
       }
@@ -1025,24 +1021,23 @@ export async function createAgentPw(options: AgentPwOptions) {
               return profile;
             }
 
-            const stepUpOption: ConnectOAuthOption =
-              profile.value?.auth?.kind === "oauth"
-                ? {
-                    ...oauthOptionFromProfile(
-                      profile.value,
-                      profile.value.auth,
-                      resolved.value.resource,
-                    ),
-                    scopes: mergedScopes,
-                  }
-                : {
-                    kind: "oauth",
-                    source: "discovery",
-                    resource: resolved.value.resource,
-                    label: credentialName(resolved.value.path),
-                    scopes: mergedScopes,
-                    authorizationServer: resolved.value.existing.secret.oauth?.issuer,
-                  };
+            const stepUpOption: ConnectOAuthOption = profile.value?.oauth
+              ? {
+                  ...oauthOptionFromProfile(
+                    profile.value,
+                    profile.value.oauth,
+                    resolved.value.resource,
+                  ),
+                  scopes: mergedScopes,
+                }
+              : {
+                  kind: "oauth",
+                  source: "discovery",
+                  resource: resolved.value.resource,
+                  label: credentialName(resolved.value.path),
+                  scopes: mergedScopes,
+                  authorizationServer: resolved.value.existing.secret.oauth?.issuer,
+                };
 
             return ok({
               kind: "options",
@@ -1165,11 +1160,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         const selectedOption = profile.value
           ? optionFromProfile(profile.value, resource.value)
           : null;
-        if (
-          selectedOption?.kind === "oauth" &&
-          profile.value?.config == null &&
-          profile.value?.auth?.kind !== "headers"
-        ) {
+        if (selectedOption?.kind === "oauth" && profile.value?.http == null) {
           return err(
             inputError(`Resource '${resource.value}' requires OAuth; use connect.startOAuth(...)`),
           );
@@ -1180,12 +1171,7 @@ export async function createAgentPw(options: AgentPwOptions) {
           return headerValidation;
         }
 
-        const missingKeys = configFieldsMissing(profile.value, resource.value, headers.value);
-        const shouldCreatePendingCredential =
-          !!profile.value &&
-          (profile.value.config !== null ||
-            selectedOption?.kind === "oauth" ||
-            missingKeys.length > 0);
+        const shouldCreatePendingCredential = profile.value !== null && profile.value.http !== null;
 
         return putCredential(
           {

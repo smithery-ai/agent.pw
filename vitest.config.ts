@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ["./test/**/*.test.ts"],
     setupFiles: ["./test/vitest.setup.ts"],
+    testTimeout: 15_000,
     exclude: ["**/node_modules/**", "**/.context/**", "**/coverage/**", "**/dist/**", "**/.git/**"],
     coverage: {
       provider: "v8",

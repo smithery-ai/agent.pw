@@ -648,13 +648,20 @@ describe("index mock coverage", () => {
       value: null,
     });
     expect(errorOf(await agentPw.profiles.list({ path: "profile.bad.row" })).message).toBe(
-      "Invalid profile auth payload",
+      "Invalid profile payload",
     );
     expect(
       errorOf(
         await agentPw.profiles.put("profile.put.err", {
           resourcePatterns: ["https://ok/*"],
-          auth: { kind: "headers", fields: [] },
+          http: {
+            headers: {
+              Authorization: {
+                label: "Token",
+                required: true,
+              },
+            },
+          },
         }),
       ).message,
     ).toBe("mock profile put failure");

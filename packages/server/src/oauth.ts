@@ -962,10 +962,10 @@ function parseProfileOAuthConfig(
   resource: string,
   clientInput: OAuthClientInput | undefined,
 ) {
-  if (profile.auth?.kind !== "oauth") {
+  if (!profile.oauth) {
     return err(inputError(`Credential Profile '${profile.path}' is not an OAuth profile`));
   }
-  const auth = profile.auth;
+  const auth = profile.oauth;
 
   const clientId = auth.clientId ?? clientInput?.clientId ?? clientInput?.metadata?.clientId;
   const clientSecret = auth.clientSecret ?? clientInput?.clientSecret;

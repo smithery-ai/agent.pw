@@ -161,17 +161,13 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("resend", {
       resourcePatterns: ["https://api.resend.com*"],
-      auth: {
-        kind: "headers",
-        label: "Resend API key",
-        fields: [
-          {
-            name: "Authorization",
+      http: {
+        headers: {
+          Authorization: {
             label: "API key",
-            prefix: "Bearer ",
-            secret: true,
+            required: true,
           },
-        ],
+        },
       },
       displayName: "Resend",
     });
@@ -182,50 +178,29 @@ describe("createAgentPw", () => {
     });
 
     expect(prepared).toEqual({
-      kind: "options",
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            Authorization: {
+              label: "API key",
+              required: true,
+            },
+          },
+        },
+        missing: {
+          headers: ["Authorization"],
+          query: [],
+        },
+      },
       resolution: {
         canonicalResource: "https://api.resend.com/",
         source: "profile",
         reason: "matched-profile",
         profilePath: "resend",
-        option: {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
-              label: "API key",
-              prefix: "Bearer ",
-              secret: true,
-            },
-          ],
-        },
+        option: null,
       },
-      options: [
-        {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
-              label: "API key",
-              prefix: "Bearer ",
-              secret: true,
-            },
-          ],
-        },
-      ],
     });
-
-    if (prepared.kind !== "options") {
-      throw new Error("Expected connection options");
-    }
 
     const saved = await agentPw.connect.setHeaders({
       path: "acme.connections.resend",
@@ -238,7 +213,7 @@ describe("createAgentPw", () => {
     expect(saved.auth).toEqual({
       kind: "headers",
       profilePath: "resend",
-      resource: "https://api.resend.com/",
+      pending: true,
     });
     expect(saved.secret.headers).toEqual({
       Authorization: "Bearer rs_123",
@@ -248,29 +223,26 @@ describe("createAgentPw", () => {
     });
   });
 
-  it("returns config_required for missing literal config fields", async () => {
+  it("returns input_required for missing literal HTTP inputs", async () => {
     const agentPw = await createTestAgent();
 
     await agentPw.profiles.put("browserbase", {
       resourcePatterns: ["https://browserbase.run.tools*"],
-      config: {
-        fields: [
-          {
-            transport: "header",
-            key: "apiKey",
-            name: "x-api-key",
+      http: {
+        headers: {
+          "x-api-key": {
             label: "API Key",
             description: "Browserbase API key",
-            secret: true,
+            required: true,
           },
-          {
-            transport: "query",
-            key: "projectId",
-            name: "projectId",
+        },
+        query: {
+          projectId: {
             label: "Project ID",
             description: "Browserbase project",
+            required: true,
           },
-        ],
+        },
       },
       displayName: "Browserbase",
     });
@@ -281,26 +253,28 @@ describe("createAgentPw", () => {
     });
 
     expect(prepared).toEqual({
-      kind: "config_required",
-      config: {
-        fields: [
-          {
-            transport: "header",
-            key: "apiKey",
-            name: "x-api-key",
-            label: "API Key",
-            description: "Browserbase API key",
-            secret: true,
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            "x-api-key": {
+              label: "API Key",
+              description: "Browserbase API key",
+              required: true,
+            },
           },
-          {
-            transport: "query",
-            key: "projectId",
-            name: "projectId",
-            label: "Project ID",
-            description: "Browserbase project",
+          query: {
+            projectId: {
+              label: "Project ID",
+              description: "Browserbase project",
+              required: true,
+            },
           },
-        ],
-        missingKeys: ["apiKey", "projectId"],
+        },
+        missing: {
+          headers: ["x-api-key"],
+          query: ["projectId"],
+        },
       },
       resolution: {
         canonicalResource: "https://browserbase.run.tools/mcp",
@@ -317,25 +291,21 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("docs", {
       resourcePatterns: ["https://docs.example.com/*"],
-      config: {
-        fields: [
-          {
-            transport: "header",
-            key: "apiKey",
-            name: "x-api-key",
+      http: {
+        headers: {
+          "x-api-key": {
             label: "API Key",
-            secret: true,
+            required: true,
           },
-          {
-            transport: "query",
-            key: "workspaceId",
-            name: "workspaceId",
+        },
+        query: {
+          workspaceId: {
             label: "Workspace ID",
+            required: true,
           },
-        ],
+        },
       },
-      auth: {
-        kind: "oauth",
+      oauth: {
         authorizationUrl: "https://accounts.example.com/authorize",
         tokenUrl: "https://accounts.example.com/token",
         clientId: "docs-client",
@@ -363,24 +333,26 @@ describe("createAgentPw", () => {
     });
 
     expect(missingQuery).toEqual({
-      kind: "config_required",
-      config: {
-        fields: [
-          {
-            transport: "header",
-            key: "apiKey",
-            name: "x-api-key",
-            label: "API Key",
-            secret: true,
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            "x-api-key": {
+              label: "API Key",
+              required: true,
+            },
           },
-          {
-            transport: "query",
-            key: "workspaceId",
-            name: "workspaceId",
-            label: "Workspace ID",
+          query: {
+            workspaceId: {
+              label: "Workspace ID",
+              required: true,
+            },
           },
-        ],
-        missingKeys: ["workspaceId"],
+        },
+        missing: {
+          headers: [],
+          query: ["workspaceId"],
+        },
       },
       resolution: {
         canonicalResource: "https://docs.example.com/mcp",
@@ -393,6 +365,7 @@ describe("createAgentPw", () => {
           resource: "https://docs.example.com/mcp",
           profilePath: "docs",
           label: "Docs",
+          scopes: undefined,
         },
       },
     });
@@ -413,6 +386,7 @@ describe("createAgentPw", () => {
         resource: "https://docs.example.com/mcp?workspaceId=team-1",
         profilePath: "docs",
         label: "Docs",
+        scopes: undefined,
       },
     ]);
 
@@ -430,20 +404,18 @@ describe("createAgentPw", () => {
     });
   });
 
-  it("rejects manual headers when a profile only accepts query config", async () => {
+  it("rejects manual headers when a profile only accepts query inputs", async () => {
     const agentPw = await createTestAgent();
 
     await agentPw.profiles.put("query-only", {
       resourcePatterns: ["https://query-only.example.com/*"],
-      config: {
-        fields: [
-          {
-            transport: "query",
-            key: "workspaceId",
-            name: "workspaceId",
+      http: {
+        query: {
+          workspaceId: {
             label: "Workspace ID",
+            required: true,
           },
-        ],
+        },
       },
     });
 
@@ -485,9 +457,10 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("docs", {
       resourcePatterns: ["https://docs.example.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "API key" }],
+      oauth: {
+        authorizationUrl: "https://accounts.example.com/authorize",
+        tokenUrl: "https://accounts.example.com/token",
+        clientId: "docs-client",
       },
       displayName: "Docs",
     });
@@ -506,7 +479,7 @@ describe("createAgentPw", () => {
     expect(profiled.options[0]).toEqual(profiled.resolution.option);
     expect(profiled.options[0]).toEqual(
       expect.objectContaining({
-        kind: "headers",
+        kind: "oauth",
         source: "profile",
       }),
     );
@@ -659,9 +632,13 @@ describe("createAgentPw", () => {
           "resendtx",
           {
             resourcePatterns: ["https://api.resend.com*"],
-            auth: {
-              kind: "headers",
-              fields: [{ name: "Authorization", label: "API key" }],
+            http: {
+              headers: {
+                Authorization: {
+                  label: "API key",
+                  required: true,
+                },
+              },
             },
           },
           { db: tx },
@@ -681,7 +658,7 @@ describe("createAgentPw", () => {
         expect(saved.auth).toEqual({
           kind: "headers",
           profilePath: "resendtx",
-          resource: "https://api.resend.com/",
+          pending: true,
         });
 
         throw new Error("rollback setHeaders tx");
@@ -697,17 +674,13 @@ describe("createAgentPw", () => {
 
     await agentPw.profiles.put("resend", {
       resourcePatterns: ["https://api.resend.com*"],
-      auth: {
-        kind: "headers",
-        label: "Resend API key",
-        fields: [
-          {
-            name: "Authorization",
+      http: {
+        headers: {
+          Authorization: {
             label: "API key",
-            prefix: "Bearer ",
-            secret: true,
+            required: true,
           },
-        ],
+        },
       },
       displayName: "Resend",
     });
@@ -718,44 +691,27 @@ describe("createAgentPw", () => {
         resource: "https://api.resend.com",
       }),
     ).toEqual({
-      kind: "options",
-      options: [
-        {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
+      kind: "input_required",
+      input: {
+        http: {
+          headers: {
+            Authorization: {
               label: "API key",
-              prefix: "Bearer ",
-              secret: true,
+              required: true,
             },
-          ],
+          },
         },
-      ],
+        missing: {
+          headers: ["Authorization"],
+          query: [],
+        },
+      },
       resolution: {
         canonicalResource: "https://api.resend.com/",
         source: "profile",
         reason: "matched-profile",
         profilePath: "resend",
-        option: {
-          kind: "headers",
-          source: "profile",
-          resource: "https://api.resend.com/",
-          profilePath: "resend",
-          label: "Resend",
-          fields: [
-            {
-              name: "Authorization",
-              label: "API key",
-              prefix: "Bearer ",
-              secret: true,
-            },
-          ],
-        },
+        option: null,
       },
     });
 
@@ -798,13 +754,13 @@ describe("createAgentPw", () => {
           auth: {
             kind: "headers",
             profilePath: "resend",
-            resource: "https://api.resend.com/",
+            pending: true,
           },
         }),
         resolution: {
           canonicalResource: "https://api.resend.com/",
-          source: null,
-          reason: "existing-credential",
+          source: "profile",
+          reason: "matched-profile",
           profilePath: "resend",
           option: null,
         },

@@ -511,9 +511,13 @@ describe("oauth edge cases", () => {
 
     await agentPw.profiles.put("docs-api", {
       resourcePatterns: ["https://docs.example.com/*"],
-      auth: {
-        kind: "headers",
-        fields: [{ name: "Authorization", label: "Bearer token", prefix: "Bearer " }],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Bearer token",
+            required: true,
+          },
+        },
       },
       displayName: "Docs API key",
     });
@@ -522,20 +526,24 @@ describe("oauth edge cases", () => {
       path: "org.connections.docs",
       resource: "https://docs.example.com/mcp",
     });
-    expect(prepared.kind).toBe("options");
-    if (prepared.kind !== "options") {
-      throw new Error("Expected options");
+    expect(prepared.kind).toBe("input_required");
+    if (prepared.kind !== "input_required") {
+      throw new Error("Expected input_required");
     }
-    expect(prepared.options).toEqual([
-      {
-        kind: "headers",
-        source: "profile",
-        resource: "https://docs.example.com/mcp",
-        profilePath: "docs-api",
-        label: "Docs API key",
-        fields: [{ name: "Authorization", label: "Bearer token", prefix: "Bearer " }],
+    expect(prepared.input).toEqual({
+      http: {
+        headers: {
+          Authorization: {
+            label: "Bearer token",
+            required: true,
+          },
+        },
       },
-    ]);
+      missing: {
+        headers: ["Authorization"],
+        query: [],
+      },
+    });
 
     await agentPw.credentials.put({
       path: "org.connections.manual",
