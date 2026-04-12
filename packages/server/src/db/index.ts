@@ -42,7 +42,7 @@ let bundledPGliteAssetsPromise: Promise<
     wasmModule: WebAssembly.Module;
   } | null>
 > | null = null;
-type WasmByteSource = ArrayBuffer | Uint8Array<ArrayBuffer>;
+type WasmByteSource = ArrayBuffer | Uint8Array;
 
 async function compileWasmModule(bytes: WasmByteSource) {
   const compileFn = Reflect.get(WebAssembly, "compile");
@@ -88,7 +88,7 @@ async function loadBundledPGliteAssets() {
         );
       }
 
-      const wasmModule = await compileWasmModule(Uint8Array.from(bytes.value[0]));
+      const wasmModule = await compileWasmModule(bytes.value[0]);
       if (!wasmModule.ok) {
         return wasmModule;
       }
