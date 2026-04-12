@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.7.0...agent.pw-v0.8.0) (2026-04-12)
+
+
+### Features
+
+* allow profile-only init without encryption key ([#156](https://github.com/smithery-ai/agent.pw/issues/156)) ([14456bb](https://github.com/smithery-ai/agent.pw/commit/14456bb69aecc2a33dd2eedc151bcf9d512cbbe2))
+
+
+### Bug Fixes
+
+* instrument refresh credential delete path ([#159](https://github.com/smithery-ai/agent.pw/issues/159)) ([36852f7](https://github.com/smithery-ai/agent.pw/commit/36852f7318c57c4aca92481415c64940b6b6493b))
+
 ## [0.7.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.6.2...agent.pw-v0.7.0) (2026-04-12)
 
 
