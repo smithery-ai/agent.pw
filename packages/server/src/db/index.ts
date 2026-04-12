@@ -42,7 +42,7 @@ let bundledPGliteAssetsPromise: Promise<
     wasmModule: WebAssembly.Module;
   } | null>
 > | null = null;
-type WasmByteSource = ArrayBuffer | Uint8Array;
+type WasmByteSource = ArrayBuffer | Uint8Array<ArrayBuffer>;
 
 async function compileWasmModule(bytes: WasmByteSource) {
   const compileFn = Reflect.get(WebAssembly, "compile");
@@ -88,13 +88,21 @@ async function loadBundledPGliteAssets() {
         );
       }
 
-      const wasmModule = await compileWasmModule(bytes.value[0]);
+      const wasmBytes =
+        bytes.value[0] instanceof ArrayBuffer
+          ? new Uint8Array(bytes.value[0])
+          : Uint8Array.from(bytes.value[0]);
+      const dataBytes =
+        bytes.value[1] instanceof ArrayBuffer
+          ? new Uint8Array(bytes.value[1])
+          : Uint8Array.from(bytes.value[1]);
+      const wasmModule = await compileWasmModule(wasmBytes);
       if (!wasmModule.ok) {
         return wasmModule;
       }
 
       return ok({
-        fsBundle: new Blob([bytes.value[1]], { type: "application/octet-stream" }),
+        fsBundle: new Blob([dataBytes], { type: "application/octet-stream" }),
         wasmModule: wasmModule.value,
       });
     })();

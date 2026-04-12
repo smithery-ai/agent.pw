@@ -75,7 +75,10 @@ describe("bundled PGlite assets", () => {
         ...actual,
         readFile: vi.fn(async (path, options) => {
           const bytes = await actual.readFile(path, options);
-          if (String(path) !== bundledWasmPath || !(bytes instanceof Uint8Array)) {
+          if (
+            (String(path) !== bundledWasmPath && String(path) !== bundledDataPath) ||
+            !(bytes instanceof Uint8Array)
+          ) {
             return bytes;
           }
           return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
