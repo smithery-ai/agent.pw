@@ -30,7 +30,6 @@ import type {
   CredentialProfileRecord,
   CredentialRecord,
   CredentialSummary,
-  HeadersCredentialAuth,
   PendingFlow,
   RuleScope,
   ScopedAgentPw,
@@ -185,7 +184,6 @@ function parseCredentialAuth(value: unknown) {
   return ok<CredentialAuth>({
     kind: "headers",
     ...authBase,
-    ...(value.pending === true ? { pending: true } : {}),
   });
 }
 
@@ -211,7 +209,6 @@ function serializeCredentialAuth(auth: CredentialAuth) {
     kind: auth.kind,
     ...(auth.profilePath ? { profilePath: auth.profilePath } : {}),
     ...(auth.resource ? { resource: auth.resource } : {}),
-    ...(auth.kind === "headers" && auth.pending === true ? { pending: true } : {}),
   };
 }
 
@@ -280,8 +277,45 @@ function toProfileRecord(row: {
   });
 }
 
-function isPendingHeadersCredential(auth: CredentialAuth): auth is HeadersCredentialAuth {
-  return auth.kind === "headers" && auth.pending === true;
+function searchWithoutKeys(url: URL, keysToOmit: Set<string>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of url.searchParams) {
+    if (!keysToOmit.has(key)) {
+      params.append(key, value);
+    }
+  }
+  const query = params.toString();
+  return query.length > 0 ? `?${query}` : "";
+}
+
+function profileAllowsResource(
+  profile: CredentialProfileRecord | null,
+  storedResource: string,
+  requestedResource: string,
+) {
+  if (storedResource === requestedResource) {
+    return true;
+  }
+
+  const allowedQuery = Object.keys(profile?.http?.query ?? {});
+  if (allowedQuery.length === 0) {
+    return false;
+  }
+
+  const storedUrl = new URL(storedResource);
+  const requestedUrl = new URL(requestedResource);
+  if (
+    storedUrl.protocol !== requestedUrl.protocol ||
+    storedUrl.username !== requestedUrl.username ||
+    storedUrl.password !== requestedUrl.password ||
+    storedUrl.host !== requestedUrl.host ||
+    storedUrl.pathname !== requestedUrl.pathname
+  ) {
+    return false;
+  }
+
+  const allowed = new Set(allowedQuery);
+  return searchWithoutKeys(storedUrl, allowed) === searchWithoutKeys(requestedUrl, allowed);
 }
 
 function profileHeaderFieldNames(profile: CredentialProfileRecord | null) {
@@ -673,9 +707,21 @@ export async function createAgentPw(options: AgentPwOptions) {
       return existing;
     }
 
-    if (existing.value && !isPendingHeadersCredential(existing.value.auth)) {
+    const profile = existing.value?.auth.profilePath
+      ? await profiles.get(existing.value.auth.profilePath)
+      : await profiles.resolve({ path: path.value, resource: resource.value });
+    if (!profile.ok) {
+      return profile;
+    }
+
+    if (existing.value) {
       const existingResource = credentialResource(existing.value.auth);
-      if (existingResource && existingResource !== resource.value) {
+      const matchesResource =
+        !existingResource ||
+        (existing.value.auth.kind === "headers"
+          ? profileAllowsResource(profile.value, existingResource, resource.value)
+          : existingResource === resource.value);
+      if (!matchesResource) {
         return err(
           conflictError(
             `Credential '${path.value}' is already connected to '${existingResource}', not '${resource.value}'`,
@@ -683,13 +729,6 @@ export async function createAgentPw(options: AgentPwOptions) {
           ),
         );
       }
-    }
-
-    const profile = existing.value?.auth.profilePath
-      ? await profiles.get(existing.value.auth.profilePath)
-      : await profiles.resolve({ path: path.value, resource: resource.value });
-    if (!profile.ok) {
-      return profile;
     }
 
     const option = profile.value ? optionFromProfile(profile.value, resource.value) : null;
@@ -718,7 +757,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       });
     }
 
-    if (existing.value && !isPendingHeadersCredential(existing.value.auth)) {
+    if (existing.value && existing.value.auth.kind !== "headers") {
       return ok({
         path: path.value,
         resource: resource.value,
@@ -748,6 +787,18 @@ export async function createAgentPw(options: AgentPwOptions) {
           options: [option],
         });
       }
+    }
+
+    if (existing.value && existing.value.auth.kind === "headers") {
+      return ok({
+        path: path.value,
+        resource: resource.value,
+        existing: existing.value,
+        profile: profile.value,
+        inputRequired: null,
+        resolution,
+        options: [],
+      });
     }
 
     const discovered = await oauth.discoverResource({
@@ -786,24 +837,12 @@ export async function createAgentPw(options: AgentPwOptions) {
             canonicalResource: resource.value,
             source: "discovery",
             reason: "discovered-oauth",
-            profilePath: profile.value?.path ?? existing.value?.auth.profilePath ?? null,
+            profilePath: profile.value?.path ?? null,
             option: options[0],
           } satisfies ConnectResolutionResult,
           options,
         });
       }
-    }
-
-    if (existing.value && isPendingHeadersCredential(existing.value.auth)) {
-      return ok({
-        path: path.value,
-        resource: resource.value,
-        existing: existing.value,
-        profile: profile.value,
-        inputRequired: null,
-        resolution,
-        options: [],
-      });
     }
 
     return ok({
@@ -910,7 +949,8 @@ export async function createAgentPw(options: AgentPwOptions) {
       }
       if (
         resolved.value.existing &&
-        isPendingHeadersCredential(resolved.value.existing.auth) &&
+        resolved.value.existing.auth.kind === "headers" &&
+        resolved.value.existing.auth.profilePath !== null &&
         resolved.value.options.length > 0
       ) {
         return ok({
@@ -1092,16 +1132,13 @@ export async function createAgentPw(options: AgentPwOptions) {
           return headerValidation;
         }
 
-        const shouldCreatePendingCredential = profile.value !== null && profile.value.http !== null;
-
         return putCredential(
           {
             path: path.value,
             auth: {
               kind: "headers",
               ...(profile.value?.path ? { profilePath: profile.value.path } : {}),
-              ...(shouldCreatePendingCredential ? { pending: true } : {}),
-              ...(shouldCreatePendingCredential ? {} : { resource: resource.value }),
+              resource: resource.value,
             },
             secret: {
               headers: headers.value,
@@ -1162,7 +1199,6 @@ export async function createAgentPw(options: AgentPwOptions) {
             kind: "headers",
             profilePath: existing.value.auth.profilePath ?? undefined,
             resource: existing.value.auth.resource ?? undefined,
-            ...(existing.value.auth.pending === true ? { pending: true } : {}),
           },
           secret: {
             headers: mergeHeaders({ headers: headers.value }),

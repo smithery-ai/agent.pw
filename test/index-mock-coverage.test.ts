@@ -456,11 +456,10 @@ describe("index mock coverage", () => {
                 }),
               );
             }
-            if (path === "pending.headers.ready") {
+            if (path === "headers.ready.no_resource") {
               return ok(
-                credentialRow("pending.headers.ready", {
+                credentialRow("headers.ready.no_resource", {
                   kind: "headers",
-                  pending: true,
                 }),
               );
             }
@@ -865,7 +864,7 @@ describe("index mock coverage", () => {
     expect(
       (
         await agentPw.connect.prepare({
-          path: "pending.headers.ready",
+          path: "headers.ready.no_resource",
           resource: "https://resource.example.com",
         })
       ).ok,

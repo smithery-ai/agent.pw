@@ -216,7 +216,7 @@ describe("createAgentPw", () => {
     expect(saved.auth).toEqual({
       kind: "headers",
       profilePath: "resend",
-      pending: true,
+      resource: "https://api.resend.com/",
     });
     expect(saved.secret.headers).toEqual({
       Authorization: "Bearer rs_123",
@@ -224,6 +224,116 @@ describe("createAgentPw", () => {
     expect(await agentPw.connect.resolveHeaders({ path: "acme.connections.resend" })).toEqual({
       Authorization: "Bearer rs_123",
     });
+  });
+
+  it("rejects resource changes for profile-backed header credentials", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("resend", {
+      resourcePatterns: ["https://api.resend.com*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
+      },
+      displayName: "Resend",
+    });
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.resend",
+      resource: "https://api.resend.com",
+      headers: {
+        Authorization: "Bearer rs_123",
+      },
+    });
+
+    await expect(
+      agentPw.connect.prepare({
+        path: "acme.connections.resend",
+        resource: "https://docs.example.com/mcp",
+      }),
+    ).rejects.toThrow(
+      "Credential 'acme.connections.resend' is already connected to 'https://api.resend.com/', not 'https://docs.example.com/mcp'",
+    );
+  });
+
+  it("allows declared query changes while preserving undeclared query params", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("docs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
+        query: {
+          workspaceId: {
+            label: "Workspace ID",
+            required: true,
+          },
+        },
+      },
+    });
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-1&region=us",
+      headers: {
+        Authorization: "Bearer docs-key",
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-2&region=us",
+    });
+
+    expect(prepared.kind).toBe("ready");
+  });
+
+  it("rejects host changes even when the profile declares query inputs", async () => {
+    const agentPw = await createTestAgent();
+
+    await agentPw.profiles.put("docs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "API key",
+            required: true,
+          },
+        },
+        query: {
+          workspaceId: {
+            label: "Workspace ID",
+            required: true,
+          },
+        },
+      },
+    });
+
+    await agentPw.connect.setHeaders({
+      path: "acme.connections.docs",
+      resource: "https://docs.example.com/mcp?workspaceId=team-1",
+      headers: {
+        Authorization: "Bearer docs-key",
+      },
+    });
+
+    await expect(
+      agentPw.connect.prepare({
+        path: "acme.connections.docs",
+        resource: "https://api.example.com/mcp?workspaceId=team-2",
+      }),
+    ).rejects.toThrow(
+      "Credential 'acme.connections.docs' is already connected to 'https://docs.example.com/mcp?workspaceId=team-1', not 'https://api.example.com/mcp?workspaceId=team-2'",
+    );
   });
 
   it("returns input_required for missing literal HTTP inputs", async () => {
@@ -289,7 +399,7 @@ describe("createAgentPw", () => {
     });
   });
 
-  it("keeps pending headers while query config is completed and then offers oauth", async () => {
+  it("keeps profile-backed headers while query config is completed and then offers oauth", async () => {
     const agentPw = await createTestAgent();
 
     await agentPw.profiles.put("docs", {
@@ -327,7 +437,7 @@ describe("createAgentPw", () => {
     expect(stored.auth).toEqual({
       kind: "headers",
       profilePath: "docs",
-      pending: true,
+      resource: "https://docs.example.com/mcp",
     });
 
     const missingQuery = await agentPw.connect.prepare({
@@ -403,7 +513,7 @@ describe("createAgentPw", () => {
     expect(updated.auth).toEqual({
       kind: "headers",
       profilePath: "docs",
-      pending: true,
+      resource: "https://docs.example.com/mcp",
     });
   });
 
@@ -515,7 +625,33 @@ describe("createAgentPw", () => {
     expect(discoveryCalls).toBe(1);
   });
 
-  it("preserves an orphaned pending profile path when discovery offers oauth", async () => {
+  it("retains the matched profile path when discovery follows optional http inputs", async () => {
+    const agentPw = await createTestAgent(createDiscoveryFetch());
+
+    await agentPw.profiles.put("docs-inputs", {
+      resourcePatterns: ["https://docs.example.com/*"],
+      http: {
+        headers: {
+          Authorization: {
+            label: "Token",
+          },
+        },
+      },
+    });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "acme.connections.docs_optional",
+      resource: "https://docs.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") {
+      throw new Error("Expected discovery options");
+    }
+    expect(prepared.resolution.profilePath).toBe("docs-inputs");
+  });
+
+  it("preserves an orphaned profile path on existing headers", async () => {
     const agentPw = await createTestAgent(createDiscoveryFetch());
 
     await agentPw.credentials.put({
@@ -523,7 +659,6 @@ describe("createAgentPw", () => {
       auth: {
         kind: "headers",
         profilePath: "missing.profile",
-        pending: true,
       },
       secret: {
         headers: {
@@ -537,14 +672,14 @@ describe("createAgentPw", () => {
       resource: "https://docs.example.com/mcp",
     });
 
-    expect(prepared.kind).toBe("options");
-    if (prepared.kind !== "options") {
-      throw new Error("Expected discovery options");
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") {
+      throw new Error("Expected ready");
     }
     expect(prepared.resolution.profilePath).toBe("missing.profile");
   });
 
-  it("prefers the matched pending profile path when discovery offers oauth", async () => {
+  it("prefers the matched profile path on existing headers", async () => {
     const agentPw = await createTestAgent(createDiscoveryFetch());
 
     await agentPw.profiles.put("docs-headers", {
@@ -564,7 +699,6 @@ describe("createAgentPw", () => {
       auth: {
         kind: "headers",
         profilePath: "docs-headers",
-        pending: true,
       },
       secret: {
         headers: {
@@ -578,9 +712,9 @@ describe("createAgentPw", () => {
       resource: "https://docs.example.com/mcp",
     });
 
-    expect(prepared.kind).toBe("options");
-    if (prepared.kind !== "options") {
-      throw new Error("Expected discovery options");
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") {
+      throw new Error("Expected ready");
     }
     expect(prepared.resolution.profilePath).toBe("docs-headers");
   });
@@ -665,7 +799,7 @@ describe("createAgentPw", () => {
         expect(saved.auth).toEqual({
           kind: "headers",
           profilePath: "resendtx",
-          pending: true,
+          resource: "https://api.resend.com/",
         });
 
         throw new Error("rollback setHeaders tx");
@@ -761,7 +895,7 @@ describe("createAgentPw", () => {
           auth: {
             kind: "headers",
             profilePath: "resend",
-            pending: true,
+            resource: "https://api.resend.com/",
           },
         }),
         resolution: {

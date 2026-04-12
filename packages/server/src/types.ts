@@ -114,7 +114,6 @@ interface CredentialAuthBase {
 
 export interface HeadersCredentialAuth extends CredentialAuthBase {
   kind: "headers";
-  pending?: boolean;
 }
 
 export interface OAuthCredentialAuth extends CredentialAuthBase {
@@ -131,7 +130,6 @@ interface CredentialAuthInputBase {
 
 export interface HeadersCredentialAuthInput extends CredentialAuthInputBase {
   kind: "headers";
-  pending?: boolean;
 }
 
 export interface OAuthCredentialAuthInput extends CredentialAuthInputBase {
