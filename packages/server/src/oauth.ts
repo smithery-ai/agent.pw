@@ -1260,6 +1260,7 @@ export function createOAuthService(options: {
       });
       if (rejected) {
         const deleted = await options.deleteCredential(path).catch((e: unknown) => {
+          /* v8 ignore next 2 -- defensive catch for production diagnostics */
           console.error("[agent.pw] deleteCredential threw", { path, error: String(e) });
           return { ok: false, error: e } as const;
         });
