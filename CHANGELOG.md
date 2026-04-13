@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.8.0...agent.pw-v0.8.1) (2026-04-13)
+
+
+### Bug Fixes
+
+* remove diagnostic logging from refresh path ([#160](https://github.com/smithery-ai/agent.pw/issues/160)) ([f62f027](https://github.com/smithery-ai/agent.pw/commit/f62f027db4fdd53e8920d57d35beee0282c86d60))
+
 ## [0.8.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.7.0...agent.pw-v0.8.0) (2026-04-12)
 
 
