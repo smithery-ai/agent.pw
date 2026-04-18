@@ -842,4 +842,150 @@ describe("oauth edge cases", () => {
       }),
     ).rejects.toThrow("Invalid redirect uri 'http://app.example.com/oauth/callback'");
   });
+
+  // Regression: ClickHouse Cloud's /.well-known/oauth-protected-resource is
+  // non-compliant (returns auth-server metadata without the required
+  // `resource` field). Per MCP spec, PRM is OPTIONAL — RFC 8414 auth-server
+  // metadata on the resource's origin should be sufficient on its own.
+  it("falls back to authorization-server metadata when protected-resource is malformed", async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push(url);
+
+      // Broken PRM: shape is auth-server metadata, no `resource` field
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        return Response.json({
+          issuer: "https://mcp.docs.example.com",
+          authorization_endpoint: "https://mcp.docs.example.com/authorize",
+          token_endpoint: "https://mcp.docs.example.com/token",
+        });
+      }
+
+      // Valid auth-server metadata on the resource's origin (intentionally
+      // omits the optional `scopes_supported` field so the fallback's empty
+      // scopes branch is exercised).
+      if (url === "https://mcp.docs.example.com/.well-known/oauth-authorization-server") {
+        return Response.json({
+          issuer: "https://mcp.docs.example.com",
+          authorization_endpoint: "https://mcp.docs.example.com/authorize",
+          token_endpoint: "https://mcp.docs.example.com/token",
+          code_challenge_methods_supported: ["S256"],
+          registration_endpoint: "https://mcp.docs.example.com/register",
+          grant_types_supported: ["authorization_code", "refresh_token"],
+        });
+      }
+
+      return Response.json({ error: "not found" }, { status: 404 });
+    };
+
+    const agentPw = await createAgent({ oauthFetch: fetchImpl });
+
+    const prepared = await agentPw.connect.prepare({
+      path: "org.connections.ch",
+      resource: "https://mcp.docs.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("expected options");
+    const option = prepared.options.find((c) => c.kind === "oauth");
+    expect(option).toBeDefined();
+    if (!option || option.kind !== "oauth") throw new Error("expected oauth option");
+    // Issuer resolved from the auth-server metadata fallback
+    expect(option.authorizationServer).toBe("https://mcp.docs.example.com");
+    // Both discovery URLs were attempted
+    expect(calls.some((u) => u.includes("/.well-known/oauth-protected-resource"))).toBe(true);
+    expect(
+      calls.some(
+        (u) => u === "https://mcp.docs.example.com/.well-known/oauth-authorization-server",
+      ),
+    ).toBe(true);
+  });
+
+  // Complement to the fallback test above — when the auth-server metadata
+  // advertises scopes_supported, they should flow through to the discovered
+  // scopes (exercises the Array.isArray branch in the fallback path).
+  it("propagates scopes_supported from auth-server fallback metadata", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        return Response.json({ issuer: "https://mcp.scoped.example.com" });
+      }
+
+      if (url === "https://mcp.scoped.example.com/.well-known/oauth-authorization-server") {
+        return Response.json({
+          issuer: "https://mcp.scoped.example.com",
+          authorization_endpoint: "https://mcp.scoped.example.com/authorize",
+          token_endpoint: "https://mcp.scoped.example.com/token",
+          code_challenge_methods_supported: ["S256"],
+          registration_endpoint: "https://mcp.scoped.example.com/register",
+          // `mcp.admin` is a string — kept. 42 is non-string — filtered out.
+          scopes_supported: ["mcp.admin", 42 as unknown as string, "mcp.read"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    const agentPw = await createAgent({ oauthFetch: fetchImpl });
+    const prepared = await agentPw.connect.prepare({
+      path: "org.connections.scoped",
+      resource: "https://mcp.scoped.example.com/mcp",
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("expected options");
+    const option = prepared.options.find((c) => c.kind === "oauth");
+    if (!option || option.kind !== "oauth") throw new Error("expected oauth option");
+    expect(option.scopes).toEqual(["mcp.admin", "mcp.read"]);
+  });
+
+  // When the 401 challenge includes scopes and PRM is malformed, the
+  // challenged scopes must win over the auth-server fallback's scopes —
+  // matches the happy-path precedence.
+  it("prefers challenged scopes over auth-server scopes when falling back", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        return Response.json({ issuer: "https://mcp.chal.example.com" });
+      }
+
+      if (url === "https://mcp.chal.example.com/.well-known/oauth-authorization-server") {
+        return Response.json({
+          issuer: "https://mcp.chal.example.com",
+          authorization_endpoint: "https://mcp.chal.example.com/authorize",
+          token_endpoint: "https://mcp.chal.example.com/token",
+          code_challenge_methods_supported: ["S256"],
+          registration_endpoint: "https://mcp.chal.example.com/register",
+          scopes_supported: ["ignored.default.scope"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    const agentPw = await createAgent({ oauthFetch: fetchImpl });
+    const prepared = await agentPw.connect.prepare({
+      path: "org.connections.chal",
+      resource: "https://mcp.chal.example.com/mcp",
+      response: new Response(null, {
+        status: 401,
+        headers: { "www-authenticate": 'Bearer scope="mcp.chal.specific"' },
+      }),
+    });
+
+    expect(prepared.kind).toBe("options");
+    if (prepared.kind !== "options") throw new Error("expected options");
+    const option = prepared.options.find((c) => c.kind === "oauth");
+    if (!option || option.kind !== "oauth") throw new Error("expected oauth option");
+    // Challenged scope wins over scopes_supported
+    expect(option.scopes).toEqual(["mcp.chal.specific"]);
+  });
 });
