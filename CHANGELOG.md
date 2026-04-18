@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.8.1...agent.pw-v0.8.2) (2026-04-18)
+
+
+### Bug Fixes
+
+* fall back to auth-server metadata when PRM malformed ([#162](https://github.com/smithery-ai/agent.pw/issues/162)) ([45c5aba](https://github.com/smithery-ai/agent.pw/commit/45c5abab142a08b6dceeb31ab0c27f5b575ef1b1))
+
 ## [0.8.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.8.0...agent.pw-v0.8.1) (2026-04-13)
 
 
