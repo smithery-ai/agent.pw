@@ -795,6 +795,33 @@ async function discoverResource(
     metadataResponse.value,
   );
   if (!resourceServer.ok) {
+    // RFC 9728 Protected Resource Metadata is OPTIONAL per the MCP spec —
+    // RFC 8414 Authorization Server Metadata alone is sufficient. When PRM
+    // is malformed or non-compliant (e.g. missing required `resource` field),
+    // fall back to discovering the authorization server at the resource's
+    // origin. This matches what spec-compliant MCP clients do.
+    const authServer = await discoverAuthorizationServerMetadata(
+      new URL(resourceUrl.origin),
+      customFetch,
+    );
+    if (authServer.ok && authServer.value) {
+      console.warn(
+        `Resource metadata for ${resource} failed validation; falling back to authorization server metadata at ${resourceUrl.origin}`,
+      );
+      return ok({
+        resource: normalizedResource.value,
+        authorizationServers: [authServer.value.issuer],
+        resourceName: undefined,
+        scopes:
+          challenged.value?.scopes ??
+          (Array.isArray(authServer.value.scopes_supported)
+            ? authServer.value.scopes_supported.filter(
+                (entry): entry is string => typeof entry === "string",
+              )
+            : []),
+      });
+    }
+    /* v8 ignore next -- defensive: both PRM and auth-server discovery failed; propagates the original PRM error unchanged. Reachable in practice when a server has broken PRM AND no auth-server metadata, but not exercisable via the public prepare() API which rewrites discovery errors into unconfigured options. */
     return err(resourceMetadataProcessFailed(resource, resourceServer.error));
   }
 
