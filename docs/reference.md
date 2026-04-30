@@ -136,7 +136,7 @@ const agentPw = await unwrap(
 
 Publish `agentPw.connect.createIdentityJwksResponse()` at the JWKS URI for the configured issuer.
 
-For a resource challenge, call `connect.resolveChallengeHeaders({ path, resource, response, principal })`. OAuth refresh is tried first on `401`; if the retried request still returns an auth challenge, call the helper again with the new response to reach ID-JAG exchange. Use `refreshOAuth: false` when the caller already knows OAuth refresh should be skipped.
+For a resource challenge, call `connect.resolveChallengeHeaders({ path, resource, response, principal })`. OAuth refresh is tried first on `401`; if the retried request still returns an auth challenge, call the helper again with the new response to reach ID-JAG exchange. Use `refreshOAuth: "always"` to refresh for classified Bearer auth challenges regardless of status, or `refreshOAuth: false` when the caller already knows OAuth refresh should be skipped. Non-auth responses are returned as unresolved before refresh is attempted.
 
 `connect.exchangeIdentityGrant({ path, resource, response, principal })` runs only the ID-JAG exchange. The `path` is required because scoped APIs enforce `credential.use` against it.
 

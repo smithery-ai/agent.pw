@@ -449,6 +449,10 @@ export interface ConnectResolveChallengeHeadersInput<TPrincipal = unknown> {
   response: ResponseLike;
   headers?: Record<string, string>;
   principal?: IdentityPrincipalValue<TPrincipal>;
+  /**
+   * Controls OAuth refresh after `response` is classified as a Bearer auth challenge.
+   * `"always"` skips the status-code check, but non-auth responses still return unresolved.
+   */
   refreshOAuth?: false | "on-401" | "always";
 }
 
