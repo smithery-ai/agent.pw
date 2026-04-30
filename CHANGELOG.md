@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.8.2...agent.pw-v0.9.0) (2026-04-30)
+
+
+### Features
+
+* support ID-JAG challenge exchange ([#164](https://github.com/smithery-ai/agent.pw/issues/164)) ([1af73fb](https://github.com/smithery-ai/agent.pw/commit/1af73fb168dd41df6b9ba64108051b339087e527))
+
 ## [0.8.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.8.1...agent.pw-v0.8.2) (2026-04-18)
 
 
