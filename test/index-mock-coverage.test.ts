@@ -148,6 +148,15 @@ describe("index mock coverage", () => {
     expect(errorOf(await agentPw.connect.resolveHeaders({ path: "bad.path" })).message).toBe(
       "mock path",
     );
+    expect(
+      errorOf(
+        await agentPw.connect.resolveChallengeHeaders({
+          path: "bad.path",
+          resource: "https://ok",
+          response: { status: 401, headers: {} },
+        }),
+      ).message,
+    ).toBe("mock path");
     expect(errorOf(await agentPw.connect.disconnect({ path: "bad.path" })).message).toBe(
       "mock path",
     );
@@ -170,6 +179,25 @@ describe("index mock coverage", () => {
     expect(errorOf(await scoped.connect.resolveHeaders({ path: "bad.path" })).message).toBe(
       "mock path",
     );
+    expect(
+      errorOf(
+        await scoped.connect.exchangeIdentityGrant({
+          path: "bad.path",
+          resource: "https://ok",
+          response: { status: 401, headers: {} },
+          principal: "user_1",
+        }),
+      ).message,
+    ).toBe("mock path");
+    expect(
+      errorOf(
+        await scoped.connect.resolveChallengeHeaders({
+          path: "bad.path",
+          resource: "https://ok",
+          response: { status: 401, headers: {} },
+        }),
+      ).message,
+    ).toBe("mock path");
     expect(errorOf(await scoped.connect.disconnect({ path: "bad.path" })).message).toBe(
       "mock path",
     );

@@ -90,6 +90,8 @@ const RFC_8414 = "https://datatracker.ietf.org/doc/html/rfc8414";
 const RFC_9728 = "https://datatracker.ietf.org/doc/html/rfc9728";
 const RFC_9728_S3_3 = "https://datatracker.ietf.org/doc/html/rfc9728#section-3.3";
 const RFC_7591 = "https://datatracker.ietf.org/doc/html/rfc7591";
+const ID_JAG_DRAFT =
+  "https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/03/";
 
 export const authServerDiscoveryFetchFailed = (issuer: string, url: string, cause: unknown) =>
   oauthError(
@@ -252,6 +254,48 @@ export const revokeTokenProcessFailed = (
     path,
     details: withCauseDetails(cause, { tokenType }),
   });
+
+export const identityGrantMetadataNotFound = (resource: string, cause: unknown) =>
+  oauthError(`Identity grant metadata discovery failed for '${resource}': ${errorMessage(cause)}`, {
+    code: "oauth/identity_metadata_not_found",
+    retryable: false,
+    cause,
+    details: withCauseDetails(cause, { resource }),
+    docUrl: ID_JAG_DRAFT,
+  });
+
+export const identityGrantSigningFailed = (cause: unknown) =>
+  oauthError(`Identity grant signing failed: ${errorMessage(cause)}`, {
+    code: "oauth/identity_signing_failed",
+    retryable: false,
+    cause,
+    details: withCauseDetails(cause),
+    docUrl: ID_JAG_DRAFT,
+  });
+
+export const identityGrantTokenRequestFailed = (issuer: string, cause: unknown) =>
+  oauthError(
+    `Identity grant token request failed for authorization server '${issuer}': ${errorMessage(cause)}`,
+    {
+      code: "oauth/identity_token_request_failed",
+      retryable: true,
+      cause,
+      details: withCauseDetails(cause, { issuer }),
+      docUrl: ID_JAG_DRAFT,
+    },
+  );
+
+export const identityGrantTokenResponseFailed = (issuer: string, cause: unknown) =>
+  oauthError(
+    `Identity grant token response failed for authorization server '${issuer}': ${errorMessage(cause)}`,
+    {
+      code: "oauth/identity_token_response_failed",
+      retryable: false,
+      cause,
+      details: withCauseDetails(cause, { issuer }),
+      docUrl: ID_JAG_DRAFT,
+    },
+  );
 
 /** Create a typed validation error for caller-provided input. */
 export function inputError(

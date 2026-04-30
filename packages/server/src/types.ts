@@ -180,6 +180,70 @@ export interface OAuthClientInput {
   initialAccessToken?: string;
 }
 
+export interface IdentityGrantPrivateJwk {
+  kty: "RSA";
+  n: string;
+  e: string;
+  d: string;
+  kid?: string;
+  alg?: string;
+  use?: string;
+  key_ops?: string[];
+  ext?: boolean;
+  p?: string;
+  q?: string;
+  dp?: string;
+  dq?: string;
+  qi?: string;
+}
+
+export interface IdentityGrantSigningKey {
+  privateJwk: IdentityGrantPrivateJwk;
+}
+
+export interface IdentitySubjectInput<TPrincipal = unknown> {
+  principal: TPrincipal;
+  path?: string;
+  requestedResource: string;
+  protectedResource: string;
+  authorizationServerIssuer: string;
+  scopes: readonly string[];
+  resourceMetadataUrl?: URL;
+}
+
+export type IdentitySubjectResolver<TPrincipal = unknown> = (
+  input: IdentitySubjectInput<TPrincipal>,
+) => string | Promise<string>;
+
+export type IdentityClientIdResolver<TPrincipal = unknown> = (
+  input: IdentitySubjectInput<TPrincipal>,
+) => string | Promise<string>;
+
+export type IdentityAuthorizationServerSelector = (input: {
+  protectedResource: string;
+  authorizationServers: readonly string[];
+}) => string | Promise<string>;
+
+export interface IdentityGrantOptions<TPrincipal = unknown> {
+  issuer: string;
+  clientId?: string | IdentityClientIdResolver<TPrincipal>;
+  signingKey: IdentityGrantSigningKey;
+  subject: IdentitySubjectResolver<TPrincipal>;
+  ttlSeconds?: number;
+  requireGrantProfile?: boolean;
+  tokenEndpointAuthMethod?: "private_key_jwt";
+  signingAlg?: "RS256";
+  selectAuthorizationServer?: IdentityAuthorizationServerSelector;
+}
+
+export interface IdentityJwksDocument {
+  keys: JWKS["keys"];
+}
+
+export interface IdentityJwksResponseInput {
+  cacheControl?: string;
+}
+
 export const LtreeLabelSchema = z
   .string()
   .regex(LTREE_LABEL_PATTERN, "Invalid ltree label")
@@ -342,6 +406,72 @@ export interface ConnectResolveHeadersInput {
   refresh?: boolean | "force";
 }
 
+export interface ConnectIdentityGrantExchangeInput<TPrincipal = unknown> {
+  resource: string;
+  response: ResponseLike;
+  principal: TPrincipal;
+  path?: string;
+  headers?: Record<string, string>;
+}
+
+export type ConnectIdentityGrantExchangeResult =
+  | {
+      kind: "exchanged";
+      authorization: string;
+      headers: Record<string, string>;
+      accessToken: string;
+      tokenType: "Bearer" | string;
+      expiresIn?: number;
+      scope?: string;
+      source: "identity-jag";
+    }
+  | {
+      kind: "not_applicable";
+      reason: "identity-grant-disabled" | "not-bearer-challenge" | "not-auth-challenge";
+    }
+  | {
+      kind: "unsupported";
+      reason:
+        | "metadata-not-found"
+        | "authorization-server-not-found"
+        | "oauth-metadata-not-found"
+        | "unsupported-grant-profile"
+        | "unsupported-grant-type"
+        | "unsupported-client-auth-method"
+        | "unsupported-client-auth-signing-alg";
+    };
+
+export interface ConnectResolveChallengeHeadersInput<TPrincipal = unknown> {
+  path: string;
+  resource: string;
+  response: ResponseLike;
+  headers?: Record<string, string>;
+  principal?: TPrincipal;
+  refreshOAuth?: false | "on-401" | "always";
+}
+
+export type ConnectResolveChallengeHeadersResult =
+  | {
+      kind: "resolved";
+      headers: Record<string, string>;
+      source: "oauth-refresh" | "identity-jag";
+    }
+  | {
+      kind: "unresolved";
+      classification: ConnectClassifyResponseResult;
+      attempted: {
+        oauthRefresh: boolean;
+        identityGrant: boolean;
+      };
+      reason:
+        | "not-auth-challenge"
+        | "oauth-refresh-unavailable"
+        | "identity-grant-disabled"
+        | "identity-grant-not-applicable"
+        | "identity-grant-unsupported"
+        | "identity-grant-failed";
+    };
+
 export interface ConnectDisconnectInput {
   path: string;
   revoke?: "refresh_token" | "access_token" | "both";
@@ -468,6 +598,14 @@ export interface ScopedAgentPw {
     ): Promise<Result<CredentialRecord>>;
     /** Resolve ready-to-send headers, refreshing OAuth credentials when needed. */
     resolveHeaders(input: ConnectResolveHeadersInput): Promise<Result<Record<string, string>>>;
+    /** Exchange an ID-JAG for downstream retry headers when a Bearer challenge supports it. */
+    exchangeIdentityGrant<TPrincipal = unknown>(
+      input: ConnectIdentityGrantExchangeInput<TPrincipal>,
+    ): Promise<Result<ConnectIdentityGrantExchangeResult>>;
+    /** Resolve retry headers for an auth challenge through OAuth refresh or ID-JAG. */
+    resolveChallengeHeaders<TPrincipal = unknown>(
+      input: ConnectResolveChallengeHeadersInput<TPrincipal>,
+    ): Promise<Result<ConnectResolveChallengeHeadersResult>>;
     /** Delete a credential and optionally revoke its remote OAuth token(s). */
     disconnect(input: ConnectDisconnectInput): Promise<Result<boolean>>;
   };
@@ -525,6 +663,8 @@ export interface AgentPwOptions {
   sql?: SqlNamespaceOptions;
   /** Default OAuth client configuration used when profiles or discovery do not provide one. */
   oauthClient?: OAuthClientInput;
+  /** App-issued ID-JAG configuration for downstream identity assertion exchanges. */
+  identityGrant?: IdentityGrantOptions;
 }
 
 /**
@@ -548,6 +688,10 @@ export interface AgentPw extends ScopedAgentPw {
     createClientMetadataDocument(input: CimdDocumentInput): Result<CimdDocument>;
     /** Return the client metadata document as a JSON `Response`. */
     createClientMetadataResponse(input: CimdDocumentInput): Result<Response>;
+    /** Build a public JWKS document for the configured identity signing key. */
+    createIdentityJwksDocument(): Result<IdentityJwksDocument>;
+    /** Return the public identity JWKS document as a JSON `Response`. */
+    createIdentityJwksResponse(input?: IdentityJwksResponseInput): Result<Response>;
   };
   /** Derive a restricted API view that enforces the supplied rights on every operation. */
   scope(input: RuleScope): ScopedAgentPw;

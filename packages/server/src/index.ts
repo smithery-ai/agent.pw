@@ -7,6 +7,7 @@ import {
   encryptCredentials,
   type StoredCredentials,
 } from "./lib/credentials-crypto.js";
+import { createIdentityGrantService } from "./identity.js";
 import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
@@ -19,6 +20,7 @@ import type {
   AgentPwOptions,
   ConnectFlow,
   ConnectInputRequiredResult,
+  ConnectResolveChallengeHeadersResult,
   ConnectOAuthOption,
   ConnectPrepareInput,
   ConnectResolutionResult,
@@ -869,6 +871,15 @@ export async function createAgentPw(options: AgentPwOptions) {
       return queryHelpers.deleteCredential(options.db, path);
     },
   });
+  const identity = createIdentityGrantService({
+    identityGrant: options.identityGrant,
+    customFetch: options.oauthFetch,
+    clock: options.clock ?? (() => new Date()),
+    defaultClientId: options.oauthClient?.clientId ?? options.oauthClient?.metadata?.clientId,
+    classifyResponse(input) {
+      return oauth.classifyResponse(input);
+    },
+  });
 
   const credentials: AgentPw["credentials"] = {
     get: getCredential,
@@ -1246,6 +1257,105 @@ export async function createAgentPw(options: AgentPwOptions) {
       return requireHeadersSecret(credential.value.secret, credential.value.path);
     },
 
+    exchangeIdentityGrant(input) {
+      return identity.exchangeIdentityGrant(input);
+    },
+
+    async resolveChallengeHeaders(input) {
+      const path = assertPath(input.path, "path");
+      if (!path.ok) {
+        return err(path.error);
+      }
+
+      const classified = await oauth.classifyResponse({
+        resource: input.resource,
+        response: input.response,
+      });
+      if (!classified.ok) {
+        return classified;
+      }
+
+      const attempted = {
+        oauthRefresh: false,
+        identityGrant: false,
+      };
+      if (classified.value.kind === "none") {
+        return ok<ConnectResolveChallengeHeadersResult>({
+          kind: "unresolved",
+          classification: classified.value,
+          attempted,
+          reason: "not-auth-challenge",
+        });
+      }
+
+      const refreshOAuth = input.refreshOAuth ?? "on-401";
+      if (
+        refreshOAuth === "always" ||
+        (refreshOAuth === "on-401" && input.response.status === 401)
+      ) {
+        attempted.oauthRefresh = true;
+        const refreshed = await connect.resolveHeaders({
+          path: path.value,
+          refresh: "force",
+        });
+        if (refreshed.ok) {
+          return ok<ConnectResolveChallengeHeadersResult>({
+            kind: "resolved",
+            source: "oauth-refresh",
+            headers: mergeHeaders({
+              existingHeaders: input.headers,
+              preserveExistingHeaders: true,
+              oauthHeaders: refreshed.value,
+            }),
+          });
+        }
+      }
+
+      if (typeof input.principal === "undefined") {
+        return ok<ConnectResolveChallengeHeadersResult>({
+          kind: "unresolved",
+          classification: classified.value,
+          attempted,
+          reason: "oauth-refresh-unavailable",
+        });
+      }
+
+      attempted.identityGrant = true;
+      const exchanged = await identity.exchangeIdentityGrant({
+        path: path.value,
+        resource: input.resource,
+        response: input.response,
+        principal: input.principal,
+        headers: input.headers,
+      });
+      if (!exchanged.ok) {
+        return exchanged;
+      }
+      if (exchanged.value.kind === "exchanged") {
+        return ok<ConnectResolveChallengeHeadersResult>({
+          kind: "resolved",
+          source: "identity-jag",
+          headers: exchanged.value.headers,
+        });
+      }
+
+      const reason =
+        exchanged.value.kind === "unsupported"
+          ? "identity-grant-unsupported"
+          : exchanged.value.reason === "identity-grant-disabled"
+            ? "identity-grant-disabled"
+            : /* v8 ignore next 3 -- the prior classifier already accepted this response as an auth challenge. */
+              exchanged.value.reason === "not-auth-challenge"
+              ? "not-auth-challenge"
+              : "identity-grant-not-applicable";
+      return ok<ConnectResolveChallengeHeadersResult>({
+        kind: "unresolved",
+        classification: classified.value,
+        attempted,
+        reason,
+      });
+    },
+
     disconnect(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
@@ -1267,6 +1377,14 @@ export async function createAgentPw(options: AgentPwOptions) {
 
     createClientMetadataResponse(input) {
       return oauth.createClientMetadataResponse(input);
+    },
+
+    createIdentityJwksDocument() {
+      return identity.createIdentityJwksDocument();
+    },
+
+    createIdentityJwksResponse(input) {
+      return identity.createIdentityJwksResponse(input);
     },
   };
 
@@ -1361,6 +1479,32 @@ export async function createAgentPw(options: AgentPwOptions) {
             return allowed;
           }
           return connect.resolveHeaders(input);
+        },
+
+        async exchangeIdentityGrant(input) {
+          if (input.path) {
+            const path = assertPath(input.path, "path");
+            if (!path.ok) {
+              return err(path.error);
+            }
+            const allowed = requireRule(scope, "credential.use", path.value);
+            if (!allowed.ok) {
+              return allowed;
+            }
+          }
+          return connect.exchangeIdentityGrant(input);
+        },
+
+        async resolveChallengeHeaders(input) {
+          const path = assertPath(input.path, "path");
+          if (!path.ok) {
+            return err(path.error);
+          }
+          const allowed = requireRule(scope, "credential.use", path.value);
+          if (!allowed.ok) {
+            return allowed;
+          }
+          return connect.resolveChallengeHeaders(input);
         },
 
         async disconnect(input) {
