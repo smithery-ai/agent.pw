@@ -150,6 +150,16 @@ describe("index mock coverage", () => {
     );
     expect(
       errorOf(
+        await agentPw.connect.exchangeIdentityGrant({
+          path: "bad.path",
+          resource: "https://ok",
+          response: { status: 401, headers: {} },
+          principal: "user_1",
+        }),
+      ).message,
+    ).toBe("mock path");
+    expect(
+      errorOf(
         await agentPw.connect.resolveChallengeHeaders({
           path: "bad.path",
           resource: "https://ok",

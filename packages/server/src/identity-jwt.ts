@@ -15,7 +15,9 @@ function privateJwk<TPrincipal>(options: IdentityGrantOptions<TPrincipal>) {
   return options.signingKey.privateJwk;
 }
 
-export function createIdentityJwksDocument(options: IdentityGrantOptions<unknown> | undefined) {
+export function createIdentityJwksDocument<TPrincipal>(
+  options: IdentityGrantOptions<TPrincipal> | undefined,
+) {
   if (!options) {
     return err(inputError("Identity grant helpers require AgentPwOptions.identityGrant"));
   }

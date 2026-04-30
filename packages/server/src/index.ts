@@ -7,7 +7,7 @@ import {
   encryptCredentials,
   type StoredCredentials,
 } from "./lib/credentials-crypto.js";
-import { createIdentityGrantService } from "./identity.js";
+import { createIdentityGrantService } from "./identity-service.js";
 import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
@@ -19,8 +19,10 @@ import type {
   AgentPw,
   AgentPwOptions,
   ConnectFlow,
+  ConnectIdentityGrantExchangeInput,
   ConnectInputRequiredResult,
   ConnectResolveChallengeHeadersResult,
+  ConnectResolveChallengeHeadersInput,
   ConnectOAuthOption,
   ConnectPrepareInput,
   ConnectResolutionResult,
@@ -464,7 +466,9 @@ function requireRule(scope: RuleScope, action: string, path: string) {
  * errors without catching thrown exceptions. Supply `flowStore` and `oauthClient` when you want
  * to support browser-based OAuth connection flows.
  */
-export async function createAgentPw(options: AgentPwOptions) {
+export async function createAgentPw<TIdentityPrincipal = unknown>(
+  options: AgentPwOptions<TIdentityPrincipal>,
+) {
   const logger = options.logger ?? createLogger("agentpw").logger;
   const encryptionKey = options.encryptionKey;
   const queries = createQueryHelpers(options.sql);
@@ -473,7 +477,7 @@ export async function createAgentPw(options: AgentPwOptions) {
   }
   const queryHelpers = queries.value;
 
-  const profiles: AgentPw["profiles"] = {
+  const profiles: AgentPw<TIdentityPrincipal>["profiles"] = {
     async resolve(input, opts) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
@@ -871,7 +875,7 @@ export async function createAgentPw(options: AgentPwOptions) {
       return queryHelpers.deleteCredential(options.db, path);
     },
   });
-  const identity = createIdentityGrantService({
+  const identity = createIdentityGrantService<TIdentityPrincipal>({
     identityGrant: options.identityGrant,
     customFetch: options.oauthFetch,
     clock: options.clock ?? (() => new Date()),
@@ -881,7 +885,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
   });
 
-  const credentials: AgentPw["credentials"] = {
+  const credentials: AgentPw<TIdentityPrincipal>["credentials"] = {
     get: getCredential,
 
     async list(query = {}) {
@@ -959,7 +963,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
   };
 
-  const connect: AgentPw["connect"] = {
+  const connect: AgentPw<TIdentityPrincipal>["connect"] = {
     async prepare(input) {
       const resolved = await resolveConnection(input);
       if (!resolved.ok) {
@@ -1257,11 +1261,21 @@ export async function createAgentPw(options: AgentPwOptions) {
       return requireHeadersSecret(credential.value.secret, credential.value.path);
     },
 
-    exchangeIdentityGrant(input) {
-      return identity.exchangeIdentityGrant(input);
+    async exchangeIdentityGrant(input: ConnectIdentityGrantExchangeInput<TIdentityPrincipal>) {
+      if (typeof input.path !== "string") {
+        return err(inputError("connect.exchangeIdentityGrant requires path"));
+      }
+      const path = assertPath(input.path, "path");
+      if (!path.ok) {
+        return err(path.error);
+      }
+      return identity.exchangeIdentityGrant({
+        ...input,
+        path: path.value,
+      });
     },
 
-    async resolveChallengeHeaders(input) {
+    async resolveChallengeHeaders(input: ConnectResolveChallengeHeadersInput<TIdentityPrincipal>) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
         return err(path.error);
@@ -1311,7 +1325,8 @@ export async function createAgentPw(options: AgentPwOptions) {
         }
       }
 
-      if (typeof input.principal === "undefined") {
+      const principal = input.principal;
+      if (typeof principal === "undefined") {
         return ok<ConnectResolveChallengeHeadersResult>({
           kind: "unresolved",
           classification: classified.value,
@@ -1325,7 +1340,7 @@ export async function createAgentPw(options: AgentPwOptions) {
         path: path.value,
         resource: input.resource,
         response: input.response,
-        principal: input.principal,
+        principal,
         headers: input.headers,
       });
       if (!exchanged.ok) {
@@ -1388,7 +1403,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
   };
 
-  function createScopedApi(scope: RuleScope): ScopedAgentPw {
+  function createScopedApi(scope: RuleScope): ScopedAgentPw<TIdentityPrincipal> {
     return {
       connect: {
         async prepare(input) {
@@ -1482,17 +1497,21 @@ export async function createAgentPw(options: AgentPwOptions) {
         },
 
         async exchangeIdentityGrant(input) {
-          if (input.path) {
-            const path = assertPath(input.path, "path");
-            if (!path.ok) {
-              return err(path.error);
-            }
-            const allowed = requireRule(scope, "credential.use", path.value);
-            if (!allowed.ok) {
-              return allowed;
-            }
+          if (typeof input.path !== "string") {
+            return err(inputError("connect.exchangeIdentityGrant requires path"));
           }
-          return connect.exchangeIdentityGrant(input);
+          const path = assertPath(input.path, "path");
+          if (!path.ok) {
+            return err(path.error);
+          }
+          const allowed = requireRule(scope, "credential.use", path.value);
+          if (!allowed.ok) {
+            return allowed;
+          }
+          return connect.exchangeIdentityGrant({
+            ...input,
+            path: path.value,
+          });
         },
 
         async resolveChallengeHeaders(input) {
@@ -1666,7 +1685,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     };
   }
 
-  function scope(input: RuleScope): ScopedAgentPw {
+  function scope(input: RuleScope): ScopedAgentPw<TIdentityPrincipal> {
     return createScopedApi(input);
   }
 

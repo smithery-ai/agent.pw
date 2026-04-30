@@ -5,6 +5,7 @@ import {
   JWT_BEARER_GRANT_TYPE,
   pairwiseIdentitySubject,
 } from "agent.pw/identity";
+import * as identity from "agent.pw/identity";
 import { describe, expect, it } from "vitest";
 import { createTestDb } from "./setup";
 import { must } from "./support/results";
@@ -36,6 +37,7 @@ describe("identity helpers", () => {
     expect(JWT_BEARER_GRANT_TYPE).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
     expect(IDENTITY_ASSERTION_GRANT_PROFILE).toBe("urn:ietf:params:oauth:grant-profile:id-jag");
     expect(IDENTITY_ASSERTION_JWT_TYPE).toBe("oauth-id-jag+jwt");
+    expect(identity).not.toHaveProperty("createIdentityGrantService");
   });
 
   it("creates a public JWKS document from the configured private RSA JWK", async () => {

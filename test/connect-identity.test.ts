@@ -129,6 +129,7 @@ describe("connect identity grant exchange", () => {
 
     const exchanged = must(
       await agentPw.connect.exchangeIdentityGrant({
+        path: "org_alpha.connections.rs",
         resource: "https://rs.example.com/mcp",
         response: bearerChallenge(),
         principal: "user_1",
@@ -215,6 +216,7 @@ describe("connect identity grant exchange", () => {
 
     const exchanged = must(
       await agentPw.connect.exchangeIdentityGrant({
+        path: "org_alpha.connections.rs",
         resource: "https://rs.example.com/mcp",
         response: bearerChallenge(),
         principal: "user_1",

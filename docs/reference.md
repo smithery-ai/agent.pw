@@ -7,6 +7,7 @@ This document covers the detailed `agent.pw` package surface beyond the quick st
 ```ts
 import { createAgentPw } from "agent.pw";
 import * as oauth from "agent.pw/oauth";
+import * as identity from "agent.pw/identity";
 import * as rules from "agent.pw/rules";
 import * as sql from "agent.pw/sql";
 import * as paths from "agent.pw/paths";
@@ -108,6 +109,36 @@ When the stored credential is OAuth-backed, OAuth-owned auth headers remain auth
 Returns runtime headers for the exact path.
 
 When the stored credential is OAuth-backed, this call is refresh-aware by default.
+
+### ID-JAG Challenge Resolution
+
+Configure `identityGrant` when the app can issue ID-JAG assertions for a user principal:
+
+```ts
+import { createAgentPw } from "agent.pw";
+import { pairwiseIdentitySubject } from "agent.pw/identity";
+import { unwrap } from "okay-error";
+
+const agentPw = await unwrap(
+  createAgentPw({
+    db,
+    encryptionKey,
+    oauthClient: { clientId: "agentpw-client" },
+    identityGrant: {
+      issuer: "https://idp.example.com",
+      clientId: "agentpw-client",
+      signingKey: { privateJwk },
+      subject: pairwiseIdentitySubject({ secret: subjectSecret }),
+    },
+  }),
+);
+```
+
+Publish `agentPw.connect.createIdentityJwksResponse()` at the JWKS URI for the configured issuer.
+
+For a resource challenge, call `connect.resolveChallengeHeaders({ path, resource, response, principal })`. OAuth refresh is tried first on `401`; if the retried request still returns an auth challenge, call the helper again with the new response to reach ID-JAG exchange. Use `refreshOAuth: false` when the caller already knows OAuth refresh should be skipped.
+
+`connect.exchangeIdentityGrant({ path, resource, response, principal })` runs only the ID-JAG exchange. The `path` is required because scoped APIs enforce `credential.use` against it.
 
 ### `connect.disconnect({ path, revoke? })`
 

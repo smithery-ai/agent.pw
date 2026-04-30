@@ -1,7 +1,7 @@
 import { createAgentPw } from "agent.pw";
 import { err, ok } from "okay-error";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createIdentityGrantService } from "../packages/server/src/identity";
+import { createIdentityGrantService } from "../packages/server/src/identity-service";
 import { inputError } from "../packages/server/src/errors";
 import type {
   ConnectClassifyResponseResult,
@@ -157,6 +157,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await disabled.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: CHALLENGE,
           principal: "user_1",
@@ -169,6 +170,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await service.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "not-a-url",
           response: CHALLENGE,
           principal: "user_1",
@@ -183,6 +185,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await noChallenge.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: CHALLENGE,
           principal: "user_1",
@@ -198,6 +201,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await classifierError.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: CHALLENGE,
           principal: "user_1",
@@ -218,6 +222,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await metadataFetchError.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -237,6 +242,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await invalidMetadata.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -255,6 +261,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await noAuthorizationServer.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -274,6 +281,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await invalidAuthorizationServer.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -322,6 +330,7 @@ describe("identity branch coverage", () => {
       expect(
         must(
           await service.exchangeIdentityGrant({
+            path: "org_alpha.connections.rs",
             resource: "https://rs.example.com/mcp",
             response: bearerChallenge(),
             principal: "user_1",
@@ -339,6 +348,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await authServerFetchError.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -360,6 +370,7 @@ describe("identity branch coverage", () => {
       expect(
         must(
           await service.exchangeIdentityGrant({
+            path: "org_alpha.connections.rs",
             resource: "https://rs.example.com/mcp",
             response: bearerChallenge(),
             principal: "user_1",
@@ -401,6 +412,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await defaultClient.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -430,6 +442,7 @@ describe("identity branch coverage", () => {
       expect(
         (
           await service.exchangeIdentityGrant({
+            path: "org_alpha.connections.rs",
             resource: "https://rs.example.com/mcp",
             response: bearerChallenge(),
             principal: "user_1",
@@ -447,6 +460,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await tokenRequestFailure.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -461,6 +475,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await tokenResponseFailure.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -473,6 +488,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await signingFailure.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -492,6 +508,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await noKidNoScopes.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -515,6 +532,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await globalFetchService.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge("https://rs.example.com/.well-known/oauth-protected-resource"),
           principal: "user_1",
@@ -535,6 +553,7 @@ describe("identity branch coverage", () => {
     expect(
       must(
         await dpopToken.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -555,6 +574,7 @@ describe("identity branch coverage", () => {
     expect(
       errorOf(
         await secondImportFailure.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
@@ -590,6 +610,16 @@ describe("identity branch coverage", () => {
       attempted: { oauthRefresh: false, identityGrant: false },
       reason: "not-auth-challenge",
     });
+    expect(
+      errorOf(
+        // @ts-expect-error path is required for public ownership checks.
+        await agentPw.connect.exchangeIdentityGrant({
+          resource: "https://rs.example.com/mcp",
+          response: bearerChallenge(),
+          principal: "user_1",
+        }),
+      ).type,
+    ).toBe("Input");
 
     let challengeReads = 0;
     expect(
@@ -683,18 +713,19 @@ describe("identity branch coverage", () => {
 
     const scoped = agentPw.scope({ rights: [{ action: "credential.use", root: "org_alpha" }] });
     expect(
-      must(
+      errorOf(
+        // @ts-expect-error path is required for scoped ownership checks.
         await scoped.connect.exchangeIdentityGrant({
-          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
         }),
-      ).kind,
-    ).toBe("exchanged");
+      ).type,
+    ).toBe("Input");
     expect(
       must(
         await scoped.connect.exchangeIdentityGrant({
+          path: "org_alpha.connections.rs",
           resource: "https://rs.example.com/mcp",
           response: bearerChallenge(),
           principal: "user_1",
