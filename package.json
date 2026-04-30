@@ -11,6 +11,7 @@
     ".": "./packages/server/src/index.ts",
     "./paths": "./packages/server/src/paths.ts",
     "./oauth": "./packages/server/src/oauth.ts",
+    "./identity": "./packages/server/src/identity.ts",
     "./rules": "./packages/server/src/rules.ts",
     "./sql": "./packages/server/src/sql/index.ts",
     "./types": "./packages/server/src/types.ts",

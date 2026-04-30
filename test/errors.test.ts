@@ -4,6 +4,10 @@ import {
   conflictError,
   cryptoError,
   expiredError,
+  identityGrantMetadataNotFound,
+  identityGrantSigningFailed,
+  identityGrantTokenRequestFailed,
+  identityGrantTokenResponseFailed,
   inputError,
   internalError,
   isAgentPwError,
@@ -45,6 +49,37 @@ describe("agent.pw errors", () => {
       path: "acme.connections.docs",
       message: "Missing 'credential.use' for 'acme.connections.docs'",
     });
+
+    expect(identityGrantMetadataNotFound("https://rs.example.com", new Error("offline"))).toEqual(
+      expect.objectContaining({
+        type: "OAuth",
+        code: "oauth/identity_metadata_not_found",
+        retryable: false,
+      }),
+    );
+    expect(identityGrantSigningFailed(new Error("bad key"))).toEqual(
+      expect.objectContaining({
+        type: "OAuth",
+        code: "oauth/identity_signing_failed",
+        retryable: false,
+      }),
+    );
+    expect(identityGrantTokenRequestFailed("https://as.example.com", new Error("offline"))).toEqual(
+      expect.objectContaining({
+        type: "OAuth",
+        code: "oauth/identity_token_request_failed",
+        retryable: true,
+      }),
+    );
+    expect(
+      identityGrantTokenResponseFailed("https://as.example.com", new Error("invalid")),
+    ).toEqual(
+      expect.objectContaining({
+        type: "OAuth",
+        code: "oauth/identity_token_response_failed",
+        retryable: false,
+      }),
+    );
   });
 
   it("recognizes known error objects", () => {

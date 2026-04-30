@@ -7,6 +7,7 @@ import {
   encryptCredentials,
   type StoredCredentials,
 } from "./lib/credentials-crypto.js";
+import { createIdentityGrantService } from "./identity-service.js";
 import { mergeHeaders } from "./lib/connect-headers.js";
 import { createLogger } from "./lib/logger.js";
 import { isRecord } from "./lib/utils.js";
@@ -18,7 +19,10 @@ import type {
   AgentPw,
   AgentPwOptions,
   ConnectFlow,
+  ConnectIdentityGrantExchangeInput,
   ConnectInputRequiredResult,
+  ConnectResolveChallengeHeadersResult,
+  ConnectResolveChallengeHeadersInput,
   ConnectOAuthOption,
   ConnectPrepareInput,
   ConnectResolutionResult,
@@ -462,7 +466,9 @@ function requireRule(scope: RuleScope, action: string, path: string) {
  * errors without catching thrown exceptions. Supply `flowStore` and `oauthClient` when you want
  * to support browser-based OAuth connection flows.
  */
-export async function createAgentPw(options: AgentPwOptions) {
+export async function createAgentPw<TIdentityPrincipal = unknown>(
+  options: AgentPwOptions<TIdentityPrincipal>,
+) {
   const logger = options.logger ?? createLogger("agentpw").logger;
   const encryptionKey = options.encryptionKey;
   const queries = createQueryHelpers(options.sql);
@@ -471,7 +477,7 @@ export async function createAgentPw(options: AgentPwOptions) {
   }
   const queryHelpers = queries.value;
 
-  const profiles: AgentPw["profiles"] = {
+  const profiles: AgentPw<TIdentityPrincipal>["profiles"] = {
     async resolve(input, opts) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
@@ -869,8 +875,17 @@ export async function createAgentPw(options: AgentPwOptions) {
       return queryHelpers.deleteCredential(options.db, path);
     },
   });
+  const identity = createIdentityGrantService<TIdentityPrincipal>({
+    identityGrant: options.identityGrant,
+    customFetch: options.oauthFetch,
+    clock: options.clock ?? (() => new Date()),
+    defaultClientId: options.oauthClient?.clientId ?? options.oauthClient?.metadata?.clientId,
+    classifyResponse(input) {
+      return oauth.classifyResponse(input);
+    },
+  });
 
-  const credentials: AgentPw["credentials"] = {
+  const credentials: AgentPw<TIdentityPrincipal>["credentials"] = {
     get: getCredential,
 
     async list(query = {}) {
@@ -948,7 +963,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     },
   };
 
-  const connect: AgentPw["connect"] = {
+  const connect: AgentPw<TIdentityPrincipal>["connect"] = {
     async prepare(input) {
       const resolved = await resolveConnection(input);
       if (!resolved.ok) {
@@ -1246,6 +1261,116 @@ export async function createAgentPw(options: AgentPwOptions) {
       return requireHeadersSecret(credential.value.secret, credential.value.path);
     },
 
+    async exchangeIdentityGrant(input: ConnectIdentityGrantExchangeInput<TIdentityPrincipal>) {
+      if (typeof input.path !== "string") {
+        return err(inputError("connect.exchangeIdentityGrant requires path"));
+      }
+      const path = assertPath(input.path, "path");
+      if (!path.ok) {
+        return err(path.error);
+      }
+      return identity.exchangeIdentityGrant({
+        ...input,
+        path: path.value,
+      });
+    },
+
+    async resolveChallengeHeaders(input: ConnectResolveChallengeHeadersInput<TIdentityPrincipal>) {
+      const path = assertPath(input.path, "path");
+      if (!path.ok) {
+        return err(path.error);
+      }
+
+      const classified = await oauth.classifyResponse({
+        resource: input.resource,
+        response: input.response,
+      });
+      if (!classified.ok) {
+        return classified;
+      }
+
+      const attempted = {
+        oauthRefresh: false,
+        identityGrant: false,
+      };
+      if (classified.value.kind === "none") {
+        return ok<ConnectResolveChallengeHeadersResult>({
+          kind: "unresolved",
+          classification: classified.value,
+          attempted,
+          reason: "not-auth-challenge",
+        });
+      }
+
+      const refreshOAuth = input.refreshOAuth ?? "on-401";
+      if (
+        refreshOAuth === "always" ||
+        (refreshOAuth === "on-401" && input.response.status === 401)
+      ) {
+        attempted.oauthRefresh = true;
+        const refreshed = await connect.resolveHeaders({
+          path: path.value,
+          refresh: "force",
+        });
+        if (refreshed.ok) {
+          return ok<ConnectResolveChallengeHeadersResult>({
+            kind: "resolved",
+            source: "oauth-refresh",
+            headers: mergeHeaders({
+              existingHeaders: input.headers,
+              preserveExistingHeaders: true,
+              oauthHeaders: refreshed.value,
+            }),
+          });
+        }
+      }
+
+      const principal = input.principal;
+      if (typeof principal === "undefined") {
+        return ok<ConnectResolveChallengeHeadersResult>({
+          kind: "unresolved",
+          classification: classified.value,
+          attempted,
+          reason: "oauth-refresh-unavailable",
+        });
+      }
+
+      attempted.identityGrant = true;
+      const exchanged = await identity.exchangeIdentityGrant({
+        path: path.value,
+        resource: input.resource,
+        response: input.response,
+        principal,
+        headers: input.headers,
+      });
+      if (!exchanged.ok) {
+        return exchanged;
+      }
+      if (exchanged.value.kind === "exchanged") {
+        return ok<ConnectResolveChallengeHeadersResult>({
+          kind: "resolved",
+          source: "identity-jag",
+          headers: exchanged.value.headers,
+        });
+      }
+
+      const reason =
+        exchanged.value.kind === "unsupported"
+          ? "identity-grant-unsupported"
+          : exchanged.value.reason === "identity-grant-disabled"
+            ? "identity-grant-disabled"
+            : /* v8 ignore next 3 -- the prior classifier already accepted this response as an auth challenge. */
+              exchanged.value.reason === "not-auth-challenge"
+              ? "not-auth-challenge"
+              : "identity-grant-not-applicable";
+      return ok<ConnectResolveChallengeHeadersResult>({
+        kind: "unresolved",
+        classification: classified.value,
+        attempted,
+        reason,
+      });
+    },
+
     disconnect(input) {
       const path = assertPath(input.path, "path");
       if (!path.ok) {
@@ -1268,9 +1393,17 @@ export async function createAgentPw(options: AgentPwOptions) {
     createClientMetadataResponse(input) {
       return oauth.createClientMetadataResponse(input);
     },
+
+    createIdentityJwksDocument() {
+      return identity.createIdentityJwksDocument();
+    },
+
+    createIdentityJwksResponse(input) {
+      return identity.createIdentityJwksResponse(input);
+    },
   };
 
-  function createScopedApi(scope: RuleScope): ScopedAgentPw {
+  function createScopedApi(scope: RuleScope): ScopedAgentPw<TIdentityPrincipal> {
     return {
       connect: {
         async prepare(input) {
@@ -1361,6 +1494,36 @@ export async function createAgentPw(options: AgentPwOptions) {
             return allowed;
           }
           return connect.resolveHeaders(input);
+        },
+
+        async exchangeIdentityGrant(input) {
+          if (typeof input.path !== "string") {
+            return err(inputError("connect.exchangeIdentityGrant requires path"));
+          }
+          const path = assertPath(input.path, "path");
+          if (!path.ok) {
+            return err(path.error);
+          }
+          const allowed = requireRule(scope, "credential.use", path.value);
+          if (!allowed.ok) {
+            return allowed;
+          }
+          return connect.exchangeIdentityGrant({
+            ...input,
+            path: path.value,
+          });
+        },
+
+        async resolveChallengeHeaders(input) {
+          const path = assertPath(input.path, "path");
+          if (!path.ok) {
+            return err(path.error);
+          }
+          const allowed = requireRule(scope, "credential.use", path.value);
+          if (!allowed.ok) {
+            return allowed;
+          }
+          return connect.resolveChallengeHeaders(input);
         },
 
         async disconnect(input) {
@@ -1522,7 +1685,7 @@ export async function createAgentPw(options: AgentPwOptions) {
     };
   }
 
-  function scope(input: RuleScope): ScopedAgentPw {
+  function scope(input: RuleScope): ScopedAgentPw<TIdentityPrincipal> {
     return createScopedApi(input);
   }
 
