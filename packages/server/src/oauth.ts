@@ -143,6 +143,46 @@ function normalizeClientAuthentication(
   return hasSecret ? "client_secret_basic" : "none";
 }
 
+const clientAuthenticationMethodByName: Partial<Record<string, OAuthClientAuthenticationMethod>> = {
+  client_secret_basic: "client_secret_basic",
+  client_secret_post: "client_secret_post",
+  none: "none",
+};
+
+// agent.pw stores dynamic client credentials server-side, so prefer confidential
+// methods when the authorization server supports them.
+const clientAuthenticationPreference: OAuthClientAuthenticationMethod[] = [
+  "client_secret_basic",
+  "client_secret_post",
+  "none",
+];
+
+function parseClientAuthenticationMethod(
+  value: string | undefined,
+): OAuthClientAuthenticationMethod | undefined {
+  return clientAuthenticationMethodByName[value ?? ""];
+}
+
+function selectDynamicClientAuthentication(
+  authorizationServer: oauth.AuthorizationServer,
+  requested: OAuthClientAuthenticationMethod | undefined,
+) {
+  const supported = authorizationServer.token_endpoint_auth_methods_supported;
+  if (!Array.isArray(supported)) {
+    return requested;
+  }
+  if (requested && supported.includes(requested)) {
+    return requested;
+  }
+  const supportedMethod = clientAuthenticationPreference.find((method) =>
+    supported.includes(method),
+  );
+  if (supportedMethod) {
+    return supportedMethod;
+  }
+  return requested;
+}
+
 function assertPkceS256Support(authorizationServer: oauth.AuthorizationServer) {
   if (authorizationServer.code_challenge_methods_supported?.includes("S256")) {
     return ok(undefined);
@@ -898,15 +938,34 @@ async function maybeRegisterDynamicClient(
     );
   }
 
+  const metadata = cimdToClientMetadata(client.metadata);
+  const requestedTokenEndpointAuthMethod = stringValue(metadata.token_endpoint_auth_method);
+  const requestedClientAuthentication = parseClientAuthenticationMethod(
+    requestedTokenEndpointAuthMethod,
+  );
+  if (requestedTokenEndpointAuthMethod && !requestedClientAuthentication) {
+    return err(
+      inputError(
+        `Dynamic client registration requested unsupported token_endpoint_auth_method '${requestedTokenEndpointAuthMethod}'`,
+      ),
+    );
+  }
+  const tokenEndpointAuthMethod = selectDynamicClientAuthentication(
+    authorizationServer,
+    requestedClientAuthentication,
+  );
+  const registrationMetadata =
+    tokenEndpointAuthMethod === undefined
+      ? metadata
+      : {
+          ...metadata,
+          token_endpoint_auth_method: tokenEndpointAuthMethod,
+        };
   const registrationResponse = await result(
-    oauth.dynamicClientRegistrationRequest(
-      authorizationServer,
-      cimdToClientMetadata(client.metadata),
-      {
-        initialAccessToken: client.initialAccessToken,
-        ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
-      },
-    ),
+    oauth.dynamicClientRegistrationRequest(authorizationServer, registrationMetadata, {
+      initialAccessToken: client.initialAccessToken,
+      ...(customFetch ? { [oauth.customFetch]: customFetch } : {}),
+    }),
   );
   if (!registrationResponse.ok) {
     return err(dcrRequestFailed(registrationResponse.error));
@@ -921,11 +980,36 @@ async function maybeRegisterDynamicClient(
 
   const clientId = registered.value.client_id;
   const clientSecret = stringValue(registered.value.client_secret);
+  const registeredTokenEndpointAuthMethod = stringValue(
+    registered.value.token_endpoint_auth_method,
+  );
+  const registeredClientAuthentication = parseClientAuthenticationMethod(
+    registeredTokenEndpointAuthMethod,
+  );
+  if (registeredTokenEndpointAuthMethod && !registeredClientAuthentication) {
+    return err(
+      inputError(
+        `Dynamic client registration returned unsupported token_endpoint_auth_method '${registeredTokenEndpointAuthMethod}'`,
+      ),
+    );
+  }
+  const clientAuthentication = registeredClientAuthentication ?? tokenEndpointAuthMethod;
+  if (
+    !clientSecret &&
+    (clientAuthentication === "client_secret_basic" ||
+      clientAuthentication === "client_secret_post")
+  ) {
+    return err(
+      inputError(
+        `Dynamic client registration selected '${clientAuthentication}' but did not return client_secret`,
+      ),
+    );
+  }
   return ok({
     clientId,
     clientSecret,
     clientAuthentication: normalizeClientAuthentication(
-      stringValue(registered.value.token_endpoint_auth_method),
+      clientAuthentication,
       Boolean(clientSecret),
     ),
   });

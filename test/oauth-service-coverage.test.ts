@@ -789,6 +789,7 @@ describe("oauth service coverage", () => {
           token_endpoint: "https://issuer-register.example.com/token",
           registration_endpoint: "https://issuer-register.example.com/register",
           client_id_metadata_document_supported: false,
+          token_endpoint_auth_methods_supported: ["none"],
           code_challenge_methods_supported: ["S256"],
         });
       }
@@ -797,7 +798,6 @@ describe("oauth service coverage", () => {
         return Response.json(
           {
             client_id: "registered-client-id",
-            token_endpoint_auth_method: "none",
           },
           { status: 201 },
         );
@@ -847,6 +847,509 @@ describe("oauth service coverage", () => {
 
     expect(started.authorizationUrl).toContain("client_id=registered-client-id");
     expect(calls.map((call) => call.url)).toContain("https://issuer-register.example.com/register");
+  });
+
+  it("uses authorization-server-supported client auth during dynamic registration", async () => {
+    const state = await createState();
+    const flowStore = createInMemoryFlowStore();
+    const registrationBodies: Record<string, unknown>[] = [];
+
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (
+        url === "https://issuer-register.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://issuer-register.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://issuer-register.example.com",
+          authorization_endpoint: "https://issuer-register.example.com/authorize",
+          token_endpoint: "https://issuer-register.example.com/token",
+          registration_endpoint: "https://issuer-register.example.com/register",
+          client_id_metadata_document_supported: false,
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      if (url === "https://issuer-register.example.com/register") {
+        const body = typeof init?.body === "string" ? init.body : "{}";
+        registrationBodies.push(JSON.parse(body) as Record<string, unknown>);
+        return Response.json(
+          {
+            client_id: "registered-client-id",
+            client_secret: "registered-client-secret",
+            client_secret_expires_at: 0,
+          },
+          { status: 201 },
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    await state.profiles.set("metadata-client", {
+      path: "metadata-client",
+      resourcePatterns: ["https://issuer-register.example.com/*"],
+      http: null,
+      oauth: {
+        issuer: "https://issuer-register.example.com",
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    });
+
+    const started = await service.startAuthorization({
+      path: "org.metadata-doc-basic",
+      option: {
+        kind: "oauth",
+        source: "profile",
+        label: "Metadata client",
+        profilePath: "metadata-client",
+        resource: "https://issuer-register.example.com/api",
+      },
+      redirectUri: "https://app.example.com/oauth/callback",
+      client: {
+        clientId: "https://app.example.com/.well-known/oauth-client",
+        clientAuthentication: "none",
+        metadata: {
+          redirectUris: ["https://app.example.com/oauth/callback"],
+          clientName: "Connect Client",
+          tokenEndpointAuthMethod: "none",
+        },
+      },
+    });
+
+    const flow = await service.getFlow(started.flowId);
+
+    expect(registrationBodies).toEqual([
+      expect.objectContaining({
+        token_endpoint_auth_method: "client_secret_basic",
+      }),
+    ]);
+    expect(flow.oauthConfig.clientId).toBe("registered-client-id");
+    expect(flow.oauthConfig.clientSecret).toBe("registered-client-secret");
+    expect(flow.oauthConfig.clientAuthentication).toBe("client_secret_basic");
+  });
+
+  it("rejects confidential dynamic registration responses that omit the secret", async () => {
+    const state = await createState();
+    const flowStore = createInMemoryFlowStore();
+    const registrationBodies: Record<string, unknown>[] = [];
+
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (
+        url === "https://issuer-register.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://issuer-register.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://issuer-register.example.com",
+          authorization_endpoint: "https://issuer-register.example.com/authorize",
+          token_endpoint: "https://issuer-register.example.com/token",
+          registration_endpoint: "https://issuer-register.example.com/register",
+          client_id_metadata_document_supported: false,
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      if (url === "https://issuer-register.example.com/register") {
+        const body = typeof init?.body === "string" ? init.body : "{}";
+        registrationBodies.push(JSON.parse(body) as Record<string, unknown>);
+        return Response.json(
+          {
+            client_id: "registered-client-id",
+          },
+          { status: 201 },
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    await state.profiles.set("metadata-client", {
+      path: "metadata-client",
+      resourcePatterns: ["https://issuer-register.example.com/*"],
+      http: null,
+      oauth: {
+        issuer: "https://issuer-register.example.com",
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    });
+
+    await expect(
+      service.startAuthorization({
+        path: "org.metadata-doc-basic-no-secret",
+        option: {
+          kind: "oauth",
+          source: "profile",
+          label: "Metadata client",
+          profilePath: "metadata-client",
+          resource: "https://issuer-register.example.com/api",
+        },
+        redirectUri: "https://app.example.com/oauth/callback",
+        client: {
+          clientId: "https://app.example.com/.well-known/oauth-client",
+          clientAuthentication: "none",
+          metadata: {
+            redirectUris: ["https://app.example.com/oauth/callback"],
+            clientName: "Connect Client",
+            tokenEndpointAuthMethod: "none",
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      "Dynamic client registration selected 'client_secret_basic' but did not return client_secret",
+    );
+
+    expect(registrationBodies).toEqual([
+      expect.objectContaining({
+        token_endpoint_auth_method: "client_secret_basic",
+      }),
+    ]);
+  });
+
+  it("rejects unsupported dynamic registration client auth methods", async () => {
+    const state = await createState();
+    const flowStore = createInMemoryFlowStore();
+
+    const fetchImpl: typeof fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (
+        url === "https://issuer-register.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://issuer-register.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://issuer-register.example.com",
+          authorization_endpoint: "https://issuer-register.example.com/authorize",
+          token_endpoint: "https://issuer-register.example.com/token",
+          registration_endpoint: "https://issuer-register.example.com/register",
+          client_id_metadata_document_supported: false,
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      if (url === "https://issuer-register.example.com/register") {
+        return Response.json(
+          {
+            client_id: "registered-client-id",
+            client_secret: "registered-client-secret",
+            client_secret_expires_at: 0,
+            token_endpoint_auth_method: "private_key_jwt",
+          },
+          { status: 201 },
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    await state.profiles.set("metadata-client", {
+      path: "metadata-client",
+      resourcePatterns: ["https://issuer-register.example.com/*"],
+      http: null,
+      oauth: {
+        issuer: "https://issuer-register.example.com",
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    });
+
+    await expect(
+      service.startAuthorization({
+        path: "org.metadata-doc-private-jwt",
+        option: {
+          kind: "oauth",
+          source: "profile",
+          label: "Metadata client",
+          profilePath: "metadata-client",
+          resource: "https://issuer-register.example.com/api",
+        },
+        redirectUri: "https://app.example.com/oauth/callback",
+        client: {
+          clientId: "https://app.example.com/.well-known/oauth-client",
+          clientAuthentication: "none",
+          metadata: {
+            redirectUris: ["https://app.example.com/oauth/callback"],
+            clientName: "Connect Client",
+            tokenEndpointAuthMethod: "none",
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      "Dynamic client registration returned unsupported token_endpoint_auth_method 'private_key_jwt'",
+    );
+  });
+
+  it("rejects unsupported requested dynamic registration client auth methods", async () => {
+    const state = await createState();
+    const flowStore = createInMemoryFlowStore();
+    const registrationBodies: Record<string, unknown>[] = [];
+
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (
+        url === "https://issuer-register.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://issuer-register.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://issuer-register.example.com",
+          authorization_endpoint: "https://issuer-register.example.com/authorize",
+          token_endpoint: "https://issuer-register.example.com/token",
+          registration_endpoint: "https://issuer-register.example.com/register",
+          client_id_metadata_document_supported: false,
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      if (url === "https://issuer-register.example.com/register") {
+        const body = typeof init?.body === "string" ? init.body : "{}";
+        registrationBodies.push(JSON.parse(body) as Record<string, unknown>);
+        return Response.json({ client_id: "registered-client-id" }, { status: 201 });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    await state.profiles.set("metadata-client", {
+      path: "metadata-client",
+      resourcePatterns: ["https://issuer-register.example.com/*"],
+      http: null,
+      oauth: {
+        issuer: "https://issuer-register.example.com",
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    });
+
+    await expect(
+      service.startAuthorization({
+        path: "org.metadata-doc-requested-private-jwt",
+        option: {
+          kind: "oauth",
+          source: "profile",
+          label: "Metadata client",
+          profilePath: "metadata-client",
+          resource: "https://issuer-register.example.com/api",
+        },
+        redirectUri: "https://app.example.com/oauth/callback",
+        client: {
+          clientId: "https://app.example.com/.well-known/oauth-client",
+          metadata: {
+            redirectUris: ["https://app.example.com/oauth/callback"],
+            clientName: "Connect Client",
+            tokenEndpointAuthMethod: "private_key_jwt",
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      "Dynamic client registration requested unsupported token_endpoint_auth_method 'private_key_jwt'",
+    );
+
+    expect(registrationBodies).toEqual([]);
+  });
+
+  it("omits dynamic registration client auth when no supported method is available", async () => {
+    const state = await createState();
+    const flowStore = createInMemoryFlowStore();
+    const registrationBodies: Record<string, unknown>[] = [];
+
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (
+        url === "https://issuer-register.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://issuer-register.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://issuer-register.example.com",
+          authorization_endpoint: "https://issuer-register.example.com/authorize",
+          token_endpoint: "https://issuer-register.example.com/token",
+          registration_endpoint: "https://issuer-register.example.com/register",
+          client_id_metadata_document_supported: false,
+          token_endpoint_auth_methods_supported: ["private_key_jwt"],
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      if (url === "https://issuer-register.example.com/register") {
+        const body = typeof init?.body === "string" ? init.body : "{}";
+        registrationBodies.push(JSON.parse(body) as Record<string, unknown>);
+        return Response.json({ client_id: "registered-client-id" }, { status: 201 });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    await state.profiles.set("metadata-client", {
+      path: "metadata-client",
+      resourcePatterns: ["https://issuer-register.example.com/*"],
+      http: null,
+      oauth: {
+        issuer: "https://issuer-register.example.com",
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    });
+
+    const started = await service.startAuthorization({
+      path: "org.metadata-doc-no-client-auth",
+      option: {
+        kind: "oauth",
+        source: "profile",
+        label: "Metadata client",
+        profilePath: "metadata-client",
+        resource: "https://issuer-register.example.com/api",
+      },
+      redirectUri: "https://app.example.com/oauth/callback",
+      client: {
+        clientId: "https://app.example.com/.well-known/oauth-client",
+        metadata: {
+          redirectUris: ["https://app.example.com/oauth/callback"],
+          clientName: "Connect Client",
+        },
+      },
+    });
+
+    const flow = await service.getFlow(started.flowId);
+
+    expect(registrationBodies).toHaveLength(1);
+    expect(registrationBodies[0]).not.toHaveProperty("token_endpoint_auth_method");
+    expect(flow.oauthConfig.clientAuthentication).toBe("none");
+  });
+
+  it("keeps requested client auth when dynamic registration has no usable server method", async () => {
+    const state = await createState();
+    const flowStore = createInMemoryFlowStore();
+    const registrationBodies: Record<string, unknown>[] = [];
+
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (
+        url === "https://issuer-register.example.com/.well-known/oauth-authorization-server" ||
+        url === "https://issuer-register.example.com/.well-known/openid-configuration"
+      ) {
+        return Response.json({
+          issuer: "https://issuer-register.example.com",
+          authorization_endpoint: "https://issuer-register.example.com/authorize",
+          token_endpoint: "https://issuer-register.example.com/token",
+          registration_endpoint: "https://issuer-register.example.com/register",
+          client_id_metadata_document_supported: false,
+          token_endpoint_auth_methods_supported: ["private_key_jwt"],
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      if (url === "https://issuer-register.example.com/register") {
+        const body = typeof init?.body === "string" ? init.body : "{}";
+        registrationBodies.push(JSON.parse(body) as Record<string, unknown>);
+        return Response.json(
+          {
+            client_id: "registered-client-id",
+          },
+          { status: 201 },
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+
+    await state.profiles.set("metadata-client", {
+      path: "metadata-client",
+      resourcePatterns: ["https://issuer-register.example.com/*"],
+      http: null,
+      oauth: {
+        issuer: "https://issuer-register.example.com",
+      },
+      displayName: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = state.service({
+      flowStore,
+      customFetch: fetchImpl,
+    });
+
+    const started = await service.startAuthorization({
+      path: "org.metadata-doc-private",
+      option: {
+        kind: "oauth",
+        source: "profile",
+        label: "Metadata client",
+        profilePath: "metadata-client",
+        resource: "https://issuer-register.example.com/api",
+      },
+      redirectUri: "https://app.example.com/oauth/callback",
+      client: {
+        clientId: "https://app.example.com/.well-known/oauth-client",
+        clientAuthentication: "none",
+        metadata: {
+          redirectUris: ["https://app.example.com/oauth/callback"],
+          clientName: "Connect Client",
+          tokenEndpointAuthMethod: "none",
+        },
+      },
+    });
+
+    const flow = await service.getFlow(started.flowId);
+
+    expect(registrationBodies).toEqual([
+      expect.objectContaining({
+        token_endpoint_auth_method: "none",
+      }),
+    ]);
+    expect(flow.oauthConfig.clientAuthentication).toBe("none");
   });
 
   it("surfaces profile dynamic registration failures when metadata document client ids are unsupported", async () => {
