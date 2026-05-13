@@ -192,24 +192,6 @@ function assertPkceS256Support(authorizationServer: oauth.AuthorizationServer) {
   );
 }
 
-const literalSafeBasicCredential = /^[A-Za-z0-9._-]+$/;
-
-function clientSecretBasic(clientSecret: string): oauth.ClientAuth {
-  const strictAuth = oauth.ClientSecretBasic(clientSecret);
-  return (authorizationServer, client, body, headers) => {
-    if (
-      literalSafeBasicCredential.test(client.client_id) &&
-      literalSafeBasicCredential.test(clientSecret)
-    ) {
-      // UUID-style credentials compare the same before and after form decoding,
-      // and this avoids breaking servers that compare Basic usernames literally.
-      headers.set("authorization", `Basic ${btoa(`${client.client_id}:${clientSecret}`)}`);
-      return;
-    }
-    return strictAuth(authorizationServer, client, body, headers);
-  };
-}
-
 function buildClientAuthentication(config: OAuthResolvedConfig) {
   switch (config.clientAuthentication) {
     case "client_secret_post":
@@ -221,7 +203,7 @@ function buildClientAuthentication(config: OAuthResolvedConfig) {
       if (!config.clientSecret) {
         return err(inputError("OAuth client_secret_basic requires clientSecret"));
       }
-      return ok(clientSecretBasic(config.clientSecret));
+      return ok(oauth.ClientSecretBasic(config.clientSecret));
     case "none":
       return ok(oauth.None());
   }
