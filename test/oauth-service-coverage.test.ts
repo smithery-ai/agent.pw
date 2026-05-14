@@ -1783,13 +1783,7 @@ describe("oauth service coverage", () => {
           return Response.json({
             resource: "https://docs.example.com/mcp",
             authorization_servers: ["https://auth.example.com"],
-            scopes_supported: [
-              "openid",
-              "profile",
-              "email",
-              "docs.read",
-              "docs.write",
-            ],
+            scopes_supported: ["openid", "profile", "email", "docs.read", "docs.write"],
           });
         }
         throw new Error(`Unexpected fetch ${url}`);
@@ -1838,8 +1832,7 @@ describe("oauth service coverage", () => {
         response: new Response(null, {
           status: 401,
           headers: {
-            "www-authenticate":
-              'Bearer realm="docs", scope="openid email docs.read"',
+            "www-authenticate": 'Bearer realm="docs", scope="openid email docs.read"',
           },
         }),
       }),
