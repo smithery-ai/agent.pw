@@ -852,13 +852,21 @@ async function discoverResource(
         resource: normalizedResource.value,
         authorizationServers: [authServer.value.issuer],
         resourceName: undefined,
+        // Prefer scopes the upstream explicitly named in its WWW-Authenticate
+        // challenge, but fall back to metadata `scopes_supported` whenever the
+        // challenge listed zero (the common first-time-auth case where the
+        // server returns `Bearer error="invalid_token"` with no scope param).
+        // Plain `??` would treat an empty array as a present value and skip
+        // the metadata fallback entirely — see PostHog, where the 158-scope
+        // PRM advertisement was being ignored.
         scopes:
-          challenged.value?.scopes ??
-          (Array.isArray(authServer.value.scopes_supported)
-            ? authServer.value.scopes_supported.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : []),
+          challenged.value?.scopes && challenged.value.scopes.length > 0
+            ? challenged.value.scopes
+            : Array.isArray(authServer.value.scopes_supported)
+              ? authServer.value.scopes_supported.filter(
+                  (entry): entry is string => typeof entry === "string",
+                )
+              : [],
       });
     }
     /* v8 ignore next -- defensive: both PRM and auth-server discovery failed; propagates the original PRM error unchanged. Reachable in practice when a server has broken PRM AND no auth-server metadata, but not exercisable via the public prepare() API which rewrites discovery errors into unconfigured options. */
@@ -869,13 +877,17 @@ async function discoverResource(
     resource: normalizedResource.value,
     authorizationServers: resourceServer.value.authorization_servers ?? [],
     resourceName: stringValue(resourceServer.value.resource_name),
+    // See sibling fallback above for context. An empty `scopes` array from the
+    // challenge must NOT short-circuit the PRM lookup — it's truthy under `??`
+    // but semantically means "the server didn't name any scopes inline."
     scopes:
-      challenged.value?.scopes ??
-      (Array.isArray(resourceServer.value.scopes_supported)
-        ? resourceServer.value.scopes_supported.filter(
-            (entry): entry is string => typeof entry === "string",
-          )
-        : []),
+      challenged.value?.scopes && challenged.value.scopes.length > 0
+        ? challenged.value.scopes
+        : Array.isArray(resourceServer.value.scopes_supported)
+          ? resourceServer.value.scopes_supported.filter(
+              (entry): entry is string => typeof entry === "string",
+            )
+          : [],
   });
 }
 
