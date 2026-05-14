@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.9.0...agent.pw-v0.9.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* **oauth:** align dynamic client auth with server metadata ([#166](https://github.com/smithery-ai/agent.pw/issues/166)) ([39f0942](https://github.com/smithery-ai/agent.pw/commit/39f094258c4e4547268659aee7d67ad6e64205b2))
+* **oauth:** fall back to PRM scopes when challenge omits scope ([#169](https://github.com/smithery-ai/agent.pw/issues/169)) ([309bc25](https://github.com/smithery-ai/agent.pw/commit/309bc254abeb288897f073d62ef870b2c0488a61))
+
 ## [0.9.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.8.2...agent.pw-v0.9.0) (2026-04-30)
 
 
