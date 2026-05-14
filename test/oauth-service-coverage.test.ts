@@ -1688,6 +1688,85 @@ describe("oauth service coverage", () => {
       scopes: [],
     });
 
+    // Regression: when the challenge omits a `scope=` parameter (the common
+    // first-time `Bearer error="invalid_token"` shape, e.g. PostHog), the
+    // discovered scopes must come from the PRM's `scopes_supported` rather
+    // than collapsing to an empty array. Previously a literal `??` between
+    // the empty challenge-scope array and the PRM list meant we always took
+    // the empty array (arrays are truthy under `??`), so OAuth started with
+    // no requested scopes and the upstream rejected the resulting token.
+    const challengeOmitsScopeService = state.service({
+      flowStore,
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/.well-known/oauth-protected-resource")) {
+          return Response.json({
+            resource: "https://docs.example.com/mcp",
+            authorization_servers: ["https://auth.example.com"],
+            scopes_supported: ["docs.read", "docs.write"],
+          });
+        }
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+    expect(
+      await challengeOmitsScopeService.raw.discoverResource({
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate": 'Bearer realm="docs", error="invalid_token"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        resource: "https://docs.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        resourceName: undefined,
+        scopes: ["docs.read", "docs.write"],
+      },
+    });
+
+    // Sibling: when the upstream DOES name scopes inline in the challenge,
+    // those win over the PRM advertisement — caller intent is more specific.
+    const challengeNamesScopeService = state.service({
+      flowStore,
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/.well-known/oauth-protected-resource")) {
+          return Response.json({
+            resource: "https://docs.example.com/mcp",
+            authorization_servers: ["https://auth.example.com"],
+            scopes_supported: ["should-not-be-used"],
+          });
+        }
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+    expect(
+      await challengeNamesScopeService.raw.discoverResource({
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate": 'Bearer realm="docs", scope="docs.specific"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        resource: "https://docs.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        resourceName: undefined,
+        scopes: ["docs.specific"],
+      },
+    });
+
     await state.profiles.set("broken-config", {
       path: "broken-config",
       resourcePatterns: ["https://broken.example.com/*"],
