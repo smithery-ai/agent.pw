@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.9.1...agent.pw-v0.9.2) (2026-05-14)
+
+
+### Bug Fixes
+
+* strip OIDC scopes from PRM discovery ([#170](https://github.com/smithery-ai/agent.pw/issues/170)) ([533de66](https://github.com/smithery-ai/agent.pw/commit/533de66a319bdd7cf2e5e84f09bf5c0c1e8a8a2c))
+
 ## [0.9.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.9.0...agent.pw-v0.9.1) (2026-05-14)
 
 
