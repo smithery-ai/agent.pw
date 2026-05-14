@@ -799,6 +799,23 @@ function requestMetadataUrl(resourceMetadataUrl: URL, customFetch: typeof fetch 
   );
 }
 
+/**
+ * OIDC identity scopes — `openid` triggers id_token issuance, `profile` /
+ * `email` are OIDC-specific user-info attributes. None of them grant
+ * additional resource access, but requesting `openid` forces the auth
+ * server to issue an id_token that must then satisfy strict OIDC iss/aud
+ * validation. Several real-world providers (e.g. PostHog) advertise these
+ * in their PRM `scopes_supported` while shipping a non-compliant id_token
+ * (`iss` claim doesn't match the AS `issuer`). Stripping them here keeps
+ * us on a clean OAuth 2.0 resource-access path. Callers that genuinely
+ * want OpenID Connect can pass `openid` explicitly through `input.scopes`.
+ */
+const OIDC_IDENTITY_SCOPES = new Set(["openid", "profile", "email"]);
+
+function stripOidcIdentityScopes(scopes: string[]): string[] {
+  return scopes.filter((s) => !OIDC_IDENTITY_SCOPES.has(s));
+}
+
 async function discoverResource(
   resource: string,
   customFetch: typeof fetch | undefined,
@@ -859,12 +876,15 @@ async function discoverResource(
         // Plain `??` would treat an empty array as a present value and skip
         // the metadata fallback entirely — see PostHog, where the 158-scope
         // PRM advertisement was being ignored.
+        // OIDC identity scopes are stripped — see OIDC_IDENTITY_SCOPES above.
         scopes:
           challenged.value?.scopes && challenged.value.scopes.length > 0
-            ? challenged.value.scopes
+            ? stripOidcIdentityScopes(challenged.value.scopes)
             : Array.isArray(authServer.value.scopes_supported)
-              ? authServer.value.scopes_supported.filter(
-                  (entry): entry is string => typeof entry === "string",
+              ? stripOidcIdentityScopes(
+                  authServer.value.scopes_supported.filter(
+                    (entry): entry is string => typeof entry === "string",
+                  ),
                 )
               : [],
       });
@@ -880,12 +900,15 @@ async function discoverResource(
     // See sibling fallback above for context. An empty `scopes` array from the
     // challenge must NOT short-circuit the PRM lookup — it's truthy under `??`
     // but semantically means "the server didn't name any scopes inline."
+    // OIDC identity scopes are stripped — see OIDC_IDENTITY_SCOPES above.
     scopes:
       challenged.value?.scopes && challenged.value.scopes.length > 0
-        ? challenged.value.scopes
+        ? stripOidcIdentityScopes(challenged.value.scopes)
         : Array.isArray(resourceServer.value.scopes_supported)
-          ? resourceServer.value.scopes_supported.filter(
-              (entry): entry is string => typeof entry === "string",
+          ? stripOidcIdentityScopes(
+              resourceServer.value.scopes_supported.filter(
+                (entry): entry is string => typeof entry === "string",
+              ),
             )
           : [],
   });

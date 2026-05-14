@@ -1767,6 +1767,85 @@ describe("oauth service coverage", () => {
       },
     });
 
+    // Regression: OIDC identity scopes (`openid`, `profile`, `email`) must be
+    // stripped from discovered resource scopes — they trigger id_token
+    // issuance, and several providers (e.g. PostHog) ship a non-compliant
+    // id_token whose `iss` claim doesn't match the AS `issuer`, causing
+    // strict oauth4webapi validation to reject the entire token response.
+    // We're doing OAuth 2.0 for resource access, not OpenID Connect, so
+    // these scopes are never load-bearing for us.
+    const oidcMixedService = state.service({
+      flowStore,
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/.well-known/oauth-protected-resource")) {
+          return Response.json({
+            resource: "https://docs.example.com/mcp",
+            authorization_servers: ["https://auth.example.com"],
+            scopes_supported: ["openid", "profile", "email", "docs.read", "docs.write"],
+          });
+        }
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+    expect(
+      await oidcMixedService.raw.discoverResource({
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate": 'Bearer realm="docs", error="invalid_token"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        resource: "https://docs.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        resourceName: undefined,
+        // openid/profile/email filtered out; resource-access scopes preserved
+        scopes: ["docs.read", "docs.write"],
+      },
+    });
+
+    // Same stripping applies when scopes come from the challenge inline
+    // (e.g. step-up insufficient_scope retry that names openid).
+    const oidcChallengeService = state.service({
+      flowStore,
+      customFetch: async (input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/.well-known/oauth-protected-resource")) {
+          return Response.json({
+            resource: "https://docs.example.com/mcp",
+            authorization_servers: ["https://auth.example.com"],
+          });
+        }
+        throw new Error(`Unexpected fetch ${url}`);
+      },
+    });
+    expect(
+      await oidcChallengeService.raw.discoverResource({
+        resource: "https://docs.example.com/mcp",
+        response: new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate": 'Bearer realm="docs", scope="openid email docs.read"',
+          },
+        }),
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        resource: "https://docs.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        resourceName: undefined,
+        scopes: ["docs.read"],
+      },
+    });
+
     await state.profiles.set("broken-config", {
       path: "broken-config",
       resourcePatterns: ["https://broken.example.com/*"],
