@@ -141,13 +141,6 @@ describe("createAgentPw", () => {
     ).toBe(expected);
     expect(
       errorOf(
-        await agentPw.credentials.recordRefreshCheck({
-          path: "acme.connections.resend",
-        }),
-      ).message,
-    ).toBe(expected);
-    expect(
-      errorOf(
         await agentPw.credentials.put({
           path: "acme.connections.resend",
           auth: { kind: "headers" },
@@ -1253,19 +1246,6 @@ describe("createAgentPw", () => {
     expect(allowed.refreshCandidates.map((credential) => credential.path)).toEqual([
       "acme.connections.oauth_due",
     ]);
-    await expect(
-      api.credentials.recordRefreshCheck({
-        path: "acme.connections.oauth_due",
-        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      agentPw
-        .scope(rights([{ action: "credential.read", root: "acme" }]))
-        .credentials.recordRefreshCheck({
-          path: "acme.connections.oauth_due",
-        }),
-    ).rejects.toThrow("Missing 'credential.manage' for 'acme.connections.oauth_due'");
     expect(allowed.profiles.map((profile) => profile.path)).toEqual(["profiles.resend"]);
     await expect(
       api.credentials.listRefreshCandidates({

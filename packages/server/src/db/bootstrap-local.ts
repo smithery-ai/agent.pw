@@ -79,7 +79,6 @@ export async function bootstrapLocalSchema(
   const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`;
   const credentialsPathIndex = `${credentialsTable}_path_idx`;
   const credentialsRefreshDueIndex = `${credentialsTable}_refresh_due_idx`;
-  const credentialsRefreshUnknownIndex = `${credentialsTable}_refresh_unknown_idx`;
   const credentialsPathPrimaryKey = `${credentialsTable}_path_pk`;
   const schemaSql = quoteIdentifier(schemaName);
   const credProfilesSql = qualifyTable(schemaName, credProfilesTable);
@@ -142,9 +141,7 @@ export async function bootstrapLocalSchema(
       path LTREE NOT NULL,
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
-      refreshable BOOLEAN NOT NULL DEFAULT false,
       expires_at TIMESTAMP,
-      refresh_checked_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
       CONSTRAINT ${quoteIdentifier(credentialsPathPrimaryKey)} PRIMARY KEY (path)
@@ -155,9 +152,7 @@ export async function bootstrapLocalSchema(
   await db.execute(
     sql.raw(`
     ALTER TABLE ${credentialsSql}
-      ADD COLUMN IF NOT EXISTS refreshable BOOLEAN NOT NULL DEFAULT false,
-      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP,
-      ADD COLUMN IF NOT EXISTS refresh_checked_at TIMESTAMP
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP
   `),
   );
 
@@ -196,15 +191,7 @@ export async function bootstrapLocalSchema(
     sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsRefreshDueIndex)}
     ON ${credentialsSql} (expires_at)
-    WHERE refreshable = true AND expires_at IS NOT NULL
-  `),
-  );
-
-  await db.execute(
-    sql.raw(`
-    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsRefreshUnknownIndex)}
-    ON ${credentialsSql} (refresh_checked_at)
-    WHERE refreshable = true AND expires_at IS NULL
+    WHERE expires_at IS NOT NULL AND auth->>'kind' = 'oauth'
   `),
   );
 

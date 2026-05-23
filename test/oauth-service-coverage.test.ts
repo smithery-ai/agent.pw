@@ -1,5 +1,5 @@
 import { createAgentPw } from "agent.pw";
-import { ok, type Result } from "okay-error";
+import { ok } from "okay-error";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryFlowStore, createOAuthService } from "agent.pw/oauth";
 import type {
@@ -60,7 +60,6 @@ async function createState() {
         defaultClient?: OAuthClientInput;
         flowStore?: ReturnType<typeof createInMemoryFlowStore>;
         clock?: () => Date;
-        markRefreshChecked?: (path: string) => Promise<Result<boolean>>;
       } = {},
     ) {
       const service = createOAuthService({
@@ -72,7 +71,6 @@ async function createState() {
         getProfile: agentPw.profiles.get,
         getCredential: agentPw.credentials.get,
         putCredential: agentPw.credentials.put,
-        markRefreshChecked: options.markRefreshChecked,
         deleteCredential: agentPw.credentials.delete,
       });
       const wrapped = { ...service, raw: service } as typeof service & { raw: typeof service };
@@ -441,9 +439,8 @@ describe("oauth service coverage", () => {
     expect(await service.refreshCredential("org.no-resource", true)).toEqual(noResourceCredential);
   });
 
-  it("marks OAuth refresh checks when refresh cannot update the credential", async () => {
+  it("returns OAuth refresh failures without updating the credential", async () => {
     const state = await createState();
-    const marked: string[] = [];
     const customFetch: typeof fetch = async (input) => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -471,13 +468,7 @@ describe("oauth service coverage", () => {
 
       throw new Error(`Unexpected fetch ${url}`);
     };
-    const service = state.service({
-      customFetch,
-      markRefreshChecked: async (path) => {
-        marked.push(path);
-        return ok(true);
-      },
-    });
+    const service = state.service({ customFetch });
 
     await state.credentials.set("org.client-auth", {
       path: "org.client-auth",
@@ -568,12 +559,6 @@ describe("oauth service coverage", () => {
     expect((await service.raw.refreshCredential("org.discovery-fail", true)).ok).toBe(false);
     expect((await service.raw.refreshCredential("org.request-fail", true)).ok).toBe(false);
     expect((await service.raw.refreshCredential("org.server-error", true)).ok).toBe(false);
-    expect(marked).toEqual([
-      "org.client-auth",
-      "org.discovery-fail",
-      "org.request-fail",
-      "org.server-error",
-    ]);
   });
 
   it("discovers authorization server metadata in MCP order for root and path issuers", async () => {

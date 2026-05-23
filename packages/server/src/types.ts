@@ -152,23 +152,16 @@ export interface CredentialRecord extends CredentialSummary {
 export interface CredentialRefreshCandidate {
   path: string;
   auth: CredentialAuth;
-  expiresAt: Date | null;
-  refreshCheckedAt: Date | null;
+  expiresAt: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface CredentialRefreshCandidateListOptions extends CrudOptions {
   expiresBefore: Date;
-  unknownExpiryCheckedBefore?: Date;
   limit?: number;
   path?: string;
   recursive?: boolean;
-}
-
-export interface CredentialRefreshCheckInput {
-  path: string;
-  expiresAt?: Date | null;
 }
 
 interface CredentialPutInputBase<TAuth extends CredentialAuthInput, TSecret> {
@@ -649,15 +642,10 @@ export interface ScopedAgentPw<TIdentityPrincipal = unknown> {
     list(
       options?: { path?: string; recursive?: boolean } & CrudOptions,
     ): Promise<Result<CredentialSummary[]>>;
-    /** List refreshable credentials that should be refreshed before the next lazy use. */
+    /** List OAuth credentials with known mirrored expiry that should refresh before next lazy use. */
     listRefreshCandidates(
       options: CredentialRefreshCandidateListOptions,
     ): Promise<Result<CredentialRefreshCandidate[]>>;
-    /** Record that a refresh candidate was checked without touching encrypted secrets. */
-    recordRefreshCheck(
-      input: CredentialRefreshCheckInput,
-      options?: CrudOptions,
-    ): Promise<Result<boolean>>;
     /** Insert or update a credential record. */
     put(input: CredentialPutInput, options?: CrudOptions): Promise<Result<CredentialRecord>>;
     /** Move a credential from one canonical path to another. */

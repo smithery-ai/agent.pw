@@ -31,9 +31,7 @@ export type CredProfileRow = DefaultCredProfileModel;
 export type CredentialRow = DefaultCredentialModel;
 
 interface CredentialRefreshMetadata {
-  refreshable: boolean;
   expiresAt: Date | null;
-  refreshCheckedAt: Date | null;
 }
 
 interface QueryHelpers {
@@ -77,7 +75,6 @@ interface QueryHelpers {
     db: DbClient,
     options: {
       expiresBefore: Date;
-      unknownExpiryCheckedBefore?: Date;
       limit?: number;
       path?: string;
       recursive?: boolean;
@@ -92,13 +89,6 @@ interface QueryHelpers {
       refreshMetadata?: CredentialRefreshMetadata;
     },
   ): Promise<Result<CredentialRow>>;
-  markRefreshChecked(db: DbClient, path: string, checkedAt: Date): Promise<Result<boolean>>;
-  recordRefreshCheck(
-    db: DbClient,
-    path: string,
-    checkedAt: Date,
-    expiresAt?: Date | null,
-  ): Promise<Result<boolean>>;
   moveCredential(db: DbClient, fromPath: string, toPath: string): Promise<Result<boolean>>;
   deleteCredential(
     db: DbClient,
@@ -205,13 +195,6 @@ function assertLimit(value: number | undefined) {
     return ok(value);
   }
   return err(inputError("Credential refresh candidate limit must be between 1 and 1000"));
-}
-
-function assertOptionalNullableDate(value: Date | null | undefined, label: string) {
-  if (value === undefined || value === null) {
-    return ok(value);
-  }
-  return assertValidDate(value, label);
 }
 
 /**
@@ -396,13 +379,6 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       if (!expiresBefore.ok) {
         return expiresBefore;
       }
-      const unknownExpiryCheckedBefore =
-        options.unknownExpiryCheckedBefore === undefined
-          ? ok<Date | undefined>(undefined)
-          : assertValidDate(options.unknownExpiryCheckedBefore, "unknownExpiryCheckedBefore");
-      if (!unknownExpiryCheckedBefore.ok) {
-        return unknownExpiryCheckedBefore;
-      }
       const limit = assertLimit(options.limit);
       if (!limit.ok) {
         return limit;
@@ -417,36 +393,22 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
               : options.recursive
                 ? descendantsWhere(credentials.path, path.value)
                 : directChildrenWhere(credentials.path, path.value);
-          const unknownWhere = unknownExpiryCheckedBefore.value
-            ? sql<boolean>`(
-                ${credentials.expiresAt} IS NULL
-                AND (
-                  ${credentials.refreshCheckedAt} IS NULL
-                  OR ${credentials.refreshCheckedAt} <= ${unknownExpiryCheckedBefore.value}
-                )
-              )`
-            : sql<boolean>`false`;
           return db
             .select()
             .from(credentials)
             .where(
               and(
-                eq(credentials.refreshable, true),
+                sql<boolean>`${credentials.auth}->>'kind' = 'oauth'`,
                 pathWhere,
                 sql<boolean>`(
-                  (
-                    ${credentials.expiresAt} IS NOT NULL
-                    AND ${credentials.expiresAt} <= ${expiresBefore.value}
-                  )
-                  OR ${unknownWhere}
+                  ${credentials.expiresAt} IS NOT NULL
+                  AND ${credentials.expiresAt} <= ${expiresBefore.value}
                 )`,
               ),
             )
             .orderBy(
-              sql`CASE WHEN ${credentials.expiresAt} IS NULL THEN 1 ELSE 0 END`,
               desc(credentials.updatedAt),
               credentials.expiresAt,
-              credentials.refreshCheckedAt,
               sql`${credentials.path}::text`,
             )
             .limit(limit.value);
@@ -469,9 +431,7 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
                 path: data.path,
                 auth: normalizedAuth.value,
                 secret: data.secret,
-                refreshable: data.refreshMetadata.refreshable,
                 expiresAt: data.refreshMetadata.expiresAt,
-                refreshCheckedAt: data.refreshMetadata.refreshCheckedAt,
               }
             : {
                 path: data.path,
@@ -482,9 +442,7 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
             ? {
                 auth: normalizedAuth.value,
                 secret: data.secret,
-                refreshable: data.refreshMetadata.refreshable,
                 expiresAt: data.refreshMetadata.expiresAt,
-                refreshCheckedAt: data.refreshMetadata.refreshCheckedAt,
                 updatedAt: new Date(),
               }
             : {
@@ -504,45 +462,6 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
           )[0];
         },
         { label: "path", value: data.path },
-      );
-    },
-
-    async markRefreshChecked(db, path, checkedAt) {
-      return helpers.recordRefreshCheck(db, path, checkedAt);
-    },
-
-    async recordRefreshCheck(db, path, checkedAt, expiresAt) {
-      const validCheckedAt = assertValidDate(checkedAt, "checkedAt");
-      if (!validCheckedAt.ok) {
-        return validCheckedAt;
-      }
-      const validExpiresAt = assertOptionalNullableDate(expiresAt, "expiresAt");
-      if (!validExpiresAt.ok) {
-        return validExpiresAt;
-      }
-      const set =
-        validExpiresAt.value === undefined
-          ? {
-              refreshCheckedAt: validCheckedAt.value,
-              updatedAt: new Date(),
-            }
-          : {
-              expiresAt: validExpiresAt.value,
-              refreshCheckedAt: validCheckedAt.value,
-              updatedAt: new Date(),
-            };
-
-      return runDb(
-        "db.recordRefreshCheck",
-        async () =>
-          (
-            await db
-              .update(credentials)
-              .set(set)
-              .where(and(eq(credentials.path, path), eq(credentials.refreshable, true)))
-              .returning()
-          ).length > 0,
-        { label: "path", value: path },
       );
     },
 
@@ -566,9 +485,7 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
               path: toPath,
               auth: existingRow.auth,
               secret: existingRow.secret,
-              refreshable: existingRow.refreshable,
               expiresAt: existingRow.expiresAt,
-              refreshCheckedAt: existingRow.refreshCheckedAt,
               createdAt: existingRow.createdAt,
               updatedAt: new Date(),
             });
