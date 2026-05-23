@@ -60,7 +60,7 @@ async function createState() {
         defaultClient?: OAuthClientInput;
         flowStore?: ReturnType<typeof createInMemoryFlowStore>;
         clock?: () => Date;
-        markOAuthRefreshChecked?: (path: string) => Promise<Result<boolean>>;
+        markRefreshChecked?: (path: string) => Promise<Result<boolean>>;
       } = {},
     ) {
       const service = createOAuthService({
@@ -72,7 +72,7 @@ async function createState() {
         getProfile: agentPw.profiles.get,
         getCredential: agentPw.credentials.get,
         putCredential: agentPw.credentials.put,
-        markOAuthRefreshChecked: options.markOAuthRefreshChecked,
+        markRefreshChecked: options.markRefreshChecked,
         deleteCredential: agentPw.credentials.delete,
       });
       const wrapped = { ...service, raw: service } as typeof service & { raw: typeof service };
@@ -473,7 +473,7 @@ describe("oauth service coverage", () => {
     };
     const service = state.service({
       customFetch,
-      markOAuthRefreshChecked: async (path) => {
+      markRefreshChecked: async (path) => {
         marked.push(path);
         return ok(true);
       },

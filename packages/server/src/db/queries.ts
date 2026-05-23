@@ -31,8 +31,9 @@ export type CredProfileRow = DefaultCredProfileModel;
 export type CredentialRow = DefaultCredentialModel;
 
 interface CredentialRefreshMetadata {
-  oauthAccessTokenExpiresAt: Date | null;
-  oauthRefreshCheckedAt: Date | null;
+  refreshable: boolean;
+  expiresAt: Date | null;
+  refreshCheckedAt: Date | null;
 }
 
 interface QueryHelpers {
@@ -72,11 +73,11 @@ interface QueryHelpers {
       recursive?: boolean;
     },
   ): Promise<Result<CredentialRow[]>>;
-  listOAuthRefreshCandidates(
+  listRefreshCandidates(
     db: DbClient,
     options: {
-      accessTokenExpiresBefore: Date;
-      unknownAccessTokenCheckedBefore?: Date;
+      expiresBefore: Date;
+      unknownExpiryCheckedBefore?: Date;
       limit?: number;
       path?: string;
       recursive?: boolean;
@@ -91,12 +92,12 @@ interface QueryHelpers {
       refreshMetadata?: CredentialRefreshMetadata;
     },
   ): Promise<Result<CredentialRow>>;
-  markOAuthRefreshChecked(db: DbClient, path: string, checkedAt: Date): Promise<Result<boolean>>;
-  recordOAuthRefreshCheck(
+  markRefreshChecked(db: DbClient, path: string, checkedAt: Date): Promise<Result<boolean>>;
+  recordRefreshCheck(
     db: DbClient,
     path: string,
     checkedAt: Date,
-    accessTokenExpiresAt?: Date | null,
+    expiresAt?: Date | null,
   ): Promise<Result<boolean>>;
   moveCredential(db: DbClient, fromPath: string, toPath: string): Promise<Result<boolean>>;
   deleteCredential(
@@ -203,7 +204,7 @@ function assertLimit(value: number | undefined) {
   if (Number.isInteger(value) && value > 0 && value <= 1000) {
     return ok(value);
   }
-  return err(inputError("OAuth refresh candidate limit must be between 1 and 1000"));
+  return err(inputError("Credential refresh candidate limit must be between 1 and 1000"));
 }
 
 function assertOptionalNullableDate(value: Date | null | undefined, label: string) {
@@ -385,28 +386,22 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       );
     },
 
-    async listOAuthRefreshCandidates(db, options) {
+    async listRefreshCandidates(db, options) {
       const path = assertOptionalPath(options.path, "path");
       /* v8 ignore next 3 -- assertOptionalPath currently preserves inputs; database ltree validation handles syntax errors. */
       if (!path.ok) {
         return err(path.error);
       }
-      const accessTokenExpiresBefore = assertValidDate(
-        options.accessTokenExpiresBefore,
-        "accessTokenExpiresBefore",
-      );
-      if (!accessTokenExpiresBefore.ok) {
-        return accessTokenExpiresBefore;
+      const expiresBefore = assertValidDate(options.expiresBefore, "expiresBefore");
+      if (!expiresBefore.ok) {
+        return expiresBefore;
       }
-      const unknownAccessTokenCheckedBefore =
-        options.unknownAccessTokenCheckedBefore === undefined
+      const unknownExpiryCheckedBefore =
+        options.unknownExpiryCheckedBefore === undefined
           ? ok<Date | undefined>(undefined)
-          : assertValidDate(
-              options.unknownAccessTokenCheckedBefore,
-              "unknownAccessTokenCheckedBefore",
-            );
-      if (!unknownAccessTokenCheckedBefore.ok) {
-        return unknownAccessTokenCheckedBefore;
+          : assertValidDate(options.unknownExpiryCheckedBefore, "unknownExpiryCheckedBefore");
+      if (!unknownExpiryCheckedBefore.ok) {
+        return unknownExpiryCheckedBefore;
       }
       const limit = assertLimit(options.limit);
       if (!limit.ok) {
@@ -414,7 +409,7 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       }
 
       return runDb(
-        "db.listOAuthRefreshCandidates",
+        "db.listRefreshCandidates",
         async () => {
           const pathWhere =
             path.value === undefined
@@ -422,12 +417,12 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
               : options.recursive
                 ? descendantsWhere(credentials.path, path.value)
                 : directChildrenWhere(credentials.path, path.value);
-          const unknownWhere = unknownAccessTokenCheckedBefore.value
+          const unknownWhere = unknownExpiryCheckedBefore.value
             ? sql<boolean>`(
-                ${credentials.oauthAccessTokenExpiresAt} IS NULL
+                ${credentials.expiresAt} IS NULL
                 AND (
-                  ${credentials.oauthRefreshCheckedAt} IS NULL
-                  OR ${credentials.oauthRefreshCheckedAt} <= ${unknownAccessTokenCheckedBefore.value}
+                  ${credentials.refreshCheckedAt} IS NULL
+                  OR ${credentials.refreshCheckedAt} <= ${unknownExpiryCheckedBefore.value}
                 )
               )`
             : sql<boolean>`false`;
@@ -436,21 +431,21 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
             .from(credentials)
             .where(
               and(
-                sql<boolean>`${credentials.auth}->>'kind' = 'oauth'`,
+                eq(credentials.refreshable, true),
                 pathWhere,
                 sql<boolean>`(
                   (
-                    ${credentials.oauthAccessTokenExpiresAt} IS NOT NULL
-                    AND ${credentials.oauthAccessTokenExpiresAt} <= ${accessTokenExpiresBefore.value}
+                    ${credentials.expiresAt} IS NOT NULL
+                    AND ${credentials.expiresAt} <= ${expiresBefore.value}
                   )
                   OR ${unknownWhere}
                 )`,
               ),
             )
             .orderBy(
-              sql`CASE WHEN ${credentials.oauthAccessTokenExpiresAt} IS NULL THEN 1 ELSE 0 END`,
-              credentials.oauthAccessTokenExpiresAt,
-              credentials.oauthRefreshCheckedAt,
+              sql`CASE WHEN ${credentials.expiresAt} IS NULL THEN 1 ELSE 0 END`,
+              credentials.expiresAt,
+              credentials.refreshCheckedAt,
               sql`${credentials.path}::text`,
             )
             .limit(limit.value);
@@ -473,8 +468,9 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
                 path: data.path,
                 auth: normalizedAuth.value,
                 secret: data.secret,
-                oauthAccessTokenExpiresAt: data.refreshMetadata.oauthAccessTokenExpiresAt,
-                oauthRefreshCheckedAt: data.refreshMetadata.oauthRefreshCheckedAt,
+                refreshable: data.refreshMetadata.refreshable,
+                expiresAt: data.refreshMetadata.expiresAt,
+                refreshCheckedAt: data.refreshMetadata.refreshCheckedAt,
               }
             : {
                 path: data.path,
@@ -485,8 +481,9 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
             ? {
                 auth: normalizedAuth.value,
                 secret: data.secret,
-                oauthAccessTokenExpiresAt: data.refreshMetadata.oauthAccessTokenExpiresAt,
-                oauthRefreshCheckedAt: data.refreshMetadata.oauthRefreshCheckedAt,
+                refreshable: data.refreshMetadata.refreshable,
+                expiresAt: data.refreshMetadata.expiresAt,
+                refreshCheckedAt: data.refreshMetadata.refreshCheckedAt,
                 updatedAt: new Date(),
               }
             : {
@@ -509,47 +506,39 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
       );
     },
 
-    async markOAuthRefreshChecked(db, path, checkedAt) {
-      return helpers.recordOAuthRefreshCheck(db, path, checkedAt);
+    async markRefreshChecked(db, path, checkedAt) {
+      return helpers.recordRefreshCheck(db, path, checkedAt);
     },
 
-    async recordOAuthRefreshCheck(db, path, checkedAt, accessTokenExpiresAt) {
+    async recordRefreshCheck(db, path, checkedAt, expiresAt) {
       const validCheckedAt = assertValidDate(checkedAt, "checkedAt");
       if (!validCheckedAt.ok) {
         return validCheckedAt;
       }
-      const validAccessTokenExpiresAt = assertOptionalNullableDate(
-        accessTokenExpiresAt,
-        "accessTokenExpiresAt",
-      );
-      if (!validAccessTokenExpiresAt.ok) {
-        return validAccessTokenExpiresAt;
+      const validExpiresAt = assertOptionalNullableDate(expiresAt, "expiresAt");
+      if (!validExpiresAt.ok) {
+        return validExpiresAt;
       }
       const set =
-        validAccessTokenExpiresAt.value === undefined
+        validExpiresAt.value === undefined
           ? {
-              oauthRefreshCheckedAt: validCheckedAt.value,
+              refreshCheckedAt: validCheckedAt.value,
               updatedAt: new Date(),
             }
           : {
-              oauthAccessTokenExpiresAt: validAccessTokenExpiresAt.value,
-              oauthRefreshCheckedAt: validCheckedAt.value,
+              expiresAt: validExpiresAt.value,
+              refreshCheckedAt: validCheckedAt.value,
               updatedAt: new Date(),
             };
 
       return runDb(
-        "db.recordOAuthRefreshCheck",
+        "db.recordRefreshCheck",
         async () =>
           (
             await db
               .update(credentials)
               .set(set)
-              .where(
-                and(
-                  eq(credentials.path, path),
-                  sql<boolean>`${credentials.auth}->>'kind' = 'oauth'`,
-                ),
-              )
+              .where(and(eq(credentials.path, path), eq(credentials.refreshable, true)))
               .returning()
           ).length > 0,
         { label: "path", value: path },
@@ -576,8 +565,9 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
               path: toPath,
               auth: existingRow.auth,
               secret: existingRow.secret,
-              oauthAccessTokenExpiresAt: existingRow.oauthAccessTokenExpiresAt,
-              oauthRefreshCheckedAt: existingRow.oauthRefreshCheckedAt,
+              refreshable: existingRow.refreshable,
+              expiresAt: existingRow.expiresAt,
+              refreshCheckedAt: existingRow.refreshCheckedAt,
               createdAt: existingRow.createdAt,
               updatedAt: new Date(),
             });

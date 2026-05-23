@@ -134,14 +134,14 @@ describe("createAgentPw", () => {
     expect(errorOf(await agentPw.credentials.list()).message).toBe(expected);
     expect(
       errorOf(
-        await agentPw.credentials.listOAuthRefreshCandidates({
-          accessTokenExpiresBefore: new Date("2026-01-01T00:00:00.000Z"),
+        await agentPw.credentials.listRefreshCandidates({
+          expiresBefore: new Date("2026-01-01T00:00:00.000Z"),
         }),
       ).message,
     ).toBe(expected);
     expect(
       errorOf(
-        await agentPw.credentials.recordOAuthRefreshCheck({
+        await agentPw.credentials.recordRefreshCheck({
           path: "acme.connections.resend",
         }),
       ).message,
@@ -1238,8 +1238,8 @@ describe("createAgentPw", () => {
         path: "acme.connections.resend",
       }),
       credentials: await api.credentials.list({ path: "acme.connections" }),
-      refreshCandidates: await api.credentials.listOAuthRefreshCandidates({
-        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+      refreshCandidates: await api.credentials.listRefreshCandidates({
+        expiresBefore: new Date("2020-01-02T00:00:00.000Z"),
         limit: 10,
       }),
       profiles: await api.profiles.list({ path: "profiles" }),
@@ -1254,22 +1254,22 @@ describe("createAgentPw", () => {
       "acme.connections.oauth_due",
     ]);
     await expect(
-      api.credentials.recordOAuthRefreshCheck({
+      api.credentials.recordRefreshCheck({
         path: "acme.connections.oauth_due",
-        accessTokenExpiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
       }),
     ).resolves.toBe(true);
     await expect(
       agentPw
         .scope(rights([{ action: "credential.read", root: "acme" }]))
-        .credentials.recordOAuthRefreshCheck({
+        .credentials.recordRefreshCheck({
           path: "acme.connections.oauth_due",
         }),
     ).rejects.toThrow("Missing 'credential.manage' for 'acme.connections.oauth_due'");
     expect(allowed.profiles.map((profile) => profile.path)).toEqual(["profiles.resend"]);
     await expect(
-      api.credentials.listOAuthRefreshCandidates({
-        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+      api.credentials.listRefreshCandidates({
+        expiresBefore: new Date("2020-01-02T00:00:00.000Z"),
         path: "/../bad",
       }),
     ).rejects.toThrow("Invalid path '/../bad'");

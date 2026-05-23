@@ -313,22 +313,22 @@ describe("oauth runtime", () => {
       callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
     });
 
-    const broadCandidates = await agentPw.credentials.listOAuthRefreshCandidates({
-      accessTokenExpiresBefore: new Date("2099-01-01T00:00:00.000Z"),
-      unknownAccessTokenCheckedBefore: new Date("2099-01-01T00:00:00.000Z"),
+    const broadCandidates = await agentPw.credentials.listRefreshCandidates({
+      expiresBefore: new Date("2099-01-01T00:00:00.000Z"),
+      unknownExpiryCheckedBefore: new Date("2099-01-01T00:00:00.000Z"),
       limit: 10,
     });
     expect(broadCandidates).toEqual([
       expect.objectContaining({
         path: completed.path,
         auth: completed.credential.auth,
-        accessTokenExpiresAt: expect.any(Date),
+        expiresAt: expect.any(Date),
         refreshCheckedAt: expect.any(Date),
       }),
     ]);
     await expect(
-      agentPw.credentials.listOAuthRefreshCandidates({
-        accessTokenExpiresBefore: new Date("2099-01-01T00:00:00.000Z"),
+      agentPw.credentials.listRefreshCandidates({
+        expiresBefore: new Date("2099-01-01T00:00:00.000Z"),
         path: "/../bad",
       }),
     ).rejects.toThrow("Invalid path '/../bad'");
@@ -350,24 +350,24 @@ describe("oauth runtime", () => {
 
     expect(
       (
-        await agentPw.credentials.listOAuthRefreshCandidates({
-          accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+        await agentPw.credentials.listRefreshCandidates({
+          expiresBefore: new Date("2020-01-02T00:00:00.000Z"),
           limit: 10,
         })
       ).map((candidate) => candidate.path),
     ).toEqual([completed.path]);
     expect(
-      await agentPw.credentials.recordOAuthRefreshCheck(
+      await agentPw.credentials.recordRefreshCheck(
         {
           path: completed.path,
-          accessTokenExpiresAt: new Date("2030-01-01T00:00:00.000Z"),
+          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
         },
         { db },
       ),
     ).toBe(true);
     expect(
-      await agentPw.credentials.listOAuthRefreshCandidates({
-        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+      await agentPw.credentials.listRefreshCandidates({
+        expiresBefore: new Date("2020-01-02T00:00:00.000Z"),
         limit: 10,
       }),
     ).toEqual([]);
@@ -389,8 +389,8 @@ describe("oauth runtime", () => {
     await agentPw.connect.resolveHeaders({ path: completed.path, refresh: "force" });
 
     expect(
-      await agentPw.credentials.listOAuthRefreshCandidates({
-        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+      await agentPw.credentials.listRefreshCandidates({
+        expiresBefore: new Date("2020-01-02T00:00:00.000Z"),
         limit: 10,
       }),
     ).toEqual([]);
