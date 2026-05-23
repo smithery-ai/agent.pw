@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.9.2...agent.pw-v0.10.0) (2026-05-23)
+
+
+### Features
+
+* expose oauth refresh candidates ([#172](https://github.com/smithery-ai/agent.pw/issues/172)) ([523dab2](https://github.com/smithery-ai/agent.pw/commit/523dab2d2744a38be8a1a9140fc3844a0d31d229))
+* generalize credential refresh candidates ([#173](https://github.com/smithery-ai/agent.pw/issues/173)) ([f7e3454](https://github.com/smithery-ai/agent.pw/commit/f7e3454a6c6f583ced5cc1a6fccf8625b8efeb88))
+
+
+### Bug Fixes
+
+* encode refresh candidate expiry date ([cc2b3fd](https://github.com/smithery-ai/agent.pw/commit/cc2b3fd49da0e29d4e469e2dfc89a1163f05f35a))
+* prioritize recent refresh candidates ([#175](https://github.com/smithery-ai/agent.pw/issues/175)) ([33555ca](https://github.com/smithery-ai/agent.pw/commit/33555ca3a34a8e508bc1710df6668ff11d6d329a))
+
 ## [0.9.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.9.1...agent.pw-v0.9.2) (2026-05-14)
 
 
