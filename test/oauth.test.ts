@@ -294,7 +294,7 @@ describe("oauth runtime", () => {
   });
 
   it("tracks OAuth refresh metadata and lists due refresh candidates", async () => {
-    const { agentPw, db } = await createOAuthAgent();
+    const { agentPw } = await createOAuthAgent();
 
     const prepared = await agentPw.connect.prepare({
       path: "org_alpha.connections.linear_metadata",
@@ -315,7 +315,6 @@ describe("oauth runtime", () => {
 
     const broadCandidates = await agentPw.credentials.listRefreshCandidates({
       expiresBefore: new Date("2099-01-01T00:00:00.000Z"),
-      unknownExpiryCheckedBefore: new Date("2099-01-01T00:00:00.000Z"),
       limit: 10,
     });
     expect(broadCandidates).toEqual([
@@ -323,7 +322,6 @@ describe("oauth runtime", () => {
         path: completed.path,
         auth: completed.credential.auth,
         expiresAt: expect.any(Date),
-        refreshCheckedAt: expect.any(Date),
       }),
     ]);
     await expect(
@@ -356,15 +354,18 @@ describe("oauth runtime", () => {
         })
       ).map((candidate) => candidate.path),
     ).toEqual([completed.path]);
-    expect(
-      await agentPw.credentials.recordRefreshCheck(
-        {
-          path: completed.path,
-          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        oauth: {
+          ...completed.credential.secret.oauth,
+          expiresAt: "2030-01-01T00:00:00.000Z",
         },
-        { db },
-      ),
-    ).toBe(true);
+      },
+    });
     expect(
       await agentPw.credentials.listRefreshCandidates({
         expiresBefore: new Date("2020-01-02T00:00:00.000Z"),

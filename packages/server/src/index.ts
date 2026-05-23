@@ -244,6 +244,9 @@ function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, 
 }
 
 function credentialExpiresAt(secret: StoredCredentials) {
+  if (!secret.oauth?.refreshToken) {
+    return null;
+  }
   const expiresAt = secret.oauth?.expiresAt;
   if (!expiresAt) {
     return null;
@@ -253,16 +256,10 @@ function credentialExpiresAt(secret: StoredCredentials) {
   return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
-function credentialRefreshMetadata(
-  auth: CredentialAuth,
-  secret: StoredCredentials | undefined,
-  checkedAt: Date,
-) {
+function credentialRefreshMetadata(auth: CredentialAuth, secret: StoredCredentials | undefined) {
   if (auth.kind === "headers") {
     return {
-      refreshable: false,
       expiresAt: null,
-      refreshCheckedAt: null,
     };
   }
   /* v8 ignore next 3 -- encrypted Buffer writes cannot reveal OAuth expiry, so existing metadata is preserved. */
@@ -270,9 +267,7 @@ function credentialRefreshMetadata(
     return undefined;
   }
   return {
-    refreshable: true,
     expiresAt: credentialExpiresAt(secret),
-    refreshCheckedAt: checkedAt,
   };
 }
 
@@ -318,7 +313,6 @@ function toCredentialRefreshCandidate(row: {
   path: string;
   auth: Record<string, unknown>;
   expiresAt: Date | null;
-  refreshCheckedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -327,11 +321,14 @@ function toCredentialRefreshCandidate(row: {
   if (!auth.ok) {
     return auth;
   }
+  /* v8 ignore next 3 -- refresh candidate query filters out NULL expires_at rows. */
+  if (!row.expiresAt) {
+    return err(inputError(`Credential '${row.path}' is missing expires_at`));
+  }
   return ok<CredentialRefreshCandidate>({
     path: row.path,
     auth: auth.value,
     expiresAt: row.expiresAt,
-    refreshCheckedAt: row.refreshCheckedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -728,7 +725,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
       path: path.value,
       auth: serializeCredentialAuth(auth),
       secret: encryptedSecret.value,
-      refreshMetadata: credentialRefreshMetadata(auth, plaintextSecret, clock()),
+      refreshMetadata: credentialRefreshMetadata(auth, plaintextSecret),
     });
     if (!persisted.ok) {
       return persisted;
@@ -930,9 +927,6 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
     },
     getCredential,
     putCredential,
-    markRefreshChecked(path) {
-      return queryHelpers.markRefreshChecked(options.db, path, clock());
-    },
     deleteCredential(path) {
       return queryHelpers.deleteCredential(options.db, path);
     },
@@ -1005,26 +999,6 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
         candidates.push(candidate.value);
       }
       return ok(candidates);
-    },
-
-    async recordRefreshCheck(input, opts) {
-      const key = requireEncryptionKey(encryptionKey);
-      if (!key.ok) {
-        return key;
-      }
-
-      const path = assertPath(input.path, "credential path");
-      /* v8 ignore next 3 -- assertPath currently preserves inputs. */
-      if (!path.ok) {
-        return err(path.error);
-      }
-
-      return queryHelpers.recordRefreshCheck(
-        opts?.db ?? options.db,
-        path.value,
-        clock(),
-        input.expiresAt,
-      );
     },
 
     put(input, opts) {
@@ -1694,25 +1668,6 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
                 path: item.path,
               }),
             ),
-          );
-        },
-
-        async recordRefreshCheck(input, opts) {
-          const path = assertPath(input.path, "credential path");
-          /* v8 ignore next 3 -- assertPath currently preserves inputs. */
-          if (!path.ok) {
-            return err(path.error);
-          }
-          const allowed = requireRule(scope, "credential.manage", path.value);
-          if (!allowed.ok) {
-            return allowed;
-          }
-          return credentials.recordRefreshCheck(
-            {
-              ...input,
-              path: path.value,
-            },
-            opts,
           );
         },
 
