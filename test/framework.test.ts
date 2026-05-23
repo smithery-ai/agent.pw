@@ -134,6 +134,20 @@ describe("createAgentPw", () => {
     expect(errorOf(await agentPw.credentials.list()).message).toBe(expected);
     expect(
       errorOf(
+        await agentPw.credentials.listOAuthRefreshCandidates({
+          accessTokenExpiresBefore: new Date("2026-01-01T00:00:00.000Z"),
+        }),
+      ).message,
+    ).toBe(expected);
+    expect(
+      errorOf(
+        await agentPw.credentials.recordOAuthRefreshCheck({
+          path: "acme.connections.resend",
+        }),
+      ).message,
+    ).toBe(expected);
+    expect(
+      errorOf(
         await agentPw.credentials.put({
           path: "acme.connections.resend",
           auth: { kind: "headers" },
@@ -1175,6 +1189,38 @@ describe("createAgentPw", () => {
       auth: { kind: "headers" },
       secret: { headers: { Authorization: "Bearer docs-token" } },
     });
+    await agentPw.credentials.put({
+      path: "acme.connections.oauth_due",
+      resource: "https://oauth.example.com/api",
+      auth: { kind: "oauth" },
+      secret: {
+        headers: { Authorization: "Bearer oauth-token" },
+        oauth: {
+          accessToken: "oauth-token",
+          refreshToken: "oauth-refresh",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          resource: "https://oauth.example.com/api",
+          clientId: "oauth-client",
+          clientAuthentication: "none",
+        },
+      },
+    });
+    await agentPw.credentials.put({
+      path: "beta.connections.oauth_due",
+      resource: "https://oauth.example.com/api",
+      auth: { kind: "oauth" },
+      secret: {
+        headers: { Authorization: "Bearer beta-token" },
+        oauth: {
+          accessToken: "beta-token",
+          refreshToken: "beta-refresh",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          resource: "https://oauth.example.com/api",
+          clientId: "oauth-client",
+          clientAuthentication: "none",
+        },
+      },
+    });
 
     const api = agentPw.scope(
       rights([
@@ -1192,14 +1238,41 @@ describe("createAgentPw", () => {
         path: "acme.connections.resend",
       }),
       credentials: await api.credentials.list({ path: "acme.connections" }),
+      refreshCandidates: await api.credentials.listOAuthRefreshCandidates({
+        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+        limit: 10,
+      }),
       profiles: await api.profiles.list({ path: "profiles" }),
     };
 
     expect(allowed.headers).toEqual({ Authorization: "Bearer resend-token" });
     expect(allowed.credentials.map((credential) => credential.path)).toEqual([
+      "acme.connections.oauth_due",
       "acme.connections.resend",
     ]);
+    expect(allowed.refreshCandidates.map((credential) => credential.path)).toEqual([
+      "acme.connections.oauth_due",
+    ]);
+    await expect(
+      api.credentials.recordOAuthRefreshCheck({
+        path: "acme.connections.oauth_due",
+        accessTokenExpiresAt: new Date("2030-01-01T00:00:00.000Z"),
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      agentPw
+        .scope(rights([{ action: "credential.read", root: "acme" }]))
+        .credentials.recordOAuthRefreshCheck({
+          path: "acme.connections.oauth_due",
+        }),
+    ).rejects.toThrow("Missing 'credential.manage' for 'acme.connections.oauth_due'");
     expect(allowed.profiles.map((profile) => profile.path)).toEqual(["profiles.resend"]);
+    await expect(
+      api.credentials.listOAuthRefreshCandidates({
+        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+        path: "/../bad",
+      }),
+    ).rejects.toThrow("Invalid path '/../bad'");
 
     const socket = agentPw.scope(rights([{ action: "credential.use", root: "acme" }]));
     await expect(
