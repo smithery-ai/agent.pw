@@ -1,5 +1,5 @@
 import { err, ok, result, type Result } from "okay-error";
-import { and, eq, sql, type InferSelectModel } from "drizzle-orm";
+import { and, desc, eq, sql, type InferSelectModel } from "drizzle-orm";
 import { inputError, internalError } from "../errors.js";
 import { isRecord } from "../lib/utils.js";
 import {
@@ -444,6 +444,7 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
             )
             .orderBy(
               sql`CASE WHEN ${credentials.expiresAt} IS NULL THEN 1 ELSE 0 END`,
+              desc(credentials.updatedAt),
               credentials.expiresAt,
               credentials.refreshCheckedAt,
               sql`${credentials.path}::text`,
