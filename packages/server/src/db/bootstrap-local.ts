@@ -78,6 +78,8 @@ export async function bootstrapLocalSchema(
   const credProfilesPathIndex = `${credProfilesTable}_path_idx`;
   const credProfilesResourcePatternsIndex = `${credProfilesTable}_resource_patterns_idx`;
   const credentialsPathIndex = `${credentialsTable}_path_idx`;
+  const credentialsOauthRefreshDueIndex = `${credentialsTable}_oauth_refresh_due_idx`;
+  const credentialsOauthRefreshUnknownIndex = `${credentialsTable}_oauth_refresh_unknown_idx`;
   const credentialsPathPrimaryKey = `${credentialsTable}_path_pk`;
   const schemaSql = quoteIdentifier(schemaName);
   const credProfilesSql = qualifyTable(schemaName, credProfilesTable);
@@ -140,10 +142,20 @@ export async function bootstrapLocalSchema(
       path LTREE NOT NULL,
       auth JSONB NOT NULL,
       secret BYTEA NOT NULL,
+      oauth_access_token_expires_at TIMESTAMP,
+      oauth_refresh_checked_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
       CONSTRAINT ${quoteIdentifier(credentialsPathPrimaryKey)} PRIMARY KEY (path)
     )
+  `),
+  );
+
+  await db.execute(
+    sql.raw(`
+    ALTER TABLE ${credentialsSql}
+      ADD COLUMN IF NOT EXISTS oauth_access_token_expires_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS oauth_refresh_checked_at TIMESTAMP
   `),
   );
 
@@ -175,6 +187,22 @@ export async function bootstrapLocalSchema(
     sql.raw(`
     CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsPathIndex)}
     ON ${credentialsSql} USING gist (path)
+  `),
+  );
+
+  await db.execute(
+    sql.raw(`
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsOauthRefreshDueIndex)}
+    ON ${credentialsSql} (oauth_access_token_expires_at)
+    WHERE auth->>'kind' = 'oauth' AND oauth_access_token_expires_at IS NOT NULL
+  `),
+  );
+
+  await db.execute(
+    sql.raw(`
+    CREATE INDEX IF NOT EXISTS ${quoteIdentifier(credentialsOauthRefreshUnknownIndex)}
+    ON ${credentialsSql} (oauth_refresh_checked_at)
+    WHERE auth->>'kind' = 'oauth' AND oauth_access_token_expires_at IS NULL
   `),
   );
 

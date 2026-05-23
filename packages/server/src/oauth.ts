@@ -1267,6 +1267,7 @@ export function createOAuthService(options: {
     input: CredentialPutInput,
     options?: CrudOptions,
   ): Promise<Result<CredentialRecord>>;
+  markOAuthRefreshChecked?(path: string): Promise<Result<boolean>>;
   deleteCredential(path: string): Promise<Result<boolean>>;
 }) {
   async function requireFlowStore() {
@@ -1356,6 +1357,7 @@ export function createOAuthService(options: {
 
     const refreshToken = credential.value.secret.oauth?.refreshToken;
     if (!refreshToken) {
+      await options.markOAuthRefreshChecked?.(path).catch(() => undefined);
       return ok(credential.value);
     }
 
@@ -1364,16 +1366,19 @@ export function createOAuthService(options: {
       resourceFromCredentialRecord(credential.value),
     );
     if (!oauthConfig) {
+      await options.markOAuthRefreshChecked?.(path).catch(() => undefined);
       return ok(credential.value);
     }
 
     const authorizationServer = await resolveAuthorizationServer(oauthConfig, options.customFetch);
     if (!authorizationServer.ok) {
+      await options.markOAuthRefreshChecked?.(path).catch(() => undefined);
       return authorizationServer;
     }
     const client = buildClient(oauthConfig);
     const clientAuthentication = buildClientAuthentication(oauthConfig);
     if (!clientAuthentication.ok) {
+      await options.markOAuthRefreshChecked?.(path).catch(() => undefined);
       return clientAuthentication;
     }
     const tokenResponse = await result(
@@ -1386,6 +1391,7 @@ export function createOAuthService(options: {
       ),
     );
     if (!tokenResponse.ok) {
+      await options.markOAuthRefreshChecked?.(path).catch(() => undefined);
       return err(refreshTokenRequestFailed(path, tokenResponse.error));
     }
     const processed = await result(
@@ -1394,6 +1400,8 @@ export function createOAuthService(options: {
     if (!processed.ok) {
       if (isTokenPermanentlyRejected(processed.error)) {
         await options.deleteCredential(path).catch(() => {});
+      } else {
+        await options.markOAuthRefreshChecked?.(path).catch(() => undefined);
       }
       return err(refreshTokenResponseFailed(path, processed.error));
     }

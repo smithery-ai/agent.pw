@@ -33,6 +33,7 @@ import type {
   CredentialProfileRecord,
   CredentialRecord,
   CredentialSummary,
+  OAuthRefreshCandidate,
   PendingFlow,
   RuleScope,
   ScopedAgentPw,
@@ -242,6 +243,37 @@ function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, 
   return headers.ok ? ok() : headers;
 }
 
+function oauthAccessTokenExpiresAt(secret: StoredCredentials) {
+  const expiresAt = secret.oauth?.expiresAt;
+  if (!expiresAt) {
+    return null;
+  }
+
+  const parsed = new Date(expiresAt);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function oauthRefreshMetadata(
+  auth: CredentialAuth,
+  secret: StoredCredentials | undefined,
+  checkedAt: Date,
+) {
+  if (auth.kind === "headers") {
+    return {
+      oauthAccessTokenExpiresAt: null,
+      oauthRefreshCheckedAt: null,
+    };
+  }
+  /* v8 ignore next 3 -- encrypted Buffer writes cannot reveal OAuth expiry, so existing metadata is preserved. */
+  if (!secret) {
+    return undefined;
+  }
+  return {
+    oauthAccessTokenExpiresAt: oauthAccessTokenExpiresAt(secret),
+    oauthRefreshCheckedAt: checkedAt,
+  };
+}
+
 function toJsonRecord(value: unknown) {
   const normalized = JSON.parse(JSON.stringify(value));
   if (!isRecord(normalized)) {
@@ -275,6 +307,34 @@ function toProfileRecord(row: {
     oauth: payload.value.oauth,
     displayName: row.displayName,
     description: row.description,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  });
+}
+
+function toOAuthRefreshCandidate(row: {
+  path: string;
+  auth: Record<string, unknown>;
+  oauthAccessTokenExpiresAt: Date | null;
+  oauthRefreshCheckedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  const auth = parseCredentialAuth(row.auth);
+  /* v8 ignore next 3 -- credential writes validate auth; this protects corrupt data. */
+  if (!auth.ok) {
+    return auth;
+  }
+  /* v8 ignore next 3 -- candidate query only selects OAuth rows; this protects corrupt data. */
+  if (auth.value.kind !== "oauth") {
+    return err(inputError(`Credential '${row.path}' is not an OAuth credential`));
+  }
+
+  return ok<OAuthRefreshCandidate>({
+    path: row.path,
+    auth: auth.value,
+    accessTokenExpiresAt: row.oauthAccessTokenExpiresAt,
+    refreshCheckedAt: row.oauthRefreshCheckedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -471,6 +531,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
 ) {
   const logger = options.logger ?? createLogger("agentpw").logger;
   const encryptionKey = options.encryptionKey;
+  const clock = options.clock ?? (() => new Date());
   const queries = createQueryHelpers(options.sql);
   if (!queries.ok) {
     return queries;
@@ -670,6 +731,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
       path: path.value,
       auth: serializeCredentialAuth(auth),
       secret: encryptedSecret.value,
+      refreshMetadata: oauthRefreshMetadata(auth, plaintextSecret, clock()),
     });
     if (!persisted.ok) {
       return persisted;
@@ -860,7 +922,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
 
   const oauth = createOAuthService({
     flowStore: options.flowStore,
-    clock: options.clock ?? (() => new Date()),
+    clock,
     customFetch: options.oauthFetch,
     defaultClient: options.oauthClient,
     requireCredentialAccess() {
@@ -871,6 +933,9 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
     },
     getCredential,
     putCredential,
+    markOAuthRefreshChecked(path) {
+      return queryHelpers.markOAuthRefreshChecked(options.db, path, clock());
+    },
     deleteCredential(path) {
       return queryHelpers.deleteCredential(options.db, path);
     },
@@ -878,7 +943,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
   const identity = createIdentityGrantService<TIdentityPrincipal>({
     identityGrant: options.identityGrant,
     customFetch: options.oauthFetch,
-    clock: options.clock ?? (() => new Date()),
+    clock,
     defaultClientId: options.oauthClient?.clientId ?? options.oauthClient?.metadata?.clientId,
     classifyResponse(input) {
       return oauth.classifyResponse(input);
@@ -920,6 +985,49 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
         });
       }
       return ok(items);
+    },
+
+    async listOAuthRefreshCandidates(query) {
+      const key = requireEncryptionKey(encryptionKey);
+      if (!key.ok) {
+        return key;
+      }
+
+      const rows = await queryHelpers.listOAuthRefreshCandidates(query.db ?? options.db, query);
+      if (!rows.ok) {
+        return rows;
+      }
+
+      const candidates: OAuthRefreshCandidate[] = [];
+      for (const row of rows.value) {
+        const candidate = toOAuthRefreshCandidate(row);
+        /* v8 ignore next 3 -- candidate query only selects OAuth rows; this protects corrupt data. */
+        if (!candidate.ok) {
+          return candidate;
+        }
+        candidates.push(candidate.value);
+      }
+      return ok(candidates);
+    },
+
+    async recordOAuthRefreshCheck(input, opts) {
+      const key = requireEncryptionKey(encryptionKey);
+      if (!key.ok) {
+        return key;
+      }
+
+      const path = assertPath(input.path, "credential path");
+      /* v8 ignore next 3 -- assertPath currently preserves inputs. */
+      if (!path.ok) {
+        return err(path.error);
+      }
+
+      return queryHelpers.recordOAuthRefreshCheck(
+        opts?.db ?? options.db,
+        path.value,
+        clock(),
+        input.accessTokenExpiresAt,
+      );
     },
 
     put(input, opts) {
@@ -1573,6 +1681,41 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
                 path: item.path,
               }),
             ),
+          );
+        },
+
+        async listOAuthRefreshCandidates(query) {
+          const items = await credentials.listOAuthRefreshCandidates(query);
+          if (!items.ok) {
+            return items;
+          }
+          return ok(
+            items.value.filter((item) =>
+              canRule({
+                rights: scope.rights,
+                action: "credential.read",
+                path: item.path,
+              }),
+            ),
+          );
+        },
+
+        async recordOAuthRefreshCheck(input, opts) {
+          const path = assertPath(input.path, "credential path");
+          /* v8 ignore next 3 -- assertPath currently preserves inputs. */
+          if (!path.ok) {
+            return err(path.error);
+          }
+          const allowed = requireRule(scope, "credential.manage", path.value);
+          if (!allowed.ok) {
+            return allowed;
+          }
+          return credentials.recordOAuthRefreshCheck(
+            {
+              ...input,
+              path: path.value,
+            },
+            opts,
           );
         },
 

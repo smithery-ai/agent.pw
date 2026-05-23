@@ -149,6 +149,28 @@ export interface CredentialRecord extends CredentialSummary {
   secret: StoredCredentials;
 }
 
+export interface OAuthRefreshCandidate {
+  path: string;
+  auth: OAuthCredentialAuth;
+  accessTokenExpiresAt: Date | null;
+  refreshCheckedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface OAuthRefreshCandidateListOptions extends CrudOptions {
+  accessTokenExpiresBefore: Date;
+  unknownAccessTokenCheckedBefore?: Date;
+  limit?: number;
+  path?: string;
+  recursive?: boolean;
+}
+
+export interface OAuthRefreshCheckInput {
+  path: string;
+  accessTokenExpiresAt?: Date | null;
+}
+
 interface CredentialPutInputBase<TAuth extends CredentialAuthInput, TSecret> {
   path: string;
   resource?: string;
@@ -627,6 +649,15 @@ export interface ScopedAgentPw<TIdentityPrincipal = unknown> {
     list(
       options?: { path?: string; recursive?: boolean } & CrudOptions,
     ): Promise<Result<CredentialSummary[]>>;
+    /** List OAuth credentials that should be refreshed before the next lazy use. */
+    listOAuthRefreshCandidates(
+      options: OAuthRefreshCandidateListOptions,
+    ): Promise<Result<OAuthRefreshCandidate[]>>;
+    /** Record that an OAuth refresh candidate was checked without touching encrypted secrets. */
+    recordOAuthRefreshCheck(
+      input: OAuthRefreshCheckInput,
+      options?: CrudOptions,
+    ): Promise<Result<boolean>>;
     /** Insert or update a credential record. */
     put(input: CredentialPutInput, options?: CrudOptions): Promise<Result<CredentialRecord>>;
     /** Move a credential from one canonical path to another. */

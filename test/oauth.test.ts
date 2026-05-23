@@ -293,6 +293,109 @@ describe("oauth runtime", () => {
     );
   });
 
+  it("tracks OAuth refresh metadata and lists due refresh candidates", async () => {
+    const { agentPw, db } = await createOAuthAgent();
+
+    const prepared = await agentPw.connect.prepare({
+      path: "org_alpha.connections.linear_metadata",
+      resource: "https://api.linear.app/projects",
+    });
+    if (prepared.kind !== "options") {
+      throw new Error("Expected oauth options");
+    }
+
+    const session = await agentPw.connect.startOAuth({
+      path: "org_alpha.connections.linear_metadata",
+      option: prepared.options[0]!,
+      redirectUri: "https://app.example.com/oauth/callback",
+    });
+    const completed = await agentPw.connect.completeOAuth({
+      callbackUri: `https://app.example.com/oauth/callback?code=code-123&state=${session.flowId}`,
+    });
+
+    const broadCandidates = await agentPw.credentials.listOAuthRefreshCandidates({
+      accessTokenExpiresBefore: new Date("2099-01-01T00:00:00.000Z"),
+      unknownAccessTokenCheckedBefore: new Date("2099-01-01T00:00:00.000Z"),
+      limit: 10,
+    });
+    expect(broadCandidates).toEqual([
+      expect.objectContaining({
+        path: completed.path,
+        auth: completed.credential.auth,
+        accessTokenExpiresAt: expect.any(Date),
+        refreshCheckedAt: expect.any(Date),
+      }),
+    ]);
+    await expect(
+      agentPw.credentials.listOAuthRefreshCandidates({
+        accessTokenExpiresBefore: new Date("2099-01-01T00:00:00.000Z"),
+        path: "/../bad",
+      }),
+    ).rejects.toThrow("Invalid path '/../bad'");
+
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          ...completed.credential.secret.oauth,
+          accessToken: "stale",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    expect(
+      (
+        await agentPw.credentials.listOAuthRefreshCandidates({
+          accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+          limit: 10,
+        })
+      ).map((candidate) => candidate.path),
+    ).toEqual([completed.path]);
+    expect(
+      await agentPw.credentials.recordOAuthRefreshCheck(
+        {
+          path: completed.path,
+          accessTokenExpiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        },
+        { db },
+      ),
+    ).toBe(true);
+    expect(
+      await agentPw.credentials.listOAuthRefreshCandidates({
+        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+        limit: 10,
+      }),
+    ).toEqual([]);
+
+    await agentPw.credentials.put({
+      path: completed.path,
+      resource: completed.credential.auth.resource,
+      auth: completed.credential.auth,
+      secret: {
+        ...completed.credential.secret,
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          ...completed.credential.secret.oauth,
+          accessToken: "stale",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        },
+      },
+    });
+    await agentPw.connect.resolveHeaders({ path: completed.path, refresh: "force" });
+
+    expect(
+      await agentPw.credentials.listOAuthRefreshCandidates({
+        accessTokenExpiresBefore: new Date("2020-01-02T00:00:00.000Z"),
+        limit: 10,
+      }),
+    ).toEqual([]);
+  });
+
   it("runs discovery-first oauth, hosted handlers, and cimd helpers", async () => {
     const { agentPw, calls } = await createOAuthAgent();
 

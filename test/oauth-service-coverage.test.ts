@@ -1,5 +1,5 @@
 import { createAgentPw } from "agent.pw";
-import { ok } from "okay-error";
+import { ok, type Result } from "okay-error";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryFlowStore, createOAuthService } from "agent.pw/oauth";
 import type {
@@ -60,6 +60,7 @@ async function createState() {
         defaultClient?: OAuthClientInput;
         flowStore?: ReturnType<typeof createInMemoryFlowStore>;
         clock?: () => Date;
+        markOAuthRefreshChecked?: (path: string) => Promise<Result<boolean>>;
       } = {},
     ) {
       const service = createOAuthService({
@@ -71,6 +72,7 @@ async function createState() {
         getProfile: agentPw.profiles.get,
         getCredential: agentPw.credentials.get,
         putCredential: agentPw.credentials.put,
+        markOAuthRefreshChecked: options.markOAuthRefreshChecked,
         deleteCredential: agentPw.credentials.delete,
       });
       const wrapped = { ...service, raw: service } as typeof service & { raw: typeof service };
@@ -437,6 +439,141 @@ describe("oauth service coverage", () => {
       updatedAt: new Date(),
     });
     expect(await service.refreshCredential("org.no-resource", true)).toEqual(noResourceCredential);
+  });
+
+  it("marks OAuth refresh checks when refresh cannot update the credential", async () => {
+    const state = await createState();
+    const marked: string[] = [];
+    const customFetch: typeof fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.endsWith("/.well-known/oauth-authorization-server")) {
+        const issuer = new URL(url).origin;
+        if (issuer === "https://discovery-fail.example.com") {
+          throw new Error("discovery failed");
+        }
+        return Response.json({
+          issuer,
+          authorization_endpoint: `${issuer}/authorize`,
+          token_endpoint: `${issuer}/token`,
+          code_challenge_methods_supported: ["S256"],
+        });
+      }
+
+      if (url === "https://request-fail.example.com/token") {
+        throw new Error("token request failed");
+      }
+
+      if (url === "https://server-error.example.com/token") {
+        return Response.json({ error: "temporarily_unavailable" }, { status: 503 });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    };
+    const service = state.service({
+      customFetch,
+      markOAuthRefreshChecked: async (path) => {
+        marked.push(path);
+        return ok(true);
+      },
+    });
+
+    await state.credentials.set("org.client-auth", {
+      path: "org.client-auth",
+      auth: {
+        kind: "oauth",
+        resource: "https://client-auth.example.com/api",
+      },
+      secret: {
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          accessToken: "stale",
+          refreshToken: "refresh",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          resource: "https://client-auth.example.com/api",
+          issuer: "https://client-auth.example.com",
+          clientId: "client",
+          clientAuthentication: "client_secret_basic",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await state.credentials.set("org.discovery-fail", {
+      path: "org.discovery-fail",
+      auth: {
+        kind: "oauth",
+        resource: "https://discovery-fail.example.com/api",
+      },
+      secret: {
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          accessToken: "stale",
+          refreshToken: "refresh",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          resource: "https://discovery-fail.example.com/api",
+          issuer: "https://discovery-fail.example.com",
+          clientId: "client",
+          clientAuthentication: "none",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await state.credentials.set("org.request-fail", {
+      path: "org.request-fail",
+      auth: {
+        kind: "oauth",
+        resource: "https://request-fail.example.com/api",
+      },
+      secret: {
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          accessToken: "stale",
+          refreshToken: "refresh",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          resource: "https://request-fail.example.com/api",
+          issuer: "https://request-fail.example.com",
+          clientId: "client",
+          clientAuthentication: "none",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await state.credentials.set("org.server-error", {
+      path: "org.server-error",
+      auth: {
+        kind: "oauth",
+        resource: "https://server-error.example.com/api",
+      },
+      secret: {
+        headers: { Authorization: "Bearer stale" },
+        oauth: {
+          accessToken: "stale",
+          refreshToken: "refresh",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          resource: "https://server-error.example.com/api",
+          issuer: "https://server-error.example.com",
+          clientId: "client",
+          clientAuthentication: "none",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    expect((await service.raw.refreshCredential("org.client-auth", true)).ok).toBe(false);
+    expect((await service.raw.refreshCredential("org.discovery-fail", true)).ok).toBe(false);
+    expect((await service.raw.refreshCredential("org.request-fail", true)).ok).toBe(false);
+    expect((await service.raw.refreshCredential("org.server-error", true)).ok).toBe(false);
+    expect(marked).toEqual([
+      "org.client-auth",
+      "org.discovery-fail",
+      "org.request-fail",
+      "org.server-error",
+    ]);
   });
 
   it("discovers authorization server metadata in MCP order for root and path issuers", async () => {
