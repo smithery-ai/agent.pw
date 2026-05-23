@@ -1,5 +1,5 @@
 import { err, ok, result, type Result } from "okay-error";
-import { and, desc, eq, sql, type InferSelectModel } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lte, sql, type InferSelectModel } from "drizzle-orm";
 import { inputError, internalError } from "../errors.js";
 import { isRecord } from "../lib/utils.js";
 import {
@@ -400,10 +400,8 @@ export function createQueryHelpers(namespaceInput?: SqlNamespaceInput) {
               and(
                 sql<boolean>`${credentials.auth}->>'kind' = 'oauth'`,
                 pathWhere,
-                sql<boolean>`(
-                  ${credentials.expiresAt} IS NOT NULL
-                  AND ${credentials.expiresAt} <= ${expiresBefore.value}
-                )`,
+                isNotNull(credentials.expiresAt),
+                lte(credentials.expiresAt, expiresBefore.value),
               ),
             )
             .orderBy(
