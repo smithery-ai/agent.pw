@@ -149,26 +149,26 @@ export interface CredentialRecord extends CredentialSummary {
   secret: StoredCredentials;
 }
 
-export interface OAuthRefreshCandidate {
+export interface CredentialRefreshCandidate {
   path: string;
-  auth: OAuthCredentialAuth;
-  accessTokenExpiresAt: Date | null;
+  auth: CredentialAuth;
+  expiresAt: Date | null;
   refreshCheckedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface OAuthRefreshCandidateListOptions extends CrudOptions {
-  accessTokenExpiresBefore: Date;
-  unknownAccessTokenCheckedBefore?: Date;
+export interface CredentialRefreshCandidateListOptions extends CrudOptions {
+  expiresBefore: Date;
+  unknownExpiryCheckedBefore?: Date;
   limit?: number;
   path?: string;
   recursive?: boolean;
 }
 
-export interface OAuthRefreshCheckInput {
+export interface CredentialRefreshCheckInput {
   path: string;
-  accessTokenExpiresAt?: Date | null;
+  expiresAt?: Date | null;
 }
 
 interface CredentialPutInputBase<TAuth extends CredentialAuthInput, TSecret> {
@@ -649,13 +649,13 @@ export interface ScopedAgentPw<TIdentityPrincipal = unknown> {
     list(
       options?: { path?: string; recursive?: boolean } & CrudOptions,
     ): Promise<Result<CredentialSummary[]>>;
-    /** List OAuth credentials that should be refreshed before the next lazy use. */
-    listOAuthRefreshCandidates(
-      options: OAuthRefreshCandidateListOptions,
-    ): Promise<Result<OAuthRefreshCandidate[]>>;
-    /** Record that an OAuth refresh candidate was checked without touching encrypted secrets. */
-    recordOAuthRefreshCheck(
-      input: OAuthRefreshCheckInput,
+    /** List refreshable credentials that should be refreshed before the next lazy use. */
+    listRefreshCandidates(
+      options: CredentialRefreshCandidateListOptions,
+    ): Promise<Result<CredentialRefreshCandidate[]>>;
+    /** Record that a refresh candidate was checked without touching encrypted secrets. */
+    recordRefreshCheck(
+      input: CredentialRefreshCheckInput,
       options?: CrudOptions,
     ): Promise<Result<boolean>>;
     /** Insert or update a credential record. */

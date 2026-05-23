@@ -163,14 +163,15 @@ describe("query layer", () => {
     expect(await queries.deleteCredential(db, "acme.connections.github_primary")).toBe(false);
   });
 
-  it("lists only OAuth credentials due for proactive refresh", async () => {
+  it("lists only refreshable credentials due for proactive refresh", async () => {
     await queries.upsertCredential(db, {
       path: "acme.connections.due",
       auth: { kind: "oauth", resource: "https://due.example.com" },
       secret: await encryptedHeaders("due-token"),
       refreshMetadata: {
-        oauthAccessTokenExpiresAt: new Date("2026-01-01T00:00:00.000Z"),
-        oauthRefreshCheckedAt: new Date("2025-12-31T00:00:00.000Z"),
+        refreshable: true,
+        expiresAt: new Date("2026-01-01T00:00:00.000Z"),
+        refreshCheckedAt: new Date("2025-12-31T00:00:00.000Z"),
       },
     });
     await queries.upsertCredential(db, {
@@ -178,8 +179,9 @@ describe("query layer", () => {
       auth: { kind: "oauth", resource: "https://future.example.com" },
       secret: await encryptedHeaders("future-token"),
       refreshMetadata: {
-        oauthAccessTokenExpiresAt: new Date("2026-02-01T00:00:00.000Z"),
-        oauthRefreshCheckedAt: new Date("2025-12-31T00:00:00.000Z"),
+        refreshable: true,
+        expiresAt: new Date("2026-02-01T00:00:00.000Z"),
+        refreshCheckedAt: new Date("2025-12-31T00:00:00.000Z"),
       },
     });
     await queries.upsertCredential(db, {
@@ -187,8 +189,9 @@ describe("query layer", () => {
       auth: { kind: "oauth", resource: "https://unknown.example.com" },
       secret: await encryptedHeaders("unknown-token"),
       refreshMetadata: {
-        oauthAccessTokenExpiresAt: null,
-        oauthRefreshCheckedAt: new Date("2025-12-01T00:00:00.000Z"),
+        refreshable: true,
+        expiresAt: null,
+        refreshCheckedAt: new Date("2025-12-01T00:00:00.000Z"),
       },
     });
     await queries.upsertCredential(db, {
@@ -196,16 +199,17 @@ describe("query layer", () => {
       auth: { kind: "headers", resource: "https://headers.example.com" },
       secret: await encryptedHeaders("headers-token"),
       refreshMetadata: {
-        oauthAccessTokenExpiresAt: new Date("2020-01-01T00:00:00.000Z"),
-        oauthRefreshCheckedAt: new Date("2020-01-01T00:00:00.000Z"),
+        refreshable: false,
+        expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        refreshCheckedAt: new Date("2020-01-01T00:00:00.000Z"),
       },
     });
 
     expect(
       (
-        await queries.listOAuthRefreshCandidates(db, {
-          accessTokenExpiresBefore: new Date("2026-01-15T00:00:00.000Z"),
-          unknownAccessTokenCheckedBefore: new Date("2025-12-15T00:00:00.000Z"),
+        await queries.listRefreshCandidates(db, {
+          expiresBefore: new Date("2026-01-15T00:00:00.000Z"),
+          unknownExpiryCheckedBefore: new Date("2025-12-15T00:00:00.000Z"),
           limit: 10,
           path: "acme.connections",
           recursive: true,
@@ -214,15 +218,15 @@ describe("query layer", () => {
     ).toEqual(["acme.connections.due", "acme.connections.unknown"]);
     expect(
       (
-        await queries.listOAuthRefreshCandidates(db, {
-          accessTokenExpiresBefore: new Date("2026-01-15T00:00:00.000Z"),
+        await queries.listRefreshCandidates(db, {
+          expiresBefore: new Date("2026-01-15T00:00:00.000Z"),
           limit: 10,
           path: "acme.connections",
         })
       ).map((row) => row.path),
     ).toEqual(["acme.connections.due"]);
 
-    await queries.markOAuthRefreshChecked(
+    await queries.markRefreshChecked(
       db,
       "acme.connections.unknown",
       new Date("2026-01-10T00:00:00.000Z"),
@@ -230,58 +234,58 @@ describe("query layer", () => {
 
     expect(
       (
-        await queries.listOAuthRefreshCandidates(db, {
-          accessTokenExpiresBefore: new Date("2026-01-15T00:00:00.000Z"),
-          unknownAccessTokenCheckedBefore: new Date("2025-12-15T00:00:00.000Z"),
+        await queries.listRefreshCandidates(db, {
+          expiresBefore: new Date("2026-01-15T00:00:00.000Z"),
+          unknownExpiryCheckedBefore: new Date("2025-12-15T00:00:00.000Z"),
           limit: 10,
           path: "acme.connections",
           recursive: true,
         })
       ).map((row) => row.path),
     ).toEqual(["acme.connections.due"]);
-    await queries.recordOAuthRefreshCheck(
+    await queries.recordRefreshCheck(
       db,
       "acme.connections.due",
       new Date("2026-01-10T00:00:00.000Z"),
       null,
     );
     expect(
-      await queries.listOAuthRefreshCandidates(db, {
-        accessTokenExpiresBefore: new Date("2026-01-15T00:00:00.000Z"),
-        unknownAccessTokenCheckedBefore: new Date("2025-12-15T00:00:00.000Z"),
+      await queries.listRefreshCandidates(db, {
+        expiresBefore: new Date("2026-01-15T00:00:00.000Z"),
+        unknownExpiryCheckedBefore: new Date("2025-12-15T00:00:00.000Z"),
         limit: 10,
         path: "acme.connections",
         recursive: true,
       }),
     ).toEqual([]);
     await expect(
-      queries.listOAuthRefreshCandidates(db, {
-        accessTokenExpiresBefore: new Date("2026-01-15T00:00:00.000Z"),
+      queries.listRefreshCandidates(db, {
+        expiresBefore: new Date("2026-01-15T00:00:00.000Z"),
         limit: 0,
       }),
-    ).rejects.toThrow("OAuth refresh candidate limit must be between 1 and 1000");
+    ).rejects.toThrow("Credential refresh candidate limit must be between 1 and 1000");
     await expect(
-      queries.listOAuthRefreshCandidates(db, {
-        accessTokenExpiresBefore: new Date("invalid"),
+      queries.listRefreshCandidates(db, {
+        expiresBefore: new Date("invalid"),
       }),
-    ).rejects.toThrow("Invalid accessTokenExpiresBefore");
+    ).rejects.toThrow("Invalid expiresBefore");
     await expect(
-      queries.listOAuthRefreshCandidates(db, {
-        accessTokenExpiresBefore: new Date("2026-01-15T00:00:00.000Z"),
-        unknownAccessTokenCheckedBefore: new Date("invalid"),
+      queries.listRefreshCandidates(db, {
+        expiresBefore: new Date("2026-01-15T00:00:00.000Z"),
+        unknownExpiryCheckedBefore: new Date("invalid"),
       }),
-    ).rejects.toThrow("Invalid unknownAccessTokenCheckedBefore");
+    ).rejects.toThrow("Invalid unknownExpiryCheckedBefore");
     await expect(
-      queries.markOAuthRefreshChecked(db, "acme.connections.unknown", new Date("invalid")),
+      queries.markRefreshChecked(db, "acme.connections.unknown", new Date("invalid")),
     ).rejects.toThrow("Invalid checkedAt");
     await expect(
-      queries.recordOAuthRefreshCheck(
+      queries.recordRefreshCheck(
         db,
         "acme.connections.unknown",
         new Date("2026-01-10T00:00:00.000Z"),
         new Date("invalid"),
       ),
-    ).rejects.toThrow("Invalid accessTokenExpiresAt");
+    ).rejects.toThrow("Invalid expiresAt");
   });
 
   it("recursively deletes credentials under a path", async () => {

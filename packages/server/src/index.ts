@@ -33,7 +33,7 @@ import type {
   CredentialProfileRecord,
   CredentialRecord,
   CredentialSummary,
-  OAuthRefreshCandidate,
+  CredentialRefreshCandidate,
   PendingFlow,
   RuleScope,
   ScopedAgentPw,
@@ -243,7 +243,7 @@ function validateSecretForAuth(auth: CredentialAuth, secret: StoredCredentials, 
   return headers.ok ? ok() : headers;
 }
 
-function oauthAccessTokenExpiresAt(secret: StoredCredentials) {
+function credentialExpiresAt(secret: StoredCredentials) {
   const expiresAt = secret.oauth?.expiresAt;
   if (!expiresAt) {
     return null;
@@ -253,15 +253,16 @@ function oauthAccessTokenExpiresAt(secret: StoredCredentials) {
   return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
-function oauthRefreshMetadata(
+function credentialRefreshMetadata(
   auth: CredentialAuth,
   secret: StoredCredentials | undefined,
   checkedAt: Date,
 ) {
   if (auth.kind === "headers") {
     return {
-      oauthAccessTokenExpiresAt: null,
-      oauthRefreshCheckedAt: null,
+      refreshable: false,
+      expiresAt: null,
+      refreshCheckedAt: null,
     };
   }
   /* v8 ignore next 3 -- encrypted Buffer writes cannot reveal OAuth expiry, so existing metadata is preserved. */
@@ -269,8 +270,9 @@ function oauthRefreshMetadata(
     return undefined;
   }
   return {
-    oauthAccessTokenExpiresAt: oauthAccessTokenExpiresAt(secret),
-    oauthRefreshCheckedAt: checkedAt,
+    refreshable: true,
+    expiresAt: credentialExpiresAt(secret),
+    refreshCheckedAt: checkedAt,
   };
 }
 
@@ -312,11 +314,11 @@ function toProfileRecord(row: {
   });
 }
 
-function toOAuthRefreshCandidate(row: {
+function toCredentialRefreshCandidate(row: {
   path: string;
   auth: Record<string, unknown>;
-  oauthAccessTokenExpiresAt: Date | null;
-  oauthRefreshCheckedAt: Date | null;
+  expiresAt: Date | null;
+  refreshCheckedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -325,16 +327,11 @@ function toOAuthRefreshCandidate(row: {
   if (!auth.ok) {
     return auth;
   }
-  /* v8 ignore next 3 -- candidate query only selects OAuth rows; this protects corrupt data. */
-  if (auth.value.kind !== "oauth") {
-    return err(inputError(`Credential '${row.path}' is not an OAuth credential`));
-  }
-
-  return ok<OAuthRefreshCandidate>({
+  return ok<CredentialRefreshCandidate>({
     path: row.path,
     auth: auth.value,
-    accessTokenExpiresAt: row.oauthAccessTokenExpiresAt,
-    refreshCheckedAt: row.oauthRefreshCheckedAt,
+    expiresAt: row.expiresAt,
+    refreshCheckedAt: row.refreshCheckedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -731,7 +728,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
       path: path.value,
       auth: serializeCredentialAuth(auth),
       secret: encryptedSecret.value,
-      refreshMetadata: oauthRefreshMetadata(auth, plaintextSecret, clock()),
+      refreshMetadata: credentialRefreshMetadata(auth, plaintextSecret, clock()),
     });
     if (!persisted.ok) {
       return persisted;
@@ -933,8 +930,8 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
     },
     getCredential,
     putCredential,
-    markOAuthRefreshChecked(path) {
-      return queryHelpers.markOAuthRefreshChecked(options.db, path, clock());
+    markRefreshChecked(path) {
+      return queryHelpers.markRefreshChecked(options.db, path, clock());
     },
     deleteCredential(path) {
       return queryHelpers.deleteCredential(options.db, path);
@@ -987,21 +984,21 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
       return ok(items);
     },
 
-    async listOAuthRefreshCandidates(query) {
+    async listRefreshCandidates(query) {
       const key = requireEncryptionKey(encryptionKey);
       if (!key.ok) {
         return key;
       }
 
-      const rows = await queryHelpers.listOAuthRefreshCandidates(query.db ?? options.db, query);
+      const rows = await queryHelpers.listRefreshCandidates(query.db ?? options.db, query);
       if (!rows.ok) {
         return rows;
       }
 
-      const candidates: OAuthRefreshCandidate[] = [];
+      const candidates: CredentialRefreshCandidate[] = [];
       for (const row of rows.value) {
-        const candidate = toOAuthRefreshCandidate(row);
-        /* v8 ignore next 3 -- candidate query only selects OAuth rows; this protects corrupt data. */
+        const candidate = toCredentialRefreshCandidate(row);
+        /* v8 ignore next 3 -- credential writes validate auth; this protects corrupt data. */
         if (!candidate.ok) {
           return candidate;
         }
@@ -1010,7 +1007,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
       return ok(candidates);
     },
 
-    async recordOAuthRefreshCheck(input, opts) {
+    async recordRefreshCheck(input, opts) {
       const key = requireEncryptionKey(encryptionKey);
       if (!key.ok) {
         return key;
@@ -1022,11 +1019,11 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
         return err(path.error);
       }
 
-      return queryHelpers.recordOAuthRefreshCheck(
+      return queryHelpers.recordRefreshCheck(
         opts?.db ?? options.db,
         path.value,
         clock(),
-        input.accessTokenExpiresAt,
+        input.expiresAt,
       );
     },
 
@@ -1684,8 +1681,8 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
           );
         },
 
-        async listOAuthRefreshCandidates(query) {
-          const items = await credentials.listOAuthRefreshCandidates(query);
+        async listRefreshCandidates(query) {
+          const items = await credentials.listRefreshCandidates(query);
           if (!items.ok) {
             return items;
           }
@@ -1700,7 +1697,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
           );
         },
 
-        async recordOAuthRefreshCheck(input, opts) {
+        async recordRefreshCheck(input, opts) {
           const path = assertPath(input.path, "credential path");
           /* v8 ignore next 3 -- assertPath currently preserves inputs. */
           if (!path.ok) {
@@ -1710,7 +1707,7 @@ export async function createAgentPw<TIdentityPrincipal = unknown>(
           if (!allowed.ok) {
             return allowed;
           }
-          return credentials.recordOAuthRefreshCheck(
+          return credentials.recordRefreshCheck(
             {
               ...input,
               path: path.value,
