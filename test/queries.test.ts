@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createQueryHelpers } from "agent.pw/sql";
+import { eq } from "drizzle-orm";
+import { createQueryHelpers, credentials } from "agent.pw/sql";
 import {
   deriveEncryptionKey,
   encryptCredentials,
@@ -175,6 +176,16 @@ describe("query layer", () => {
       },
     });
     await queries.upsertCredential(db, {
+      path: "acme.connections.old_expired",
+      auth: { kind: "oauth", resource: "https://old-expired.example.com" },
+      secret: await encryptedHeaders("old-expired-token"),
+      refreshMetadata: {
+        refreshable: true,
+        expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        refreshCheckedAt: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    });
+    await queries.upsertCredential(db, {
       path: "acme.connections.future",
       auth: { kind: "oauth", resource: "https://future.example.com" },
       secret: await encryptedHeaders("future-token"),
@@ -204,6 +215,14 @@ describe("query layer", () => {
         refreshCheckedAt: new Date("2020-01-01T00:00:00.000Z"),
       },
     });
+    await db
+      .update(credentials)
+      .set({ updatedAt: new Date("2026-01-10T00:00:00.000Z") })
+      .where(eq(credentials.path, "acme.connections.due"));
+    await db
+      .update(credentials)
+      .set({ updatedAt: new Date("2020-01-01T00:00:00.000Z") })
+      .where(eq(credentials.path, "acme.connections.old_expired"));
 
     expect(
       (
@@ -215,7 +234,7 @@ describe("query layer", () => {
           recursive: true,
         })
       ).map((row) => row.path),
-    ).toEqual(["acme.connections.due", "acme.connections.unknown"]);
+    ).toEqual(["acme.connections.due", "acme.connections.old_expired", "acme.connections.unknown"]);
     expect(
       (
         await queries.listRefreshCandidates(db, {
@@ -224,7 +243,7 @@ describe("query layer", () => {
           path: "acme.connections",
         })
       ).map((row) => row.path),
-    ).toEqual(["acme.connections.due"]);
+    ).toEqual(["acme.connections.due", "acme.connections.old_expired"]);
 
     await queries.markRefreshChecked(
       db,
@@ -242,10 +261,16 @@ describe("query layer", () => {
           recursive: true,
         })
       ).map((row) => row.path),
-    ).toEqual(["acme.connections.due"]);
+    ).toEqual(["acme.connections.due", "acme.connections.old_expired"]);
     await queries.recordRefreshCheck(
       db,
       "acme.connections.due",
+      new Date("2026-01-10T00:00:00.000Z"),
+      null,
+    );
+    await queries.recordRefreshCheck(
+      db,
+      "acme.connections.old_expired",
       new Date("2026-01-10T00:00:00.000Z"),
       null,
     );
