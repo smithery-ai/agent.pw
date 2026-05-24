@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.10.0...agent.pw-v0.10.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* strip OIDC scopes from challenge and PRM fallback paths ([#178](https://github.com/smithery-ai/agent.pw/issues/178)) ([29d160d](https://github.com/smithery-ai/agent.pw/commit/29d160d50b221f22fe5294d1924c8f24700b3781))
+
 ## [0.10.0](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.9.2...agent.pw-v0.10.0) (2026-05-23)
 
 
