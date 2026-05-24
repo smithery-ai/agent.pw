@@ -649,11 +649,13 @@ async function discoverScopesFromMetadata(
   }
 
   return ok(
-    Array.isArray(resourceServer.value.scopes_supported)
-      ? resourceServer.value.scopes_supported.filter(
-          (entry): entry is string => typeof entry === "string",
-        )
-      : [],
+    stripOidcIdentityScopes(
+      Array.isArray(resourceServer.value.scopes_supported)
+        ? resourceServer.value.scopes_supported.filter(
+            (entry): entry is string => typeof entry === "string",
+          )
+        : [],
+    ),
   );
 }
 
@@ -1425,7 +1427,10 @@ export function createOAuthService(options: {
       return challenge;
     }
     if (challenge.value.scopes.length > 0) {
-      return challenge;
+      return ok({
+        resourceMetadataUrl: challenge.value.resourceMetadataUrl,
+        scopes: stripOidcIdentityScopes(challenge.value.scopes),
+      });
     }
     if (!resource) {
       return challenge;
