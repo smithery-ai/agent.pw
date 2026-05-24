@@ -824,9 +824,11 @@ async function stripIdTokenFromResponse(response: Response): Promise<Response> {
     const body = JSON.parse(text);
     if (body && typeof body === "object" && "id_token" in body) {
       const { id_token: _, ...rest } = body;
+      const headers = new Headers(response.headers);
+      headers.delete("content-length");
       return new Response(JSON.stringify(rest), {
         status: response.status,
-        headers: response.headers,
+        headers,
       });
     }
   } catch {
@@ -1407,8 +1409,9 @@ export function createOAuthService(options: {
     if (!tokenResponse.ok) {
       return err(refreshTokenRequestFailed(path, tokenResponse.error));
     }
+    const strippedRefreshResponse = await stripIdTokenFromResponse(tokenResponse.value);
     const processed = await result(
-      oauth.processRefreshTokenResponse(authorizationServer.value, client, tokenResponse.value),
+      oauth.processRefreshTokenResponse(authorizationServer.value, client, strippedRefreshResponse),
     );
     if (!processed.ok) {
       if (isTokenPermanentlyRejected(processed.error)) {
