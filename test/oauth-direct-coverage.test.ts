@@ -562,6 +562,48 @@ describe("oauth direct coverage", () => {
         })
       ).ok,
     ).toBe(true);
+
+    // id_token in token response must be stripped before oauth4webapi validation.
+    // Servers like Higgsfield force openid onto DCR clients and return id_tokens
+    // whose issuer doesn't match the AS metadata issuer.
+    const idTokenFlowStore = createInMemoryFlowStore();
+    await idTokenFlowStore.create(seededFlow());
+    expect(
+      (
+        await createService({
+          flowStore: idTokenFlowStore,
+          customFetch: createFetch({
+            "https://issuer.example.com/token": Response.json({
+              access_token: "access-with-idtoken",
+              refresh_token: "refresh-with-idtoken",
+              token_type: "Bearer",
+              id_token:
+                "eyJhbGciOiJub25lIn0.eyJpc3MiOiJodHRwczovL3dyb25nLWlzc3Vlci5leGFtcGxlLmNvbSJ9.",
+            }),
+          }),
+        }).completeAuthorization({
+          callbackUri: "https://app.example.com/oauth/callback?state=flow-1&code=ok",
+        })
+      ).ok,
+    ).toBe(true);
+
+    // id_token stripping also applies to refresh token responses.
+    expect(
+      (
+        await createService({
+          customFetch: createFetch({
+            "https://issuer.example.com/token": Response.json({
+              access_token: "refreshed-with-idtoken",
+              refresh_token: "new-refresh",
+              token_type: "Bearer",
+              id_token:
+                "eyJhbGciOiJub25lIn0.eyJpc3MiOiJodHRwczovL3dyb25nLWlzc3Vlci5leGFtcGxlLmNvbSJ9.",
+            }),
+          }),
+        }).refreshCredential("org.oauth", true, oauthCredential("org.oauth"))
+      ).ok,
+    ).toBe(true);
+
     expect(
       errorOf(
         await service.refreshCredential(
