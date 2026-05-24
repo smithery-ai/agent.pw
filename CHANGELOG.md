@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.10.1...agent.pw-v0.10.2) (2026-05-24)
+
+
+### Bug Fixes
+
+* strip id_token from token responses before oauth4webapi validation ([#180](https://github.com/smithery-ai/agent.pw/issues/180)) ([b36c55c](https://github.com/smithery-ai/agent.pw/commit/b36c55c1b9a0f38b711ae4407da3d4c7f97a17e6))
+
 ## [0.10.1](https://github.com/smithery-ai/agent.pw/compare/agent.pw-v0.10.0...agent.pw-v0.10.1) (2026-05-24)
 
 
