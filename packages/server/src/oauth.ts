@@ -1700,11 +1700,7 @@ export function createOAuthService(options: {
 
       const strippedResponse = await stripIdTokenFromResponse(tokenResponse.value);
       const processed = await result(
-        oauth.processAuthorizationCodeResponse(
-          authorizationServer.value,
-          client,
-          strippedResponse,
-        ),
+        oauth.processAuthorizationCodeResponse(authorizationServer.value, client, strippedResponse),
       );
       if (!processed.ok) {
         return err(authCodeResponseFailed(flow.path, processed.error));
