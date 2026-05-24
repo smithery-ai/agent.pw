@@ -818,6 +818,23 @@ function stripOidcIdentityScopes(scopes: string[]): string[] {
   return scopes.filter((s) => !OIDC_IDENTITY_SCOPES.has(s));
 }
 
+async function stripIdTokenFromResponse(response: Response): Promise<Response> {
+  try {
+    const text = await response.clone().text();
+    const body = JSON.parse(text);
+    if (body && typeof body === "object" && "id_token" in body) {
+      const { id_token: _, ...rest } = body;
+      return new Response(JSON.stringify(rest), {
+        status: response.status,
+        headers: response.headers,
+      });
+    }
+  } catch {
+    // non-JSON body; pass through unchanged
+  }
+  return response;
+}
+
 async function discoverResource(
   resource: string,
   customFetch: typeof fetch | undefined,
@@ -1678,11 +1695,12 @@ export function createOAuthService(options: {
         return err(authCodeExchangeFailed(flow.path, tokenResponse.error));
       }
 
+      const strippedResponse = await stripIdTokenFromResponse(tokenResponse.value);
       const processed = await result(
         oauth.processAuthorizationCodeResponse(
           authorizationServer.value,
           client,
-          tokenResponse.value,
+          strippedResponse,
         ),
       );
       if (!processed.ok) {
