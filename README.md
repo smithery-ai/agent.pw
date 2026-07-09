@@ -121,4 +121,4 @@ pnpm run db:generate # generate Drizzle migrations from schema changes
 
 ## License
 
-[FSL-1.1-MIT](LICENSE.md) — converts to MIT after two years.
+[MIT](LICENSE.md)

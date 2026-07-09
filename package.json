@@ -2,6 +2,7 @@
   "name": "agent.pw",
   "version": "0.10.2",
   "description": "Credential vault and auth framework for agents",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/smithery-ai/agent.pw.git"
